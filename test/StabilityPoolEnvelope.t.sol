@@ -134,6 +134,11 @@ abstract contract StabilityPoolEnvelopeBase is
     // exercised by the deterministic max-users test rather than every fuzz run.
     uint256 internal constant MAX_FUZZ_USERS = 8;
 
+    /// @dev The collateral ratio a market stands up at: Genesis' equal halves of anchor and sail put it at 2, and the
+    /// anchor tranche that follows brings it to 1.5 - mid-band on the fee schedules, and a sail buffer able to absorb
+    /// a third of the collateral's value before the anchor is touched.
+    uint256 internal constant DEPLOY_COLLATERAL_RATIO = 1.5 ether;
+
     address internal minter;
     address internal stabilityPool; // the collateral-side StabilityPool
     address internal stabilityPoolLeveraged; // the leveraged-side StabilityPool (harvest splits across both)
@@ -214,6 +219,7 @@ abstract contract StabilityPoolEnvelopeBase is
 
         // a nominal envelope point (geometric-mean centre of the log-range) so the seed mint has a price to work from
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), buildEnvelope().pegPriceUSD);
+        _seedMarket(); // the market's deploy-time capital structure, at nominal conditions
         _seedPool(); // a permanent MIN_DEPOSIT seed so every actor can fully exit later
 
         // the owner drives the free-mints directly (onlyOwnerOrRoles), so it must never be granted ZERO_FEE_ROLE
@@ -290,6 +296,38 @@ abstract contract StabilityPoolEnvelopeBase is
                 : minTotalSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
     }
 
+    /// @notice The same collateral ratio is reached at any rate in the declared range, the price absorbing the
+    ///         difference - including below the record, where the backing becomes the holding and the price must
+    ///         rise by the factor the rate fell. This is what lets the rate sweep its whole range without the
+    ///         market's health riding on it.
+    function test_envelopePointAtCollateralRatio_holdsTheRatioAcrossTheRateRange() public {
+        Envelope memory e = buildEnvelope();
+        uint256 target = 1.4 ether; // inside the fee bands, and off the deploy-time 1.5 so it must actually move
+
+        // the rate at, below and above the record: the backing is the holding for the first two and the record for
+        // the third, so the derivation is exercised on both sides of the min()
+        _setEnvelopePointAtCollateralRatio(target, e.minWrapRate, e.pegPriceUSD);
+        uint256 priceAtFloor = currentPrice;
+        _setEnvelopePointAtCollateralRatio(target, _nominalWrapRate(), e.pegPriceUSD);
+        uint256 priceAtNominal = currentPrice;
+        _setEnvelopePointAtCollateralRatio(target, e.maxWrapRate, e.pegPriceUSD);
+
+        // the cheaper the wrapped, the more of the peg each unit of collateral price has to carry
+        assertGt(priceAtFloor, priceAtNominal, "a fallen rate is answered by a risen collateral price");
+    }
+
+    /// @dev A collateral ratio deep enough below the rebalance threshold to make the rebalance return a large
+    /// reward, while still leaving the anchor covered. Read from the manager rather than restated, so a market that
+    /// configures its threshold differently gets a point that is actually below its own.
+    ///
+    /// Placed a tenth of the way from parity to the threshold: as deep as the shortfall can be driven while the
+    /// collateral still covers the anchor claim, which is what keeps the sail buffer mintable and the reward large.
+    function _belowRebalanceThreshold() internal view returns (uint256) {
+        uint256 threshold = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
+        assertGt(threshold, 1 ether, "a threshold at or below parity leaves no covered ratio to rebalance from");
+        return 1 ether + (threshold - 1 ether) / 10;
+    }
+
     // ─── derivations: USD (director-facing) → protocol (token count + 1e18 oracle values) ───
 
     function _poolPeggedFor(uint256 poolValueUSD, uint256 pegPriceUSD) internal pure returns (uint256) {
@@ -302,6 +340,60 @@ abstract contract StabilityPoolEnvelopeBase is
         currentPrice = (collateralUSD * 1e18) / pegPriceUSD; // underlying collateral in pegged
         currentRate = wrapRate; // wrapped/underlying ratio, used directly as the oracle rate
         mockOracle.setLatestAnswer(currentPrice, currentRate);
+    }
+
+    /// @dev Put the market at `targetCollateralRatio` at the given wrap rate, deriving the collateral price that
+    /// achieves it.
+    ///
+    /// The price and the rate are no longer independent axes. The backing is valued at what is actually held -
+    /// `min(record, wrapped x rate)` - so once the rate has fallen below the record the collateral value is the
+    /// holding times the WRAPPED price, which is the collateral price and the rate multiplied together. Sweeping the
+    /// two separately therefore conflates two different questions: how healthy the market is, and how large the
+    /// numbers running through it are. This takes the collateral ratio as the axis and derives the price from it, so
+    /// the rate is free to widen the wrapped amounts across the whole declared range without also deciding whether
+    /// the market is solvent.
+    ///
+    /// The rate is set first and the price derived afterwards because the rate alone decides which side of the
+    /// `min()` the backing comes from - the price does not enter that comparison - so the backing is settled before
+    /// the price depends on it and there is nothing to iterate towards.
+    /// @param targetCollateralRatio The collateral ratio the market should sit at, 1e18-scaled.
+    /// @param wrapRate The wrapped-to-underlying rate, used directly as the oracle rate.
+    /// @param pegPriceUSD The peg's $ price, which the derived collateral price is expressed against.
+    function _setEnvelopePointAtCollateralRatio(
+        uint256 targetCollateralRatio,
+        uint256 wrapRate,
+        uint256 pegPriceUSD
+    ) internal {
+        // the rate first: the recognised backing depends on it, and not on the price it is read at
+        currentRate = wrapRate;
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+
+        uint256 backing = IMinter(minter).collateralTokenBalance(); // recognised: min(record, held x rate)
+        uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
+        assertGt(backing, 0, "a market with no recognised backing has no collateral ratio to target");
+        assertGt(peggedBalance, 0, "a market with no anchor issued has no collateral ratio to target");
+
+        // collateralRatio is backing x price / peggedBalance, so the price that lands on the target inverts it
+        currentPrice = Math.mulDiv(targetCollateralRatio, peggedBalance, backing);
+
+        // The rate range is declared independently of the collateral price range, so not every pairing of ratio and
+        // rate is expressible: holding a ratio while the rate falls demands a price rise of the same factor. Say so
+        // here rather than silently landing the market at whatever ratio the clamped price produces.
+        uint256 impliedCollateralUSD = Math.mulDiv(currentPrice, pegPriceUSD, 1 ether);
+        Envelope memory e = buildEnvelope();
+        assertGe(impliedCollateralUSD, e.minCollateralUSD, "the ratio needs a collateral price below the envelope");
+        assertLe(impliedCollateralUSD, e.maxCollateralUSD, "the ratio needs a collateral price above the envelope");
+
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+
+        // The derived price floors, contributing at most `backing / peggedBalance` to the ratio it produces, and the
+        // ratio's own division floors by at most one - so the achieved ratio sits within that of the target.
+        assertApproxEqAbs(
+            IMinter(minter).collateralRatio(),
+            targetCollateralRatio,
+            Math.ceilDiv(backing, peggedBalance) + 1,
+            "the derived price puts the market at the requested collateral ratio"
+        );
     }
 
     // ─── actors ───
@@ -375,9 +467,35 @@ abstract contract StabilityPoolEnvelopeBase is
         IStabilityPool(stabilityPool).notifyLiquidation(loss, 0);
     }
 
+    /// @dev Stand the market up the way a real one is: Genesis splits its collateral in half, minting anchor with
+    /// one half and sail with the other, which leaves the anchor claim on half the collateral value - a collateral
+    /// ratio of 2. A further anchor tranche of the same size then brings it to 1.5, mid-band on the fee schedules.
+    ///
+    /// This is deployment-time state and belongs at nominal conditions, BEFORE any envelope point is applied. Sail
+    /// is the junior claim that absorbs an impairment, so a market that stands up without one is underwater on the
+    /// first adverse move, and sail cannot be added afterwards: minting it requires a residual to sell, and an
+    /// impaired market has none. The buffer has to exist before conditions change, exactly as in production.
+    function _seedMarket() internal {
+        // Three equal tranches of collateral: anchor and sail at genesis, then anchor again.
+        // Value 3X against an anchor claim of 2X is a collateral ratio of 1.5.
+        uint256 tranche = _collateralFor(IStabilityPool(stabilityPool).MIN_DEPOSIT()) + 1 ether;
+        genesisMint(minter, tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
+        genesisMint(minter, tranche, 0, address(this)); // the anchor tranche that takes it to 1.5
+
+        // Each mint floors the collateral credited and the tokens issued by at most a wei, so the ratio - collateral
+        // value over anchor claim, scaled by 1e18 - carries at most (3 + 3 x 1.5) x 1e18 / claim of that flooring.
+        uint256 anchorClaim = IMinter(minter).peggedTokenBalance();
+        assertApproxEqAbs(
+            IMinter(minter).collateralRatio(),
+            DEPLOY_COLLATERAL_RATIO,
+            (8 ether / anchorClaim) + 1,
+            "the market stands up over-collateralised, at genesis proportions plus one anchor tranche"
+        );
+    }
+
     function _seedPool() internal {
+        // The anchor to deposit was already issued by `_seedMarket`; this establishes only the pool's own floor.
         uint256 minDeposit = IStabilityPool(stabilityPool).MIN_DEPOSIT();
-        _mintPeggedAtLeast(minDeposit);
         IERC20(pegged).approve(stabilityPool, type(uint256).max);
         IStabilityPool(stabilityPool).deposit(minDeposit, address(this), 0);
     }
@@ -648,7 +766,7 @@ abstract contract StabilityPoolEnvelopeBase is
     function test_envelope_maxUsers_holds_notInGasReport() public {
         Envelope memory e = buildEnvelope();
         uint256 n = e.maxPoolUsers;
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 share = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD) / n; // $10B / 10,000 holders = $1M each
         _mintPeggedAtLeast(share * n);
         _mintLeveragedBuffer(share * n);
@@ -666,7 +784,7 @@ abstract contract StabilityPoolEnvelopeBase is
         }
         assertEq(IERC20(stabilityPool).totalSupply(), supplyBefore + share * n, "all 10,000 deposits recorded exactly");
 
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // cheap corner: CR below threshold
+        _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD);
         assertTrue(
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
             "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
@@ -1600,11 +1718,11 @@ abstract contract StabilityPoolEnvelopeBase is
     /// shortfall-pickup must stay within.
     function test_rebalance_cornerLiquidationDoesNotOverflowIntegral() public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _growPool(poolPegged, MAX_FUZZ_USERS);
         _mintLeveragedBuffer(poolPegged);
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // cheapest wrapped: CR below threshold + max returned
+        _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max returned
         if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
             return; // this market's corner does not drop the CR below the threshold
         }
@@ -1627,12 +1745,12 @@ abstract contract StabilityPoolEnvelopeBase is
     /// documented envelope exceeding the field, to be fixed or narrowed.
     function test_envelope_corner_rebalance_holds() public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _growPool(poolPegged, MAX_FUZZ_USERS);
         _mintLeveragedBuffer(poolPegged);
 
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // cheapest wrapped: CR below threshold + max reward
+        _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward
         assertTrue(
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
             "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
@@ -1657,12 +1775,12 @@ abstract contract StabilityPoolEnvelopeBase is
     /// resolved by widening the field or narrowing the documented market, never asserted as intended.
     function test_envelope_peakPendingRewards_holds() public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
         _mintLeveragedBuffer(poolPegged);
 
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // cheapest wrapped: CR below threshold + max reward count
+        _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
         assertTrue(
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
             "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
@@ -1697,12 +1815,12 @@ abstract contract StabilityPoolEnvelopeBase is
     /// whether `ClaimData.pending` genuinely overflows there.
     function test_envelope_peakPending_whaleCanClaim() public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
         _mintLeveragedBuffer(poolPegged);
 
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // cheapest wrapped: max reward count
+        _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
         if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
             return; // this market's corner does not drive the collateral ratio below the rebalance threshold
         }
@@ -1745,7 +1863,7 @@ abstract contract StabilityPoolEnvelopeBase is
     /// forge-config: default.fuzz.runs = 512
     function testFuzz_rebalance_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
 
         // pool swept big, up to the supply field's own width; grown in its own unit so exceeding that field (the 2a
@@ -1767,7 +1885,7 @@ abstract contract StabilityPoolEnvelopeBase is
         }
         // drop to the envelope corner: CR below the rebalance threshold (rebalanceable at any pool size, since CR is a
         // ratio) and the cheapest wrapped, maximising the reward count the whale's single pending field must hold
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD);
 
         try this.rebalanceOnlyProbe() returns (uint256 injected) {
             vm.warp(block.timestamp + 8 days); // whole stream distributable
@@ -1823,7 +1941,7 @@ abstract contract StabilityPoolEnvelopeBase is
     /// forge-config: default.fuzz.runs = 512
     function testFuzz_harvest_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
         uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
@@ -1878,7 +1996,7 @@ abstract contract StabilityPoolEnvelopeBase is
     /// forge-config: default.fuzz.runs = 512
     function testFuzz_claim_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
         uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
@@ -1896,7 +2014,7 @@ abstract contract StabilityPoolEnvelopeBase is
             }
             return;
         }
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // corner: CR below threshold + max reward
+        _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward
 
         try this.rebalanceThenClaimProbe() returns (uint256 injected, uint256 claimedOut) {
             SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
