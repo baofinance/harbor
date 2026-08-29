@@ -39,6 +39,36 @@ contract DeployMintersTest is
     // Label width for aligned output (longest salt prefix like "harbor_v1_candidate" = 19)
     uint256 private constant LABEL_WIDTH = 19;
 
+    /// @notice How much of the comparison to narrate, from `VERIFY_LOG`.
+    /// @dev Three tiers because a check has three outcomes, not two: it can differ, it can match exactly, or it can
+    /// match only after two addresses are accepted as equivalent by their salt tails. That middle tier is where a
+    /// real difference could hide behind the tolerance, so it is worth seeing on its own rather than either buried
+    /// among thousands of exact matches or invisible.
+    enum LogLevel {
+        Diff, // only what differs (default)
+        Tolerated, // and what passed only by tolerating an address substitution
+        All // and every exact match
+    }
+
+    /// @dev `VERIFY_LOG` = diff | tolerated | all. Unset is `diff`, so a bare `-vv` shows the differences alone.
+    function _logLevel() private view returns (LogLevel) {
+        bytes32 level = keccak256(bytes(vm.envOr("VERIFY_LOG", string("diff"))));
+        if (level == keccak256("all")) {
+            return LogLevel.All;
+        }
+        if (level == keccak256("tolerated")) {
+            return LogLevel.Tolerated;
+        }
+        return LogLevel.Diff;
+    }
+
+    /// @notice How a single view comparison came out.
+    enum MatchKind {
+        Exact,
+        Tolerated,
+        Differs
+    }
+
     // BaoFactory address, set up in setUp()
     address internal _baoFactory;
 
@@ -176,14 +206,6 @@ contract DeployMintersTest is
         bytes32[] addressArg;
     }
 
-    function test_BTC() public {
-        string memory refSalt = "harbor_v1";
-        _forkAndSetup();
-        (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createBTCMintersConfig();
-        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, mktConfigs);
-        _compareMintersAgainstReference(refSalt, peg, mktConfigs);
-    }
-
     function test_OG_BTC() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
@@ -207,11 +229,12 @@ contract DeployMintersTest is
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
 
+        // every EUR market, stETH included: filtering to fxUSD left EUR::stETH compared against nothing, so a
+        // config difference on it was reported by no test at all
         (ConfigPeg eurPeg, Config_MinterMarket[] memory eurMkts) = createEURMintersConfig();
-        Config_MinterMarket[] memory fxUSDMarkets = parseCollateralFilter(eurMkts, "fxUSD");
-        deployHarborForPeg(string.concat(refSalt, "_candidate"), eurPeg, eurMkts, "mainnet", true, fxUSDMarkets);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), eurPeg, eurMkts, "mainnet", true, eurMkts);
 
-        _compareMintersAgainstReference(refSalt, eurPeg, fxUSDMarkets);
+        _compareMintersAgainstReference(refSalt, eurPeg, eurMkts);
     }
 
     function test_OG_GOLD() public {
@@ -226,7 +249,7 @@ contract DeployMintersTest is
     }
 
     function test_SILVER_peg() public {
-        string memory refSalt = "test3";
+        string memory refSalt = "harbor_v1";
         _forkAndSetup();
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
         // Deploy peg only, no markets
@@ -236,7 +259,7 @@ contract DeployMintersTest is
     }
 
     function test_SILVER_fxUSD() public {
-        string memory refSalt = "test3";
+        string memory refSalt = "harbor_v1";
         _forkAndSetup();
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
         // Deploy peg + fxUSD market only
@@ -246,7 +269,7 @@ contract DeployMintersTest is
     }
 
     function test_SILVER_stETH() public {
-        string memory refSalt = "test3";
+        string memory refSalt = "harbor_v1";
         _forkAndSetup();
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
         // Deploy peg + stETH market only
@@ -264,8 +287,12 @@ contract DeployMintersTest is
         _baoFactory = _ensureBaoFactory();
     }
 
-    /// @dev Log all addresses from the global mapping (well-known + deployed contracts).
+    /// @dev Log all addresses from the global mapping (well-known + deployed contracts). A full inventory rather
+    /// than a finding, so it belongs to the most verbose tier.
     function _logAllKnownAddresses() private view {
+        if (_logLevel() != LogLevel.All) {
+            return;
+        }
         console.log("All known addresses:");
         for (uint256 i = 0; i < knownSalts.length; i++) {
             if (refKnownAddrs[i] != address(0)) {
@@ -291,10 +318,25 @@ contract DeployMintersTest is
         Config_MinterMarket[] memory mktConfigs
     ) private {
         string memory candidateSalt = string.concat(referenceSalt, "_candidate");
+        string memory pegName = peg.peg();
         delete diffLog;
         delete mismatchDetails;
 
-        string memory pegName = peg.peg();
+        // Say which side is which before reporting any difference: every line below is labelled ref/cand, and which
+        // one is the live market and which is the build under test is the first thing needed to read them.
+        console.log("");
+        console.log(
+            string.concat(
+                "Comparing ",
+                pegName,
+                ":  ref = deployed on mainnet (salt ",
+                referenceSalt,
+                "),  cand = deployed from this repo (salt ",
+                candidateSalt,
+                ")"
+            )
+        );
+
         ContractSpec[] memory specs = _buildContractSpecs(pegName, mktConfigs);
         CompareTotals memory agg;
 
@@ -360,8 +402,21 @@ contract DeployMintersTest is
             }
         }
 
+        // Name every view that differed in the failure itself. The details are logged above, but a failure is often
+        // read from a summary line alone - a CI log, a captured assertion message - and a bare count says nothing
+        // about which market or which view, which is the first thing anyone needs.
+        string memory summary = string.concat(
+            vm.toString(agg.total - agg.passed),
+            " of ",
+            vm.toString(agg.total),
+            " views differ"
+        );
+        for (uint256 i = 0; i < diffLog.length; i++) {
+            summary = string.concat(summary, i == 0 ? ": " : "; ", diffLog[i]);
+        }
+
         // Fail the test if there are any diffs or mismatches
-        assertEq(agg.passed, agg.total, "Not all view functions matched between reference and candidate");
+        assertEq(agg.passed, agg.total, summary);
         assertEq(mismatchDetails.length, 0, "There are contract mismatches (missing code, etc.)");
     }
 
@@ -603,7 +658,11 @@ contract DeployMintersTest is
             if (_contains(isZeroArg ? otherSurface.zeroArg : otherSurface.addressArg, nameHash)) {
                 continue;
             }
-            console.log("  [surface] %s %s: %s", label, description, name);
+            // A view only one version declares is not a difference in value but something excluded from the
+            // comparison, so it belongs with the other things being let through rather than with the failures.
+            if (_logLevel() >= LogLevel.Tolerated) {
+                console.log("  [surface] %s %s: %s", label, description, name);
+            }
         }
     }
 
@@ -816,9 +875,11 @@ contract DeployMintersTest is
         CompareTotals memory totals
     ) private returns (CompareTotals memory) {
         ++totals.total;
-        bool ok = _compareNoArgOutputs(label, spec, s.refToken, s.candToken);
-        if (ok) ++totals.passed;
-        _logCheck(ok, string.concat(label, " ", spec.sig));
+        MatchKind kind = _compareNoArgOutputs(label, spec, s.refToken, s.candToken);
+        if (kind != MatchKind.Differs) {
+            ++totals.passed;
+        }
+        _logCheck(kind, string.concat(label, " ", spec.sig));
         return totals;
     }
 
@@ -827,26 +888,24 @@ contract DeployMintersTest is
         FuncSpec memory spec,
         address refToken,
         address candToken
-    ) private returns (bool ok) {
+    ) private returns (MatchKind) {
         (bool okRef, bytes memory refOut) = refToken.staticcall(abi.encodeWithSignature(spec.sig));
         (bool okCand, bytes memory candOut) = candToken.staticcall(abi.encodeWithSignature(spec.sig));
 
         bool outputsEqual = keccak256(refOut) == keccak256(candOut);
-        ok = (okRef && okCand && outputsEqual) || (!okRef && !okCand && outputsEqual);
-        if (!ok) {
-            if (okRef && okCand && spec.kind == ReturnKind.AddressKind && _secondChanceAddressMatch(refOut, candOut)) {
-                ok = true;
-            } else if (
-                okRef &&
-                okCand &&
-                spec.kind == ReturnKind.AddressArrayKind &&
-                _secondChanceAddressArrayMatch(refOut, candOut)
-            ) {
-                ok = true;
-            } else {
-                _logMismatch(label, spec.sig, refOut, candOut, "", spec.kind);
-            }
+        if ((okRef && okCand && outputsEqual) || (!okRef && !okCand && outputsEqual)) {
+            return MatchKind.Exact;
         }
+        if (okRef && okCand && spec.kind == ReturnKind.AddressKind && _secondChanceAddressMatch(refOut, candOut)) {
+            return MatchKind.Tolerated;
+        }
+        if (
+            okRef && okCand && spec.kind == ReturnKind.AddressArrayKind && _secondChanceAddressArrayMatch(refOut, candOut)
+        ) {
+            return MatchKind.Tolerated;
+        }
+        _logMismatch(label, spec.sig, refOut, candOut, "", spec.kind);
+        return MatchKind.Differs;
     }
 
     function _compareCallAddressArg(
@@ -860,9 +919,11 @@ contract DeployMintersTest is
     ) private returns (CompareTotals memory) {
         string memory sigWithArg = string.concat(spec.sig, " ", knownSalts[argIndex]);
         ++totals.total;
-        bool ok = _compareAddressOutputs(label, sigWithArg, s.refToken, s.candToken, spec, refArg, candArg);
-        if (ok) ++totals.passed;
-        _logCheck(ok, string.concat(label, " ", sigWithArg));
+        MatchKind kind = _compareAddressOutputs(label, sigWithArg, s.refToken, s.candToken, spec, refArg, candArg);
+        if (kind != MatchKind.Differs) {
+            ++totals.passed;
+        }
+        _logCheck(kind, string.concat(label, " ", sigWithArg));
         return totals;
     }
 
@@ -874,27 +935,34 @@ contract DeployMintersTest is
         FuncSpec memory spec,
         address refArg,
         address candArg
-    ) private returns (bool ok) {
+    ) private returns (MatchKind) {
         (bool okRef, bytes memory refOut) = refToken.staticcall(abi.encodeWithSignature(spec.sig, refArg));
         (bool okCand, bytes memory candOut) = candToken.staticcall(abi.encodeWithSignature(spec.sig, candArg));
 
         bool outputsEqual = keccak256(refOut) == keccak256(candOut);
-        ok = (okRef && okCand && outputsEqual) || (!okRef && !okCand && outputsEqual);
-        if (!ok) {
-            if (okRef && okCand && spec.kind == ReturnKind.AddressKind && _secondChanceAddressMatch(refOut, candOut)) {
-                ok = true;
-            } else {
-                _logMismatch(label, sigWithArg, refOut, candOut, _addressArgContext(refArg, candArg), spec.kind);
-            }
+        if ((okRef && okCand && outputsEqual) || (!okRef && !okCand && outputsEqual)) {
+            return MatchKind.Exact;
         }
+        if (okRef && okCand && spec.kind == ReturnKind.AddressKind && _secondChanceAddressMatch(refOut, candOut)) {
+            return MatchKind.Tolerated;
+        }
+        _logMismatch(label, sigWithArg, refOut, candOut, _addressArgContext(refArg, candArg), spec.kind);
+        return MatchKind.Differs;
     }
 
     // --- Logging Helpers ---
 
-    function _logCheck(bool ok, string memory label) private {
-        console.log(string.concat(ok ? "[OK] " : "[ERR] ", label));
-        if (!ok) {
+    function _logCheck(MatchKind kind, string memory label) private {
+        if (kind == MatchKind.Differs) {
+            console.log(string.concat("[ERR] ", label));
             diffLog.push(label);
+            return;
+        }
+        LogLevel level = _logLevel();
+        if (kind == MatchKind.Tolerated && level >= LogLevel.Tolerated) {
+            console.log(string.concat("[OK via salt] ", label));
+        } else if (kind == MatchKind.Exact && level == LogLevel.All) {
+            console.log(string.concat("[OK] ", label));
         }
     }
 
@@ -1355,6 +1423,9 @@ contract DeployMintersTest is
         if (keccak256(bytes(refTail)) != keccak256(bytes(candTail))) return false;
 
         matched = true;
+        if (_logLevel() < LogLevel.Tolerated) {
+            return matched;
+        }
         console.log(
             string.concat(
                 "    address mismatch tolerated via salt tail match: ref=",
