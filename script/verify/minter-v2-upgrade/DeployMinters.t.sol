@@ -242,10 +242,9 @@ contract DeployMintersTest is
         _forkAndSetup();
 
         (ConfigPeg goldPeg, Config_MinterMarket[] memory goldMkts) = createGOLDMintersConfig();
-        Config_MinterMarket[] memory fxUSDMarkets = parseCollateralFilter(goldMkts, "fxUSD");
-        deployHarborForPeg(string.concat(refSalt, "_candidate"), goldPeg, goldMkts, "mainnet", true, fxUSDMarkets);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), goldPeg, goldMkts, "mainnet", true, goldMkts);
 
-        _compareMintersAgainstReference(refSalt, goldPeg, fxUSDMarkets);
+        _compareMintersAgainstReference(refSalt, goldPeg, goldMkts);
     }
 
     function test_SILVER_peg() public {
@@ -258,24 +257,14 @@ contract DeployMintersTest is
         _compareMintersAgainstReference(refSalt, peg, noMarkets);
     }
 
-    function test_SILVER_fxUSD() public {
+    function test_SILVER() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
-        (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
-        // Deploy peg + fxUSD market only
-        Config_MinterMarket[] memory fxUSDOnly = parseCollateralFilter(mktConfigs, "fxUSD");
-        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, fxUSDOnly);
-        _compareMintersAgainstReference(refSalt, peg, fxUSDOnly);
-    }
 
-    function test_SILVER_stETH() public {
-        string memory refSalt = "harbor_v1";
-        _forkAndSetup();
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
-        // Deploy peg + stETH market only
-        Config_MinterMarket[] memory stETHOnly = parseCollateralFilter(mktConfigs, "stETH");
-        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, stETHOnly);
-        _compareMintersAgainstReference(refSalt, peg, stETHOnly);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, mktConfigs);
+
+        _compareMintersAgainstReference(refSalt, peg, mktConfigs);
     }
 
     /// @dev Fork mainnet at head and stand the BaoFactory up on it, registering this contract as operator.
