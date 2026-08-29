@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {ConfigChain_mainnet} from "@harbor-script/config/chains/ConfigChain_mainnet.sol";
 import {ConfigPeg_EUR} from "@harbor-script/config/pegs/ConfigPeg_EUR.sol";
 import {ConfigCollateral_stETH_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_stETH_mainnet.sol";
-import {ConfigPriceVolatility_130} from "@harbor-script/config/volatility/ConfigPriceVolatility_130.sol";
+import {ConfigPriceVolatility_130_may_26} from "@harbor-script/config/volatility/ConfigPriceVolatility_130_may_26.sol";
 import {ConfigStabilityPool} from "@harbor-script/config/stabilitypool/ConfigStabilityPool.sol";
 import {ConfigStabilityPoolManager} from "@harbor-script/config/stabilitypool/ConfigStabilityPoolManager.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
@@ -16,7 +16,7 @@ contract ConfigMarket_EUR_stETH_mainnet is
     ConfigChain_mainnet,
     ConfigPeg_EUR,
     ConfigCollateral_stETH_mainnet,
-    ConfigPriceVolatility_130,
+    ConfigPriceVolatility_130_may_26,
     ConfigStabilityPool,
     ConfigStabilityPoolManager,
     ConfigTokenNames

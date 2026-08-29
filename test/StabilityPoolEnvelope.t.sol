@@ -18,6 +18,7 @@ import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
@@ -1743,6 +1744,68 @@ abstract contract StabilityPoolEnvelopeBase is
     /// moved to the corner (which drops the collateral ratio below the rebalance threshold AND maximises the returned
     /// collateral). Green = the reward field holds the whole-pool reward at the corner; a SafeCast revert here is the
     /// documented envelope exceeding the field, to be fixed or narrowed.
+    /// @notice An impairment deeper than the sail buffer can absorb, and the recovery out of it. The oracles floor
+    ///         the reported rate today, so the market halts before it can get this far and the path has never been
+    ///         exercised; the planned widening of those bounds turns it from a halt into a state the protocol has
+    ///         to carry. Sail is wiped, the anchor depegs, and the rebalance still has to conserve - and once the
+    ///         collateral recovers past the rebalance threshold the market has to come back with it.
+    function test_deepImpairment_wipesSailThenRecovers() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
+        uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
+        _mintLeveragedBuffer(poolPegged);
+
+        assertGt(IMinter(minter).leveragedTokenPrice(), 0, "sail carries value while the market is covered");
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "and the anchor is at par");
+
+        // past the buffer: the collateral no longer covers the anchor claim at all
+        _setEnvelopePointAtCollateralRatio(0.7 ether, e.minWrapRate, e.pegPriceUSD);
+
+        assertEq(IMinter(minter).leveragedTokenPrice(), 0, "sail is the junior claim and is wiped out first");
+        assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the anchor depegs once sail can absorb no more");
+        assertEq(IMinter(minter).harvestable(), 0, "a shortfall is not a surplus");
+
+        // both directions that would take value out of a market that cannot cover its anchor are refused
+        (, , , uint256 anchorMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+        assertEq(anchorMinted, 0, "anchor minting is refused while the anchor is uncovered");
+        (, , , uint256 sailCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
+        assertEq(sailCollateralOut, 0, "sail redemption is refused while it stands behind an uncovered anchor");
+
+        // the rebalance is the protocol's answer, and it must still conserve at this depth
+        assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "a wiped-out market is rebalanceable");
+        uint256 injected = _rebalance();
+        assertGt(injected, 0, "the rebalance delivers even with the anchor uncovered");
+
+        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        _assertRewardConserved(stabilityPool, _allActors(), g);
+        _assertSpSolvent(stabilityPool, _allActors(), g);
+
+        // the collateral recovers past the rebalance threshold, and the market has to come back with it
+        uint256 recovered = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold() + 0.01 ether;
+        _setEnvelopePointAtCollateralRatio(recovered, e.minWrapRate, e.pegPriceUSD);
+
+        assertFalse(
+            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            "above the threshold there is nothing left to rebalance"
+        );
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "the anchor is covered again, so it is back at par");
+        assertGt(IMinter(minter).leveragedTokenPrice(), 0, "and sail carries the recovery, being the residual");
+
+        // Anchor minting has its OWN bound, the terminal disallow band of the fee schedule, and it sits above the
+        // rebalance threshold - a market can be past rebalancing and still too thinly covered to issue more anchor.
+        // Read the bound rather than assume the two coincide: a market may set them independently, and one here does.
+        uint256 mintBound = IMinter_v3(minter).config().mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[0];
+        if (recovered <= mintBound) {
+            (, , , uint256 stillRefused, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+            assertEq(stillRefused, 0, "clearing the rebalance threshold does not by itself re-open anchor minting");
+        }
+
+        _setEnvelopePointAtCollateralRatio(mintBound + 0.01 ether, e.minWrapRate, e.pegPriceUSD);
+        (, , , uint256 anchorMintedAfter, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+        assertGt(anchorMintedAfter, 0, "past its own bound, anchor minting is permitted again");
+    }
+
     function test_envelope_corner_rebalance_holds() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
