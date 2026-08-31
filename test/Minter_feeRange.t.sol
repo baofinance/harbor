@@ -918,10 +918,17 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                             "rl minter leveraged"
                         );
                         assertApprox(post.minterWrapped, pre.minterWrapped - wrapped, 1, 0, "rl minter wrapped");
+                        // `_qR` is the rate's granularity: reconstructing the underlying from the
+                        // FLOORED wrapped amount discards up to one rate's worth of the accumulator.
+                        // The record itself is then CEILED - `underlyingCollateralRemoved` is
+                        // `ceilDiv(removedE36, 1e18)`, so that the record never gives up less than the
+                        // holding did - and that ceiling is a second, independent wei on top of the
+                        // rate granularity. So the bound is `_qR + 1`, not `_qR`: the two roundings
+                        // are in the same direction and cannot cancel.
                         assertApprox(
                             post.minterUnderlying,
                             pre.minterUnderlying - (wrapped * r) / 1e18,
-                            _qR(p, r),
+                            _qR(p, r) + 1,
                             0,
                             "rl minter underlying"
                         );

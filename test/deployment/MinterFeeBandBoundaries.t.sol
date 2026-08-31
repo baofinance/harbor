@@ -19,23 +19,39 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// Test oracle: price = rate = 1e18 (set by MockWrappedPriceOracle in setUp), so 1 wrapped
 /// collateral is worth 1 pegged and the fee/discount amounts equal input * band rate exactly.
 ///
-/// Fee config (ConfigPriceVolatility_130_stable, ETH::fxUSD market):
-///   mintPegged bands (collateral ratio upper bounds):
-///     collateral ratio < 1.31:  1e18  → disallow
-///     1.31-1.40:  2e16  → 2%  (highest non-disallow band)
-///     1.40-1.50:  1e16  → 1%
-///     1.50-1.60:  0.75e16
-///     1.60-1.70:  0.5e16
-///     1.70-1.80:  0.33e16
-///     collateral ratio >= 1.80:  0.25e16  ← active after _bootstrapCollateralRatio (2.0)
-///
-///   redeemPegged bands:
-///     collateral ratio < 1.00:  -1e16   → 1% discount (most stressed)
-///     1.00-1.10:  -0.75e16 → 0.75% discount
-///     1.10-1.29:  -0.3e16  → 0.3% discount
-///     1.29-1.40:  0
-///     collateral ratio >= 1.40:  positive (a fee)  ← active after _bootstrapCollateralRatio (2.0)
+/// The fee schedule is NOT restated here. The market is deployed by the production deploy scripts,
+/// so the schedule is whatever the deployed config carries, and every expectation below is read back
+/// from `IMinter.config()`. A test that copies the schedule into literals stops testing the
+/// deployment the moment the schedule changes: it keeps passing against the old numbers, or fails
+/// for a reason that looks like a Minter bug and is not. Reading it back means repointing a market
+/// at a different volatility config changes what these tests expect, automatically — which is the
+/// property worth having, since the boundary behaviour under test is about band *structure*, not
+/// about any particular rate.
 contract MinterFeeBandBoundariesTest is MinterCappedMintSetUp {
+    /// @dev The mint-anchor band table the market was actually deployed with.
+    function _mintPeggedBands() internal view returns (IMinter.IncentiveConfig memory) {
+        return IMinter(minter).config().mintPeggedIncentiveConfig;
+    }
+
+    /// @dev The index of the band whose upper bound is exactly `upperBound`. Reverting when the
+    /// deployed config has no such boundary is the honest outcome: the test is written about a
+    /// boundary that no longer exists, and quietly testing a neighbouring band instead would assert
+    /// nothing while still passing.
+    function _bandIndexWithUpperBound(uint256 upperBound) internal view returns (uint256 band) {
+        uint256[] memory bounds = _mintPeggedBands().collateralRatioBandUpperBounds;
+        for (band = 0; band < bounds.length; band++) {
+            if (bounds[band] == upperBound) {
+                return band;
+            }
+        }
+        revert("MinterFeeBandBoundaries: the deployed config has no band with this upper bound");
+    }
+
+    /// @dev The fee a band charges on `collateralIn`, at the test oracle's price = rate = 1.
+    function _feeFor(uint256 collateralIn, uint256 band) internal view returns (uint256) {
+        return (collateralIn * uint256(_mintPeggedBands().incentiveRatios[band])) / 1 ether;
+    }
+
     /// @dev From the bootstrap state (underlyingCollateral = 1000, pegged = 500, collateral ratio =
     /// 2.0), zero-fee mint `peggedToAdd` pegged. Minting pegged adds equal collateral and pegged (at
     /// parity), lowering the collateral ratio. Used to position it exactly on, or inside, a chosen band.
@@ -63,11 +79,28 @@ contract MinterFeeBandBoundariesTest is MinterCappedMintSetUp {
         _mintToLowerCollateralRatio(750 ether); // (1000+750)/(500+750) = 1750/1250 = 1.40
         assertEq(IMinter(minter).collateralRatio(), 1.40e18, "precondition: collateral ratio = 1.40 exactly");
 
+        uint256 boundaryBand = _bandIndexWithUpperBound(1.40e18);
+
+        // The comparator's answer, read where nothing can compensate for it. The dry-run fee below
+        // cannot show it: the band walk descends when a band yields no collateral, so starting one
+        // band too high still prices the whole input in the band below and returns the same fee
+        // either way. This getter calls the band search directly, so it is the only place the
+        // boundary's ownership is actually visible.
+        assertEq(
+            uint256(IMinter(minter).mintPeggedTokenIncentiveRatio()),
+            uint256(_mintPeggedBands().incentiveRatios[boundaryBand]),
+            "the boundary is owned by the band below it, not the band above"
+        );
+
         uint256 collateralIn = 1 ether;
         (, uint256 fee, uint256 collateralTaken, , , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
 
         assertEq(collateralTaken, collateralIn, "all of collateralIn is mintable in-band");
-        assertEq(fee, 2e16, "fee = collateralIn * 2% - boundary owned by the lower band");
+        assertEq(
+            fee,
+            _feeFor(collateralIn, boundaryBand),
+            "fee = collateralIn * the deployed rate for the band the boundary belongs to"
+        );
     }
 
     function test_mintFee_aboveUpperBound_usesUpperBand() public {
@@ -79,11 +112,23 @@ contract MinterFeeBandBoundariesTest is MinterCappedMintSetUp {
         assertGt(collateralRatio, 1.40e18, "precondition: collateral ratio above 1.40");
         assertLt(collateralRatio, 1.50e18, "precondition: collateral ratio below 1.50");
 
+        uint256 boundaryBand = _bandIndexWithUpperBound(1.40e18);
         uint256 collateralIn = 1 ether;
+        // Without this the test would pass vacuously on a schedule that happened to price the two
+        // bands the same: there would be no flip left to observe at the boundary.
+        assertTrue(
+            _feeFor(collateralIn, boundaryBand + 1) != _feeFor(collateralIn, boundaryBand),
+            "the deployed schedule must price these two bands differently for the flip to be visible"
+        );
+
         (, uint256 fee, uint256 collateralTaken, , , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
 
         assertEq(collateralTaken, collateralIn, "all of collateralIn is mintable in-band");
-        assertEq(fee, 1e16, "fee = collateralIn * 1% - band above the 1.40 boundary");
+        assertEq(
+            fee,
+            _feeFor(collateralIn, boundaryBand + 1),
+            "fee = collateralIn * the deployed rate for the band above the 1.40 boundary"
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -111,15 +156,25 @@ contract MinterFeeBandBoundariesTest is MinterCappedMintSetUp {
     // ═══════════════════════════════════════════════════════════════
 
     function test_mintFee_scalesProportionallyWithinBand() public {
-        // At a collateral ratio of 2.0, both 10 and 20 wrapped collateral fall entirely within the
-        // 0.25% band (neither deposit pushes the ratio below 1.80), so the fee is linear in the input.
+        // At a collateral ratio of 2.0 the market sits in the top, unbounded band, and neither 10 nor
+        // 20 wrapped collateral pushes it below the highest boundary — so both are priced entirely
+        // within one band and the fee is linear in the input.
         _bootstrapCollateralRatio();
+
+        uint256[] memory bounds = _mintPeggedBands().collateralRatioBandUpperBounds;
+        // there is one more incentive ratio than there are bounds; the last is the unbounded top band
+        uint256 topBand = bounds.length;
+        assertGt(
+            IMinter(minter).collateralRatio(),
+            bounds[bounds.length - 1],
+            "precondition: the bootstrap ratio is above the highest boundary"
+        );
 
         uint256 collateralIn = 10 ether;
         (, uint256 feeOnce, , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
         (, uint256 feeDouble, , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn * 2);
 
-        assertEq(feeOnce, 2.5e16, "fee = 10 * 0.25%");
+        assertEq(feeOnce, _feeFor(collateralIn, topBand), "fee = input * the deployed top-band rate");
         assertEq(feeDouble, feeOnce * 2, "fee scales linearly within a single band");
     }
 
