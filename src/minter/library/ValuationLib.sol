@@ -20,6 +20,19 @@ library ValuationLib {
     /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
     uint256 internal constant LEVERAGE_RATIO_CAP = 20 ether;
 
+    /// @notice The smallest anchor price the protocol can report: one wei of the 1e18-scaled price.
+    /// @dev The operations price the anchor at 1e36 while `peggedTokenPrice()` reports it at 1e18, so a price
+    /// below this floors to zero in every external report while the operations still divide by it happily. Two
+    /// things follow, and both are why minting stops here rather than at zero. A mint below it is priced against
+    /// a figure nothing outside the contract can see, so no consumer can tell that it happened at all. And the
+    /// tokens issued per unit of collateral value are `1e36 / price`, which grows without bound as the price
+    /// falls - at the floor it is already 1e18, and below it there is no limit at all.
+    ///
+    /// This is a floor on REPORTABILITY, not on solvency: a depegged anchor well above it is still minted at its
+    /// depressed price, which is the intended behaviour. It only refuses the range the protocol has no way to
+    /// describe.
+    uint256 internal constant MIN_REPORTABLE_ANCHOR_PRICE_E36 = 1 ether;
+
     /// @notice The state a valuation is computed against, gathered once by the caller.
     /// @dev Passed by memory reference, so it costs one stack slot however many fields it carries — which is what
     /// lets the leveraged balance travel with the rest of the state rather than as a further argument.

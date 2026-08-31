@@ -209,6 +209,126 @@ redeem removes them in the same proportion. The sail price moves only when the *
 moves — which is what a leveraged long is supposed to do. Users are therefore not diluted by other
 users' activity, only by their own fees.
 
+#### The anchor price can be exactly zero
+
+`Minter_v3.peggedTokenPrice()` **can return exactly 0**, and callers must treat 0 as a real answer
+rather than an impossible one. It is not a revert, so a consumer that sums it into a total —
+notably a yield vault valuing a stability-pool holding — silently values that holding at nothing.
+
+The reported price is, exactly:
+
+$$\text{anchor price} = \min\left(1,\ \text{collateral ratio}\right)$$
+
+Both getters read the same three inputs (the recognised backing, the mid price, the anchor supply)
+and floor the same way, so this is an identity, not an approximation. **The anchor price is zero
+precisely when the reported collateral ratio is zero** — when the ratio underflows 18 decimal
+places. In contract units, with backing $B$ and anchor supply $Q$ both in wei and price $p$ scaled
+by $10^{18}$:
+
+$$B \times p < Q \quad\Longleftrightarrow\quad \text{anchor price} = 0$$
+
+**This is not merely "the market is undercollateralised".** Any ratio below 1 engages the cap and
+gives a fractional price, which is correct and intended: at a ratio of 0.98 the anchor reports
+0.98. Zero requires the ratio to fall below $10^{-18}$ — the collateral must be worth *essentially
+nothing at all* against the outstanding claim, not merely less than it.
+
+For a representative market — 200,000 anchor tokens outstanding, collateral price 2000, rate 1.0,
+backed by 140 wrapped collateral tokens — the boundary is at **99 wei of wrapped collateral**:
+
+| Wrapped collateral held | Recognised backing | Collateral ratio | Anchor price |
+|---|---|---|---|
+| 140 × 10<sup>18</sup> (healthy) | 140 × 10<sup>18</sup> | 1.4 | 1.0 |
+| 100 wei | 100 wei | 1 wei (10<sup>-18</sup>) | 1 wei (10<sup>-18</sup>) |
+| 99 wei | 99 wei | **0** | **0** |
+| 0 | 0 | **0** | **0** |
+
+The whole market's collateral must be worth under $2 \times 10^{-13}$ of one anchor token for the
+price to floor to zero. No price crash reaches that; it is annihilation, not a drawdown.
+
+**Three routes reach it.** Only the third does not require the collateral to be genuinely gone:
+
+1. **The Minter's wrapped balance is zero or dust while anchor tokens are outstanding.** Because
+   the recognised backing is $\min(\text{record},\ \text{held} \times \text{rate})$, a zero *holding*
+   forces the backing to zero however healthy the *record* is. This is the state
+   `test_noBacking_freeAnchorMintIsRefusedByName` already builds in
+   `test/Minter_impairedBacking.t.sol`.
+2. **A wound-down market left holding dust on both sides** — a handful of wei of wrapped collateral
+   against leftover anchor dust. The rounding is the same; the economic stake is negligible.
+3. **A dust-but-non-zero collateral price with the backing fully intact.** The Minter rejects a
+   price of *exactly* zero (`ZeroOraclePrice`, §6.8) but admits 1 wei. With the 140-collateral
+   market untouched, a reported price at or below 1428 wei — against a nominal $2 \times 10^{21}$ —
+   makes $B \times p < Q$ and the anchor price reads zero while every token is still fully backed.
+   Whether a feed can actually deliver such a reading is governed by the aggregator's deviation and
+   staleness checks (§6.8), which sit outside the Minter; the Minter's own guard does not stop it.
+
+**A faulty oracle cannot produce a zero silently.** A zero price or a zero rate both revert
+(`ZeroOraclePrice` / `ZeroOracleRate`), because `peggedTokenPrice()` sources the price through the
+mid-price fetch and the backing through the min-rate fetch, and both validate. The zero above is a
+*floor*, not a passed-through oracle fault.
+
+**Impairment recognition does not move this threshold.** `recogniseImpairment()` writes the record
+down to the recognised backing, which every valuation already used, so it is exactly price-neutral —
+verified at a 70% rate cut, where the anchor price is 0.42 both before and after the call. What did
+move the threshold is v2 → v3: `Minter_v2` valued the raw record, `Minter_v3` values
+$\min(\text{record},\ \text{held} \times \text{rate})$. Under an impairment that scales the rate to a
+fraction $f$, v3's reported price is $f$ times v2's, so v3 reaches zero at a record $1/f$ larger.
+The direction is deliberate and correct — the cap should engage sooner — but it means a market that
+reads non-zero under v2 can read zero under v3 with no change in state.
+
+**Two resolutions, one floor.** The price the operations work from,
+`ValuationLib.peggedTokenPriceE36`, carries 18 more decimal places than the public getter. Where the
+getter has floored to zero the operations still hold a real price — at 99 wei held it is
+$9.9 \times 10^{-19}$ — so the two could disagree about whether the anchor is worth anything.
+
+They are not allowed to. **No operation may price the anchor below what the protocol can report.**
+The threshold is `ValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36` ($10^{18}$ in E36 terms, one wei of
+the reported price), and both anchor mints refuse below it. This is a floor on *reportability*, not
+on solvency: a depegged anchor well above the floor is still minted at its depressed price, which is
+deliberate — at a ratio of 0.98 the price is $0.98 \times 10^{36}$, eighteen orders of magnitude
+clear of it.
+
+The floor matters because the mint *divides* by the price: it issues $10^{36} / p$ anchor per unit
+of collateral value, which grows without bound as $p$ falls. Left unfloored, a mint at
+$p = 10^{-18}$ multiplies the anchor supply by $10^{18}$ while every reported price reads zero.
+
+**What each entry point does at a reported price of zero**, for the market above:
+
+| Entry point | Backing 0 | Backing 99 wei |
+|---|---|---|
+| `mintPeggedToken` | `ZeroPeggedTokenPrice` | `ZeroPeggedTokenPrice` |
+| `freeMintPeggedToken` | `ZeroPeggedTokenPrice` | `ZeroPeggedTokenPrice` |
+| `redeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
+| `freeRedeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
+| `mintLeveragedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
+| `redeemLeveragedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
+
+Every path now refuses, and each refuses by name. Three properties hold across the table, and each
+is worth stating separately because each was once false:
+
+1. **The refusal does not depend on configuration.** The fee band table may disallow anchor minting
+   below some ratio, and every production config does — but that is market policy, and a market
+   whose bands permitted it used to reach a division by zero. The floor is enforced in the
+   arithmetic, so the band table's correctness is not load-bearing for safety.
+2. **Nothing is burned for nothing.** A redeem that would return no collateral refuses rather than
+   taking the anchor against it. On the zero-fee path this is the rebalance: without the guard a
+   rebalance consumed the stability pool's deposit and returned it nothing.
+3. **Both sail paths were already safe** by construction — they test
+   `collateralValue <= peggedValue` and return zero for *any* undercollateralisation, long before
+   the anchor price approaches zero.
+
+One bound remains open. The reportable floor caps the per-mint supply multiplier at $10^{18}$ rather
+than at 1, so the anchor supply can still grow far faster than the collateral behind it. Choosing a
+tighter floor is a policy question — how far below par may the anchor be minted at all — and is not
+settled here.
+
+**The invariant a test could assert.** For any market with anchor tokens outstanding:
+
+> `peggedTokenPrice() == min(1e18, collateralRatio())`, and it is zero if and only if
+> `recognisedBacking * price < peggedTokenBalance`.
+
+A consumer that must not silently value a holding at nothing should assert the second clause, or
+treat a zero price as a halt condition rather than a valuation.
+
 ### 2.5 Price and rate
 
 A price read returns **four** numbers: a minimum and maximum price for the collateral token, and a

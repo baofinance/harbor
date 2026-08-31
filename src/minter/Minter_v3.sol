@@ -989,12 +989,13 @@ contract Minter_v3 is
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = _effectiveBacking($);
-        // A depegged anchor is issued at its depressed price, which yields more tokens per unit of collateral - but
-        // once no collateral stands behind an outstanding supply that price is nothing, and a mint priced against
-        // nothing has no answer. Say so, rather than dividing by the zero just computed.
+        // A depegged anchor is issued at its depressed price, which yields more tokens per unit of collateral -
+        // but only while that price is one the protocol can report. Below the reportable floor it rounds to zero
+        // everywhere outside this contract, so the mint would issue against a figure no consumer can see, in
+        // unbounded quantity. Say so, rather than dividing by it. The fee-paying mint refuses on the same
+        // threshold, taken from the same constant, so the two cannot drift apart.
         uint256 peggedPriceE36 = ValuationLib.peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price);
-        // slither-disable-next-line incorrect-equality
-        if (peggedPriceE36 == 0) {
+        if (peggedPriceE36 < ValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
             revert ZeroPeggedTokenPrice();
         }
         peggedOut = Math.mulDiv(underlyingCollateralInE36, price, peggedPriceE36);
@@ -1048,13 +1049,26 @@ contract Minter_v3 is
                     _leveragedTokenBalance()
                 );
 
+            // Each leg burns anchor, so neither may take it without handing something back. A leg
+            // that yields nothing has priced the anchor at nothing, and burning against that price
+            // destroys the redeemer's claim outright rather than settling it - which on this path
+            // means a rebalance consuming the stability pool's deposit and returning it nothing.
+            // The fee-paying redeem already refuses on the same condition, by the same name.
             if (peggedForCollateral > 0) {
+                // slither-disable-next-line incorrect-equality
+                if (wrappedCollateralOut == 0) {
+                    revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
+                }
                 // return the collateral
                 IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
                 $.underlyingCollateral -= underlyingCollateralOutE36 / 1 ether;
             }
 
             if (peggedForLeveraged > 0) {
+                // slither-disable-next-line incorrect-equality
+                if (leveragedOut == 0) {
+                    revert ReturnZeroAmount(LEVERAGED_TOKEN);
+                }
                 // mint the tokens to the receiver
                 // wake-disable-next-line reentrancy
                 IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);

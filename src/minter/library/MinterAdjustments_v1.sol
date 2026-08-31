@@ -3,6 +3,8 @@ pragma solidity 0.8.30;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+
 import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
 import {ValuationLib} from "@harbor/minter/library/ValuationLib.sol";
 
@@ -79,6 +81,15 @@ library MinterAdjustments_v1 {
             cr.underlyingCollateral,
             cr.price
         );
+        // Below the reportable floor the anchor price rounds to zero everywhere outside this contract, and the
+        // band walk below divides by it for every band it enters - at zero backing that division panics, and
+        // just above it the mint issues against a price no consumer can see. Refuse by name, the same name the
+        // zero-fee mint uses. A band table that disallows minting at this ratio would break out of the walk
+        // first and hide it, which is exactly why this cannot be left to the config: it is the arithmetic that
+        // fails, not the policy that forbids.
+        if (w.peggedTokenPriceE36 < ValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
+            revert IMinter_v3.ZeroPeggedTokenPrice();
+        }
 
         w.underlyingCollateralInLeftE36 = wrappedCollateralIn * cr.rate; // scaled to 1e36
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1 ether; // scaled to 1e36
