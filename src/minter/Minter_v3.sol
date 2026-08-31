@@ -318,6 +318,7 @@ contract Minter_v3 is
             nav = 1 ether;
         } else {
             uint256 price = _fetchMidPrice($.priceOracle);
+            // slither-disable-next-line unused-return only the pegged value is needed here
             (, uint256 peggedValueE36) = ValuationLib.tokenValuesE36(peggedTokenBalance_, _effectiveBacking($), price);
             nav = peggedValueE36 / peggedTokenBalance_;
         }
@@ -479,6 +480,7 @@ contract Minter_v3 is
         (price, rate) = _fetchMid($.priceOracle);
         peggedRedeemed = peggedIn;
         uint256 peggedPriceE36;
+        // slither-disable-next-line unused-return a dry run does not touch the backing record
         (wrappedFee, wrappedDiscount, wrappedCollateralReturned, , peggedPriceE36) = MinterAdjustments_v1
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
@@ -530,6 +532,7 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         (price, rate) = _fetchMid($.priceOracle);
 
+        // slither-disable-next-line unused-return a dry run does not touch the backing record
         (wrappedFee, wrappedDiscount, leveragedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1
             .mintLeveragedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_LEVERAGED],
@@ -581,6 +584,7 @@ contract Minter_v3 is
         leveragedIn = _redeemableQuiet(leveragedIn, leveragedTokenBalance_);
         (price, rate) = _fetchMid($.priceOracle);
 
+        // slither-disable-next-line unused-return a dry run does not touch the backing record
         (wrappedFee, leveragedRedeemed, wrappedCollateralReturned, ) = MinterAdjustments_v1.redeemLeveragedAdjustments(
             $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
             leveragedIn,
@@ -809,6 +813,7 @@ contract Minter_v3 is
         uint256 wrappedFee;
         uint256 wrappedDiscount;
         uint256 underlyingCollateralRemoved;
+        // slither-disable-next-line unused-return the pegged price is only reported by the dry run
         (wrappedFee, wrappedDiscount, wrappedCollateralOut, underlyingCollateralRemoved, ) = MinterAdjustments_v1
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
@@ -1096,6 +1101,7 @@ contract Minter_v3 is
     ) external view override returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         (uint256 price, uint256 rate) = _fetchMax($.priceOracle);
+        // slither-disable-next-line unused-return a dry run does not touch the backing record
         (wrappedCollateralOut, leveragedOut, ) = MinterAdjustments_v1.freeRedeemPeggedTokenAmounts(
             peggedForCollateral,
             peggedForLeveraged,

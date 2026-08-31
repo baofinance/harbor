@@ -889,7 +889,10 @@ contract DeployMintersTest is
             return MatchKind.Tolerated;
         }
         if (
-            okRef && okCand && spec.kind == ReturnKind.AddressArrayKind && _secondChanceAddressArrayMatch(refOut, candOut)
+            okRef &&
+            okCand &&
+            spec.kind == ReturnKind.AddressArrayKind &&
+            _secondChanceAddressArrayMatch(refOut, candOut)
         ) {
             return MatchKind.Tolerated;
         }
