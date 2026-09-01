@@ -160,4 +160,4 @@ See `script/verify/spl-remediation/remediation-ETH-fxUSD-SPL.md` for full analys
 
 ## deploy/1.3 — In Development
 
-SP_v3, Minter_v3, reward aliases, autocompounding infrastructure. See `doc/autocompounding-vault-design.md`.
+SP_v3, Minter_v3, reward aliases, autocompounding infrastructure. See the [HarborYield design](https://github.com/baofinance/harbor-yield/blob/main/doc/design.md) in the harbor-yield repository, and [`doc/harbor-deployment.md`](../doc/harbor-deployment.md) for the deployment flow.

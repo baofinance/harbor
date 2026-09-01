@@ -101,6 +101,12 @@ Two properties of the anchor token matter for the design:
 - The sail token, by contrast, is **exclusive to the protocol**: only Harbor mints and burns it, and
   its total supply is exactly what Harbor has issued.
 
+Both tokens accept a **signed approval** (EIP-2612 `permit`), so a holder can approve and act in one
+transaction rather than sending a separate `approve` first. They are built on bao-base's
+`PermittableERC20_v1` / `MintableBurnableERC20_v1`, and are exercised by the same shared
+`PermitTestBase` suite as the protocol's other permit-bearing tokens, so all of them are held to one
+definition of correct permit behaviour.
+
 #### Held versus accounted
 
 **Harbor holds the wrapped token but records the backing in collateral tokens** — and that recorded

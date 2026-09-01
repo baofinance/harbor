@@ -1,10 +1,21 @@
 # Harbor Deployment Design
 
-Companion document to [`autocompounding-vault-design.md`](autocompounding-vault-design.md).
+Companion document to the [HarborYield design](https://github.com/baofinance/harbor-yield/blob/main/doc/design.md), which lives in the harbor-yield repository along with the contracts it specifies.
 
 A **forward-looking design** for the deployment flow covering the auto-compounding vaults and ERC-20 permit work. It describes the intended deployer rather than the one in the repository; for what is actually on-chain see [`deployments/README.md`](../deployments/README.md).
 
-Notation follows the nomenclature table in [`autocompounding-vault-design.md`](autocompounding-vault-design.md) — `haXXX` is the anchor token for peg `XXX`, `hyXXX` the HarborYield share token, `COLn` the *n*th collateral.
+## Notation
+
+| Symbol | Meaning | Example (USD peg) |
+|---|---|---|
+| `XXX` | The peg a market family serves | USD |
+| `COLn` | The *n*th collateral of a peg | stETH (COL1), fxUSD (COL2) |
+| `wrappedCollateral` | The yield-bearing wrapper actually held | wstETH, fxSAVE |
+| `haXXX` | Anchor (pegged) token for peg `XXX` | haUSD |
+| `hsXXX.COLn` | Sail (leveraged) token for collateral n | hsUSD.stETH |
+| `hpXXX.COLn` | Rebasing StabilityPool token | hpUSD.stETH |
+| `hcXXX.COLn` | Compounder share for one pool | hcUSD.stETH |
+| `hyXXX` | HarborYield share token, one per peg | hyUSD |
 
 ---
 
@@ -352,7 +363,7 @@ they stay setters because live markets are retuned by multisig batch (`script/Up
 ## 12. References
 
 - Functional specification: [`functional-spec.md`](functional-spec.md) for what the protocol achieves
-- Design: [`autocompounding-vault-design.md`](autocompounding-vault-design.md) for contract architecture
+- Design: [HarborYield design](https://github.com/baofinance/harbor-yield/blob/main/doc/design.md) in the harbor-yield repository, for contract architecture
 - Seed mechanics: §7 of this document
 - Existing impl: [`script/src/HarborDeployStack.sol`](../script/src/HarborDeployStack.sol) (the shared deploy stack, exposing `deployHarborForPeg`), [`script/src/contracts/PeggedToken.sol`](../script/src/contracts/PeggedToken.sol)
 - HarborYield deployment lives in the **harbor-yield repository**, not this one — see its `script/src/contracts/HarborYield.sol`

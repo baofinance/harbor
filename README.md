@@ -48,7 +48,7 @@ Harbor is deployed once per **market** — one (collateral, underlying) pair —
 | [Risk parameters](doc/guides/risk-parameters.md) | Collateral ratio thresholds and their meaning |
 | [Oracle price feeds](doc/guides/oracle-price-feeds.md) | How prices are sourced and validated |
 | [Numerical envelope](doc/DataEnvelope.md) | What the stack can hold, and the limits testing located |
-| [Autocompounding vault design](doc/autocompounding-vault-design.md) | The yield layer above the stability pools |
+| [HarborYield design](https://github.com/baofinance/harbor-yield/blob/main/doc/design.md) | The yield layer above the stability pools — designed and deployed in the harbor-yield repository |
 | [Deployment design](doc/harbor-deployment.md) | Peg families, markets, seeding and deploy switches |
 
 # Development
