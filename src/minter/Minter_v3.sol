@@ -26,7 +26,7 @@ import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
 import {Config_v2} from "@harbor/minter/library/Config_v2.sol";
 import {MinterAdjustments_v1} from "@harbor/minter/library/MinterAdjustments_v1.sol";
-import {ValuationLib} from "@harbor/minter/library/ValuationLib.sol";
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 import {RebalanceSizing_v1} from "@harbor/minter/library/RebalanceSizing_v1.sol";
 
 /// @title Harbor Minter
@@ -274,7 +274,7 @@ contract Minter_v3 is
     function collateralRatio() external view override returns (uint256 collateralRatio_) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchMidPrice($.priceOracle);
-        collateralRatio_ = ValuationLib.collateralRatio(_effectiveBacking($), price, $.peggedTokenBalance);
+        collateralRatio_ = MinterValuationLib.collateralRatio(_effectiveBacking($), price, $.peggedTokenBalance);
     }
 
     /// @inheritdoc IMinter_v3
@@ -282,14 +282,14 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
 
         uint256 price = _fetchMidPrice($.priceOracle);
-        ratio = ValuationLib.leverageRatio($.peggedTokenBalance, _effectiveBacking($), price);
+        ratio = MinterValuationLib.leverageRatio($.peggedTokenBalance, _effectiveBacking($), price);
     }
 
     /// @inheritdoc IMinter_v3
     function leveragedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchMidPrice($.priceOracle);
-        (uint256 collateralValueE36, uint256 peggedValueE36) = ValuationLib.tokenValuesE36(
+        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
             _effectiveBacking($),
             price
@@ -319,7 +319,11 @@ contract Minter_v3 is
         } else {
             uint256 price = _fetchMidPrice($.priceOracle);
             // slither-disable-next-line unused-return only the pegged value is needed here
-            (, uint256 peggedValueE36) = ValuationLib.tokenValuesE36(peggedTokenBalance_, _effectiveBacking($), price);
+            (, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
+                peggedTokenBalance_,
+                _effectiveBacking($),
+                price
+            );
             nav = peggedValueE36 / peggedTokenBalance_;
         }
     }
@@ -340,7 +344,7 @@ contract Minter_v3 is
         uint256 collateralTokenBalance_ = _effectiveBacking($);
         (peggedForCollateral, peggedForLeveraged) = RebalanceSizing_v1.split(
             targetCollateralRatio,
-            ValuationLib.collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_),
+            MinterValuationLib.collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_),
             maxCollateralPegged,
             maxLeveragedPegged,
             holdingCollateral,
@@ -363,7 +367,7 @@ contract Minter_v3 is
 
         ConfigIncentiveLib.ActionIncentive memory config_ = $.incentiveConfig[action];
         // solhint-disable-next-line explicit-types
-        uint band = ValuationLib.findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, false);
+        uint band = MinterValuationLib.findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, false);
         incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
     }
 
@@ -442,7 +446,7 @@ contract Minter_v3 is
             .mintPeggedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_PEGGED],
                 wrappedCollateralIn,
-                ValuationLib.CollateralRatioData(
+                MinterValuationLib.CollateralRatioData(
                     _effectiveBacking($),
                     price,
                     rate,
@@ -485,7 +489,7 @@ contract Minter_v3 is
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
-                ValuationLib.CollateralRatioData(
+                MinterValuationLib.CollateralRatioData(
                     _effectiveBacking($),
                     price,
                     rate,
@@ -537,7 +541,7 @@ contract Minter_v3 is
             .mintLeveragedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_LEVERAGED],
                 wrappedCollateralIn,
-                ValuationLib.CollateralRatioData(
+                MinterValuationLib.CollateralRatioData(
                     _effectiveBacking($),
                     price,
                     rate,
@@ -588,7 +592,7 @@ contract Minter_v3 is
         (wrappedFee, leveragedRedeemed, wrappedCollateralReturned, ) = MinterAdjustments_v1.redeemLeveragedAdjustments(
             $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
             leveragedIn,
-            ValuationLib.CollateralRatioData(
+            MinterValuationLib.CollateralRatioData(
                 _effectiveBacking($),
                 price,
                 rate,
@@ -626,7 +630,7 @@ contract Minter_v3 is
 
         // The collateral is valued at the min rate for the same reason the record is: the conservative edge
         // never credits more backing than the donation stands up.
-        uint256 collateralAdded = ValuationLib.wrappedAsCollateral(wrappedAmount, _fetchMinRate($.priceOracle));
+        uint256 collateralAdded = MinterValuationLib.wrappedAsCollateral(wrappedAmount, _fetchMinRate($.priceOracle));
         uint256 backing = $.underlyingCollateral + collateralAdded;
         $.underlyingCollateral = backing;
 
@@ -739,7 +743,7 @@ contract Minter_v3 is
             .mintPeggedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_PEGGED],
                 wrappedCollateralIn,
-                ValuationLib.CollateralRatioData(
+                MinterValuationLib.CollateralRatioData(
                     underlyingCollateral_,
                     price,
                     rate,
@@ -818,7 +822,7 @@ contract Minter_v3 is
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
-                ValuationLib.CollateralRatioData(
+                MinterValuationLib.CollateralRatioData(
                     underlyingCollateral_,
                     price,
                     rate,
@@ -873,10 +877,10 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
-        ValuationLib.CollateralRatioData memory crData;
+        MinterValuationLib.CollateralRatioData memory crData;
         {
             (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
-            crData = ValuationLib.CollateralRatioData(
+            crData = MinterValuationLib.CollateralRatioData(
                 _effectiveBacking($),
                 price,
                 rate,
@@ -949,7 +953,7 @@ contract Minter_v3 is
             .redeemLeveragedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
                 leveragedIn,
-                ValuationLib.CollateralRatioData(
+                MinterValuationLib.CollateralRatioData(
                     underlyingCollateral_,
                     price,
                     rate,
@@ -999,8 +1003,12 @@ contract Minter_v3 is
         // everywhere outside this contract, so the mint would issue against a figure no consumer can see, in
         // unbounded quantity. Say so, rather than dividing by it. The fee-paying mint refuses on the same
         // threshold, taken from the same constant, so the two cannot drift apart.
-        uint256 peggedPriceE36 = ValuationLib.peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price);
-        if (peggedPriceE36 < ValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
+        uint256 peggedPriceE36 = MinterValuationLib.peggedTokenPriceE36(
+            peggedTokenBalance_,
+            underlyingCollateral_,
+            price
+        );
+        if (peggedPriceE36 < MinterValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
             revert ZeroPeggedTokenPrice();
         }
         peggedOut = Math.mulDiv(underlyingCollateralInE36, price, peggedPriceE36);
@@ -1122,7 +1130,7 @@ contract Minter_v3 is
         // how much collateral to use
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
 
-        (uint256 collateralValueE36, uint256 peggedValueE36) = ValuationLib.tokenValuesE36(
+        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
             _effectiveBacking($),
             price
@@ -1172,7 +1180,7 @@ contract Minter_v3 is
 
         (uint256 price, uint256 rate) = _fetchMin($.priceOracle);
 
-        (uint256 collateralValueE36, uint256 peggedValueE36) = ValuationLib.tokenValuesE36(
+        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
             _effectiveBacking($.underlyingCollateral, rate),
             price
@@ -1333,7 +1341,7 @@ contract Minter_v3 is
     /// @param minRate The min wrapped-to-collateral rate.
     function _effectiveBacking(uint256 underlyingCollateral_, uint256 minRate) private view returns (uint256 backing) {
         backing = underlyingCollateral_;
-        uint256 held = ValuationLib.wrappedAsCollateral(
+        uint256 held = MinterValuationLib.wrappedAsCollateral(
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)),
             minRate
         );
@@ -1387,8 +1395,8 @@ contract Minter_v3 is
             true,
             true
         );
-        price = ValuationLib.round(minPrice + maxPrice, 2);
-        rate = ValuationLib.round(minRate + maxRate, 2);
+        price = MinterValuationLib.round(minPrice + maxPrice, 2);
+        rate = MinterValuationLib.round(minRate + maxRate, 2);
     }
 
     /// @notice Returns the low edge of the collateral price band and of the rate band.
@@ -1428,7 +1436,7 @@ contract Minter_v3 is
     function _fetchMidPrice(address priceOracle_) private view returns (uint256 price) {
         // slither-disable-next-line unused-return
         (uint256 minPrice, uint256 maxPrice, , ) = _latestAnswer(priceOracle_, true, false);
-        price = ValuationLib.round(minPrice + maxPrice, 2);
+        price = MinterValuationLib.round(minPrice + maxPrice, 2);
     }
 
     /// @notice Returns the high edge of the collateral price band, for callers that do not consume the rate.

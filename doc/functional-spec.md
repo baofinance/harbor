@@ -276,12 +276,12 @@ The direction is deliberate and correct — the cap should engage sooner — but
 reads non-zero under v2 can read zero under v3 with no change in state.
 
 **Two resolutions, one floor.** The price the operations work from,
-`ValuationLib.peggedTokenPriceE36`, carries 18 more decimal places than the public getter. Where the
+`MinterValuationLib.peggedTokenPriceE36`, carries 18 more decimal places than the public getter. Where the
 getter has floored to zero the operations still hold a real price — at 99 wei held it is
 $9.9 \times 10^{-19}$ — so the two could disagree about whether the anchor is worth anything.
 
 They are not allowed to. **No operation may price the anchor below what the protocol can report.**
-The threshold is `ValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36` ($10^{18}$ in E36 terms, one wei of
+The threshold is `MinterValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36` ($10^{18}$ in E36 terms, one wei of
 the reported price), and both anchor mints refuse below it. This is a floor on *reportability*, not
 on solvency: a depegged anchor well above the floor is still minted at its depressed price, which is
 deliberate — at a ratio of 0.98 the price is $0.98 \times 10^{36}$, eighteen orders of magnitude

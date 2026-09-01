@@ -6,7 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
-import {ValuationLib} from "@harbor/minter/library/ValuationLib.sol";
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
 /// @title MinterAdjustments_v1
 /// @author rootminus0x1
@@ -21,7 +21,7 @@ import {ValuationLib} from "@harbor/minter/library/ValuationLib.sol";
 ///      balances and passes primitives, which is what an external library requires - under `DELEGATECALL` it
 ///      shares the caller's storage but cannot see immutables, which live in the caller's code.
 library MinterAdjustments_v1 {
-    using ValuationLib for ValuationLib.CollateralRatioData;
+    using MinterValuationLib for MinterValuationLib.CollateralRatioData;
 
     struct MintPeggedWorkspace {
         uint band; // solhint-disable-line explicit-types
@@ -55,7 +55,7 @@ library MinterAdjustments_v1 {
     function mintPeggedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 wrappedCollateralIn,
-        ValuationLib.CollateralRatioData memory cr,
+        MinterValuationLib.CollateralRatioData memory cr,
         uint256 maxFeeRatio
     )
         external
@@ -75,8 +75,8 @@ library MinterAdjustments_v1 {
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         MintPeggedWorkspace memory w;
-        w.band = ValuationLib.findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
-        w.peggedTokenPriceE36 = ValuationLib.peggedTokenPriceE36(
+        w.band = MinterValuationLib.findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
+        w.peggedTokenPriceE36 = MinterValuationLib.peggedTokenPriceE36(
             cr.peggedTokenBalance,
             cr.underlyingCollateral,
             cr.price
@@ -87,7 +87,7 @@ library MinterAdjustments_v1 {
         // zero-fee mint uses. A band table that disallows minting at this ratio would break out of the walk
         // first and hide it, which is exactly why this cannot be left to the config: it is the arithmetic that
         // fails, not the policy that forbids.
-        if (w.peggedTokenPriceE36 < ValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
+        if (w.peggedTokenPriceE36 < MinterValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
             revert IMinter_v3.ZeroPeggedTokenPrice();
         }
 
@@ -187,7 +187,10 @@ library MinterAdjustments_v1 {
         maxWrappedCollateralIn = Math.ceilDiv(w.underlyingCollateralAddedE36 + w.underlyingFeeE36, cr.rate);
         wrappedFee = w.underlyingFeeE36 / cr.rate;
         // What stays behind, through the conversion the holding is valued by.
-        underlyingCollateralAdded = ValuationLib.wrappedAsCollateral(maxWrappedCollateralIn - wrappedFee, cr.rate);
+        underlyingCollateralAdded = MinterValuationLib.wrappedAsCollateral(
+            maxWrappedCollateralIn - wrappedFee,
+            cr.rate
+        );
     }
 
     struct RedeemPeggedWorkspace {
@@ -223,7 +226,7 @@ library MinterAdjustments_v1 {
     function redeemPeggedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 peggedIn,
-        ValuationLib.CollateralRatioData memory cr,
+        MinterValuationLib.CollateralRatioData memory cr,
         uint256 reserveWrappedCapacity
     )
         external
@@ -238,14 +241,24 @@ library MinterAdjustments_v1 {
     {
         RedeemPeggedWorkspace memory w;
         // solhint-disable-next-line explicit-types
-        uint band = ValuationLib.findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
+        uint band = MinterValuationLib.findBand(
+            config_,
+            cr.underlyingCollateral,
+            cr.price,
+            cr.peggedTokenBalance,
+            true
+        );
         // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
 
         // we capture the pegged price now as it doesn't change throughout the process, even if depegged
-        peggedPriceE36 = ValuationLib.peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
+        peggedPriceE36 = MinterValuationLib.peggedTokenPriceE36(
+            cr.peggedTokenBalance,
+            cr.underlyingCollateral,
+            cr.price
+        );
 
         w.peggedInLeftE36 = peggedIn * 1 ether; // scaled to 1e36
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1 ether; // scaled to 1e36
@@ -317,7 +330,7 @@ library MinterAdjustments_v1 {
         // Derived from the wrapped that actually leaves: paid to the redeemer, plus the fee paid away, less what
         // the reserve sent for the discount. Ceiled, so the record gives up at least as much as the holding did -
         // giving up less would leave it claiming the difference.
-        underlyingCollateralRemoved = ValuationLib.wrappedAsCollateralCeil(
+        underlyingCollateralRemoved = MinterValuationLib.wrappedAsCollateralCeil(
             wrappedCollateralReturned + wrappedFee - wrappedDiscount,
             cr.rate
         );
@@ -362,7 +375,7 @@ library MinterAdjustments_v1 {
     function mintLeveragedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 wrappedCollateralIn,
-        ValuationLib.CollateralRatioData memory cr,
+        MinterValuationLib.CollateralRatioData memory cr,
         uint256 reserveWrappedCapacity
     )
         external
@@ -376,7 +389,7 @@ library MinterAdjustments_v1 {
         )
     {
         MintLeveragedWorkspace memory w;
-        (w.collateralValueE36, w.peggedValueE36) = ValuationLib.tokenValuesE36(
+        (w.collateralValueE36, w.peggedValueE36) = MinterValuationLib.tokenValuesE36(
             cr.peggedTokenBalance,
             cr.underlyingCollateral,
             cr.price
@@ -394,7 +407,7 @@ library MinterAdjustments_v1 {
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
         // solhint-disable-next-line explicit-types
-        w.band = ValuationLib.findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
+        w.band = MinterValuationLib.findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
         w.underlyingCollateralInLeftE36 = wrappedCollateralIn * cr.rate; // scaled to 1e36
         w.underlyingReserveCapacityE36 = reserveWrappedCapacity * cr.rate;
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1e18;
@@ -480,11 +493,11 @@ library MinterAdjustments_v1 {
             w.band++;
         }
         wrappedDiscount = w.underlyingDiscountE36 / cr.rate; // we don't round this as it may overflow the reserve pool
-        wrappedFee = ValuationLib.round(w.underlyingFeeE36, cr.rate);
+        wrappedFee = MinterValuationLib.round(w.underlyingFeeE36, cr.rate);
         // Derived from the wrapped that actually stays: the whole input, plus what the reserve sends for the
         // discount, less the fee paid away. Valued by the same conversion the holding is, so the record and the
         // collateral behind it move together to the wei.
-        underlyingCollateralAdded = ValuationLib.wrappedAsCollateral(
+        underlyingCollateralAdded = MinterValuationLib.wrappedAsCollateral(
             maxWrappedCollateralIn + wrappedDiscount - wrappedFee,
             cr.rate
         );
@@ -536,7 +549,7 @@ library MinterAdjustments_v1 {
     function redeemLeveragedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 leveragedIn,
-        ValuationLib.CollateralRatioData memory cr
+        MinterValuationLib.CollateralRatioData memory cr
     )
         external
         pure
@@ -552,7 +565,7 @@ library MinterAdjustments_v1 {
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         // and we an do this once, here, and not in the loop below, because redeeming leveraged tokens, will never cause a re-peg.
         {
-            (uint256 collateralValueE36, uint256 peggedValueE36) = ValuationLib.tokenValuesE36(
+            (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                 cr.peggedTokenBalance,
                 cr.underlyingCollateral,
                 cr.price
@@ -571,7 +584,13 @@ library MinterAdjustments_v1 {
             w.underlyingCollateralInLeftE36 = w.underlyingCollateralInE36;
         }
         // solhint-disable-next-line explicit-types
-        uint band = ValuationLib.findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
+        uint band = MinterValuationLib.findBand(
+            config_,
+            cr.underlyingCollateral,
+            cr.price,
+            cr.peggedTokenBalance,
+            false
+        );
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1e18;
 
         while (true) {
@@ -638,7 +657,7 @@ library MinterAdjustments_v1 {
         if (peggedForCollateral > 0) {
             underlyingCollateralOutE36 = Math.mulDiv(
                 peggedForCollateral,
-                ValuationLib.peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price),
+                MinterValuationLib.peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price),
                 price
             );
             wrappedCollateralOut = underlyingCollateralOutE36 / rate;
@@ -647,10 +666,14 @@ library MinterAdjustments_v1 {
         if (peggedForLeveraged > 0) {
             // we use leverage ratio for this calculation as it is capped
             if (leveragedTokenBalance_ > 0) {
-                uint256 leverageRatio_ = ValuationLib.leverageRatio(peggedTokenBalance_, underlyingCollateral_, price);
+                uint256 leverageRatio_ = MinterValuationLib.leverageRatio(
+                    peggedTokenBalance_,
+                    underlyingCollateral_,
+                    price
+                );
                 // slither-disable-next-line incorrect-equality
-                if (leverageRatio_ == ValuationLib.LEVERAGE_RATIO_CAP) {
-                    leveragedOut = Math.mulDiv(peggedForLeveraged, ValuationLib.LEVERAGE_RATIO_CAP, 1 ether);
+                if (leverageRatio_ == MinterValuationLib.LEVERAGE_RATIO_CAP) {
+                    leveragedOut = Math.mulDiv(peggedForLeveraged, MinterValuationLib.LEVERAGE_RATIO_CAP, 1 ether);
                 } else {
                     leveragedOut = Math.mulDiv(
                         peggedForLeveraged * leveragedTokenBalance_,

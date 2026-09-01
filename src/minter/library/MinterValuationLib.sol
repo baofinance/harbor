@@ -5,7 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
 
-/// @title ValuationLib
+/// @title MinterValuationLib
 /// @author rootminus0x1
 /// @notice The valuation arithmetic shared between the Minter and the libraries it delegates to.
 /// @dev Internal, so its code is compiled into every consumer rather than deployed once. That is the point: the
@@ -16,7 +16,7 @@ import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol"
 ///
 ///      Everything here is `pure`: state and immutables belong to the caller, which resolves them and passes
 ///      primitives in. That is what lets the same code serve a contract and a `DELEGATECALL` library.
-library ValuationLib {
+library MinterValuationLib {
     /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
     uint256 internal constant LEVERAGE_RATIO_CAP = 20 ether;
 
