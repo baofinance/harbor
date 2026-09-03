@@ -1,6 +1,5 @@
 | Contract                          |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |-----------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
-| ConfigIncentiveLib                |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | ConfigMarket_BTC_fxUSD_mainnet    |              6,317 |               18,259 |               6,345 |    1,326,850 |            132.69 |
 | ConfigMarket_BTC_stETH_mainnet    |              6,343 |               18,233 |               6,371 |    1,332,310 |            133.23 |
 | ConfigMarket_ETH_fxUSD_mainnet    |              6,317 |               18,259 |               6,345 |    1,326,850 |            132.69 |
@@ -31,22 +30,14 @@
 | ConfigPriceVolatility_130_stable  |              3,019 |               21,557 |               3,047 |      634,270 |             63.43 |
 | Config_v1                         |              3,789 |               20,787 |               3,841 |      796,210 |             79.62 |
 | Config_v2                         |              3,789 |               20,787 |               3,841 |      796,210 |             79.62 |
-| DecrementalFloatingPoint          |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| DecrementalFloatingPoint_v2       |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| ERC20MetadataLib_v1               |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | FakeAccessControl                 |              1,626 |               22,950 |               1,654 |      341,740 |             34.17 |
 | FakeBaoAccessControl              |              1,487 |               23,089 |               1,515 |      312,550 |             31.26 |
 | FakeInitializable                 |                389 |               24,187 |                 417 |       81,970 |              8.20 |
 | FakeOwnable2Step                  |              1,346 |               23,230 |               1,374 |      282,940 |             28.29 |
 | FakeUUPSUpgradeable               |              3,236 |               21,340 |               3,293 |      680,130 |             68.01 |
-| FmtLib                            |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Genesis_v1                        |              7,486 |               17,090 |               8,423 |    1,581,430 |            158.14 |
 | Genesis_v2                        |              7,444 |               17,132 |               8,361 |    1,572,410 |            157.24 |
-| LinearReward                      |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| LinearReward_v2                   |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | MinterAdjustments_v1              |              6,688 |               17,888 |               6,740 |    1,405,000 |            140.50 |
-| MinterMarketConfigLib             |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| MinterValuationLib                |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Minter_v1                         |             23,681 |                  895 |              25,515 |    4,991,350 |            499.14 |
 | Minter_v2                         |             23,675 |                  901 |              25,509 |    4,990,090 |            499.01 |
 | Minter_v3                         |             22,105 |                2,471 |              23,515 |    4,656,150 |            465.62 |
@@ -60,4 +51,3 @@
 | StabilityPool_v3                  |             23,930 |                  646 |              26,548 |    5,051,480 |            505.15 |
 | StabilityPool_v3_Upgrader         |              3,464 |               21,112 |               4,050 |      733,300 |             73.33 |
 | TokenDistributor_v1               |             10,116 |               14,460 |              10,365 |    2,126,850 |            212.69 |
-| WordCodec                         |                 85 |               24,491 |                 135 |       18,350 |              1.84 |

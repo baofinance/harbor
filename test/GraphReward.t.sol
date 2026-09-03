@@ -13,7 +13,7 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 import "@harbor-test/Useful.sol";
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 import {TestGraph} from "@harbor-test/Graph.t.sol";
 abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {

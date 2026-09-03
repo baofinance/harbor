@@ -12,7 +12,7 @@ import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";

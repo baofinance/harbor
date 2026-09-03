@@ -20,7 +20,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
 import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";

@@ -11,7 +11,7 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import "@harbor-test/Useful.sol";

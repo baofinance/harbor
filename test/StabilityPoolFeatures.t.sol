@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";

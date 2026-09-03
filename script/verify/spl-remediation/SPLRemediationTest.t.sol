@@ -13,7 +13,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PostRebalanceRemediationForStabilityPool_v2} from "@harbor-script/verify/spl-remediation/PostRebalanceRemediationForStabilityPool_v2.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {console2 as console} from "forge-std/console2.sol";
 

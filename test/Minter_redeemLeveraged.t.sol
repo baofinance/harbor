@@ -9,7 +9,7 @@ import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import "@harbor-test/Useful.sol";

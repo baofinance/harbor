@@ -25,7 +25,7 @@ import {IYieldVault} from "@harbor/interfaces/IYieldVault.sol";
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
-import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/Rebalance.t.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
