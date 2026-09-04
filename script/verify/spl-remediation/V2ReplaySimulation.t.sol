@@ -22,6 +22,9 @@ import {console2 as console} from "forge-std/console2.sol";
 contract V2ReplaySimulation is BaoTest, HarborDeployer {
     uint256 constant FORK_BLOCK = 24687073;
 
+    /// @dev This replay's captures live beside it, not in `results/`.
+    string constant OUTPUT_DIR = "script/verify/spl-remediation";
+
     address spm;
     address minterAddr;
     address spl;
@@ -506,9 +509,12 @@ contract V2ReplaySimulation is BaoTest, HarborDeployer {
         );
         csv = string.concat(csv, "SPL levBalance,", vm.toString(IERC20(lev).balanceOf(spl)), "\n");
 
-        vm.createDir("results", true);
-        vm.writeFile(string.concat("results/", filename), csv);
-        console.log("  -> results/%s", filename);
+        // Beside the script rather than in `results/`. That directory holds reproducible output from
+        // `test/`, so a diff there means the code changed; this replay runs against live chain state,
+        // and its diffs would mean only that the chain moved.
+        vm.createDir(OUTPUT_DIR, true);
+        vm.writeFile(string.concat(OUTPUT_DIR, "/", filename), csv);
+        console.log("  -> %s/%s", OUTPUT_DIR, filename);
     }
 
     /// @dev Format as scientific notation: "1.234e18"

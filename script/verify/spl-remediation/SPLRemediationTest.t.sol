@@ -60,7 +60,7 @@ abstract contract SPLTestBase is BaoTest, HarborDeployer {
         proxyOwner = IBaoOwnable(spl).owner();
     }
 
-    /// @dev V2 correct values per holder. Source: results/v2_correct_state.csv
+    /// @dev V2 correct values per holder. Source: v2_correct_state.csv
     function _initExpected() internal {
         //                                                                    v2Held                       v2Claimable                  v2HaInSPL
         expected.push(

@@ -56,8 +56,8 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
     // ── Collateral gap ──────────────────────────────────────────────────────
     // Two components:
     // 1. Exiter extracted excess fxSAVE by redeeming at v1 (diluted) prices.
-    //    v1 collateral: 14463.82 fxSAVE (results/v1_replay.csv: collateralTokenBalance)
-    //    v2 collateral: 14528.15 fxSAVE (results/v2_correct_state.csv: collateralTokenBalance)
+    //    v1 collateral: 14463.82 fxSAVE (v1_replay.csv: collateralTokenBalance)
+    //    v2 collateral: 14528.15 fxSAVE (v2_correct_state.csv: collateralTokenBalance)
     //    gap = 64.33 fxSAVE
     // 2. Bounty receiver 2 (0xc0ffee, not ours) holds 0.00246 excess sailETH
     //    that we can't burn. Compensate by depositing extra fxSAVE to increase

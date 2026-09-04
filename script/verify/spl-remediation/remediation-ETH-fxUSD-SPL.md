@@ -32,7 +32,7 @@ A full replay of the 5 rebalances plus all user transactions was performed under
 
 ### Affected users
 
-From the simulation CSVs (`results/v1_replay.csv`, `results/v2_correct_state.csv`):
+From the simulation CSVs (`v1_replay.csv`, `v2_correct_state.csv`):
 
 | User | Role | $ Before | $ After (v1) | $ After (v2) | Bug impact |
 |------|------|----------|-------------|-------------|------------|
@@ -60,7 +60,7 @@ The `remediate()` function executes 6 steps atomically:
 
 Scale down the global integral for sailETH by `V2_DISTRIBUTED / V1_DISTRIBUTED`:
 - `V1_DISTRIBUTED = 9,071,385,368,178,022,436` -- total sailETH that entered SPL via `notifyLiquidation` under v1. Computed as: `v1_spl_balance_after_last_rebalance + claimer_claimed_from_spl` (from `V2ReplaySimulation.t.sol` steps).
-- `V2_DISTRIBUTED = 156,366,618,756,016,130` -- same under v2. Computed as: `v2_spl_final_balance + v2_claimer_claimed + v2_exiter_claimed` (from `results/v2_correct_state.csv`).
+- `V2_DISTRIBUTED = 156,366,618,756,016,130` -- same under v2. Computed as: `v2_spl_final_balance + v2_claimer_claimed + v2_exiter_claimed` (from `v2_correct_state.csv`).
 - Ratio: 0.01724 (~1.7% of current integral).
 
 This proportionally reduces every depositor's claimable to the correct v2 level.
@@ -93,7 +93,7 @@ Rebalance bounty tokens under v1 were ~23x larger than under v2.
 #### 2f. Restore missing collateral
 
 Treasury pre-transfers 82.47 fxSAVE (~$82) to the SPL. The remediation deposits it into the minter via `freeMintLeveragedToken`, then burns the minted sailETH. Net effect: collateral up, supply unchanged. This covers two components:
-1. **64.33 fxSAVE**: excess collateral extracted by the Exiter redeeming at v1 prices (from `results/v1_replay.csv` vs `v2_correct_state.csv` collateralTokenBalance difference).
+1. **64.33 fxSAVE**: excess collateral extracted by the Exiter redeeming at v1 prices (from `v1_replay.csv` vs `v2_correct_state.csv` collateralTokenBalance difference).
 2. **18.13 fxSAVE**: compensates for the 0.0025 sailETH from bounty receiver 2 that we cannot burn. Increases equity so the extra supply does not depress the price.
 
 #### 2g. (implicit) All burns above reduce total supply, restoring `leveragedTokenPrice`.
@@ -123,7 +123,7 @@ Upgrade the sail stability pool proxy back to `StabilityPool_v2`. Revoke BURNER_
 
 ### Results
 
-Post-remediation (`results/post_remediation.csv`):
+Post-remediation (`post_remediation.csv`):
 - sailETH price: 3.474 haETH (v2 target: 3.467 -- within 0.2%)
 - All 9 holder sailETH counts match v2 correct state within 1% tolerance
 - Remaining dilution: ~$8 from bounty receiver 2 (0.0025 excess sailETH, not ours)
@@ -148,13 +148,13 @@ Values are displayed in USD using a fixed ETH/USD rate (~$2125) for readability.
 
 Replays the exact sequence of 15 on-chain events (5 rebalances + claims + withdrawals + redeems) from a single fork at block 24687073, using mock oracle prices queried from each actual mainnet block.
 
-- **`test_v1Replay`**: Replays under v1 code. Asserts exact match against mainnet state at all 15 steps (supply, SPL balance, Claimer balance, Exiter balance, Exiter deposit, leveragedTokenPrice). Produces `results/v1_replay.csv`.
+- **`test_v1Replay`**: Replays under v1 code. Asserts exact match against mainnet state at all 15 steps (supply, SPL balance, Claimer balance, Exiter balance, Exiter deposit, leveragedTokenPrice). Produces `v1_replay.csv`.
 
-- **`test_v2Replay`**: Replays under v2 code. Same event sequence but correct minter arithmetic. Produces `results/v2_correct_state.csv` -- the definitive "correct world" for comparison.
+- **`test_v2Replay`**: Replays under v2 code. Same event sequence but correct minter arithmetic. Produces `v2_correct_state.csv` -- the definitive "correct world" for comparison.
 
 ### SPLRemediationTest.t.sol
 
-Forks at block 24699497 (last simulated event), runs the full remediation (grant roles, approve burns, remediate, restore, revoke), and verifies all 9 holders' sailETH (held + claimable) match `results/v2_correct_state.csv` within 1%. Produces `results/post_remediation.csv`.
+Forks at block 24699497 (last simulated event), runs the full remediation (grant roles, approve burns, remediate, restore, revoke), and verifies all 9 holders' sailETH (held + claimable) match `v2_correct_state.csv` within 1%. Produces `post_remediation.csv`.
 
 ### RebalanceCheck.t.sol
 
