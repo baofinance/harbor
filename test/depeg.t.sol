@@ -6,8 +6,6 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
-import "@harbor-test/Useful.sol";
-
 contract EverythingTest is TestStabilityPoolManagerSetUp {
     bool immutable isDepegged;
 

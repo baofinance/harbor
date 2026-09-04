@@ -11,8 +11,6 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
-
 import {console2} from "forge-std/console2.sol";
 
 abstract contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {

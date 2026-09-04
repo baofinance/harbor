@@ -17,7 +17,6 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
 import {TestGraphs} from "@harbor-test/Graphs.t.sol";
 

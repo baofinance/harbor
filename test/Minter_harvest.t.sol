@@ -14,7 +14,6 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterHarvestSetUp is TestMinterSetUp {

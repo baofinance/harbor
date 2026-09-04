@@ -12,7 +12,6 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 abstract contract TestMinterFeeRangeSetUp is TestMinterSetUp {

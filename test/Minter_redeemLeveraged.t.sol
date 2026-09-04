@@ -12,7 +12,6 @@ import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
 
 contract TestMinterRedeemLeveraged is TestMinterMint {

@@ -11,7 +11,8 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {Useful} from "@harbor-test/Useful.sol";
+import {BaoTestLib} from "@bao-test/BaoTestLib.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 import {console2} from "forge-std/console2.sol";
 
 /// @title Fairness gap scan over liquidation severity × leveraged fraction
@@ -100,16 +101,16 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 levGapPct
     ) internal {
         string[] memory cols = new string[](9);
-        cols[0] = Useful.toStringScaled(priceDropPct * 1e18, 18);
-        cols[1] = Useful.toStringScaled(levPct * 1e18, 18);
-        cols[2] = Useful.toStringScaled(liquidFracPct, 18);
-        cols[3] = Useful.toStringScaled(aliceWeekly, 18);
-        cols[4] = Useful.toStringScaled(bobWeekly, 18);
-        cols[5] = Useful.toStringScaled(collGapPct, 18);
-        cols[6] = Useful.toStringScaled(charlieWeekly, 18);
-        cols[7] = Useful.toStringScaled(daveWeekly, 18);
-        cols[8] = Useful.toStringScaled(levGapPct, 18);
-        vm.writeLine(CSV_FILE, Useful.join(cols, ","));
+        cols[0] = BaoTestLib.toStringScaled(priceDropPct * 1e18, 18);
+        cols[1] = BaoTestLib.toStringScaled(levPct * 1e18, 18);
+        cols[2] = BaoTestLib.toStringScaled(liquidFracPct, 18);
+        cols[3] = BaoTestLib.toStringScaled(aliceWeekly, 18);
+        cols[4] = BaoTestLib.toStringScaled(bobWeekly, 18);
+        cols[5] = BaoTestLib.toStringScaled(collGapPct, 18);
+        cols[6] = BaoTestLib.toStringScaled(charlieWeekly, 18);
+        cols[7] = BaoTestLib.toStringScaled(daveWeekly, 18);
+        cols[8] = BaoTestLib.toStringScaled(levGapPct, 18);
+        vm.writeLine(CSV_FILE, BaoTestLib.join(cols, ","));
     }
 
     // ── Gnuplot output ─────────────────────────────────────────────────
@@ -346,19 +347,19 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
                     console2.log(
                         string.concat(
                             "  drop=",
-                            Useful.toString(priceDropPct),
+                            LibString.toString(priceDropPct),
                             "% ",
                             "lev=",
-                            Useful.toString(levPct),
+                            LibString.toString(levPct),
                             "% ",
                             "liqFrac=",
-                            Useful.toStringScaled(liquidFracPct, 18),
+                            BaoTestLib.toStringScaled(liquidFracPct, 18),
                             "% | ",
                             "coll_gap=",
-                            Useful.toStringScaled(_gapPct(bobW, aliceW), 18),
+                            BaoTestLib.toStringScaled(_gapPct(bobW, aliceW), 18),
                             "% ",
                             "lev_gap=",
-                            Useful.toStringScaled(_gapPct(daveW, charlieW), 18),
+                            BaoTestLib.toStringScaled(_gapPct(daveW, charlieW), 18),
                             "%"
                         )
                     );
@@ -366,10 +367,10 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
                     console2.log(
                         string.concat(
                             "  drop=",
-                            Useful.toString(priceDropPct),
+                            LibString.toString(priceDropPct),
                             "% ",
                             "lev=",
-                            Useful.toString(levPct),
+                            LibString.toString(levPct),
                             "% ",
                             "-- CR still above threshold, no rebalance --"
                         )
@@ -432,15 +433,15 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 levGapPct
     ) internal {
         string[] memory cols = new string[](8);
-        cols[0] = Useful.toStringScaled(feePct, 18);
-        cols[1] = Useful.toStringScaled(liquidFracPct, 18);
-        cols[2] = Useful.toStringScaled(aliceWeekly, 18);
-        cols[3] = Useful.toStringScaled(bobWeekly, 18);
-        cols[4] = Useful.toStringScaled(collGapPct, 18);
-        cols[5] = Useful.toStringScaled(charlieWeekly, 18);
-        cols[6] = Useful.toStringScaled(daveWeekly, 18);
-        cols[7] = Useful.toStringScaled(levGapPct, 18);
-        vm.writeLine(FEE_CSV, Useful.join(cols, ","));
+        cols[0] = BaoTestLib.toStringScaled(feePct, 18);
+        cols[1] = BaoTestLib.toStringScaled(liquidFracPct, 18);
+        cols[2] = BaoTestLib.toStringScaled(aliceWeekly, 18);
+        cols[3] = BaoTestLib.toStringScaled(bobWeekly, 18);
+        cols[4] = BaoTestLib.toStringScaled(collGapPct, 18);
+        cols[5] = BaoTestLib.toStringScaled(charlieWeekly, 18);
+        cols[6] = BaoTestLib.toStringScaled(daveWeekly, 18);
+        cols[7] = BaoTestLib.toStringScaled(levGapPct, 18);
+        vm.writeLine(FEE_CSV, BaoTestLib.join(cols, ","));
     }
 
     function _writeFeeGnuplot() internal {
@@ -555,13 +556,13 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
             console2.log(
                 string.concat(
                     "  fee=",
-                    Useful.toString(feePct),
+                    LibString.toString(feePct),
                     "% | ",
                     "coll_gap=",
-                    Useful.toStringScaled(collGapPct, 18),
+                    BaoTestLib.toStringScaled(collGapPct, 18),
                     "% ",
                     "lev_gap=",
-                    Useful.toStringScaled(levGapPct, 18),
+                    BaoTestLib.toStringScaled(levGapPct, 18),
                     "%"
                 )
             );
@@ -694,13 +695,13 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 daveEq
     ) internal {
         string[] memory cols = new string[](6);
-        cols[0] = Useful.toStringScaled(feePct * 1 ether, 18);
-        cols[1] = Useful.toStringScaled(week * 1 ether, 18);
-        cols[2] = Useful.toStringScaled(aliceEq, 18);
-        cols[3] = Useful.toStringScaled(bobEq, 18);
-        cols[4] = Useful.toStringScaled(charlieEq, 18);
-        cols[5] = Useful.toStringScaled(daveEq, 18);
-        vm.writeLine(TL_CSV, Useful.join(cols, ","));
+        cols[0] = BaoTestLib.toStringScaled(feePct * 1 ether, 18);
+        cols[1] = BaoTestLib.toStringScaled(week * 1 ether, 18);
+        cols[2] = BaoTestLib.toStringScaled(aliceEq, 18);
+        cols[3] = BaoTestLib.toStringScaled(bobEq, 18);
+        cols[4] = BaoTestLib.toStringScaled(charlieEq, 18);
+        cols[5] = BaoTestLib.toStringScaled(daveEq, 18);
+        vm.writeLine(TL_CSV, BaoTestLib.join(cols, ","));
     }
 
     function _writeTimelineGnuplot() internal {
@@ -861,17 +862,17 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
                 console2.log(
                     string.concat(
                         "  fee=",
-                        Useful.toString(feePct),
+                        LibString.toString(feePct),
                         "% wk=",
-                        Useful.toString(w),
+                        LibString.toString(w),
                         " | alice=",
-                        Useful.toStringScaled(r.aliceEq, 18),
+                        BaoTestLib.toStringScaled(r.aliceEq, 18),
                         " bob=",
-                        Useful.toStringScaled(r.bobEq, 18),
+                        BaoTestLib.toStringScaled(r.bobEq, 18),
                         " charlie=",
-                        Useful.toStringScaled(r.charlieEq, 18),
+                        BaoTestLib.toStringScaled(r.charlieEq, 18),
                         " dave=",
-                        Useful.toStringScaled(r.daveEq, 18)
+                        BaoTestLib.toStringScaled(r.daveEq, 18)
                     )
                 );
             }
@@ -932,9 +933,9 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         console2.log(
             string.concat(
                 "Baseline (Scenario A, wk=12): bob=",
-                Useful.toStringScaled(baseline.bobEq, 18),
+                BaoTestLib.toStringScaled(baseline.bobEq, 18),
                 " dave=",
-                Useful.toStringScaled(baseline.daveEq, 18)
+                BaoTestLib.toStringScaled(baseline.daveEq, 18)
             )
         );
 
@@ -947,18 +948,18 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         console2.log(
             string.concat(
                 "Break-even fee (12 weeks, Coll SP): ",
-                Useful.toStringScaled(collBreakEven * 1e14, 16),
+                BaoTestLib.toStringScaled(collBreakEven * 1e14, 16),
                 "% (",
-                Useful.toString(collBreakEven),
+                LibString.toString(collBreakEven),
                 " bp)"
             )
         );
         console2.log(
             string.concat(
                 "Break-even fee (12 weeks, Lev SP):  ",
-                Useful.toStringScaled(levBreakEven * 1e14, 16),
+                BaoTestLib.toStringScaled(levBreakEven * 1e14, 16),
                 "% (",
-                Useful.toString(levBreakEven),
+                LibString.toString(levBreakEven),
                 " bp)"
             )
         );
@@ -969,16 +970,16 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         string[] memory cols = new string[](6);
 
         cols[0] = "Coll";
-        cols[1] = Useful.toStringScaled(collBreakEven, 16);
-        cols[2] = Useful.toStringScaled(TOTAL_WEEKS * 1 ether, 18);
-        cols[3] = Useful.toStringScaled(DESIGN_PRICE_DROP * 1 ether, 18);
-        cols[4] = Useful.toStringScaled(DESIGN_LEV_PCT * 1 ether, 18);
-        cols[5] = Useful.toStringScaled(FIXED_APR_PCT * 1 ether, 18);
-        vm.writeLine(BE_CSV, Useful.join(cols, ","));
+        cols[1] = BaoTestLib.toStringScaled(collBreakEven, 16);
+        cols[2] = BaoTestLib.toStringScaled(TOTAL_WEEKS * 1 ether, 18);
+        cols[3] = BaoTestLib.toStringScaled(DESIGN_PRICE_DROP * 1 ether, 18);
+        cols[4] = BaoTestLib.toStringScaled(DESIGN_LEV_PCT * 1 ether, 18);
+        cols[5] = BaoTestLib.toStringScaled(FIXED_APR_PCT * 1 ether, 18);
+        vm.writeLine(BE_CSV, BaoTestLib.join(cols, ","));
 
         cols[0] = "Lev";
-        cols[1] = Useful.toStringScaled(levBreakEven, 16);
-        vm.writeLine(BE_CSV, Useful.join(cols, ","));
+        cols[1] = BaoTestLib.toStringScaled(levBreakEven, 16);
+        vm.writeLine(BE_CSV, BaoTestLib.join(cols, ","));
 
         console2.log("");
         console2.log("Break-even CSV: %s", BE_CSV);

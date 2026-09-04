@@ -11,7 +11,7 @@ import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 // TODO: check what happens when safe price is invalid
@@ -182,14 +182,14 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver) - beforeMint,
                 uint256(fee),
                 2,
-                string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
+                string.concat(LibString.toString(i), "th iteration in step ", LibString.toString(step))
             );
         }
         assertApproxEqAbs(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver) - start,
             uint256(totalFee),
             tolerance,
-            Useful.toString(step)
+            LibString.toString(step)
         );
     }
 
@@ -250,12 +250,17 @@ contract TestMinterFees is TestMinterFeeSetUp {
             uint step = i + 1;
             // clog("step(run)", step);
             totalFee += _checkMintPeggedIntegral(mintStep[i], step, step * 2);
-            assertApproxEqAbs(totalFee, totalFees[i], step / 4, string.concat(Useful.toString(step), ", running sum"));
+            assertApproxEqAbs(
+                totalFee,
+                totalFees[i],
+                step / 4,
+                string.concat(LibString.toString(step), ", running sum")
+            );
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver),
                 totalFee,
                 0,
-                string.concat("step ", Useful.toString(step))
+                string.concat("step ", LibString.toString(step))
             );
         }
     }
@@ -332,7 +337,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         uint iTotalMint,
         uint step
     ) private returns (uint256 fee, uint256 discount, uint256 collateralUsed, uint256 leveragedMinted) {
-        // console2.log("mintLeveragedTokenDryRun in step %s...", Useful.toString(step));
+        // console2.log("mintLeveragedTokenDryRun in step %s...", LibString.toString(step));
         (, fee, discount, collateralUsed, leveragedMinted, , ) = IMinter(minter).mintLeveragedTokenDryRun(
             iTotalMint * 1 ether
         );
@@ -355,7 +360,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver) - before.feeReceiver,
                 one.fee,
                 0,
-                string.concat("fee calc in ", Useful.toString(i), "th iteration in step ", Useful.toString(step))
+                string.concat("fee calc in ", LibString.toString(i), "th iteration in step ", LibString.toString(step))
             );
             assertApproxEqAbs(
                 IERC20(leveragedToken).balanceOf(user) - before.userLeveraged,
@@ -363,9 +368,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat(
                     "leveraged minted calc in ",
-                    Useful.toString(i),
+                    LibString.toString(i),
                     "th iteration in step ",
-                    Useful.toString(step)
+                    LibString.toString(step)
                 )
             );
             assertApproxEqAbs(
@@ -374,9 +379,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat(
                     "collateral used calc in ",
-                    Useful.toString(i),
+                    LibString.toString(i),
                     "th iteration in step ",
-                    Useful.toString(step)
+                    LibString.toString(step)
                 )
             );
             assertEq(
@@ -389,13 +394,13 @@ contract TestMinterFees is TestMinterFeeSetUp {
             IERC20(Deployed.wstETH).balanceOf(feeReceiver) - beforeAll.feeReceiver,
             fee,
             0,
-            string.concat("fee calc in step ", Useful.toString(step))
+            string.concat("fee calc in step ", LibString.toString(step))
         );
         assertApproxEqAbs(
             beforeAll.userCollateral - IERC20(Deployed.wstETH).balanceOf(user),
             collateralUsed,
             0,
-            string.concat("collateral used calc in step", Useful.toString(step))
+            string.concat("collateral used calc in step", LibString.toString(step))
         );
         // Minting the whole amount in one call versus as sequential 1-ether mints diverges only by the per-band
         // fee/discount rounding that the leverage ratio amplifies (a reserve-pool discount, applied per sub-mint,
@@ -418,7 +423,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             leveragedMinted,
             0,
             _bandTransitions(config.mintLeveragedIncentiveConfig.incentiveRatios) * 100,
-            string.concat("leveraged minted calc in step ", Useful.toString(step))
+            string.concat("leveraged minted calc in step ", LibString.toString(step))
         );
         assertEq(
             beforeAll.reservePool - IERC20(Deployed.wstETH).balanceOf(reservePool),
@@ -503,13 +508,13 @@ contract TestMinterFees is TestMinterFeeSetUp {
             //     total.fee,
             //     totals[i].fee,
             //     0,
-            //     string.concat("step ", Useful.toString(i + 1), ", calculated fee")
+            //     string.concat("step ", LibString.toString(i + 1), ", calculated fee")
             // );
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver),
                 total.fee,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", actual fee")
+                string.concat("step ", LibString.toString(i + 1), ", actual fee")
             );
             // Cumulative actual minted versus the sum of per-step one-shot dry-runs: the same band-transition
             // path-independence drift, bounded relative to the total and scaled by the transition count.
@@ -518,19 +523,19 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 total.leveragedMinted,
                 0,
                 _bandTransitions(config.mintLeveragedIncentiveConfig.incentiveRatios) * 100,
-                string.concat("step ", Useful.toString(i + 1), ", actual minted")
+                string.concat("step ", LibString.toString(i + 1), ", actual minted")
             );
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(user),
                 before.userCollateral - total.collateralUsed,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", actual used")
+                string.concat("step ", LibString.toString(i + 1), ", actual used")
             );
             assertApproxEqAbs(
                 before.reservePool - IERC20(Deployed.wstETH).balanceOf(reservePool),
                 total.discount,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", actual reserve used")
+                string.concat("step ", LibString.toString(i + 1), ", actual reserve used")
             );
         }
     }
@@ -688,7 +693,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver) - before.feeReceiver,
                 one.fee,
                 0,
-                string.concat("fee calc in ", Useful.toString(i), "th iteration in step ", Useful.toString(step))
+                string.concat("fee calc in ", LibString.toString(i), "th iteration in step ", LibString.toString(step))
             );
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(user) - before.userCollateral,
@@ -696,9 +701,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat(
                     "collateral returned calc in ",
-                    Useful.toString(i),
+                    LibString.toString(i),
                     "th iteration in step ",
-                    Useful.toString(step)
+                    LibString.toString(step)
                 )
             );
             assertApproxEqAbs(
@@ -707,9 +712,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat(
                     "pegged redeemed calc in ",
-                    Useful.toString(i),
+                    LibString.toString(i),
                     "th iteration in step ",
-                    Useful.toString(step)
+                    LibString.toString(step)
                 )
             );
             assertEq(
@@ -717,9 +722,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 one.discount,
                 string.concat(
                     "redeemPegged one: reserve pool has given up some collateral in ",
-                    Useful.toString(i),
+                    LibString.toString(i),
                     "th iteration in step ",
-                    Useful.toString(step)
+                    LibString.toString(step)
                 )
             );
         }
@@ -727,19 +732,19 @@ contract TestMinterFees is TestMinterFeeSetUp {
             IERC20(Deployed.wstETH).balanceOf(feeReceiver) - beforeAll.feeReceiver,
             fee,
             0,
-            string.concat("fee calc in step ", Useful.toString(step))
+            string.concat("fee calc in step ", LibString.toString(step))
         );
         assertApproxEqAbs(
             IERC20(Deployed.wstETH).balanceOf(user) - beforeAll.userCollateral,
             collateralReturned,
             0,
-            string.concat("collateral returned calc in step ", Useful.toString(step))
+            string.concat("collateral returned calc in step ", LibString.toString(step))
         );
         assertApproxEqAbs(
             beforeAll.userPegged - IERC20(peggedToken).balanceOf(user),
             peggedRedeemed,
             0,
-            string.concat("pegged redeemed calc in step ", Useful.toString(step))
+            string.concat("pegged redeemed calc in step ", LibString.toString(step))
         );
         assertEq(
             beforeAll.reservePool - IERC20(Deployed.wstETH).balanceOf(reservePool),
@@ -813,37 +818,37 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 total.fee,
                 totals[i].fee,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", calculated fee")
+                string.concat("step ", LibString.toString(i + 1), ", calculated fee")
             );
             assertApproxEqAbs(
                 total.discount,
                 totals[i].discount,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", calculated discount")
+                string.concat("step ", LibString.toString(i + 1), ", calculated discount")
             );
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver),
                 total.fee,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", actual fee")
+                string.concat("step ", LibString.toString(i + 1), ", actual fee")
             );
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(user) - before.userCollateral,
                 total.collateralReturned,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", actual returned")
+                string.concat("step ", LibString.toString(i + 1), ", actual returned")
             );
             assertApproxEqAbs(
                 IERC20(peggedToken).balanceOf(user),
                 before.userPegged - total.peggedRedeemed,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", actual redemption")
+                string.concat("step ", LibString.toString(i + 1), ", actual redemption")
             );
             assertApproxEqAbs(
                 before.reservePool - IERC20(Deployed.wstETH).balanceOf(reservePool),
                 total.discount,
                 0,
-                string.concat("step ", Useful.toString(i + 1), ", actual reserve used")
+                string.concat("step ", LibString.toString(i + 1), ", actual reserve used")
             );
         }
     }
@@ -920,7 +925,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver) - beforeRedeem,
                 oneFee,
                 2,
-                string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
+                string.concat(LibString.toString(i), "th iteration in step ", LibString.toString(step))
             );
             // if (log) clog("    extra fees received so far", IERC20(Deployed.wstETH).balanceOf(feeReceiver) - start);
         }
@@ -930,7 +935,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             IERC20(Deployed.wstETH).balanceOf(feeReceiver) - start,
             fee,
             tolerance,
-            Useful.toString(step)
+            LibString.toString(step)
         );
         // console2.log("_checkRedeemLeveragedIntegral() -> %s", fee);
     }
@@ -978,14 +983,14 @@ contract TestMinterFees is TestMinterFeeSetUp {
             uint step = i + 1;
             // clog("step(run)", step);
             fee += _checkRedeemLeveragedIntegral(redeemStep[i], step, 0);
-            assertApproxEqAbs(fee, totalFees[i], 0, string.concat(Useful.toString(step), ", running sum"));
+            assertApproxEqAbs(fee, totalFees[i], 0, string.concat(LibString.toString(step), ", running sum"));
             // TODO: should this check against the reserve pool balance?
             assertEq(fee, totalFees[i]);
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver),
                 totalFees[i],
                 0,
-                string.concat("step ", Useful.toString(step))
+                string.concat("step ", LibString.toString(step))
             );
         }
     }

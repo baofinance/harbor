@@ -14,7 +14,7 @@ import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
 
 contract TestMinterMintLeveraged is TestMinterMint {
@@ -597,7 +597,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             assertEq(
                 oneOfMint,
                 oneMint / multiples,
-                string.concat("first mint not exactly linear, ", Useful.toString(i))
+                string.concat("first mint not exactly linear, ", LibString.toString(i))
             );
             sum += oneOfMint;
 

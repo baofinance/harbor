@@ -8,7 +8,6 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
 
 contract TestMinterLiquidate is TestMinterFeeSetUp {

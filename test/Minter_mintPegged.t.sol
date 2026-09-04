@@ -12,7 +12,8 @@ import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
+import {console2} from "forge-std/console2.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
 
 contract TestMinterMintPegged is TestMinterMint {
@@ -302,21 +303,21 @@ contract TestMinterMintPegged is TestMinterMint {
             console2.log(
                 string.concat(
                     "PROBE c=",
-                    Useful.toString(c),
+                    LibString.toString(c),
                     " fee=",
-                    Useful.toString(wf),
+                    LibString.toString(wf),
                     " feeFloor=",
-                    Useful.toString(feeFloor),
+                    LibString.toString(feeFloor),
                     " rem/1e15=",
-                    Useful.toString(feeRem / 1e15)
+                    LibString.toString(feeRem / 1e15)
                 )
             );
             console2.log(
                 string.concat(
                     "PROBE   minted=",
-                    Useful.toString(pm),
+                    LibString.toString(pm),
                     " mintedNum%1e36=",
-                    Useful.toString(mintedExactNum % 1e36)
+                    LibString.toString(mintedExactNum % 1e36)
                 )
             );
         }

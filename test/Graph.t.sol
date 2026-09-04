@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import "@harbor-test/Useful.sol";
+import {BaoTestLib} from "@bao-test/BaoTestLib.sol";
 
 abstract contract TestGraph is Test {
     int256 NaN = type(int256).max;
@@ -37,22 +37,22 @@ abstract contract TestGraph is Test {
     function openFile(string memory name, string[] memory header) internal returns (string memory file) {
         file = string.concat("./results/", string.concat(name, context()), ".csv");
         if (vm.exists(file)) vm.removeFile(file);
-        vm.writeLine(file, Useful.join(header, ","));
+        vm.writeLine(file, BaoTestLib.join(header, ","));
     }
 
     function writeLine(string memory file, int[] memory data) internal {
         string[] memory strData = new string[](data.length);
         for (uint i = 0; i < data.length; i++) {
-            strData[i] = data[i] == NaN ? "NaN" : Useful.toStringScaled(data[i], 18);
+            strData[i] = data[i] == NaN ? "NaN" : BaoTestLib.toStringScaled(data[i], 18);
         }
-        vm.writeLine(file, Useful.join(strData, ","));
+        vm.writeLine(file, BaoTestLib.join(strData, ","));
     }
 
     function writeLine(string memory file, uint[] memory data) internal {
         string[] memory strData = new string[](data.length);
         for (uint i = 0; i < data.length; i++) {
-            strData[i] = data[i] == uNaN ? "NaN" : Useful.toStringScaled(data[i], 18);
+            strData[i] = data[i] == uNaN ? "NaN" : BaoTestLib.toStringScaled(data[i], 18);
         }
-        vm.writeLine(file, Useful.join(strData, ","));
+        vm.writeLine(file, BaoTestLib.join(strData, ","));
     }
 }

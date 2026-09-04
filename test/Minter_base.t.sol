@@ -25,7 +25,7 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "@harbor-test/IBaoUSD.sol";
-import "@harbor-test/Useful.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 import {Array} from "@harbor-test/Array.sol";
 
 import {ConfigFile} from "@harbor-test/Config.sol";
@@ -38,7 +38,7 @@ import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
-contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
+contract TestMinterSetUp is BaoTest, Array, ConfigFile, HarborDeployRun {
     constructor() HarborDeployRun(makeAddr("owner"), makeAddr("feeReceiver"), "minter_test", "mainnet") {}
 
     address minter;
@@ -266,7 +266,7 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
             assertEq(
                 actual.collateralRatioBandUpperBounds[i],
                 expected.collateralRatioBandUpperBounds[i],
-                string.concat(name, " collateralRatioBandUpperBounds[", Useful.toString(i), "] differ")
+                string.concat(name, " collateralRatioBandUpperBounds[", LibString.toString(i), "] differ")
             );
         }
         assertEq(actual.incentiveRatios.length, expected.incentiveRatios.length, "incentiveRatios.length differ ");
@@ -274,7 +274,7 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
             assertEq(
                 actual.incentiveRatios[i],
                 expected.incentiveRatios[i],
-                string.concat(name, " incentiveRatios[", Useful.toString(i), "] differ")
+                string.concat(name, " incentiveRatios[", LibString.toString(i), "] differ")
             );
         }
     }

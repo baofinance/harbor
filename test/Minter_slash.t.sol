@@ -11,7 +11,6 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 /// How the protocol responds to the collateral it holds losing value, and how collateral given to it

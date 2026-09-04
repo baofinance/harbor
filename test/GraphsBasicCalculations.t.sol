@@ -10,7 +10,6 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {TestGraphs} from "@harbor-test/Graphs.t.sol";
 

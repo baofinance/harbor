@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-import "@harbor-test/Useful.sol";
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
 import {TestGraphs} from "@harbor-test/Graphs.t.sol";
 

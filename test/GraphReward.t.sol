@@ -12,7 +12,6 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import "@harbor-test/Useful.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 import {TestGraph} from "@harbor-test/Graph.t.sol";
