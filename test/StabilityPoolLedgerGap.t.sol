@@ -12,6 +12,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
+import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
@@ -27,7 +28,7 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 ///
 /// Results are written as CSVs to ./results/sp-ledger-gap-*.csv (one file per test — forge runs
 /// tests in parallel and files are never removed).
-contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPoolConservation {
+contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, MockStabilityPoolConservation {
     using DecrementalFloatingPoint_v2 for uint128;
 
     uint256 internal constant ONE = 1 ether; // the 1e18 per-unit-staked precision of _notifyLoss
@@ -110,8 +111,10 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
     ///   Σbal ≈ S·(1e18−2)/1e18 (± 1 wei flooring per actor) ; supply = S − L1
     ///   gap = supply − Σbal = (2·S − L1·1e18)/1e18  (± actors + 1 wei)
     function test_gap_errorRecipe_reachesBound() public {
-        string memory csv = "./results/sp-ledger-gap-recipe.csv";
-        vm.writeFile(csv, "t,gapAfterL1,expectedGap,gapAfterAbsorb,boundTOver1e18\n");
+        string memory csv = openFile(
+            "sp-ledger-gap-recipe",
+            sa("t", "gapAfterL1", "expectedGap", "gapAfterAbsorb", "boundTOver1e18")
+        );
 
         uint256[5] memory ts = [uint256(1e20), 1e22, 1e24, 1e27, 1e30];
         for (uint256 k = 0; k < ts.length; k++) {
@@ -158,8 +161,7 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
     /// and many small losses (error-queue churn). Every measurement must sit inside the derived
     /// bound: maxSupplyEver/1e18 (outstanding over-application) + 1 wei per balance store event.
     function test_gap_tSweep_lossPatterns() public {
-        string memory csv = "./results/sp-ledger-gap-tsweep.csv";
-        vm.writeFile(csv, "t,pattern,gap,bound\n");
+        string memory csv = openFile("sp-ledger-gap-tsweep", sa("t", "pattern", "gap", "bound"));
 
         uint256[5] memory ts = [uint256(1e19), 1e22, 1e24, 1e27, 1e31];
         for (uint256 k = 0; k < ts.length; k++) {
@@ -207,8 +209,7 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
     /// contributes its 1-wei-scale flooring. Bound: maxSupplyEver/1e18 + one store per deposit +
     /// one per checkpoint.
     function test_gap_nSweep_userFlooring() public {
-        string memory csv = "./results/sp-ledger-gap-nsweep.csv";
-        vm.writeFile(csv, "n,shape,gap,bound\n");
+        string memory csv = openFile("sp-ledger-gap-nsweep", sa("n", "shape", "gap", "bound"));
 
         // n capped at 100 with a larger average deposit (t/n = 1e25) — the per-user flooring term
         // is t-independent and the linearity test licenses extrapolation beyond the grid.
@@ -253,8 +254,7 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
     /// batches of churn between fresh losses so the product keeps moving (a checkpoint with an
     /// unchanged product is a no-op and floors nothing).
     function test_gap_checkpointLinearity() public {
-        string memory csv = "./results/sp-ledger-gap-linearity.csv";
-        vm.writeFile(csv, "events,gapDriftFromStart\n");
+        string memory csv = openFile("sp-ledger-gap-linearity", sa("events", "gapDriftFromStart"));
 
         uint256 t = 1e24;
         address[] memory actors = _mkActors(10);
@@ -286,8 +286,10 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
     /// supply divisor would strand across the gap. Then absorb the error (gap → ~0) and confirm a second stream
     /// also mis-credits ~nothing.
     function test_misCredit_streamOverGap() public {
-        string memory csv = "./results/sp-ledger-gap-miscredit.csv";
-        vm.writeFile(csv, "phase,gap,injected,credited,misCredit,predicted\n");
+        string memory csv = openFile(
+            "sp-ledger-gap-miscredit",
+            sa("phase", "gap", "injected", "credited", "misCredit", "predicted")
+        );
 
         uint256 t = 1e24;
         address[] memory actors = _mkActors(3);
