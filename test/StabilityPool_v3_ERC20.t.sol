@@ -11,7 +11,7 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 import {DeployEURSetUp} from "@harbor-test/deployment/DeployEURSetUp.t.sol";
-import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
+import {PermitTestBase} from "@bao-test/PermitTestBase.t.sol";
 import {Array} from "@harbor-test/Array.sol";
 
 /// @title TestStabilityPool_v3_ERC20

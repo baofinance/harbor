@@ -14,8 +14,8 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
-import {TestGraph} from "@harbor-test/Graph.t.sol";
-abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
+import {GraphSweepTestBase} from "@bao-test/GraphTestBase.t.sol";
+abstract contract TestGraphReward is GraphSweepTestBase, TestStabilityPoolSetUp {
     string rewardFile;
     uint256 initialPoolDeposit;
 

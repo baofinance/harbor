@@ -18,9 +18,9 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
-import {TestGraphs} from "@harbor-test/Graphs.t.sol";
+import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 
-contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp {
+contract TestGraphsLiquidatePartial is GraphTestBase, TestCollateralRatioRangeSetUp {
     string liquidateFile;
     address stabilityPoolManagerCollateral;
     address stabilityPoolManagerLeveraged;
@@ -177,7 +177,7 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
     }
 }
 
-contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
+contract TestGraphsLiquidate is GraphTestBase, TestCollateralRatioRangeSetUp {
     string liquidateFile;
     string toFile;
     address stabilityPoolManager;
@@ -405,7 +405,7 @@ contract TestGraphsLiquidatePartialBoth51 is TestGraphsLiquidate {
 
 //////////////////////
 
-contract TestGraphsLiquidateParameters is TestGraphs, TestCollateralRatioRangeSetUp {
+contract TestGraphsLiquidateParameters is GraphTestBase, TestCollateralRatioRangeSetUp {
     string file;
 
     function setUpConfig() internal virtual override {

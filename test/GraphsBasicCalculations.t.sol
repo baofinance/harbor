@@ -11,9 +11,9 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
-import {TestGraphs} from "@harbor-test/Graphs.t.sol";
+import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 
-contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
+contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, GraphTestBase {
     // TODO: collateral ratio
     // TODO: leveraged Ratio
     // TODO: pegged price on depeg

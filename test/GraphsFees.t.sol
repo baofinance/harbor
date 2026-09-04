@@ -7,9 +7,9 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
-import {TestGraphs} from "@harbor-test/Graphs.t.sol";
+import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 
-contract TestGraphsFees is TestGraphs, TestCollateralRatioRangeSetUp {
+contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
     string feesFile;
     string fees1File;
     function setUpConfig() internal virtual override {
