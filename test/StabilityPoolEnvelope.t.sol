@@ -354,9 +354,9 @@ abstract contract StabilityPoolEnvelopeBase is
     /// the rate is free to widen the wrapped amounts across the whole declared range without also deciding whether
     /// the market is solvent.
     ///
-    /// The rate is set first and the price derived afterwards because the rate alone decides which side of the
-    /// `min()` the backing comes from - the price does not enter that comparison - so the backing is settled before
-    /// the price depends on it and there is nothing to iterate towards.
+    /// The derivation itself is `HarborTestActions.setCollateralRatioByRate`, shared with any suite that needs to
+    /// reach the impaired branch; this wrapper keeps the envelope's own `currentPrice` / `currentRate` in step with it
+    /// and declares the peg price the feasibility check is expressed against.
     /// @param targetCollateralRatio The collateral ratio the market should sit at, 1e18-scaled.
     /// @param wrapRate The wrapped-to-underlying rate, used directly as the oracle rate.
     /// @param pegPriceUSD The peg's $ price, which the derived collateral price is expressed against.
@@ -365,36 +365,16 @@ abstract contract StabilityPoolEnvelopeBase is
         uint256 wrapRate,
         uint256 pegPriceUSD
     ) internal {
-        // the rate first: the recognised backing depends on it, and not on the price it is read at
         currentRate = wrapRate;
-        mockOracle.setLatestAnswer(currentPrice, currentRate);
+        currentPrice = setCollateralRatioByRate(minter, address(mockOracle), targetCollateralRatio, wrapRate);
 
-        uint256 backing = IMinter(minter).collateralTokenBalance(); // recognised: min(record, held x rate)
-        uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
-        assertGt(backing, 0, "a market with no recognised backing has no collateral ratio to target");
-        assertGt(peggedBalance, 0, "a market with no anchor issued has no collateral ratio to target");
-
-        // collateralRatio is backing x price / peggedBalance, so the price that lands on the target inverts it
-        currentPrice = Math.mulDiv(targetCollateralRatio, peggedBalance, backing);
-
-        // The rate range is declared independently of the collateral price range, so not every pairing of ratio and
-        // rate is expressible: holding a ratio while the rate falls demands a price rise of the same factor. Say so
-        // here rather than silently landing the market at whatever ratio the clamped price produces.
+        // The envelope declares a collateral-price range independently of its rate range, so not every pairing of
+        // ratio and rate is expressible: holding a ratio while the rate falls demands a price rise of the same factor.
+        // Say so rather than leaving the market at a price the suite never claimed to cover.
         uint256 impliedCollateralUSD = Math.mulDiv(currentPrice, pegPriceUSD, 1 ether);
         Envelope memory e = buildEnvelope();
         assertGe(impliedCollateralUSD, e.minCollateralUSD, "the ratio needs a collateral price below the envelope");
         assertLe(impliedCollateralUSD, e.maxCollateralUSD, "the ratio needs a collateral price above the envelope");
-
-        mockOracle.setLatestAnswer(currentPrice, currentRate);
-
-        // The derived price floors, contributing at most `backing / peggedBalance` to the ratio it produces, and the
-        // ratio's own division floors by at most one - so the achieved ratio sits within that of the target.
-        assertApproxEqAbs(
-            IMinter(minter).collateralRatio(),
-            targetCollateralRatio,
-            Math.ceilDiv(backing, peggedBalance) + 1,
-            "the derived price puts the market at the requested collateral ratio"
-        );
     }
 
     // ─── actors ───

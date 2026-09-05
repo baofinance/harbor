@@ -8,7 +8,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -78,4 +81,57 @@ abstract contract HarborTestActions {
         }
         _vm.stopPrank();
     }
+
+    /// @notice Move a market to `targetCollateralRatio` by choosing the wrap rate and letting the collateral price
+    /// absorb the difference. Returns the price it derived.
+    ///
+    /// @dev The rate is the independent variable, and the price the derived one, for a reason that decides what this
+    /// helper can reach at all: the recognised backing is `min(record, held x rate)`, and the price does not appear in
+    /// that comparison. So only the rate selects which branch the market is on, and a price-driven move is
+    /// structurally incapable of reaching the impaired branch — at any collateral ratio, however wide the sweep.
+    ///
+    /// Setting the rate first is what makes the derivation closed-form: the backing settles before the price is
+    /// computed from it, so there is nothing to iterate towards. The reverse direction is closed-form too
+    /// (`rate = ratio x pegged / (held x price)`) but is only valid if the resulting rate keeps the market on the
+    /// impaired branch, so it assumes a branch and must then check it.
+    ///
+    /// Preconditions and the achieved ratio are enforced with `require` rather than an assertion, because this stays a
+    /// mixin with no test-base dependency. Feasibility of the derived price is the caller's to judge and is why the
+    /// price is returned: a suite that declares its own collateral-price range asserts against it on the way out,
+    /// rather than passing that range down through a parameter this mixin could not name or a field it would have to
+    /// remember between calls.
+    ///
+    /// @param minter The market to move.
+    /// @param oracle The market's mock price oracle.
+    /// @param targetCollateralRatio The collateral ratio the market should sit at, 1e18-scaled.
+    /// @param wrapRate The wrapped-to-underlying rate, used directly as the oracle rate.
+    function setCollateralRatioByRate(
+        address minter,
+        address oracle,
+        uint256 targetCollateralRatio,
+        uint256 wrapRate
+    ) internal returns (uint256 collateralPrice) {
+        // The rate first: the recognised backing depends on it, and not on the price it is read at.
+        (uint256 priceBefore, , , ) = IWrappedPriceOracle(oracle).latestAnswer();
+        MockWrappedPriceOracle(oracle).setLatestAnswer(priceBefore, wrapRate);
+
+        uint256 backing = IMinter(minter).collateralTokenBalance(); // recognised: min(record, held x rate)
+        uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
+        require(backing > 0, "a market with no recognised backing has no collateral ratio to target");
+        require(peggedBalance > 0, "a market with no anchor issued has no collateral ratio to target");
+
+        // collateralRatio is backing x price / peggedBalance, so the price that lands on the target inverts it
+        collateralPrice = Math.mulDiv(targetCollateralRatio, peggedBalance, backing);
+        MockWrappedPriceOracle(oracle).setLatestAnswer(collateralPrice, wrapRate);
+
+        // The derived price floors, contributing at most `backing / peggedBalance` to the ratio it produces, and the
+        // ratio's own division floors by at most one - so the achieved ratio sits within that of the target.
+        uint256 tolerance = Math.ceilDiv(backing, peggedBalance) + 1;
+        uint256 achieved = IMinter(minter).collateralRatio();
+        require(
+            achieved + tolerance >= targetCollateralRatio && achieved <= targetCollateralRatio + tolerance,
+            "the derived price does not put the market at the requested collateral ratio"
+        );
+    }
+
 }
