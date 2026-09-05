@@ -13,6 +13,7 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
@@ -235,6 +236,55 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 1 ether);
         // (4) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 10, "collateral ratio should still be 140");
+    }
+
+    /// A rebalance that converts the leveraged pool's anchor into sail leaves the sail price alone,
+    /// so long as the conversion is fair. Issuing `anchorValue / sailPrice` sail lifts the residual
+    /// and the supply by the same factor, so the price divides out - which is why an unbounded
+    /// conversion moves no value between the pool and existing sail holders.
+    ///
+    /// This is the property the conversion bound breaks: below the price at which the bound engages
+    /// the pool receives less sail than fairness requires, and the price rises for everyone else. The
+    /// test therefore asserts it is in the unbounded regime first, since the claim is empty otherwise.
+    ///
+    /// Paired with a collateral price move, which must move the sail price: without that control an
+    /// equality that holds because nothing could move the price is indistinguishable from one that
+    /// holds because the conversion is fair.
+    function test_rebalance_leavesLeveragedPriceUnchanged_whenUnbounded() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(9 ether, 3 ether); // collateral ratio 12/9 = 1.33
+        setUp_collateral(2 ether, 0 ether, user1); // 14/11 = 1.27, under the 1.3 rebalance threshold
+
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolLeveraged).deposit(2 * price, user1, 0);
+        vm.stopPrank();
+
+        // The bound engages on the reported leverage ratio saturating, so a ratio strictly under the
+        // cap is what "unbounded" means here.
+        assertLt(
+            IMinter(minter).leverageRatio(),
+            MinterValuationLib.LEVERAGE_RATIO_CAP,
+            "the conversion must be unbounded for fairness to be the claim under test"
+        );
+
+        uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
+        assertGt(leveragedPriceBefore, 0, "the sail needs a price for this to assert anything");
+
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
+
+        assertEq(
+            IMinter(minter).leveragedTokenPrice(),
+            leveragedPriceBefore,
+            "a fair conversion moved the sail price"
+        );
+
+        // the control: the collateral price is the one input that may move the sail price
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer((price * 110) / 100);
+        assertNotEq(
+            IMinter(minter).leveragedTokenPrice(),
+            leveragedPriceBefore,
+            "a collateral price move must move the sail price, or the assertion above proves nothing"
+        );
     }
 
     function test_liquidateLeveraged() public {

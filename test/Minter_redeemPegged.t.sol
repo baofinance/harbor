@@ -780,4 +780,94 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IERC20(peggedToken).balanceOf(sender), 0, "transferred it all");
 */
     }
+
+    /// Redeeming the anchor token for collateral does not move the sail token's price - the redeem
+    /// removes collateral and anchor claims in the same proportion, so the residual the sail is a
+    /// claim on is unchanged - while a move in the collateral price does move it.
+    ///
+    /// Both halves are asserted together because the first alone cannot fail loudly enough to be
+    /// trusted: an equality that holds because nothing in the setup could ever move the price looks
+    /// identical to one that holds because the redeem is genuinely neutral. The second half is the
+    /// control that tells them apart, on every run rather than once.
+    ///
+    /// Neutrality is claimed for the free path; a fee is the one thing that legitimately dilutes, and
+    /// then only the payer.
+    function test_freeRedeemPeggedToken_leavesLeveragedPriceUnchanged() public {
+        setUp_collateral(1 ether, 1 ether); // both tokens issued, so the sail has a price to move
+
+        uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
+        assertGt(leveragedPriceBefore, 0, "the sail needs a price for this to assert anything");
+
+        uint256 anchorToRedeem = IERC20(peggedToken).balanceOf(zeroFee) / 2;
+        assertGt(anchorToRedeem, 0, "nothing to redeem");
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, anchorToRedeem);
+        IMinter(minter).freeRedeemPeggedToken(anchorToRedeem, 0, receiver);
+        vm.stopPrank();
+
+        assertEq(
+            IMinter(minter).leveragedTokenPrice(),
+            leveragedPriceBefore,
+            "redeeming the anchor moved the sail price"
+        );
+
+        // the control: the collateral price is the one input that may move the sail price
+        (uint256 collateralPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer((collateralPrice * 110) / 100);
+        assertNotEq(
+            IMinter(minter).leveragedTokenPrice(),
+            leveragedPriceBefore,
+            "a collateral price move must move the sail price, or the assertion above proves nothing"
+        );
+    }
+
+    /// Paying a redeem fee does not move the sail price either, so a fee dilutes only the payer. The
+    /// fee is withheld from the collateral returned, so what leaves the minter and the anchor burnt
+    /// stay in the proportion that leaves the residual untouched; the payer simply receives less.
+    ///
+    /// The fee is asserted non-zero, because a configuration with no fee would make this the free-path
+    /// test again under a name claiming otherwise. The reserve pool is asserted empty, because a
+    /// discount drawn from it would add collateral from outside the market and move the price for a
+    /// reason that has nothing to do with the redeem's own proportions.
+    function test_redeemPeggedToken_leavesLeveragedPriceUnchanged_whenFeePaid() public {
+        setUp_collateral(1 ether, 1 ether); // both tokens issued, so the sail has a price to move
+
+        uint256 anchorToRedeem = IERC20(peggedToken).balanceOf(zeroFee) / 2;
+        assertGt(anchorToRedeem, 0, "nothing to redeem");
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).transfer(sender, anchorToRedeem);
+        vm.stopPrank();
+
+        vm.startPrank(sender);
+        IERC20(peggedToken).approve(minter, anchorToRedeem);
+        vm.stopPrank();
+        assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole), "the payer must not be fee-exempt");
+        assertEq(IERC20(Deployed.wstETH).balanceOf(reservePool), 0, "a discount would move the price by other means");
+
+        (, uint256 fee, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(anchorToRedeem);
+        assertGt(fee, 0, "a fee of zero would make this the free path under another name");
+
+        uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
+        assertGt(leveragedPriceBefore, 0, "the sail needs a price for this to assert anything");
+
+        vm.startPrank(sender);
+        IMinter(minter).redeemPeggedToken(anchorToRedeem, sender, 0);
+        vm.stopPrank();
+
+        assertEq(
+            IMinter(minter).leveragedTokenPrice(),
+            leveragedPriceBefore,
+            "a fee-paying anchor redeem diluted the sail holders"
+        );
+
+        // the control: the collateral price is the one input that may move the sail price
+        (uint256 collateralPrice2, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer((collateralPrice2 * 110) / 100);
+        assertNotEq(
+            IMinter(minter).leveragedTokenPrice(),
+            leveragedPriceBefore,
+            "a collateral price move must move the sail price, or the assertion above proves nothing"
+        );
+    }
 }
