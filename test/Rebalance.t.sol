@@ -5,7 +5,7 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
@@ -70,7 +70,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         IBaoOwnable(stabilityPoolManagerLeveraged).transferOwnership(owner());
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
+        uint256 zeroFeeRole = IMinter_v3(minter).ZERO_FEE_ROLE();
 
         // Grant roles
         vm.startPrank(owner());
@@ -138,7 +138,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
 
         // 130% = 13/10
         setUp_collateral(0 ether, 4 ether); // cr=12/9 = 133%
-        uint256 startCR = IMinter(minter).collateralRatio(); // 1421052631578947368
+        uint256 startCR = IMinter_v3(minter).collateralRatio(); // 1421052631578947368
 
         // not in rebalance mode
         vm.expectRevert(
@@ -150,7 +150,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (5) ------------------------------------------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), startCR);
+        assertEq(IMinter_v3(minter).collateralRatio(), startCR);
 
         // mint more pegged to move CR
         setUp_collateral(5 ether, 0 ether); // cr =18/14 = 129%
@@ -164,7 +164,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
-        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
+        assertEq(IMinter_v3(minter).collateralRatio(), uint256(12 ether) / 9);
 
         // mint pegged
         setUp_collateral(2 ether, 0 ether, user1); // cr =14/11 = 127%
@@ -177,7 +177,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         uint256 poolPegged = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
         uint256 poolCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
         uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolCollateral);
-        assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR");
+        assertEq(IMinter_v3(minter).collateralRatio(), uint256(14 ether) / 11, "start CR");
 
         uint256 liquidated;
         vm.expectRevert(
@@ -194,7 +194,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // liquidate it
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (2) --------------------------------------------------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130");
+        assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130");
         assertEq(liquidated, 1 * price, "wrong amount of pegged 1");
         assertEq(
             poolPegged - IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
@@ -222,7 +222,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (3) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
+        assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
 
         // move the CR up a bit, liquidate it, with no effect
         setUp_collateral(0 ether, 1 ether); // cr=14/10 = 140%
@@ -235,7 +235,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 1 ether);
         // (4) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 10, "collateral ratio should still be 140");
+        assertEq(IMinter_v3(minter).collateralRatio(), uint256(14 ether) / 10, "collateral ratio should still be 140");
     }
 
     /// A rebalance that converts the leveraged pool's anchor into sail leaves the sail price alone,
@@ -262,18 +262,18 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // The bound engages on the reported leverage ratio saturating, so a ratio strictly under the
         // cap is what "unbounded" means here.
         assertLt(
-            IMinter(minter).leverageRatio(),
+            IMinter_v3(minter).leverageRatio(),
             MinterValuationLib.LEVERAGE_RATIO_CAP,
             "the conversion must be unbounded for fairness to be the claim under test"
         );
 
-        uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
+        uint256 leveragedPriceBefore = IMinter_v3(minter).leveragedTokenPrice();
         assertGt(leveragedPriceBefore, 0, "the sail needs a price for this to assert anything");
 
         IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
 
         assertEq(
-            IMinter(minter).leveragedTokenPrice(),
+            IMinter_v3(minter).leveragedTokenPrice(),
             leveragedPriceBefore,
             "a fair conversion moved the sail price"
         );
@@ -281,7 +281,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // the control: the collateral price is the one input that may move the sail price
         MockWrappedPriceOracle(priceOracle).setLatestAnswer((price * 110) / 100);
         assertNotEq(
-            IMinter(minter).leveragedTokenPrice(),
+            IMinter_v3(minter).leveragedTokenPrice(),
             leveragedPriceBefore,
             "a collateral price move must move the sail price, or the assertion above proves nothing"
         );
@@ -291,7 +291,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
-        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
+        assertEq(IMinter_v3(minter).collateralRatio(), uint256(12 ether) / 9);
 
         // mint pegged
         setUp_collateral(2 ether, 0 ether, user1); // cr =14/11 = 127%
@@ -304,7 +304,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         uint256 poolPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged); // 2 * price
         uint256 poolCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged); // 0
         uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged); // 0
-        assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR"); // 127%
+        assertEq(IMinter_v3(minter).collateralRatio(), uint256(14 ether) / 11, "start CR"); // 127%
 
         uint256 expected = 461538461538461538462; // taken from a previous run
         uint256 liquidated;
@@ -322,7 +322,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // liquidate it 0.23 * price vs 1 * price for liquidate to collateral
         liquidated = IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
         // (2) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130");
+        assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130");
         assertEq(liquidated, expected, "wrong amount of pegged");
         assertEq(
             poolPegged - IERC20(peggedToken).balanceOf(stabilityPoolLeveraged),
@@ -340,7 +340,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             1e3, // 461538461538461537802 != 461538461538461538462
             "wrong amount of leveraged"
         );
-        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
+        assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
 
         // collateral ratio has gone to stability, liquidate it, with no effect
         vm.expectRevert(
@@ -352,11 +352,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
         // (3) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
+        assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
 
         // move the CR up a bit, liquidate it, with no effect
         setUp_collateral(0 ether, 2 ether);
-        uint256 beforeCR = IMinter(minter).collateralRatio();
+        uint256 beforeCR = IMinter_v3(minter).collateralRatio();
         assertGt(beforeCR, 1.3 ether);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -367,6 +367,6 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 1 ether);
         // (4) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), beforeCR, "collateral ratio should still be 140");
+        assertEq(IMinter_v3(minter).collateralRatio(), beforeCR, "collateral ratio should still be 140");
     }
 }

@@ -222,8 +222,10 @@ interface IMinter_v3 is IToken {
     ///
     /// Special cases:
     /// - If both collateral and pegged tokens are zero: Returns 1 ether (to avoid discontinuity when first minting)
-    /// - If pegged tokens are zero but collateral exists: Returns a very large number (1 ether * 1 ether * 1 ether)
-    /// - If collateral price is zero: Returns 1 ether * 1 ether
+    /// - If pegged tokens are zero but collateral exists: Returns 1 ether * 1 ether, encoding +infinity
+    /// - A zero collateral price reverts with ZeroOraclePrice rather than being reported as a ratio. A ratio of zero
+    ///   says the system is wholly undercollateralised, which is a call to act; a dead feed must not be able to say
+    ///   it.
     ///
     /// This value is used for critical system operations like rebalancing, especially in depegged scenarios.
     /// For the real market value of the pegged token, see peggedTokenPrice() instead.
@@ -233,11 +235,39 @@ interface IMinter_v3 is IToken {
     function leverageRatio() external view returns (uint256);
 
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying (18 decimals).
+    /// The leveraged token holds the residual: the collateral value left once every pegged token is covered.
+    ///
+    /// Zero is a real answer, and a common one. The pegged claim is capped at the collateral value, so the residual
+    /// is exactly zero at any collateral ratio at or below 1 - an ordinary depeg, not an extreme one - and stays
+    /// zero just above 1 while the residual per leveraged token is under a wei. A consumer valuing a holding from
+    /// this getter values it at nothing there, which is what the holding is worth.
+    ///
+    /// Unavailability arrives out of band, as a revert, and that guarantee belongs to the price oracle rather than
+    /// to the Minter: `latestAnswer()` hands over four numbers and no metadata, so the Minter cannot tell a stale
+    /// reading from a fresh one, and a conforming oracle reverts rather than answer when it cannot price. What the
+    /// Minter adds is a backstop for the one in-band value that would be a lie - a zero price or rate on a reading
+    /// it consumes reverts with ZeroOraclePrice or ZeroOracleRate.
+    ///
+    /// So a zero here means "worth nothing", never "cannot tell", and the two must not be conflated by anything
+    /// reading it.
+    ///
+    /// With no leveraged tokens outstanding the price is 1 ether by definition.
     function leveragedTokenPrice() external view returns (uint256);
 
     /// @notice Return the price of a pegged token in terms of the pegged token's underlying (18 decimals).
     /// this should normally be 1 ether but if the token depegs then this number will be this token's share of the
-    /// collateral.
+    /// collateral - exactly min(1 ether, collateralRatio()).
+    ///
+    /// Zero is a real answer here too, but a far rarer one than for the leveraged token. A depeg gives a fractional
+    /// price: at a collateral ratio of 0.98 this reports 0.98. Zero needs the ratio to underflow 18 decimal places,
+    /// meaning the collateral behind the outstanding supply is worth essentially nothing against it. A consumer
+    /// summing this into a total values that holding at nothing, so one that must not do so silently should treat
+    /// zero as a halt condition rather than a valuation.
+    ///
+    /// The same split holds as for leveragedTokenPrice(): a conforming oracle reverts rather than answer when it
+    /// cannot price, and the Minter backstops a zero reading with ZeroOraclePrice or ZeroOracleRate.
+    ///
+    /// With no pegged tokens outstanding the price is 1 ether by definition, without reading the oracle at all.
     function peggedTokenPrice() external view returns (uint256);
 
     /// @notice The pegged to redeem for collateral and for leveraged to reach `targetCollateralRatio`, with the split

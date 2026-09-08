@@ -2,22 +2,34 @@
   "lib/bao-base": {
     "branch": {
       "name": "main",
-      "rev": "6b2fc2af05e66200ec01de11da974e27eaa8bbcc"
+      "rev": "aa2777cab19a7d768c0e43f0c8c0fec3f43a51d6"
     }
   },
   "lib/chainlink-brownie-contracts": {
     "rev": "5cb41fbc9b525338b6098da5ea7dd0b7e92f89e4"
   },
   "lib/forge-std": {
-    "rev": "b93cf4bc34ff214c099dc970b153f85ade8c9f66"
+    "tag": {
+      "name": "v1.16.2",
+      "rev": "bf647bd6046f2f7da30d0c2bf435e5c76a780c1b"
+    }
   },
   "lib/openzeppelin-contracts-upgradeable": {
-    "rev": "fa525310e45f91eb20a6d3baa2644be8e0adba31"
+    "tag": {
+      "name": "v5.7.0",
+      "rev": "14f52c54d3a1eefbda3d4071efba24d3c1e07e8a"
+    }
   },
   "lib/openzeppelin-foundry-upgrades": {
-    "rev": "16e0ae21e0e39049f619f2396fa28c57fad07368"
+    "tag": {
+      "name": "v0.4.2",
+      "rev": "8ddceb0c0d94f7f9420fee1ee30fffbdacadf08f"
+    }
   },
   "lib/solady": {
-    "rev": "717c0a860a83dc9a1520d32384577aec51cecd84"
+    "tag": {
+      "name": "v0.1.26",
+      "rev": "acd959aa4bd04720d640bf4e6a5c71037510cc4b"
+    }
   }
 }

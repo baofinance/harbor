@@ -335,6 +335,37 @@ settled here.
 A consumer that must not silently value a holding at nothing should assert the second clause, or
 treat a zero price as a halt condition rather than a valuation.
 
+#### The sail price can be exactly zero
+
+`Minter_v3.leveragedTokenPrice()` **can return exactly 0**, and this one needs no extreme at all.
+The anchor claim is capped at the collateral value, so the residual behind the sail token is never
+negative — and is exactly zero as soon as the cap engages:
+
+$$\text{sail price} = \frac{\max(0,\ C - P)}{\text{sail supply}}$$
+
+That makes the sail price zero at **any collateral ratio at or below 1**, and still zero just above
+1 while the residual per sail token is under a wei. An ordinary depeg is enough. Where the anchor
+reports 0.98 at a ratio of 0.98, the sail already reports nothing.
+
+The two zeros therefore carry different meanings, and a consumer treating them alike will misread
+one of them:
+
+| | anchor price is zero | sail price is zero |
+|---|---|---|
+| what it takes | ratio below $10^{-18}$ — the backing worth essentially nothing | ratio at or below 1 |
+| how often | annihilation only | whenever the market is undercollateralised |
+| what it means | the senior claim has lost its cover | the junior claim has no residual, as designed |
+
+Both are real answers rather than reverts. Neither can be produced by an oracle *reading* of zero:
+the Minter backstops that with `ZeroOraclePrice` / `ZeroOracleRate` on both getters. The wider
+guarantee — that an oracle which cannot price reverts rather than answers — is the oracle's to keep,
+since `latestAnswer()` returns four numbers and no staleness metadata for the Minter to check.
+**Zero is worth nothing; unavailable is a revert** — a consumer can rely on the two being
+distinguishable, provided the oracle conforms.
+
+With no sail tokens outstanding the price is 1 by definition, keyed off the sail supply rather than
+the collateral, the same convention the anchor uses.
+
 ### 2.5 Price and rate
 
 A price read returns **four** numbers: a minimum and maximum price for the collateral token, and a
