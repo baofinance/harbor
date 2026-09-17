@@ -81,9 +81,9 @@ gas_reports = [
 
 fs_permissions = [
   { access = "read", path = "./" },
-  { access = "read-write", path = "./results" },     # regression files
-  { access = "read-write", path = "./deployments" }, # deployment logs
-  { access = "read-write", path = "./tmp" },         # temp files - can be removed
+  { access = "read-write", path = "./results" },                                      # regression files
+  { access = "read-write", path = "./deployments" },                                  # deployment logs
+  { access = "read-write", path = "./tmp" },                                          # temp files - can be removed
   { access = "read-write", path = "./script/Migrate_StabilityPool_v2_Data_mainnet" }, # filtered holder files (git-tracked migration input)
 ]
 
@@ -113,6 +113,8 @@ megaeth = { key = "${ETHERSCAN_API_KEY}", url = "${MEGAETH_ETHERSCAN_API_URL}" }
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
 mainnet = "${MAINNET_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+base = "${BASE_RPC_URL}"
 megaeth = "${MEGAETH_RPC_URL}"
 local = "${LOCAL_URL}"
 

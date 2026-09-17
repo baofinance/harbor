@@ -7,12 +7,6 @@
   "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
   "lastUpdated": "2026-03-24T16:44:59Z",
   "implementations": {
-    "0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61": {
-      "proxy": "*",
-      "contractSource": "src/BaoPauser_v1.sol",
-      "contractType": "BaoPauser_v1",
-      "deploymentTime": "2026-03-21T13:44:18Z"
-    },
     "0xBBF35003894bFd2Ca8A88F7f09A2EC85fa711DfF": {
       "proxy": "*",
       "contractSource": "script/Migrate_StabilityPool_v2_Data_mainnet/ForceMigrateAccumulator_v1.sol",
