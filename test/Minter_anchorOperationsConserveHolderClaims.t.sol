@@ -23,10 +23,26 @@ import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
 contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, HarborTestActions {
     uint256 private startingRate;
 
+    /// @dev A configuration that disallows nothing, so the fee-paying paths can be exercised at every
+    ///      ratio rather than only where a disallow band happens to permit them. Its redeem incentives
+    ///      are negative below a ratio of 1.15 - a bonus drawn from the reserve pool rather than a fee
+    ///      charged - so those runs exercise that flow as well.
+    function setUpConfig() internal virtual override {
+        setUp_config_likelyNoDisallow();
+    }
+
     function setUp() public virtual override {
         super.setUp();
         setUp_collateral(1 ether, 1 ether); // both tokens issued, so both prices are live
         (, , startingRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+    }
+
+    /// @dev Set what the reserve pool holds. The bonus a redeem asks for is capped to this balance
+    ///      before it is requested, so the balance decides which case a run exercises: nothing at all
+    ///      gives a bonus of zero, a little caps the bonus part way, and plenty leaves it uncapped.
+    ///      The pool sits outside the recognised backing, so its balance moves no price by itself.
+    function _fundReservePool(uint256 balance) private {
+        deal(wrappedCollateralToken, reservePool, balance);
     }
 
     /// @dev Put the market at `targetRatio` with the rate scaled to `rateBps` of its starting level.
@@ -115,6 +131,55 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
     ///      so only a fall measures what the anchor price does when the collateral behind it moves.
     function _lowerCollateralPrice() private {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer((_price() * 90) / 100, _rate());
+    }
+
+    /// @dev A fee-paying redeem is the free one plus a fee, paid to the fee receiver out of what the
+    ///      redeemer would have received - so the market still parts with the anchor's par value and the
+    ///      fee is a flow straight through it. It rounds twice more than the free path: the fee is a
+    ///      separately floored wrapped amount, and the record is debited by a *ceiled* collateral
+    ///      amount, which charges the market up to a wei more rather than less.
+    ///
+    ///      One part of this rests on the band loop rather than on a count: it pro-rates the fee band by
+    ///      band, accumulating each division's remainder and rounding to nearest, so its contribution
+    ///      should stay under one unit of the 1e36 scale per division. That claim is what the fuzz is
+    ///      really testing here - a violation would show as this bound being exceeded.
+    ///
+    ///      Two extra wrapped amounts are floored rather than one, because a bonus is drawn from the
+    ///      reserve pool and paid out alongside the redemption in the bands where the incentive is
+    ///      negative. Like the fee it passes through the market rather than staying in it.
+    function _feeRedeemResidualBounds(uint256 anchorIn) private view returns (uint256 upward, uint256 downward) {
+        (uint256 freeUpward, uint256 freeDownward) = _redeemResidualBounds(anchorIn);
+        uint256 twoWrappedWei = 2 * Math.mulDiv(_price(), _rate(), 1 ether);
+        upward = freeUpward + twoWrappedWei;
+        downward = freeDownward + _price() + twoWrappedWei;
+    }
+
+    /// @dev A fee-paying mint is the free one less the fee, which is taken from the collateral coming in
+    ///      and sent to the fee receiver, so the market is credited with - and issues anchor against -
+    ///      what is left. One more wrapped amount is floored than on the free path.
+    function _feeMintResidualBounds() private view returns (uint256 upward, uint256 downward) {
+        (uint256 freeUpward, uint256 freeDownward) = _mintResidualBounds();
+        uint256 oneWrappedWei = Math.mulDiv(_price(), _rate(), 1 ether);
+        upward = freeUpward + oneWrappedWei;
+        downward = freeDownward + oneWrappedWei;
+    }
+
+    function _feeRedeem(uint256 anchorIn) private {
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).transfer(sender, anchorIn);
+        vm.stopPrank();
+        vm.startPrank(sender);
+        IERC20(peggedToken).approve(minter, anchorIn);
+        IMinter_v3(minter).redeemPeggedToken(anchorIn, sender, 0);
+        vm.stopPrank();
+    }
+
+    function _feeMint(uint256 collateralIn) private {
+        deal(wrappedCollateralToken, sender, collateralIn);
+        vm.startPrank(sender);
+        IERC20(wrappedCollateralToken).approve(minter, collateralIn);
+        IMinter_v3(minter).mintPeggedToken(collateralIn, sender, 0);
+        vm.stopPrank();
     }
 
     // ─── above a ratio of 1: the sail residual ───
@@ -208,6 +273,134 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
         uint256 anchorPriceAfter = IMinter_v3(minter).peggedTokenPrice();
         assertLe(anchorPriceAfter, anchorPriceBefore + tolerance, "mint raised the anchor price beyond rounding");
         assertGe(anchorPriceAfter + tolerance, anchorPriceBefore, "mint diluted the anchor price beyond rounding");
+
+        _lowerCollateralPrice();
+        assertGt(
+            anchorPriceAfter - IMinter_v3(minter).peggedTokenPrice(),
+            tolerance,
+            "a collateral price move must exceed the tolerance, or the bounds above prove nothing"
+        );
+    }
+
+    // ─── the same, with a fee paid ───
+
+    /// A fee dilutes only the person paying it: the fee goes to the fee receiver out of what that person
+    /// would have received, so the sail residual is left where it was.
+    function testFuzz_mintPeggedToken_conservesTheSailResidual_whenFeePaid(
+        uint256 ratioSeed,
+        uint256 rateBps,
+        uint256 collateralIn
+    ) public {
+        _moveTo(bound(ratioSeed, 1.0001 ether, 3 ether), bound(rateBps, 5_000, 20_000));
+        collateralIn = bound(collateralIn, 1e6, 5 ether);
+
+        (, uint256 fee, , , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn);
+        assertGt(fee, 0, "a fee of zero would make this the free path under another name");
+
+        uint256 residualBefore = _sailResidual();
+        (uint256 upward, uint256 downward) = _feeMintResidualBounds();
+
+        _feeMint(collateralIn);
+
+        uint256 residualAfter = _sailResidual();
+        assertLe(residualAfter, residualBefore + upward, "fee'd mint credited the sail residual beyond rounding");
+        assertGe(residualAfter + downward, residualBefore, "fee'd mint took from the sail residual beyond rounding");
+
+        _raiseCollateralPrice();
+        assertGt(
+            _sailResidual() - residualAfter,
+            upward,
+            "a collateral price move must exceed the tolerance, or the bounds above prove nothing"
+        );
+    }
+
+    /// The same while depegged, where the anchor price is the live quantity.
+    function testFuzz_depegged_mintPeggedToken_conservesTheAnchorPrice_whenFeePaid(
+        uint256 ratioSeed,
+        uint256 rateBps,
+        uint256 collateralIn
+    ) public {
+        _moveTo(bound(ratioSeed, 0.01 ether, 1 ether), bound(rateBps, 5_000, 20_000));
+        collateralIn = bound(collateralIn, 1e6, 5 ether);
+
+        uint256 anchorPriceBefore = IMinter_v3(minter).peggedTokenPrice();
+        assertGt(anchorPriceBefore, 0, "the anchor needs a price for this to assert anything");
+        (uint256 upward, ) = _feeMintResidualBounds();
+
+        _feeMint(collateralIn);
+
+        uint256 tolerance = _perToken(upward, IMinter_v3(minter).peggedTokenBalance());
+        uint256 anchorPriceAfter = IMinter_v3(minter).peggedTokenPrice();
+        assertLe(anchorPriceAfter, anchorPriceBefore + tolerance, "fee'd mint raised the anchor price beyond rounding");
+        assertGe(anchorPriceAfter + tolerance, anchorPriceBefore, "fee'd mint diluted the anchor price beyond rounding");
+
+        _lowerCollateralPrice();
+        assertGt(
+            anchorPriceAfter - IMinter_v3(minter).peggedTokenPrice(),
+            tolerance,
+            "a collateral price move must exceed the tolerance, or the bounds above prove nothing"
+        );
+    }
+
+    /// A fee-paying redeem likewise leaves the sail residual alone, whether the incentive is a fee taken
+    /// from the redeemer or a bonus drawn from the reserve pool and handed to them.
+    function testFuzz_redeemPeggedToken_conservesTheSailResidual_whenFeePaid(
+        uint256 ratioSeed,
+        uint256 rateBps,
+        uint256 anchorSeed,
+        uint256 reserveSeed
+    ) public {
+        _moveTo(bound(ratioSeed, 1.0001 ether, 3 ether), bound(rateBps, 5_000, 20_000));
+        uint256 anchorIn = bound(anchorSeed, 1e15, IERC20(peggedToken).balanceOf(zeroFee) / 2);
+        _fundReservePool(bound(reserveSeed, 0, 1000 ether));
+
+        uint256 residualBefore = _sailResidual();
+        (uint256 upward, uint256 downward) = _feeRedeemResidualBounds(anchorIn);
+
+        _feeRedeem(anchorIn);
+
+        uint256 residualAfter = _sailResidual();
+        assertLe(residualAfter, residualBefore + upward, "fee'd redeem credited the sail residual beyond rounding");
+        assertGe(residualAfter + downward, residualBefore, "fee'd redeem took from the sail residual beyond rounding");
+
+        _raiseCollateralPrice();
+        assertGt(
+            _sailResidual() - residualAfter,
+            upward,
+            "a collateral price move must exceed the tolerance, or the bounds above prove nothing"
+        );
+    }
+
+    /// And the same while depegged, which is also where this configuration pays a bonus rather than
+    /// charging a fee.
+    function testFuzz_depegged_redeemPeggedToken_conservesTheAnchorPrice_whenFeePaid(
+        uint256 ratioSeed,
+        uint256 rateBps,
+        uint256 anchorSeed,
+        uint256 reserveSeed
+    ) public {
+        _moveTo(bound(ratioSeed, 0.01 ether, 1 ether), bound(rateBps, 5_000, 20_000));
+        uint256 anchorIn = bound(anchorSeed, 1e15, IERC20(peggedToken).balanceOf(zeroFee) / 2);
+        _fundReservePool(bound(reserveSeed, 0, 1000 ether));
+
+        uint256 anchorPriceBefore = IMinter_v3(minter).peggedTokenPrice();
+        assertGt(anchorPriceBefore, 0, "the anchor needs a price for this to assert anything");
+        (uint256 upward, ) = _feeRedeemResidualBounds(anchorIn);
+
+        _feeRedeem(anchorIn);
+
+        uint256 tolerance = _perToken(upward, IMinter_v3(minter).peggedTokenBalance());
+        uint256 anchorPriceAfter = IMinter_v3(minter).peggedTokenPrice();
+        assertLe(
+            anchorPriceAfter,
+            anchorPriceBefore + tolerance,
+            "fee'd redeem raised the anchor price beyond rounding"
+        );
+        assertGe(
+            anchorPriceAfter + tolerance,
+            anchorPriceBefore,
+            "fee'd redeem diluted the anchor price beyond rounding"
+        );
 
         _lowerCollateralPrice();
         assertGt(
