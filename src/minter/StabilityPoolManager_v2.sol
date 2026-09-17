@@ -139,7 +139,6 @@ contract StabilityPoolManager_v2 is
     /// @param pendingOwner_ The address eligible to complete the ownership transfer - the final owner.
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
-        __UUPSUpgradeable_init();
         __ERC165_init();
         // Seed the cut receiver with the final owner - pendingOwner_ (or deployerOwner_ if there is no pending
         // transfer), never owner() which is the temporary deployer during initialize. updateFeeReceiver retargets it

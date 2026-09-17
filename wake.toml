@@ -14,29 +14,6 @@ remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
   # openzeppelin
-  # OZ deleted ReentrancyGuardTransientUpgradeable in 5.6.x; bao-base's TokenHolder now uses the
-  # @bao compat shim (proven byte-identical to OZ's guard). This redirects the OZ import PATH to that
-  # shim, so every consumer that still imports the OZ path resolves to the SAME guard base as
-  # TokenHolder - no duplicate-guard conflict, and no deployed-source change.
-  #
-  # ABOVE the broader contracts-upgradeable/ rule, because forge matches remappings by ORDER, not by
-  # longest prefix: below it this silently does nothing. (The comment here previously claimed the
-  # opposite, which is why it sat underneath.)
-  "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol=lib/bao-base/src/openzeppelin-compat/utils/ReentrancyGuardTransientUpgradeable.sol",
-  # OZ 5.7.0 reduced contracts-upgradeable's UUPSUpgradeable to a re-export of the non-upgradeable
-  # core, dropping Initializable from its base list and the empty __UUPSUpgradeable_init shim that
-  # deployed initializers call. bao-base restores the 5.1 file, and this points at it.
-  #
-  # A whole-directory prefix here, unlike the single file above, because OZ still SHIPS its
-  # UUPSUpgradeable: a file remapping leaves OZ's copy in the build too, and the contract-name
-  # collision check rejects the second one. Shadowing the directory keeps it out entirely — which is
-  # only safe because the two files this repo imports from it, UUPSUpgradeable and Initializable, are
-  # both mirrored there. An import of anything else under it would fail to resolve, loudly, and the
-  # answer would be to mirror that file too.
-  #
-  # The sibling utils/ directory is deliberately NOT shadowed: this repo imports ContextUpgradeable
-  # and introspection/ERC165Upgradeable from it, which are real OZ contracts that must pass through.
-  "@openzeppelin/contracts-upgradeable/proxy/utils/=lib/bao-base/src/openzeppelin-compat/proxy/utils/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",

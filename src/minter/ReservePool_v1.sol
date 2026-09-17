@@ -41,7 +41,6 @@ contract ReservePool_v1 is
 
     function initialize(address owner_) public initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
         // TODO: __ERC165_init();
     }
 

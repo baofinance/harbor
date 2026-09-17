@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
@@ -113,7 +113,7 @@ import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMult
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
 
 abstract contract MultipleRewardCompoundingAccumulator is
-    ReentrancyGuardTransientUpgradeable,
+    ReentrancyGuardTransient,
     LinearMultipleRewardDistributor,
     IMultipleRewardAccumulator
 {

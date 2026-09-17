@@ -7,7 +7,7 @@ import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/intro
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
@@ -30,7 +30,7 @@ contract StabilityPoolManager_v1 is
     UUPSUpgradeable,
     BaoOwnableRoles,
     ERC165Upgradeable,
-    ReentrancyGuardTransientUpgradeable,
+    ReentrancyGuardTransient,
     IStabilityPoolManager
 {
     using SafeERC20 for IERC20;
@@ -133,9 +133,7 @@ contract StabilityPoolManager_v1 is
     /// @param owner_ The owner address
     function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
         __ERC165_init();
-        __ReentrancyGuardTransient_init();
     }
 
     /// @notice The check that allows this contract to be upgraded

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
@@ -41,7 +42,7 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 /// @custom:oz-upgrades
 /// @custom:bao-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
 // solhint-disable-next-line contract-name-capwords
-contract StabilityPool_v3_Upgrader is UUPSUpgradeable, HarborFixedOwnable {
+contract StabilityPool_v3_Upgrader is Initializable, UUPSUpgradeable, HarborFixedOwnable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /// @dev The linear distributor's ERC-7201 slot. Its storage LAYOUT is reached through the canonical

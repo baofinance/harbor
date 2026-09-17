@@ -19,7 +19,6 @@ contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleR
 
     function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
-        __ReentrancyGuardTransient_init();
         // __MultipleRewardCompoundingAccumulator_init();
     }
 

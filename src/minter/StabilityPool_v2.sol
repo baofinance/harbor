@@ -161,8 +161,6 @@ contract StabilityPool_v2 is
 
     function initialize(address owner_, uint256 earlyWithdrawalFee_, address feeAddress_) external initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
-        __ReentrancyGuardTransient_init();
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 

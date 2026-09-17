@@ -234,7 +234,6 @@ contract StabilityPool_v3 is
         address feeAddress_
     ) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
-        __UUPSUpgradeable_init();
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 

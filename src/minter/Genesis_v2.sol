@@ -88,7 +88,6 @@ contract Genesis_v2 is Initializable, UUPSUpgradeable, ContextUpgradeable, Harbo
         // initialise all the state variables
         _initializeOwner(deployerOwner_, pendingOwner_);
         __Context_init();
-        __UUPSUpgradeable_init();
 
         emit GenesisBegins();
     }

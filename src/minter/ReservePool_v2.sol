@@ -37,7 +37,6 @@ contract ReservePool_v2 is
     /// @param pendingOwner_ The address the deployer hands ownership to, within an hour of initialisation.
     function initialize(address deployerOwner_, address pendingOwner_) public initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
-        __UUPSUpgradeable_init();
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version

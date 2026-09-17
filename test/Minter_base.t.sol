@@ -67,7 +67,10 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile, HarborDeployRun {
     uint256 requesterRole;
 
     function _mintPegged(address receiver, uint256 amount) internal {
-        if (Token.hasNonMutatingParameterlessFunction(peggedToken, "operator")) {
+        // the pegged token may or may not have an operator; a staticcall that succeeds says it does
+        // slither-disable-next-line low-level-calls
+        (bool hasOperator, ) = peggedToken.staticcall(abi.encodeWithSelector(IBaoUSD.operator.selector));
+        if (hasOperator) {
             vm.prank(IBaoUSD(peggedToken).operator());
             IMintable(peggedToken).mint(receiver, amount);
         } else {

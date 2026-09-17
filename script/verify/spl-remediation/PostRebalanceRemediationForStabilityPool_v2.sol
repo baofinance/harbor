@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 
@@ -20,7 +21,7 @@ import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.so
 ///   2. Remediate:   upgrade proxy to this contract, calling remediate()
 ///   3. Restore:     upgrade proxy back to StabilityPool_v2
 // solhint-disable-next-line contract-name-capwords
-contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
+contract PostRebalanceRemediationForStabilityPool_v2 is Initializable, UUPSUpgradeable {
     using DecrementalFloatingPoint for uint128;
 
     // ── Distribution totals from V2ReplaySimulation ─────────────────────────

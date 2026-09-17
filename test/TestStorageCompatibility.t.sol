@@ -21,9 +21,7 @@ contract StorageV1 is Initializable, UUPSUpgradeable {
         }
     }
 
-    function initialize() external initializer {
-        __UUPSUpgradeable_init();
-    }
+    function initialize() external initializer {}
 
     function setValue(address key1, uint8 key2, uint192 value) external {
         _getStorage().values[key1][key2] = value;

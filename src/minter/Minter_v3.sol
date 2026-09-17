@@ -184,7 +184,6 @@ contract Minter_v3 is
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         // initialise all the state variables
         _initializeOwner(deployerOwner_, pendingOwner_);
-        __UUPSUpgradeable_init();
         __Context_init();
         MinterStorage storage $ = _getMinterStorage();
         $.peggedTokenBalance = 0;
