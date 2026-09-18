@@ -82,6 +82,45 @@ abstract contract HarborTestActions {
         _vm.stopPrank();
     }
 
+    /// @notice Move a market to `targetCollateralRatio` by pricing its collateral for it, leaving the
+    /// wrapped-to-underlying rate exactly where it was. Returns the price it derived.
+    ///
+    /// @dev The counterpart of `setCollateralRatioByRate` below, and not interchangeable with it. That one moves the
+    /// recognised backing; this one moves only what the collateral is worth. The two reach the same collateral ratio
+    /// by different routes, and quantities priced off the backing - what a deposit buys, above all - come out
+    /// differently depending on which route was taken.
+    ///
+    /// Derived from where the market is NOW rather than from a remembered starting price, so it stays correct across a
+    /// sequence that changes the supplies between calls.
+    ///
+    /// @param minter The market to move.
+    /// @param oracle The market's mock price oracle.
+    /// @param targetCollateralRatio The collateral ratio the market should sit at, 1e18-scaled.
+    function setCollateralRatioByPrice(
+        address minter,
+        address oracle,
+        uint256 targetCollateralRatio
+    ) internal returns (uint256 collateralPrice) {
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
+        require(backing > 0, "a market with no recognised backing has no collateral ratio to target");
+        require(peggedBalance > 0, "a market with no anchor issued has no collateral ratio to target");
+
+        // The rate is read back and written again unchanged: this helper's whole point is that it does not move it.
+        (, , uint256 wrappedRate, ) = IWrappedPriceOracle(oracle).latestAnswer();
+        collateralPrice = Math.mulDiv(targetCollateralRatio, peggedBalance, backing);
+        MockWrappedPriceOracle(oracle).setLatestAnswer(collateralPrice, wrappedRate);
+
+        // The derived price floors, contributing at most `backing / peggedBalance` to the ratio it produces, and the
+        // ratio's own division floors by at most one.
+        uint256 tolerance = Math.ceilDiv(backing, peggedBalance) + 1;
+        uint256 achieved = IMinter(minter).collateralRatio();
+        require(
+            achieved + tolerance >= targetCollateralRatio && achieved <= targetCollateralRatio + tolerance,
+            "the derived price does not put the market at the requested collateral ratio"
+        );
+    }
+
     /// @notice Move a market to `targetCollateralRatio` by choosing the wrap rate and letting the collateral price
     /// absorb the difference. Returns the price it derived.
     ///

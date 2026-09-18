@@ -125,6 +125,52 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
         stepAsMultiple = Math.mulDiv(bounded, 1 ether, released);
     }
 
+    /// @notice The collateral ratio at which the FAIR conversion rate meets the bound - where a ceiling
+    ///         of `K` on the conversion rate would engage, as against where this one actually does.
+    /// @dev Found by bisection on the market itself rather than computed: the fair conversion rate is the
+    ///      reciprocal of the sail price the minter reports, and it falls as the collateral ratio rises,
+    ///      so the crossing is bracketed and halved. Forty rounds takes a bracket of one to a fraction of
+    ///      a wei, and each round is a price write and a view.
+    function collateralRatioWhereTheFairRateMeetsTheBound() internal returns (uint256 crossing) {
+        uint256 snapshot = vm.snapshotState();
+        uint256 low = 1 ether + 1; // just above the peg, where the fair conversion rate is unbounded
+        uint256 high = 2 ether; // well clear of it, where the fair conversion rate is small
+
+        for (uint256 round = 0; round < 40; round++) {
+            uint256 middle = (low + high) / 2;
+            setCollateralRatio(middle);
+            uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
+            // Above the bound the crossing is still higher; at or below it, lower.
+            if (sailPrice == 0 || (1 ether * 1 ether) / sailPrice > MinterValuationLib.LEVERAGE_RATIO_CAP) {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        crossing = high;
+        vm.revertToState(snapshot);
+    }
+
+    /// @notice The collateral ratio at which the bound ACTUALLY engages, found the same way - by asking
+    ///         the market where its reported leverage ratio reaches the cap.
+    function collateralRatioWhereTheBoundEngages() internal returns (uint256 engagement) {
+        uint256 snapshot = vm.snapshotState();
+        uint256 low = 1 ether + 1;
+        uint256 high = 2 ether;
+
+        for (uint256 round = 0; round < 40; round++) {
+            uint256 middle = (low + high) / 2;
+            setCollateralRatio(middle);
+            if (IMinter_v3(minter).leverageRatio() >= MinterValuationLib.LEVERAGE_RATIO_CAP) {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        engagement = high;
+        vm.revertToState(snapshot);
+    }
+
     /// @notice What one sail token is worth at the collateral ratio where the bound releases.
     function sailPriceAtTheRelease() internal returns (uint256 sailPrice) {
         uint256 snapshot = vm.snapshotState();

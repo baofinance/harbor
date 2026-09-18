@@ -55,7 +55,7 @@ set bmargin at screen 0.57
 set logscale y
 set yrange [3000:3000000]
 set ylabel "anchor (tokens)"
-set ytics ("10k" 10000, "100k" 100000, "700k" 700000, "1M" 1000000)
+set ytics ("10k" 10000, "100k" 100000, "613k" 613333, "1M" 1000000)
 unset xlabel
 # The lower panel carries the labels for the shared axis; an explicit tic list ignores `set format`, so
 # the same positions are repeated here without them.
@@ -76,7 +76,7 @@ set tmargin at screen 0.55
 set bmargin at screen 0.28
 
 unset logscale y
-set yrange [1:1.35]
+set yrange [1:1.3]
 set ylabel "collateral ratio after the rebalance"
 set ytics 0.05
 set xlabel "stability pool anchor holdings, as a share of the anchor outstanding"
@@ -88,8 +88,8 @@ set key at screen 0.5, screen 0.19 center top horizontal maxcols 2 reverse Left 
 set object 1 rectangle from graph 0, first 1 to graph 1, first 20.0 / 19.0 \
     fillcolor rgb "#d08770" fillstyle solid 0.18 noborder behind
 set label 1 "the conversion bound is engaged in here" at graph 0.45, first 1.022 left textcolor rgb "gray20"
-set arrow 1 from graph 0, first 1.3 to graph 1, first 1.3 nohead dashtype 2 linecolor rgb "gray40"
-set label 2 "rebalance threshold" at graph 0.03, first 1.315 left textcolor rgb "gray30"
+set arrow 1 from graph 0, first 1.25 to graph 1, first 1.25 nohead dashtype 2 linecolor rgb "gray40"
+set label 2 "rebalance threshold" at graph 0.03, first 1.265 left textcolor rgb "gray30"
 
 plot \
      datafile using ($1):($5) with linespoints linewidth 2 pointtype 7 pointsize 0.7 linetype 7 \
