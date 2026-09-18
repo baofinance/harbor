@@ -82,18 +82,18 @@ contract TestGraphsLiquidatePartial is GraphTestBase, TestCollateralRatioRangeSe
         liquidateFile = openFile(
             "liquidate_partial",
             sa(
-                "before CR",
-                "CR after liquidate to collateral",
-                "CR after liquidate to leveraged",
-                "CR after liquidate to both",
+                "collateral ratio before",
+                "collateral ratio after liquidate to collateral",
+                "collateral ratio after liquidate to leveraged",
+                "collateral ratio after liquidate to both",
                 "pegged before",
                 "pegged after liquidate to collateral",
                 "pegged after liquidate to leveraged",
                 "pegged after liquidate to both",
-                "before leveraged price",
-                "price after liquidate to collateral",
-                "price after liquidate to leveraged",
-                "price after liquidate to both"
+                "leveraged token price before",
+                "leveraged token price after liquidate to collateral",
+                "leveraged token price after liquidate to leveraged",
+                "leveraged token price after liquidate to both"
             )
         );
     }
@@ -228,33 +228,33 @@ contract TestGraphsLiquidate is GraphTestBase, TestCollateralRatioRangeSetUp {
         liquidateFile = openFile(
             "liquidate",
             sa(
-                "current CR",
-                "before CR",
-                "after CR",
-                "before minter pegged",
-                "after minter pegged",
-                "before SPCollateral pegged",
-                "after SPCollateral pegged",
-                "before SPLeveraged pegged",
-                "after SPLeveraged pegged",
-                "before leveraged price",
-                "after leveraged price"
+                "collateral ratio swept to",
+                "collateral ratio before the rebalance",
+                "collateral ratio after the rebalance",
+                "minter pegged before",
+                "minter pegged after",
+                "StabilityPoolCollateral pegged before",
+                "StabilityPoolCollateral pegged after",
+                "StabilityPoolLeveraged pegged before",
+                "StabilityPoolLeveraged pegged after",
+                "leveraged token price before",
+                "leveraged token price after"
             )
         );
 
         toFile = openFile(
             "liquidate_to",
             sa(
-                "current CR",
-                "after user collateral",
-                "after SPCollateral collateral",
-                "after user leveraged",
-                "after SPLeveraged leveraged",
+                "collateral ratio swept to",
+                "user collateral after",
+                "StabilityPoolCollateral collateral after",
+                "user leveraged after",
+                "StabilityPoolLeveraged leveraged after",
                 "",
-                "after minter collateral",
-                "after user SPCollateral balance",
-                "after user SPLeveraged balance",
-                "after leveraged price"
+                "minter collateral after",
+                "user StabilityPoolCollateral balance after",
+                "user StabilityPoolLeveraged balance after",
+                "leveraged token price after"
             )
         );
     }
@@ -418,7 +418,7 @@ contract TestGraphsLiquidateParameters is GraphTestBase, TestCollateralRatioRang
         file = openFile(
             "liquidate_parameters",
             sa(
-                "current CR",
+                "collateral ratio swept to",
                 "pegged for collateral for 1.01",
                 "pegged for leveraged for 1.01",
                 "pegged for collateral for 1.25",

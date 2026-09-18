@@ -14,8 +14,17 @@ set bmargin 7
 set key below spacing 1.3
 set grid
 
-set terminal pngcairo size 1400,500 enhanced font 'Helvetica,11'
-set output './results/rebalance_fairness_scan.png'
+# Renders to stdout. To write a file in another format instead, override the terminal on the command
+# line - the guard below is what makes that possible, and it works for multiplot graphs, which `replot`
+# cannot. Run from this directory:
+#
+#   gnuplot -e "terminal=1; set terminal pngcairo size 1000,900 background rgb 'gray90'; set output 'rebalance_fairness_scan.png'" rebalance_fairness_scan.gp
+#   gnuplot -e "terminal=1; set terminal pdfcairo size 9,8 background rgb 'gray90'; set output 'rebalance_fairness_scan.pdf'" rebalance_fairness_scan.gp
+#
+# Do not commit what those write: results/ holds the CSVs the tests regress against, and rendered output
+# is gitignored.
+if (!exists("terminal")) { set terminal pngcairo size 1400,500 enhanced font 'Helvetica,11' }
+if (!exists("terminal")) { set output './results/rebalance_fairness_scan.png' }
 set multiplot layout 1,2 title 'Rebalance Fairness Gap - Scenario B (dodge attack)' font 'Helvetica,13'
 
 set xlabel 'Liquidation fraction (%)'

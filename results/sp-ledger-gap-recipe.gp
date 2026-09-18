@@ -1,7 +1,16 @@
 datafile = "sp-ledger-gap-recipe.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
-set terminal svg enhanced size 700 600 background rgb "gray90"
+# Renders to stdout. To write a file in another format instead, override the terminal on the command
+# line - the guard below is what makes that possible, and it works for multiplot graphs, which `replot`
+# cannot. Run from this directory:
+#
+#   gnuplot -e "terminal=1; set terminal pngcairo size 1000,900 background rgb 'gray90'; set output 'sp-ledger-gap-recipe.png'" sp-ledger-gap-recipe.gp
+#   gnuplot -e "terminal=1; set terminal pdfcairo size 9,8 background rgb 'gray90'; set output 'sp-ledger-gap-recipe.pdf'" sp-ledger-gap-recipe.gp
+#
+# Do not commit what those write: results/ holds the CSVs the tests regress against, and rendered output
+# is gitignored.
+if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb "gray90" }
 
 # The error recipe drives the gap between the StabilityPool's two ledgers - the exact supply counter
 # and the product-decayed sum of balances - to its bound, then absorbs it. Both axes span many

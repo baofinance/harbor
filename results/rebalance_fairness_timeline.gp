@@ -11,8 +11,17 @@ set bmargin 7
 set key below spacing 1.3
 set grid
 
-set terminal pngcairo size 1400,500 enhanced font 'Helvetica,11'
-set output './results/rebalance_fairness_timeline.png'
+# Renders to stdout. To write a file in another format instead, override the terminal on the command
+# line - the guard below is what makes that possible, and it works for multiplot graphs, which `replot`
+# cannot. Run from this directory:
+#
+#   gnuplot -e "terminal=1; set terminal pngcairo size 1000,900 background rgb 'gray90'; set output 'rebalance_fairness_timeline.png'" rebalance_fairness_timeline.gp
+#   gnuplot -e "terminal=1; set terminal pdfcairo size 9,8 background rgb 'gray90'; set output 'rebalance_fairness_timeline.pdf'" rebalance_fairness_timeline.gp
+#
+# Do not commit what those write: results/ holds the CSVs the tests regress against, and rendered output
+# is gitignored.
+if (!exists("terminal")) { set terminal pngcairo size 1400,500 enhanced font 'Helvetica,11' }
+if (!exists("terminal")) { set output './results/rebalance_fairness_timeline.png' }
 set multiplot layout 1,2 title 'haXXX-Equivalent Position Over Time (weekly compound)' font 'Helvetica,13'
 
 set xlabel 'Week'

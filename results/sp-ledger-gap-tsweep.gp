@@ -1,7 +1,16 @@
 datafile = "sp-ledger-gap-tsweep.csv"
 set datafile separator comma
 set key noenhanced below title " "
-set terminal svg enhanced size 700 600 background rgb "gray90"
+# Renders to stdout. To write a file in another format instead, override the terminal on the command
+# line - the guard below is what makes that possible, and it works for multiplot graphs, which `replot`
+# cannot. Run from this directory:
+#
+#   gnuplot -e "terminal=1; set terminal pngcairo size 1000,900 background rgb 'gray90'; set output 'sp-ledger-gap-tsweep.png'" sp-ledger-gap-tsweep.gp
+#   gnuplot -e "terminal=1; set terminal pdfcairo size 9,8 background rgb 'gray90'; set output 'sp-ledger-gap-tsweep.pdf'" sp-ledger-gap-tsweep.gp
+#
+# Do not commit what those write: results/ holds the CSVs the tests regress against, and rendered output
+# is gitignored.
+if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb "gray90" }
 
 # Gap against baseline supply under the two loss patterns: one maximum-headroom loss, and many small
 # losses (error-queue churn). The pattern is a text column, so each series is filtered out of the one

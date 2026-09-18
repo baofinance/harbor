@@ -8,12 +8,16 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
+import {GraphRefinement} from "@bao-test/GraphRefinement.t.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import {console2} from "forge-std/console2.sol";
 
-abstract contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
+abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilityPool2SetUp {
+    /// @dev The ratio the market is deployed at, which the swept price is measured against.
+    uint256 internal constant START_COLLATERAL_RATIO = 2 ether;
+
     uint256 startPrice;
     uint256 currentPrice;
     uint256 currentCollateralRatio;
@@ -177,22 +181,81 @@ abstract contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
 
     function setDown() internal virtual {}
 
+    /// @dev Move the market to `requested` by pricing the collateral for it, then take the ratio the
+    ///      market actually reports as the one being measured. For the swept points the two are equal;
+    ///      a refined point between them may land a wei away, and the row should carry where the market
+    ///      is rather than where it was asked to be. The tolerance is the price's own flooring: it
+    ///      contributes at most `backing / pegged` to the ratio, and the ratio's division floors once
+    ///      more.
+    ///
+    ///      Pricing the collateral is one of several ways to reach a collateral ratio, and a sweep that
+    ///      needs another - the recognised backing falling while the collateral's own price holds still -
+    ///      overrides this. They are not interchangeable: what a deposit is worth depends on the
+    ///      underlying price and on the wrapped-to-underlying rate, and the recognised backing depends on
+    ///      those AND on how much is still held, so the same collateral ratio reached different ways
+    ///      prices a deposit differently.
+    function _setCollateralRatio(uint256 requested) internal virtual {
+        currentPrice = (startPrice * requested) / START_COLLATERAL_RATIO;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);
+        currentCollateralRatio = IMinter(minter).collateralRatio();
+        assertApproxEqAbs(
+            currentCollateralRatio,
+            requested,
+            Math.ceilDiv(IMinter(minter).collateralTokenBalance(), IMinter(minter).peggedTokenBalance()) + 1,
+            "the derived price must put the market at the requested collateral ratio"
+        );
+    }
+
+    /// @inheritdoc GraphRefinement
+    function probeSignalsAt(uint256 ratio) internal override returns (int256[] memory signals) {
+        uint256 snap = vm.snapshotState();
+        _setCollateralRatio(ratio);
+        signals = refinementSignals();
+        vm.revertToStateAndDelete(snap);
+    }
+
+    /// @inheritdoc GraphRefinement
+    function emitSampleAt(uint256 ratio) internal override {
+        uint256 snap = vm.snapshotState();
+        _setCollateralRatio(ratio);
+        doOneCollateralRatio();
+        vm.revertToStateAndDelete(snap);
+    }
+
+    /// @notice Every line the graph draws, for a graph that opts in by also setting a tolerance.
+    /// @dev All of them, not one chosen: a stretch is only uninteresting if nothing drawn there is
+    ///      doing anything, and a single chosen column would report a region as having nothing to say
+    ///      while another line moved through it.
+    function refinementSignals() internal virtual returns (int256[] memory) {
+        return new int256[](0);
+    }
+
     function test_allCollateralRatios() public virtual {
-        uint256 startCollateralRatio = 2 ether;
-        assertEq(IMinter(minter).collateralRatio(), startCollateralRatio);
+        assertEq(IMinter(minter).collateralRatio(), START_COLLATERAL_RATIO);
 
         console2.log("Testing collateral ratios from %s to %s by %s", start, finish, increment);
-        for (currentCollateralRatio = start; currentCollateralRatio <= finish; currentCollateralRatio += increment) {
-            uint256 snap = vm.snapshotState();
-            currentPrice = (startPrice * currentCollateralRatio) / startCollateralRatio;
+        bool refining = refinementTolerance() > 0;
+        bool havePrevious;
+        uint256 previousRatio;
+        int256[] memory previousSignals;
 
-            MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);
-            assertEq(currentCollateralRatio, IMinter(minter).collateralRatio(), "crs must match");
+        for (uint256 ratio = start; ratio <= finish; ratio += increment) {
+            // Refinement needs the interval's far end before it can judge the interval, and its rows
+            // belong between the two - so the swept point is measured, then the interval behind it is
+            // filled in, and only then is the swept point itself recorded.
+            if (refining) {
+                int256[] memory signals = probeSignalsAt(ratio);
+                if (havePrevious) {
+                    refineBetween(previousRatio, previousSignals, ratio, signals);
+                }
+                previousRatio = ratio;
+                previousSignals = signals;
+                havePrevious = true;
+            }
 
-            doOneCollateralRatio();
-
-            vm.revertToStateAndDelete(snap);
+            emitSampleAt(ratio);
         }
+        reportRefinement();
         setDown();
     }
 }

@@ -36,6 +36,7 @@ __pycache__/
 # generated results not used for regression testing
 results/*.svg
 results/*.png
+results/*.pdf
 
 # Ignores development broadcast logs
 !/broadcast

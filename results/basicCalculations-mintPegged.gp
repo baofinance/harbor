@@ -2,7 +2,16 @@ set title "Mint Pegged tokens"
 datafile = "basicCalculations-mintPegged.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
-set terminal svg enhanced size 600 400 background rgb "gray90"
+# Renders to stdout. To write a file in another format instead, override the terminal on the command
+# line - the guard below is what makes that possible, and it works for multiplot graphs, which `replot`
+# cannot. Run from this directory:
+#
+#   gnuplot -e "terminal=1; set terminal pngcairo size 1000,900 background rgb 'gray90'; set output 'basicCalculations-mintPegged.png'" basicCalculations-mintPegged.gp
+#   gnuplot -e "terminal=1; set terminal pdfcairo size 9,8 background rgb 'gray90'; set output 'basicCalculations-mintPegged.pdf'" basicCalculations-mintPegged.gp
+#
+# Do not commit what those write: results/ holds the CSVs the tests regress against, and rendered output
+# is gitignored.
+if (!exists("terminal")) { set terminal svg enhanced size 600 400 background rgb "gray90" }
 #set terminal pngcairo size 500 300
 set autoscale
 set xlabel "Pegged Tokens"

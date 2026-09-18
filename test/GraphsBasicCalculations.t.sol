@@ -61,7 +61,7 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, GraphTestBase {
             string.concat("basicCalculations-", name),
             sa(
                 "Collateral",
-                "Price",
+                "Collateral Price",
                 "Pegged",
                 "PeggedTokenPrice",
                 "Leveraged",

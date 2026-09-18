@@ -3,7 +3,16 @@ datafileto = "liquidate_to_partial_both44.csv"
 set datafile separator comma
 
 set key autotitle columnheader noenhanced below title " "
-set terminal svg enhanced size 700 600 background rgb "gray90"
+# Renders to stdout. To write a file in another format instead, override the terminal on the command
+# line - the guard below is what makes that possible, and it works for multiplot graphs, which `replot`
+# cannot. Run from this directory:
+#
+#   gnuplot -e "terminal=1; set terminal pngcairo size 1000,900 background rgb 'gray90'; set output 'liquidate_to_partial_both44.png'" liquidate_to_partial_both44.gp
+#   gnuplot -e "terminal=1; set terminal pdfcairo size 9,8 background rgb 'gray90'; set output 'liquidate_to_partial_both44.pdf'" liquidate_to_partial_both44.gp
+#
+# Do not commit what those write: results/ holds the CSVs the tests regress against, and rendered output
+# is gitignored.
+if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb "gray90" }
 # set terminal pdf background rgb "gray90"
 # set output "liquidate_to_partial_both.pdf"
 set autoscale
@@ -33,8 +42,8 @@ plot \
      datafileto using ($1):($7) axes x1y1 with lines linewidth 1 linetype 8, \
      datafileto using ($1):($2) axes x1y1 with lines linewidth 3 linetype 8 dashtype 4, \
      datafileto using ($1):($4) axes x1y2 with lines linewidth 3 linetype 4 dashtype 4, \
-     datafile using ($1):($10) axes x1y1 with lines linewidth 2 linetype 7 dashtype 2 title "before leveraged price", \
-     datafile using ($1):($11) axes x1y1 with lines linewidth 2 linetype 7 title "after leveraged price"
+     datafile using ($1):($10) axes x1y1 with lines linewidth 2 linetype 7 dashtype 2, \
+     datafile using ($1):($11) axes x1y1 with lines linewidth 2 linetype 7
 
     #  datafile using ($1):($4) axes x1y2 with lines linewidth 1 linetype 8 dashtype 2, \
     #  datafile using ($1):($6) axes x1y2 with lines linewidth 1 linetype 4 dashtype 2, \

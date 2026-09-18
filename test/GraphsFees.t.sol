@@ -23,7 +23,7 @@ contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
         feesFile = openFile(
             "fees",
             sa(
-                "Price",
+                "Collateral Price",
                 "Collateral Ratio",
                 "Mint Pegged Config",
                 "Redeem Pegged Config",
@@ -34,7 +34,7 @@ contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
         fees1File = openFile(
             "fees1",
             sa(
-                "Price",
+                "Collateral Price",
                 "Collateral Ratio",
                 "Mint Pegged Fees",
                 "Redeem Pegged Fees",
