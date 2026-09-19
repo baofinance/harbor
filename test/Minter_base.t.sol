@@ -26,7 +26,7 @@ import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "@harbor-test/IBaoUSD.sol";
 import {LibString} from "@solady/utils/LibString.sol";
-import {Array} from "@harbor-test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
 import {ConfigFile} from "@harbor-test/Config.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";

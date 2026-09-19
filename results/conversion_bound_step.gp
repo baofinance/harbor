@@ -21,7 +21,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 640 background rgb
 # market looks like - the flat line. Outside it the conversion rate is the fair one, the sail supply over
 # the residual, and since the residual at the release is a fixed share of the collateral that rises in
 # proportion to the sail supply - the sloped line. The bound is a ceiling held at one height while the
-# thing it is capping sweeps four decades past it.
+# thing it is capping sweeps five orders of magnitude in all, ninety-fourfold of that above it.
 #
 # The lower panel is the consequence: the step the applied conversion rate takes across the release, which
 # is one line over the other. It passes through 1 - a continuous join, the behaviour the specification
@@ -49,10 +49,10 @@ set rmargin at screen 0.96
 # The one sail supply at which the bound releases exactly where the fair conversion rate reaches it.
 crossing = 20.0 / 19.0
 
-set multiplot
+set multiplot title "conversion_bound_step.gp" noenhanced
 
 # ------------------------------------------------- the ceiling, and the conversion rate it is capping
-set tmargin at screen 0.97
+set tmargin at screen 0.93
 set bmargin at screen 0.56
 
 set yrange [0.01:3000]

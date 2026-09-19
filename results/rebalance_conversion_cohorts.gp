@@ -42,10 +42,10 @@ set colorsequence default
 set lmargin at screen 0.15
 set rmargin at screen 0.96
 
-set multiplot
+set multiplot title "rebalance_conversion_cohorts.gp" noenhanced
 
 # ---------------------------------------------- what each cohort holds at the end, and what it should
-set tmargin at screen 0.97
+set tmargin at screen 0.93
 set bmargin at screen 0.56
 
 set logscale y

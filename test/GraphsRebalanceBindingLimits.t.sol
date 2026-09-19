@@ -23,8 +23,8 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// rebalance threshold, and then three things can make it give up less: a pool can only be taken down to
 /// its minimum supply (`maxAssetLoss`), its reward accounting can only absorb so much in one go
 /// (`maxLiquidationReward`), and neither pool can hand over anchor it does not hold. This graph sweeps
-/// the pools' anchor holdings over three decades and records, at each size, what was asked for, what the
-/// pools could lose, what was actually taken, and where the collateral ratio ended up.
+/// the pools' anchor holdings over a four-hundredfold range and records, at each size, what was asked
+/// for, what the pools could lose, what was actually taken, and where the collateral ratio ended up.
 ///
 /// It exists to answer a question about a DIFFERENT bound. The conversion bound over-issues only while
 /// the leverage ratio is at its cap, which is at and below a collateral ratio of `K/(K-1)` - about
@@ -42,7 +42,8 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
     uint256 private constant DISTRESSED_COLLATERAL_RATIO = 1.02 ether;
 
     /// @dev Collateral behind each side at deployment. Large against the pools' minimum supply, so that
-    ///      pool size has three decades to be swept over rather than the one a small market would allow.
+    ///      pool size has a four-hundredfold range to be swept over rather than the tenfold one a small
+    ///      market would allow.
     uint256 private constant COLLATERAL_EACH_SIDE = 1000 ether;
 
     uint256 private constant FIRST_POOL_SHARE = 0.002 ether;

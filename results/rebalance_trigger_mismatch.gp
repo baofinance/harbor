@@ -35,13 +35,13 @@ set logscale y
 set yrange [1:600]
 set grid xtics ytics
 
-set multiplot
+set multiplot title "rebalance_trigger_mismatch.gp" noenhanced
 
 # ---------------------------------------------------------------- at and below the peg: 18% of width
 set lmargin at screen 0.11
 set rmargin at screen 0.247
 set bmargin at screen 0.22
-set tmargin at screen 0.95
+set tmargin at screen 0.91
 
 set ylabel "conversion rate (sail per unit of anchor value)"
 set ytics nomirror

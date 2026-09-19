@@ -14,7 +14,7 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
-import {Array} from "@harbor-test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
 /// @title Reward system tests — accumulator, distributor — using deployment framework
 contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array, HarborTestActions {

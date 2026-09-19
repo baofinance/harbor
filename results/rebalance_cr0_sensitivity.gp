@@ -18,7 +18,8 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb
 # reaches that ceiling. Where it actually engages is where the reported leverage ratio reaches the cap -
 # a collateral ratio of 20/19, fixed by the cap and by nothing else, which is the flat line. Where it
 # OUGHT to engage depends on how many sail tokens the market carries, which is what its opening ratio
-# decided: that is the sloped line, and it moves across two decades.
+# decided: that is the sloped line, and its distance above the peg moves by a factor of two hundred and
+# fifty across the markets drawn.
 #
 # The two meet at one opening ratio, a little over 2.05. That market gets the bound the specification
 # describes. Every other market gets a band between the two lines in which the conversion is bounded but
@@ -46,10 +47,10 @@ set rmargin at screen 0.96
 # Where the two lines above cross: the one opening ratio the bound is right for.
 crossing = 1.0526
 
-set multiplot
+set multiplot title "rebalance_cr0_sensitivity.gp" noenhanced
 
 # ------------------------------------------------ where the bound engages, and where it ought to engage
-set tmargin at screen 0.97
+set tmargin at screen 0.93
 set bmargin at screen 0.56
 
 set logscale y

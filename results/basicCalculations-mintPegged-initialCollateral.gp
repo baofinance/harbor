@@ -1,4 +1,4 @@
-set title "Mint Pegged tokens (with initial collateral)"
+set title "basicCalculations-mintPegged-initialCollateral.gp" noenhanced
 datafile = "basicCalculations-mintPegged-initialCollateral.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

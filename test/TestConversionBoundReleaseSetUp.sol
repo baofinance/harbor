@@ -10,6 +10,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
+import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 
@@ -25,7 +26,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// The release is always at the same collateral ratio: the leverage ratio reaches the cap `K` at
 /// `K/(K-1)`, and the leverage ratio is a function of the collateral ratio alone. The size of the step
 /// there is not fixed, which is what the sail supply is a settable dimension for.
-abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
+abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, HarborTestActions {
     /// @dev One anchor token, so the sail received IS the applied conversion rate.
     uint256 internal constant ANCHOR_IN = 1 ether;
 
@@ -73,30 +74,6 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
 
     /// @notice Buy or sell sail until the supply is `multiple` of the anchor supply, and report what was
     ///         actually reached.
-    /// @dev Both legs are price-neutral - a mint and a redeem each move the residual and the supply in
-    ///      the same proportion - so this changes how many sail tokens carry the residual without
-    ///      changing what any of them is worth, and without taking value from anyone holding one.
-    function setSailSupplyMultiple(uint256 multiple) internal returns (uint256 achieved) {
-        uint256 anchorSupply = IMinter(minter).peggedTokenBalance();
-        uint256 target = (anchorSupply * multiple) / 1 ether;
-        uint256 current = IMinter(minter).leveragedTokenBalance();
-
-        if (target < current) {
-            IMinter_v3(minter).freeRedeemLeveragedToken(current - target, address(this));
-        } else if (target > current) {
-            // Each sail token costs the sail price in value, and each wrapped collateral token is worth
-            // its wrapped-to-underlying rate times the underlying's price.
-            (uint256 collateralPrice, , uint256 wrappedRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-            uint256 valueNeeded = ((target - current) * IMinter_v3(minter).leveragedTokenPrice()) / 1 ether;
-            IMinter_v3(minter).freeMintLeveragedToken(
-                Math.mulDiv(valueNeeded, 1 ether * 1 ether, collateralPrice * wrappedRate),
-                address(this)
-            );
-        }
-
-        achieved = Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, IMinter(minter).peggedTokenBalance());
-    }
-
     /// @dev Convert one anchor token at `collateralRatio` and report the conversion rate it was given,
     ///      then put the market back. Measured through the conversion rather than recomputed, so the
     ///      answer is the contract's and not this test's.

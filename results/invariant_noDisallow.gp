@@ -1,3 +1,4 @@
+set title "invariant_noDisallow.gp" noenhanced
 datafile = "invariant_noDisallow.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

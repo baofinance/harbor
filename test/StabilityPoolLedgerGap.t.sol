@@ -157,9 +157,10 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         }
     }
 
-    /// @notice Gap across baseline-supply decades under the loss patterns: one max-headroom loss,
-    /// and many small losses (error-queue churn). Every measurement must sit inside the derived
-    /// bound: maxSupplyEver/1e18 (outstanding over-application) + 1 wei per balance store event.
+    /// @notice Gap across orders of magnitude of baseline supply under the loss patterns: one
+    /// max-headroom loss, and many small losses (error-queue churn). Every measurement must sit
+    /// inside the derived bound: maxSupplyEver/1e18 (outstanding over-application) + 1 wei per
+    /// balance store event.
     function test_gap_tSweep_lossPatterns() public {
         string memory csv = openFile("sp-ledger-gap-tsweep", sa("t", "pattern", "gap", "bound"));
 

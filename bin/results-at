@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#
+# Recover the tracked results as they were at a git ref, say which of them have changed since, and for
+# each one name the plot files that draw it.
+#
+# The tracked CSVs under results/ are the regression evidence: a change to the protocol shows up as a
+# change to them, and the question that follows is always "which graph do I look at?". This answers that
+# question rather than leaving a list of changed filenames to be matched against plot files by hand.
+#
+# Nothing is written into results/ itself. That directory holds what the tests regress against, and
+# leaving it untouched is the point: the comparison is between what is there now and what is recovered
+# here, and a tool that overwrote one of them would have nothing left to compare.
+#
+# Unlike the scripts under lib/bao-base/bin, this one is executed rather than sourced.
+#
+#   ./bin/results-at                 # against the previous commit
+#   ./bin/results-at HEAD~5
+#   ./bin/results-at some-branch
+
+set -euo pipefail
+
+ref="${1:-HEAD~1}"
+
+# A ref may name a branch with slashes in it, which cannot be a single directory component.
+dir="tmp/results/${ref//\//_}"
+
+if ! git rev-parse --verify --quiet "${ref}^{commit}" > /dev/null; then
+    echo "results-at: '${ref}' is not a commit this repository knows" >&2
+    exit 1
+fi
+
+rm -rf "${dir}"
+mkdir -p "${dir}"
+
+# `git archive` reads the tree at the ref, so the working tree and the index are both left alone.
+git archive "${ref}" results | tar -x -C "${dir}" --strip-components=1
+status=("${PIPESTATUS[@]}")
+if [[ "${status[0]}" -ne 0 || "${status[1]}" -ne 0 ]]; then
+    echo "results-at: could not extract results/ from '${ref}'" >&2
+    exit 1
+fi
+
+echo "recovered ${ref} into ${dir}"
+echo
+
+changed=0
+added=0
+removed=0
+
+for now in results/*.csv; do
+    name="$(basename "${now}")"
+    then="${dir}/${name}"
+
+    if [[ ! -f "${then}" ]]; then
+        echo "ADDED    ${name}  (did not exist at ${ref})"
+        added=$((added + 1))
+        continue
+    fi
+
+    if cmp -s "${now}" "${then}"; then
+        continue
+    fi
+
+    changed=$((changed + 1))
+    # How much moved, in lines, so that a header-only rename reads differently from a behaviour change.
+    delta="$(diff "${then}" "${now}" | grep -c '^[<>]' || true)"
+    echo "CHANGED  ${name}  (${delta} lines differ)"
+
+    # Which plot files read it. A CSV nothing draws is a CSV nobody will look at, which is worth saying.
+    users="$(grep -l -- "${name}" results/*.gp 2>/dev/null || true)"
+    if [[ -z "${users}" ]]; then
+        echo "         drawn by: NOTHING - no .gp file reads this"
+    else
+        for gp in ${users}; do
+            echo "         drawn by: $(basename "${gp}")"
+        done
+        echo "         compare:  cd results && gnuplot -e \"before='../${dir}/${name}'; after='${name}'; cols='2'\" compare.gp > /tmp/${name%.csv}.svg"
+    fi
+done
+
+for then in "${dir}"/*.csv; do
+    [[ -e "${then}" ]] || continue
+    name="$(basename "${then}")"
+    if [[ ! -f "results/${name}" ]]; then
+        echo "REMOVED  ${name}  (existed at ${ref}, does not now)"
+        removed=$((removed + 1))
+    fi
+done
+
+echo
+echo "${changed} changed, ${added} added, ${removed} removed"

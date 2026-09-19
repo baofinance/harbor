@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {Array} from "@harbor-test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 import {MockMultipleRewardCompoundingAccumulator_v2} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v2.sol";
 import {MockMultipleRewardCompoundingAccumulator_v3} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
 

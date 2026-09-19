@@ -58,7 +58,7 @@ contract TestMinterConversionBoundRelease is TestConversionBoundReleaseSetUp {
     /// still binding when it lets go, so the applied conversion rate steps UP and the pool is handed less
     /// than fair right up to the release. The same code, the same cap, opposite directions.
     function test_theStepReversesWhenSailIsPlentiful() public {
-        uint256 achieved = setSailSupplyMultiple(20 ether);
+        uint256 achieved = setSailSupplyMultiple(minter, priceOracle, 20 ether);
         assertApproxEqRel(achieved, 20 ether, 0.001 ether, "the sail supply was moved to twenty per anchor");
 
         uint256 step = stepAcrossTheRelease();

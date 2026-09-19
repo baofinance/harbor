@@ -1,3 +1,4 @@
+set title "liquidate_parameters.gp" noenhanced
 datafile = "liquidate_parameters.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

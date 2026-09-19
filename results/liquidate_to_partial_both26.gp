@@ -1,3 +1,4 @@
+set title "liquidate_to_partial_both26.gp" noenhanced
 datafile = "liquidate_partial_both26.csv"
 datafileto = "liquidate_to_partial_both26.csv"
 set datafile separator comma

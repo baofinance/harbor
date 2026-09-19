@@ -1,3 +1,4 @@
+set title "sp-ledger-gap-miscredit.gp" noenhanced
 datafile = "sp-ledger-gap-miscredit.csv"
 set datafile separator comma
 set key noenhanced below title " "

@@ -70,8 +70,8 @@ abstract contract TestGraphsAnchorMintDivergenceBase is GraphTestBase, TestColla
         vm.closeFile(file);
     }
 
-    /// @dev One percent of a line's own magnitude: these lines cover decades on a logarithmic axis,
-    ///      where equal proportions rather than equal differences are equal distances.
+    /// @dev One percent of a line's own size: these lines run over five hundredfold on a logarithmic
+    ///      axis, where equal proportions rather than equal differences are equal distances.
     function refinementTolerance() internal pure override returns (uint256) {
         return 0.01 ether;
     }

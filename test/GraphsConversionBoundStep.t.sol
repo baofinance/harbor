@@ -22,9 +22,9 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// tokens carry the residual without changing what any one of them is worth, so no holder is diluted and
 /// no market here is distressed. Each point is a market that could exist at any time.
 ///
-/// The sweep is geometric because the relationship is a power law, and it is drawn over five decades
-/// because the quantity is unbounded and five decades is enough to show that it is a straight line rather
-/// than something that levels off.
+/// The sweep is geometric because the relationship is a power law, and it is drawn over five orders of
+/// magnitude because the quantity is unbounded and five orders of magnitude is enough to show that it is
+/// a straight line rather than something that levels off.
 contract TestGraphsConversionBoundStep is GraphTestBase, TestConversionBoundReleaseSetUp {
     uint256 private constant FIRST_SAIL_PER_ANCHOR = 0.001 ether;
     uint256 private constant LAST_SAIL_PER_ANCHOR = 100 ether;
@@ -50,7 +50,7 @@ contract TestGraphsConversionBoundStep is GraphTestBase, TestConversionBoundRele
 
             // The achieved supply is what goes on the axis, not the requested one: buying sail to a
             // target rounds, and the row should say where the market was put.
-            uint256 achieved = setSailSupplyMultiple(target);
+            uint256 achieved = setSailSupplyMultiple(minter, priceOracle, target);
             (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
 
             writeLine(

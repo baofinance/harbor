@@ -1,3 +1,4 @@
+set title "liquidate_to_all_collateral.gp" noenhanced
 datafile = "liquidate_all_collateral.csv"
 datafileto = "liquidate_to_all_collateral.csv"
 set datafile separator comma

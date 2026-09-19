@@ -23,10 +23,10 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 760 background rgb
 #
 # TWO PANELS, because the two halves of the story do not share a scale in either direction.
 #
-# The UPPER panel is where the bound underpays, which runs over more than a decade of value and more
-# than two decades of collateral ratio, so both of its axes are logarithmic. Its x is the distance above
-# the peg, which is the variable these quantities are actually functions of: the residual the sail is a
-# claim on is proportional to it, and so is the fair conversion rate.
+# The UPPER panel is where the bound underpays, which runs over more than an order of magnitude of value
+# and more than two orders of magnitude of collateral ratio, so both of its axes are logarithmic. Its x
+# is the distance above the peg, which is the variable these quantities are actually functions of: the
+# residual the sail is a claim on is proportional to it, and so is the fair conversion rate.
 #
 # The LOWER panel is the band where the bound OVERPAYS. It is four thousandths of a collateral ratio wide - under
 # one percent of the upper panel's axis, where it is a spike - and never exceeds five percent of value,
@@ -40,10 +40,10 @@ set colorsequence default
 set lmargin at screen 0.13
 set rmargin at screen 0.96
 
-set multiplot
+set multiplot title "rebalance_conversion_fairness.gp" noenhanced
 
-# --------------------------------------------- where the bound underpays: two decades, so logarithmic
-set tmargin at screen 0.97
+# ------------------ where the bound underpays: twenty-five fold in value, three hundred in ratio
+set tmargin at screen 0.93
 set bmargin at screen 0.62
 
 set logscale x

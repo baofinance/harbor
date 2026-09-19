@@ -195,7 +195,7 @@ contract TestGraphsLiquidate is GraphTestBase, TestCollateralRatioRangeSetUp {
         setUp_config_likely();
     }
 
-    function setUp() public override {
+    function setUp() public virtual override {
         super.setUp();
         uint256 minterPegged = IMinter(minter).peggedTokenBalance();
 
@@ -354,7 +354,9 @@ contract TestGraphsLiquidateAllCollateral is TestGraphsLiquidate {
 contract TestGraphsLiquidateAllLeveraged is TestGraphsLiquidate {
     constructor() TestGraphsLiquidate(0, 1 ether) {}
 
-    function context() internal pure override returns (string memory) {
+    /// @dev Left overridable: this is the variant that converts the most anchor into sail, so it is the
+    ///      one a candidate conversion rule is compared against.
+    function context() internal pure virtual override returns (string memory) {
         return "_all_leveraged";
     }
 }

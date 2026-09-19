@@ -12,7 +12,7 @@ import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 import {DeployEURSetUp} from "@harbor-test/deployment/DeployEURSetUp.t.sol";
 import {PermitTestBase} from "@bao-test/PermitTestBase.t.sol";
-import {Array} from "@harbor-test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
 /// @title TestStabilityPool_v3_ERC20
 /// @notice Coverage tests for StabilityPool_v3 ERC20 functions and transfer equivalence.

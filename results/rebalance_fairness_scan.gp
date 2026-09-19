@@ -30,7 +30,7 @@ set bmargin 7
 set key below spacing 1.3
 set grid
 
-set multiplot layout 1,2 title 'Rebalance Fairness Gap - Scenario B (dodge attack)'
+set multiplot layout 1,2 title 'rebalance_fairness_scan.gp - Scenario B (dodge attack)' noenhanced
 
 # ------- every scanned point, because the gap turns on liquidation fraction alone, not on leveraged %
 set xlabel 'Liquidation fraction (%)'

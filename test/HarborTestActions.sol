@@ -11,6 +11,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -80,6 +81,44 @@ abstract contract HarborTestActions {
             leveragedMinted = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
         _vm.stopPrank();
+    }
+
+    /// @notice Buy or sell sail until the market carries `multiple` sail tokens per anchor token, and report
+    /// what was actually reached.
+    ///
+    /// @dev The caller must hold the market's sail, and collateral enough to buy more.
+    ///
+    /// Both legs are price-neutral: a mint and a redeem each move the residual and the supply in the same
+    /// proportion, so this changes how many sail tokens carry the residual without changing what any one of them
+    /// is worth, and without taking value from anyone holding one. That is what lets a market be reshaped into
+    /// the one a different opening ratio would have produced - the state is the same either way, and the history
+    /// that reached it is not something the protocol records.
+    ///
+    /// @param minter The market to reshape.
+    /// @param oracle The market's mock price oracle, read for what a collateral token is worth.
+    /// @param multiple Sail tokens per anchor token, 1e18-scaled.
+    function setSailSupplyMultiple(
+        address minter,
+        address oracle,
+        uint256 multiple
+    ) internal returns (uint256 achieved) {
+        uint256 target = Math.mulDiv(IMinter(minter).peggedTokenBalance(), multiple, 1 ether);
+        uint256 current = IMinter(minter).leveragedTokenBalance();
+
+        if (target < current) {
+            IMinter_v3(minter).freeRedeemLeveragedToken(current - target, address(this));
+        } else if (target > current) {
+            // Each sail token costs the sail price in value, and each wrapped collateral token is worth its
+            // wrapped-to-underlying rate times the underlying's price.
+            (uint256 collateralPrice, , uint256 wrappedRate, ) = IWrappedPriceOracle(oracle).latestAnswer();
+            uint256 valueNeeded = Math.mulDiv(target - current, IMinter_v3(minter).leveragedTokenPrice(), 1 ether);
+            IMinter_v3(minter).freeMintLeveragedToken(
+                Math.mulDiv(valueNeeded, 1 ether * 1 ether, collateralPrice * wrappedRate),
+                address(this)
+            );
+        }
+
+        achieved = Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, IMinter(minter).peggedTokenBalance());
     }
 
     /// @notice Move a market to `targetCollateralRatio` by pricing its collateral for it, leaving the

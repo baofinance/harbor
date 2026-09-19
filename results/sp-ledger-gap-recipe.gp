@@ -1,3 +1,4 @@
+set title "sp-ledger-gap-recipe.gp" noenhanced
 datafile = "sp-ledger-gap-recipe.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
@@ -14,7 +15,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb
 
 # The error recipe drives the gap between the StabilityPool's two ledgers - the exact supply counter
 # and the product-decayed sum of balances - to its bound, then absorbs it. Both axes span many
-# decades, so both are logarithmic.
+# orders of magnitude, so both are logarithmic.
 set logscale x
 set logscale y
 set format x "10^{%L}"

@@ -1,3 +1,4 @@
+set title "basicCalculations-redeemPegged.gp" noenhanced
 datafile = "basicCalculations-redeemPegged.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

@@ -30,6 +30,7 @@ import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/Conf
 import {ConfigPeg_ETH} from "@harbor-script/config/pegs/ConfigPeg_ETH.sol";
 import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
+import {RevertReason} from "@harbor-test/RevertReason.sol";
 
 /// @notice A named market's supported operating envelope, in the units a director thinks in: dollars and counts. The
 /// harness translates these to what the protocol needs (a pegged token count and the oracle's 1e18-scaled price/rate),
@@ -129,7 +130,8 @@ abstract contract StabilityPoolEnvelopeBase is
     BaoTest,
     Deploy_ETH_Minter,
     StabilityPoolConservation,
-    HarborTestActions
+    HarborTestActions,
+    RevertReason
 {
     // capped so the fork fuzz stays feasible; the declared business cap (maxPoolUsers) can be far larger and is
     // exercised by the deterministic max-users test rather than every fuzz run.
@@ -567,7 +569,7 @@ abstract contract StabilityPoolEnvelopeBase is
             // mint cannot back the pool and `_collateralFor` divides by zero. Any OTHER revert is an unexpected failure
             // and must propagate UNCHANGED - a broad catch here would be a fuzz-level fail_on_revert=false, silently
             // recording a real bug as a located limit.
-            if (keccak256(bytes(_revertReason(err))) != keccak256(bytes("divide-by-zero"))) {
+            if (!_isPanic(err, PANIC_DIVIDE_BY_ZERO)) {
                 assembly {
                     revert(add(err, 0x20), mload(err))
                 }
@@ -658,12 +660,6 @@ abstract contract StabilityPoolEnvelopeBase is
         _setEnvelopePoint(1e-6 ether, 0.001 ether, 1e12 ether); // collateral $1e-6, rate 0.001x, peg $1e12
         vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x12)); // divide by zero: collateral cannot back pegged
         this.growProbe(1 ether);
-    }
-
-    /// @notice A divide-by-zero panic - the recorded reason when the mint cannot back a pool at a price-underflow
-    /// limit - decodes to a readable constraints-CSV label rather than raw hex.
-    function test_revertReason_decodesDivideByZeroPanic() public pure {
-        assertEq(_revertReason(abi.encodeWithSignature("Panic(uint256)", 0x12)), "divide-by-zero");
     }
 
     // ─── deterministic width-boundary corners (the balance-field regression pins, on the REAL deployForPeg pool) ───
@@ -824,51 +820,6 @@ abstract contract StabilityPoolEnvelopeBase is
                 detail
             )
         );
-    }
-
-    function _revertReason(bytes memory err) internal pure returns (string memory) {
-        if (err.length < 4) {
-            return err.length == 0 ? "revert(no-data)" : vm.toString(err);
-        }
-        bytes4 sel;
-        assembly {
-            sel := mload(add(err, 0x20))
-        }
-        bytes memory data = new bytes(err.length - 4); // the arguments, after the 4-byte selector
-        for (uint256 i = 0; i < data.length; i++) {
-            data[i] = err[i + 4];
-        }
-        if (sel == 0x08c379a0 && data.length >= 64) {
-            return abi.decode(data, (string)); // Error(string)
-        }
-        if (sel == 0x6dfcc650 && data.length == 64) {
-            // OZ SafeCast SafeCastOverflowedUintDowncast(uint8 bits, uint256 value): the field-width overflow
-            (uint256 bits, ) = abi.decode(data, (uint256, uint256));
-            return string.concat("SafeCast-overflow-uint", vm.toString(bits));
-        }
-        if (sel == 0xe450d38c) {
-            // OZ ERC20InsufficientBalance(address, uint256 balance, uint256 needed): a token-balance shortfall, not a
-            // field-width limit (e.g. the minter cannot return more wrapped collateral than it holds)
-            return "ERC20-insufficient-balance";
-        }
-        if (sel == 0xbbefdf6a) {
-            // NoHarvestable(): the yield rounded to zero at this point - nothing to harvest, not a field-width limit
-            return "no-harvestable";
-        }
-        if (sel == 0x4e487b71 && data.length == 32) {
-            // Panic(uint256): a Solidity runtime panic. 0x12 = divide/modulo by zero - the mint dividing by a wrapped
-            // price that floored to zero, i.e. the collateral cannot back pegged (a price-underflow economic limit);
-            // 0x11 = arithmetic over/underflow. Others reported by code.
-            uint256 code = abi.decode(data, (uint256));
-            if (code == 0x12) {
-                return "divide-by-zero";
-            }
-            if (code == 0x11) {
-                return "arithmetic-overflow";
-            }
-            return string.concat("panic-", vm.toString(code));
-        }
-        return vm.toString(err); // other custom error: raw hex (selector + args)
     }
 
     /// @notice Deposit sweep: a fresh user deposits a swept amount into the StabilityPool at a swept oracle point,
@@ -1225,10 +1176,11 @@ abstract contract StabilityPoolEnvelopeBase is
 
         // the skim is the ratio slice of what was DISTRIBUTED, not of the whole (mostly-deferred) harvestable
         uint256 expectedSkim = Math.mulDiv(distributed, skimRatio, residualRatio);
-        uint256 backlogProportionalSkim = Math.mulDiv(harvestable0, skimRatio, 1e18); // skim on the whole backlog, decades higher
+        // skim on the whole backlog, orders of magnitude higher
+        uint256 backlogProportionalSkim = Math.mulDiv(harvestable0, skimRatio, 1e18);
         // the skim rounds through `processed = mulDiv(distributed, 1e18, residualRatio)` then a ratio floor, so it can
         // differ from the direct `mulDiv(distributed, skimRatio, residualRatio)` by at most 1 wei; the band admits the
-        // capped skim and rejects the backlog-proportional value it is many decades away from
+        // capped skim and rejects the backlog-proportional value it is many orders of magnitude away from
         assertDiscriminates(
             skim,
             expectedSkim,

@@ -46,10 +46,10 @@ set colorsequence default
 set lmargin at screen 0.15
 set rmargin at screen 0.96
 
-set multiplot
+set multiplot title "rebalance_binding_limits.gp" noenhanced
 
 # --------------------------------------------------------------- which limit decides how much is taken
-set tmargin at screen 0.97
+set tmargin at screen 0.93
 set bmargin at screen 0.57
 
 set logscale y

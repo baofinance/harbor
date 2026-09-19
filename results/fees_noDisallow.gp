@@ -1,3 +1,4 @@
+set title "fees_noDisallow.gp" noenhanced
 datafile = "fees_noDisallow.csv"
 datafile1 = "fees1_noDisallow.csv"
 set datafile separator comma

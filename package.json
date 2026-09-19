@@ -26,6 +26,7 @@
     "script": "forge script --force --ffi",
     "disabled": "echo 'disabled tests:' && grep -n -e '^\\s*function\\s*test.*(.*).*private' test/**/*.t.sol",
     "doc": "forge doc",
+    "results-at": "./bin/results-at",
     "svg": "cd results && find . -name \"*.gp\" -exec gnuplot -e \"set output '{}.svg'\" {} \\;",
     "png": "cd results && find . -name \"*.svg\" -exec convert {} {}.png \\;",
     "deploy": "./script/deploy",

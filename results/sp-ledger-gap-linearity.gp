@@ -1,3 +1,4 @@
+set title "sp-ledger-gap-linearity.gp" noenhanced
 datafile = "sp-ledger-gap-linearity.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

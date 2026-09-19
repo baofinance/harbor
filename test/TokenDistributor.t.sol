@@ -22,7 +22,7 @@ import {ITokenDistributor} from "@harbor/interfaces/ITokenDistributor.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 
-import {Array} from "@harbor-test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
 contract TestTokenDistributorSetUp is BaoTest, Array {
     using ECDSA for bytes32;

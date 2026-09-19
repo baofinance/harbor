@@ -19,7 +19,7 @@ import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 import {console2} from "forge-std/console2.sol";
 import {FmtLib} from "@harbor/util/FmtLib.sol";
-import {Array} from "@harbor-test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
 /// @title RebalanceFairnessTest
 /// @notice Worked example from doc/ideas/rebalance-fairness.md using real contract code

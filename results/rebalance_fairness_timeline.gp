@@ -33,7 +33,7 @@ set bmargin 7
 set key below spacing 1.3
 set grid
 
-set multiplot layout 1,2 title 'haXXX-Equivalent Position Over Time (weekly compound)'
+set multiplot layout 1,2 title 'rebalance_fairness_timeline.gp - haXXX-equivalent position over time (weekly compound)' noenhanced
 
 # The fee column selects which run a row belongs to; 1/0 is gnuplot's undefined value, so a row from
 # the other run contributes no point and the two lines stay separate.

@@ -40,10 +40,10 @@ set colorsequence default
 set lmargin at screen 0.15
 set rmargin at screen 0.96
 
-set multiplot
+set multiplot title "rebalance_supply_trajectory.gp" noenhanced
 
 # ------------------------------------------ what each cycle's conversion pays, against what would be fair
-set tmargin at screen 0.97
+set tmargin at screen 0.93
 set bmargin at screen 0.56
 
 set logscale y

@@ -33,7 +33,7 @@ set bmargin 7
 set key below spacing 1.3
 set grid
 
-set multiplot layout 1,2 title 'Withdrawal Fee Impact - Design Case (10% drop, 37.5% liquidation)'
+set multiplot layout 1,2 title 'rebalance_fairness_fee_scan.gp - design case (10% drop, 37.5% liquidation)' noenhanced
 
 # --------------------------------------------- how far the fee closes the stayer/returner income gap
 set xlabel 'Withdrawal fee (%)'

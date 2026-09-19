@@ -1,3 +1,4 @@
+set title "anchor_mint_divergence.gp" noenhanced
 byprice = "anchor_mint_divergence.csv"
 byrate = "anchor_mint_divergence_by_rate.csv"
 bybacking = "anchor_mint_divergence_by_backing.csv"
@@ -37,7 +38,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb
 # as straight lines, and their slopes are then readable as the powers they are.
 #
 # The shipped anchor floor - refuse below the price the protocol can report - engages at a collateral ratio of
-# 1e-18, fifteen decades to the left of this axis. What is drawn here is the approach to it.
+# 1e-18, fifteen orders of magnitude to the left of this axis. What is drawn here is the approach to it.
 
 set logscale x
 set logscale y

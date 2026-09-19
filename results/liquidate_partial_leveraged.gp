@@ -1,3 +1,4 @@
+set title "liquidate_partial_leveraged.gp" noenhanced
 datafile = "liquidate_partial_leveraged.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

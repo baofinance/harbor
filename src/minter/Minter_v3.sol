@@ -1050,16 +1050,14 @@ contract Minter_v3 is
             uint256 underlyingCollateral_ = _effectiveBacking($);
 
             uint256 underlyingCollateralOutE36;
-            (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = MinterAdjustments_v1
-                .freeRedeemPeggedTokenAmounts(
-                    peggedForCollateral,
-                    peggedForLeveraged,
-                    peggedTokenBalance_,
-                    underlyingCollateral_,
-                    price,
-                    rate,
-                    _leveragedTokenBalance()
-                );
+            (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = _freeRedeemAmounts(
+                peggedForCollateral,
+                peggedForLeveraged,
+                peggedTokenBalance_,
+                underlyingCollateral_,
+                price,
+                rate
+            );
 
             // Each leg burns anchor, so neither may take it without handing something back. A leg
             // that yields nothing has priced the anchor at nothing, and burning against that price
@@ -1109,15 +1107,45 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         (uint256 price, uint256 rate) = _fetchMax($.priceOracle);
         // slither-disable-next-line unused-return a dry run does not touch the backing record
-        (wrappedCollateralOut, leveragedOut, ) = MinterAdjustments_v1.freeRedeemPeggedTokenAmounts(
+        (wrappedCollateralOut, leveragedOut, ) = _freeRedeemAmounts(
             peggedForCollateral,
             peggedForLeveraged,
             $.peggedTokenBalance,
             _effectiveBacking($),
             price,
-            rate,
-            _leveragedTokenBalance()
+            rate
         );
+    }
+
+    /// @notice What a free redeem hands back for a given pre-burn state: collateral for the leg redeemed
+    ///         against the backing, and leveraged tokens for the leg converted into the residual.
+    /// @dev The single place the exchange's arithmetic is reached from, so the call and the dry run
+    ///      cannot price a redeem differently, and so the rule can be substituted whole rather than at
+    ///      each site. The leveraged supply is read here rather than passed in, because both callers
+    ///      read the same one.
+    function _freeRedeemAmounts(
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged,
+        uint256 peggedTokenBalance_,
+        uint256 underlyingCollateral_,
+        uint256 price,
+        uint256 rate
+    )
+        internal
+        view
+        virtual
+        returns (uint256 wrappedCollateralOut, uint256 leveragedOut, uint256 underlyingCollateralOutE36)
+    {
+        return
+            MinterAdjustments_v1.freeRedeemPeggedTokenAmounts(
+                peggedForCollateral,
+                peggedForLeveraged,
+                peggedTokenBalance_,
+                underlyingCollateral_,
+                price,
+                rate,
+                _leveragedTokenBalance()
+            );
     }
 
     // @inheritdoc IMinter
@@ -1350,7 +1378,7 @@ contract Minter_v3 is
     }
 
     /// @notice Returns the amount of leveraged tokens being managed
-    function _leveragedTokenBalance() private view returns (uint256) {
+    function _leveragedTokenBalance() internal view returns (uint256) {
         return IERC20(LEVERAGED_TOKEN).totalSupply();
     }
 

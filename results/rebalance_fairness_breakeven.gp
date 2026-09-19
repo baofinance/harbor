@@ -1,3 +1,4 @@
+set title "rebalance_fairness_breakeven.gp" noenhanced
 datafile = "rebalance_fairness_breakeven.csv"
 set datafile separator comma
 set key noenhanced below title " "

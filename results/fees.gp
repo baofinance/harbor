@@ -1,3 +1,4 @@
+set title "fees.gp" noenhanced
 datafile = "fees.csv"
 datafile1 = "fees1.csv"
 set datafile separator comma

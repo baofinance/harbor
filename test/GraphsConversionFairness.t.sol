@@ -30,9 +30,9 @@ import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol"
 /// price the market reports afterwards. Recomputing it from the same inputs the contract uses would
 /// agree by construction and show nothing.
 contract TestGraphsConversionFairness is GraphTestBase, TestCollateralRatioRangeSetUp {
-    /// @dev Sizes as a fraction of the residual, four decades of them because the effect is a function
-    ///      of size across decades: the smallest stands in for a conversion too small to move the price,
-    ///      the largest for one giving up several times the residual.
+    /// @dev Sizes as a fraction of the residual, four orders of magnitude of them because the effect
+    ///      is a function of size across orders of magnitude: the smallest stands in for a conversion
+    ///      too small to move the price, the largest for one giving up several times the residual.
     uint256[5] private conversionSizes = [0.001 ether, 0.01 ether, 0.1 ether, 1 ether, 10 ether];
 
     string private file;

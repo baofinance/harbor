@@ -1,3 +1,4 @@
+set title "invariant_flat.gp" noenhanced
 datafile = "invariant_flat.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

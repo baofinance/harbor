@@ -12,7 +12,7 @@ import {IMockMultipleRewardCompoundingAccumulator} from "@harbor-test/mocks/IMoc
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockMultipleRewardCompoundingAccumulator_v3} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
-import {Array} from "@harbor-test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
 contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     // Addresses

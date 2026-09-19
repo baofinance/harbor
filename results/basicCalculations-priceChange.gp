@@ -1,3 +1,4 @@
+set title "basicCalculations-priceChange.gp" noenhanced
 datafile = "basicCalculations-priceChange.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "

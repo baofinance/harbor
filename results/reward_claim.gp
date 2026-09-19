@@ -1,3 +1,4 @@
+set title "reward_claim.gp" noenhanced
 datafile = "reward_claim.csv"
 set datafile separator comma
 
