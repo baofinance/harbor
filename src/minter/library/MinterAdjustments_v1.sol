@@ -664,8 +664,11 @@ library MinterAdjustments_v1 {
         }
 
         if (peggedForLeveraged > 0) {
-            // we use leverage ratio for this calculation as it is capped
             if (leveragedTokenBalance_ > 0) {
+                // The leverage ratio decides only WHETHER the cap binds. It is deliberately not what the
+                // conversion is then priced by: a sail token is a claim on the residual, so the rate is
+                // the sail supply over the residual, and the collateral value the leverage ratio carries
+                // cancels against the collateral value it would have to be divided by again.
                 uint256 leverageRatio_ = MinterValuationLib.leverageRatio(
                     peggedTokenBalance_,
                     underlyingCollateral_,
@@ -675,10 +678,22 @@ library MinterAdjustments_v1 {
                 if (leverageRatio_ == MinterValuationLib.LEVERAGE_RATIO_CAP) {
                     leveragedOut = Math.mulDiv(peggedForLeveraged, MinterValuationLib.LEVERAGE_RATIO_CAP, 1 ether);
                 } else {
+                    // Below the cap the residual is positive, so this cannot divide by zero: the ratio
+                    // reports the cap both when it is exceeded and when the residual is gone.
+                    //
+                    // Pricing against the residual directly is also what keeps the arithmetic inside a
+                    // word. Carrying the cancelling collateral value through forces the anchor being
+                    // converted to be multiplied by the whole sail supply before `mulDiv` can widen
+                    // anything, and that product leaves 256 bits at supplies a market can really hold.
+                    (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
+                        peggedTokenBalance_,
+                        underlyingCollateral_,
+                        price
+                    );
                     leveragedOut = Math.mulDiv(
-                        peggedForLeveraged * leveragedTokenBalance_,
-                        leverageRatio_,
-                        underlyingCollateral_ * price
+                        peggedForLeveraged * 1 ether,
+                        leveragedTokenBalance_,
+                        collateralValueE36 - peggedValueE36
                     );
                 }
             } else {

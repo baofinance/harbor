@@ -122,6 +122,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, H
                 "anchor supply (wei)",
                 "oracle collateral price",
                 "collateral ratio",
+                "sail supply the search reached (wei)",
                 "mintAnchor",
                 "mintAnchorWithFeeCap",
                 "redeemAnchor",
@@ -276,6 +277,37 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, H
         }
     }
 
+    /// @notice A market holding as much sail as anchor can convert anchor into sail.
+    ///
+    /// That market shape is unremarkable - a sail token is a claim on the residual, so a market normally
+    /// carries many more sail than anchor, and one sail per anchor is at the thin end of ordinary. Every
+    /// other operation on sail survives it with eight-fold room to spare at the same market.
+    ///
+    /// The conversion has no business being the exception, because its arithmetic carries no term the
+    /// others lack: the collateral value it divides by is the same collateral value its rate is built
+    /// from, so the two cancel. What it multiplies by instead is the leverage ratio, which is where the
+    /// cancellation is lost and a product of the anchor being converted with the whole sail supply is
+    /// formed in its place.
+    ///
+    /// Measured at the envelope's cheapest peg, where the anchor count and the collateral price are both
+    /// at their largest - which is one corner, not two, because a pool of a fixed dollar value is more
+    /// tokens exactly when each collateral token is worth more of them.
+    function test_aMarketWithAsMuchSailAsAnchorCanConvert() public {
+        uint256 anchorSupply = _buildMarketAtPeg(1e-12 ether);
+        deal(address(leveragedToken), address(this), anchorSupply, true);
+
+        (bool overflowed, string memory reason) = _probe(
+            abi.encodeWithSignature(
+                "freeRedeemPeggedToken(uint256,uint256,address)",
+                0,
+                IERC20(peggedToken).balanceOf(address(this)),
+                address(this)
+            )
+        );
+        assertFalse(overflowed, "converting anchor to sail overflowed at a market holding one sail per anchor");
+        assertEq(reason, "ok", "the conversion must be available, not merely free of overflow");
+    }
+
     /// @notice Every external way in and out of the minter works at an ordinary market. Nothing below is
     /// worth reading without this: a search that reports where calls stop working can only be trusted if
     /// the calls were working to begin with, and a mistyped signature, an ungranted role or a missing
@@ -296,13 +328,13 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, H
     /// that a market arrives at rather than declares.
     function test_whereTheArithmeticStops() public {
         uint256[] memory pegPrices = _pegPrices();
-        uint8[] memory decimals = new uint8[](14);
+        uint8[] memory decimals = new uint8[](15);
         decimals[0] = 18; // peg price in dollars
         decimals[1] = 0; // anchor supply, a count of wei
         decimals[2] = 18; // oracle collateral price
         decimals[3] = 18; // collateral ratio
         for (uint256 i = 4; i < decimals.length; i++) {
-            decimals[i] = 0; // sail supply ceilings, counts of wei
+            decimals[i] = 0; // the search's reach and the ceilings, all counts of wei
         }
 
         for (uint256 p = 0; p < pegPrices.length; p++) {
@@ -312,13 +344,17 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, H
             (uint256 oraclePrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
             int256[] memory ceilings = _sailSupplyCeilings();
 
-            int256[] memory row = new int256[](14);
+            int256[] memory row = new int256[](15);
             row[0] = int256(pegPrices[p]);
             row[1] = int256(anchorSupply);
             row[2] = int256(oraclePrice);
             row[3] = int256(IMinter(minter).collateralRatio());
+            // How far the ladder climbed, so a column with no boundary in it can be drawn as the bound it
+            // actually is - the search looked this far and found nothing - rather than as a blank that
+            // reads the same as a broken plot.
+            row[4] = int256(uint256(1) << TOP_RUNG);
             for (uint256 i = 0; i < ceilings.length; i++) {
-                row[4 + i] = ceilings[i];
+                row[5 + i] = ceilings[i];
             }
             writeLine(file, row, decimals);
 

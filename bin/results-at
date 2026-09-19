@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 #
-# Recover the tracked results as they were at a git ref, say which of them have changed since, and for
-# each one name the plot files that draw it.
+# Recover, as they were at a git ref, the results that have changed since - and with them the plot files
+# that draw those results, so that what lands in tmp/ is a runnable "before" of every graph that moved.
 #
 # The tracked CSVs under results/ are the regression evidence: a change to the protocol shows up as a
 # change to them, and the question that follows is always "which graph do I look at?". This answers that
 # question rather than leaving a list of changed filenames to be matched against plot files by hand.
+#
+# What is recovered is a filtered copy, not the whole directory: the CSVs that changed, the .gp files
+# that read them, any .gp file that itself changed, and every other CSV those .gp files need in order to
+# draw. That last part is what makes the copy runnable - a .gp file routinely reads several CSVs, and one
+# recovered without its companions plots nothing.
+#
+# The copy keeps results/'s own flat shape, because that is what makes it usable: a .gp file names its
+# data by bare filename, so `cd` into the recovered directory and `gnuplot foo.gp` renders the before of
+# exactly what `cd results && gnuplot foo.gp` renders now.
 #
 # Nothing is written into results/ itself. That directory holds what the tests regress against, and
 # leaving it untouched is the point: the comparison is between what is there now and what is recovered
@@ -32,7 +41,9 @@ fi
 rm -rf "${dir}"
 mkdir -p "${dir}"
 
-# `git archive` reads the tree at the ref, so the working tree and the index are both left alone.
+# `git archive` reads the tree at the ref, so the working tree and the index are both left alone. The
+# whole of results/ comes across and the unwanted part is removed at the end, because deciding what is
+# wanted needs the ref's own .gp files - what a plot read then is not always what it reads now.
 git archive "${ref}" results | tar -x -C "${dir}" --strip-components=1
 status=("${PIPESTATUS[@]}")
 if [[ "${status[0]}" -ne 0 || "${status[1]}" -ne 0 ]]; then
@@ -40,41 +51,35 @@ if [[ "${status[0]}" -ne 0 || "${status[1]}" -ne 0 ]]; then
     exit 1
 fi
 
-echo "recovered ${ref} into ${dir}"
-echo
+# The CSV filenames a plot file actually reads. Comment lines are skipped: several .gp files document
+# example command lines naming CSVs they do not draw, and compare.gp - which is generic and takes its
+# filenames on the command line - names three that do not exist in results/ at all.
+gp_references() {
+    grep -v '^[[:space:]]*#' "$1" | grep -oE '[A-Za-z0-9_:.-]+\.csv' | sort -u
+}
 
-changed=0
-added=0
-removed=0
+declare -A csv_delta=()    # CSV name -> how many lines differ from the ref
+declare -A gp_delta=()     # .gp name -> how many lines differ from the ref
+declare -A gp_refs=()      # .gp name -> the CSVs it reads, at the ref and now
+declare -A drawn_by=()     # CSV name -> the .gp files that read it
+declare -A keep=()         # what survives the prune
+declare -a csv_added=() csv_removed=() gp_added=() gp_removed=()
+
+# How much moved, in lines, so that a header-only rename reads differently from a behaviour change.
+lines_differing() {
+    diff "$1" "$2" | grep -c '^[<>]' || true
+}
 
 for now in results/*.csv; do
     name="$(basename "${now}")"
     then="${dir}/${name}"
 
     if [[ ! -f "${then}" ]]; then
-        echo "ADDED    ${name}  (did not exist at ${ref})"
-        added=$((added + 1))
+        csv_added+=("${name}")
         continue
     fi
-
-    if cmp -s "${now}" "${then}"; then
-        continue
-    fi
-
-    changed=$((changed + 1))
-    # How much moved, in lines, so that a header-only rename reads differently from a behaviour change.
-    delta="$(diff "${then}" "${now}" | grep -c '^[<>]' || true)"
-    echo "CHANGED  ${name}  (${delta} lines differ)"
-
-    # Which plot files read it. A CSV nothing draws is a CSV nobody will look at, which is worth saying.
-    users="$(grep -l -- "${name}" results/*.gp 2>/dev/null || true)"
-    if [[ -z "${users}" ]]; then
-        echo "         drawn by: NOTHING - no .gp file reads this"
-    else
-        for gp in ${users}; do
-            echo "         drawn by: $(basename "${gp}")"
-        done
-        echo "         compare:  cd results && gnuplot -e \"before='../${dir}/${name}'; after='${name}'; cols='2'\" compare.gp > /tmp/${name%.csv}.svg"
+    if ! cmp -s "${now}" "${then}"; then
+        csv_delta["${name}"]="$(lines_differing "${then}" "${now}")"
     fi
 done
 
@@ -82,10 +87,117 @@ for then in "${dir}"/*.csv; do
     [[ -e "${then}" ]] || continue
     name="$(basename "${then}")"
     if [[ ! -f "results/${name}" ]]; then
-        echo "REMOVED  ${name}  (existed at ${ref}, does not now)"
-        removed=$((removed + 1))
+        csv_removed+=("${name}")
     fi
 done
 
+# Both versions of every plot file, because either can be the reason a CSV is worth recovering: the
+# version now says which graph to look at, and the version at the ref says what that graph needed to draw.
+declare -A seen_gp=()
+for path in results/*.gp "${dir}"/*.gp; do
+    [[ -e "${path}" ]] || continue
+    name="$(basename "${path}")"
+    [[ -z "${seen_gp[${name}]:-}" ]] || continue
+    seen_gp["${name}"]=1
+
+    if [[ ! -f "${dir}/${name}" ]]; then
+        gp_added+=("${name}")
+    elif [[ ! -f "results/${name}" ]]; then
+        gp_removed+=("${name}")
+    elif ! cmp -s "results/${name}" "${dir}/${name}"; then
+        gp_delta["${name}"]="$(lines_differing "${dir}/${name}" "results/${name}")"
+    fi
+
+    refs=""
+    for version in "results/${name}" "${dir}/${name}"; do
+        [[ -f "${version}" ]] || continue
+        refs+=" $(gp_references "${version}" | tr '\n' ' ')"
+    done
+    gp_refs["${name}"]="$(echo ${refs} | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+done
+
+# A plot file is wanted when it draws something that moved, or when it moved itself. Either way it brings
+# its whole data set with it, so that every .gp file in the recovered directory runs.
+for name in "${!seen_gp[@]}"; do
+    wanted=""
+    if [[ -n "${gp_delta[${name}]:-}" ]]; then
+        wanted=1
+    fi
+    for csv in ${gp_refs[${name}]}; do
+        if [[ -n "${csv_delta[${csv}]:-}" ]]; then
+            wanted=1
+            drawn_by["${csv}"]="${drawn_by[${csv}]:-}${name} "
+        fi
+    done
+    [[ -n "${wanted}" ]] || continue
+
+    keep["${name}"]=1
+    for csv in ${gp_refs[${name}]}; do
+        keep["${csv}"]=1
+    done
+done
+
+# A CSV that moved is worth recovering whether or not anything draws it.
+for csv in "${!csv_delta[@]}"; do
+    keep["${csv}"]=1
+done
+
+# A name can be wanted and yet not exist at the ref - a plot file written since, or a CSV it reads that
+# arrived with it. Nothing to recover in that case, and nothing to prune either.
+while IFS= read -r -d '' path; do
+    rel="${path#"${dir}/"}"
+    if [[ -z "${keep[${rel}]:-}" ]]; then
+        rm -f "${path}"
+    fi
+done < <(find "${dir}" -type f -print0)
+find "${dir}" -mindepth 1 -type d -empty -delete
+
+recovered="$(find "${dir}" -type f | wc -l)"
+if [[ "${recovered}" -eq 0 ]]; then
+    rmdir "${dir}"
+    echo "nothing moved since ${ref} - no results recovered"
+    exit 0
+fi
+
+echo "recovered ${recovered} files from ${ref} into ${dir}"
 echo
-echo "${changed} changed, ${added} added, ${removed} removed"
+
+for name in $(printf '%s\n' "${!csv_delta[@]}" | sort); do
+    echo "CHANGED  ${name}  (${csv_delta[${name}]} lines differ)"
+    # Which plot files read it. A CSV nothing draws is a CSV nobody will look at, which is worth saying.
+    if [[ -z "${drawn_by[${name}]:-}" ]]; then
+        echo "         drawn by: NOTHING - no .gp file reads this"
+    else
+        for gp in ${drawn_by[${name}]}; do
+            echo "         drawn by: ${gp}"
+        done
+        echo "         compare:  cd results && gnuplot -e \"before='../${dir}/${name}'; after='${name}'; cols='2'\" compare.gp > ../tmp/${name%.csv}.svg"
+    fi
+done
+
+for name in "${csv_added[@]}"; do
+    echo "ADDED    ${name}  (did not exist at ${ref})"
+done
+
+for name in "${csv_removed[@]}"; do
+    echo "REMOVED  ${name}  (existed at ${ref}, does not now)"
+done
+
+for name in $(printf '%s\n' "${!gp_delta[@]}" | sort); do
+    echo "CHANGED  ${name}  (${gp_delta[${name}]} lines differ)"
+    echo "         diff:     diff ${dir}/${name} results/${name}"
+done
+
+for name in "${gp_added[@]}"; do
+    echo "ADDED    ${name}  (did not exist at ${ref}, so there is no before of it to recover)"
+done
+
+for name in "${gp_removed[@]}"; do
+    echo "REMOVED  ${name}  (existed at ${ref}, does not now)"
+done
+
+echo
+echo "${#csv_delta[@]} CSVs changed, ${#csv_added[@]} added, ${#csv_removed[@]} removed"
+echo "${#gp_delta[@]} plots changed, ${#gp_added[@]} added, ${#gp_removed[@]} removed"
+echo
+echo "to see the before of any graph:  cd ${dir} && gnuplot <name>.gp > <name>.svg"
