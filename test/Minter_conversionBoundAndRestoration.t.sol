@@ -7,7 +7,6 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 

@@ -176,6 +176,57 @@ while IFS= read -r -d '' path; do
 done < <(find "${dir}" -type f -print0)
 find "${dir}" -mindepth 1 -type d -empty -delete
 
+# Plot files name themselves in the graph they draw, but they have not always done so, and a recovered
+# one from before that renders with no title at all. Two graphs opened side by side are then told apart
+# only by which window they are in, which is exactly the moment it matters.
+#
+# So where the version NOW titles itself and the recovered one does not, give it one - marked with the
+# ref, because the point is to identify the before and two identical titles would not. A plot that
+# already titles itself at the ref is left exactly as it was: what it said then is what it said.
+titled=0
+for then in "${dir}"/*.gp; do
+    [[ -e "${then}" ]] || continue
+    name="$(basename "${then}")"
+    [[ -f "results/${name}" ]] || continue
+
+    # Where the title goes depends on the plot: a multiplot carries one overall title on its own
+    # `set multiplot` line, and anything else takes a `set title` before it draws. Each is checked for a
+    # title in the place it would go, so a multiplot whose PANELS are titled still gains its overall one.
+    if grep -qE '^[[:space:]]*set[[:space:]]+multiplot' "${then}"; then
+        grep -qE '^[[:space:]]*set[[:space:]]+multiplot.*[[:space:]]title[[:space:]]' "${then}" && continue
+        grep -qE '^[[:space:]]*set[[:space:]]+multiplot.*[[:space:]]title[[:space:]]' "results/${name}" || continue
+        # `noenhanced` because every one of these names carries underscores, which enhanced text would
+        # render as subscripts.
+        awk -v label="${name} at ${ref}" '
+            !done && /^[[:space:]]*set[[:space:]]+multiplot/ {
+                print $0 " title \"" label "\" noenhanced"
+                done = 1
+                next
+            }
+            { print }
+        ' "${then}" > "${then}.titled"
+    else
+        grep -qE '^[[:space:]]*set[[:space:]]+title[[:space:]]' "${then}" && continue
+        grep -qE '^[[:space:]]*set[[:space:]]+title[[:space:]]' "results/${name}" || continue
+        # Before the first line that actually draws. `s?plot` anchored at the start of the line so that
+        # neither `replot` nor a `plot` named in one of the example command lines is mistaken for it.
+        awk -v label="${name} at ${ref}" '
+            !done && /^[[:space:]]*s?plot([[:space:]]|$)/ {
+                print "set title \"" label "\" noenhanced"
+                done = 1
+            }
+            { print }
+        ' "${then}" > "${then}.titled"
+    fi
+
+    if [[ -s "${then}.titled" ]]; then
+        mv "${then}.titled" "${then}"
+        titled=$((titled + 1))
+    else
+        rm -f "${then}.titled"
+    fi
+done
+
 recovered="$(find "${dir}" -type f | wc -l)"
 if [[ "${recovered}" -eq 0 ]]; then
     rmdir "${dir}"
@@ -184,6 +235,9 @@ if [[ "${recovered}" -eq 0 ]]; then
 fi
 
 echo "recovered ${recovered} files from ${ref} into ${dir}"
+if [[ "${titled}" -gt 0 ]]; then
+    echo "titled ${titled} of them, which drew untitled at ${ref} - each says '<name> at ${ref}'"
+fi
 echo
 
 for name in $(printf '%s\n' "${!csv_delta[@]}" | sort); do

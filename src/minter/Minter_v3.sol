@@ -1123,6 +1123,10 @@ contract Minter_v3 is
     ///      cannot price a redeem differently, and so the rule can be substituted whole rather than at
     ///      each site. The leveraged supply is read here rather than passed in, because both callers
     ///      read the same one.
+    /// @dev Assigned to the named returns rather than forwarded with `return libraryCall(...)`. The two
+    ///      are the same to the compiler, but the forwarding form reads to Slither as a dropped return
+    ///      value - it does not follow a tuple back out of a call into an external library. Silencing
+    ///      that would also silence a genuine dropped value here later, so the shape avoids it instead.
     function _freeRedeemAmounts(
         uint256 peggedForCollateral,
         uint256 peggedForLeveraged,
@@ -1136,8 +1140,8 @@ contract Minter_v3 is
         virtual
         returns (uint256 wrappedCollateralOut, uint256 leveragedOut, uint256 underlyingCollateralOutE36)
     {
-        return
-            MinterAdjustments_v1.freeRedeemPeggedTokenAmounts(
+        (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = MinterAdjustments_v1
+            .freeRedeemPeggedTokenAmounts(
                 peggedForCollateral,
                 peggedForLeveraged,
                 peggedTokenBalance_,
