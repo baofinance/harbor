@@ -55,10 +55,15 @@ library MinterClaimRescaleLib {
     /// @param collateralValueE36 What the collateral is worth, in pegged tokens.
     /// @param anchorClaimE36 What the anchor is owed at par - its count, valued at one each.
     /// @param residualE36 What is left for the sail, floored at zero where the anchor is not covered.
+    /// @param collateralPrice What one collateral token is worth in pegged tokens. Carried because a
+    ///        rule denominated in COLLATERAL - an escrow of so much collateral per sail token - cannot be
+    ///        valued without it, and re-fetching it beside a valuation taken from the same oracle read is
+    ///        how the two drift apart.
     struct Valuation {
         uint256 collateralValueE36;
         uint256 anchorClaimE36;
         uint256 residualE36;
+        uint256 collateralPrice;
     }
 
     /// @notice Read a market's own valuation, rather than reconstructing it from a test's assumptions.
@@ -68,6 +73,7 @@ library MinterClaimRescaleLib {
     /// @param priceOracle The oracle that market prices its collateral with.
     function valuationOf(address minter, address priceOracle) internal view returns (Valuation memory valuation) {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        valuation.collateralPrice = price;
         valuation.collateralValueE36 = IMinter(minter).collateralTokenBalance() * price;
         valuation.anchorClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
         valuation.residualE36 = valuation.collateralValueE36 > valuation.anchorClaimE36
