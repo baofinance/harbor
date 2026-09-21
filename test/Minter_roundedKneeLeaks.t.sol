@@ -110,9 +110,17 @@ contract TestMinterRoundedKneeLeaks is TestConversionBoundReleaseSetUp {
         }
     }
 
-    /// @notice Above the knee the proposal changes NOTHING - every call returns exactly what it does
-    /// today. Anywhere it does not is code reading the anchor's price in a way that only works when the
-    /// anchor is worth one.
+    /// @notice Above the knee the proposal changes nothing that the VALUATION decides - every call
+    /// returns exactly what it does today. Anywhere it does not is code reading the anchor's price in a
+    /// way that only works when the anchor is worth one.
+    ///
+    /// `leverageRatio` is the one exception, and it is named here rather than dropped from the surface
+    /// because reporting an absence is the whole value of this test and a silently shortened surface is
+    /// how that value is lost. It is not a pure function of the valuation: it also applies a CEILING, and
+    /// the ceiling is one over the floor under the sail's claim. So wherever the fixed ceiling of twenty
+    /// used to bind, the view reported twenty for a market that stood at seventy-one, and now reports
+    /// seventy-one. The prices at those same ratios are identical to the wei, which is what says the
+    /// difference is the ceiling and not the division.
     function test_aboveTheKneeNothingChanges() public {
         // Clear of the rounding: the arms meet at `1/(1-delta)` and the rounding ends `k` beyond that.
         uint256 knee = Math.mulDiv(1 ether, 1 ether, 1 ether - DELTA);
@@ -137,6 +145,18 @@ contract TestMinterRoundedKneeLeaks is TestConversionBoundReleaseSetUp {
             // is rarely the only one, and a list of every place the assumption leaks is the deliverable.
             for (uint256 i = 0; i < current.length; i++) {
                 if (keccak256(proposed[i]) != keccak256(current[i]) || proposedOk[i] != currentOk[i]) {
+                    // The reported leverage ratio carries the ceiling as well as the division, and the
+                    // ceiling moves with the floor by design. Counted separately so that it still has to
+                    // be EXPLAINED - a difference here is only permissible where the old fixed ceiling was
+                    // binding, which the assertion below checks rather than assumes.
+                    if (keccak256(bytes(names[i])) == keccak256(bytes("leverageRatio"))) {
+                        assertEq(
+                            abi.decode(current[i], (uint256)),
+                            MinterValuationLib.LEVERAGE_RATIO_CAP,
+                            "the leverage ratio may only differ where the old fixed ceiling was binding"
+                        );
+                        continue;
+                    }
                     leaks++;
                     emit log_named_string(
                         string.concat("LEAK at collateral ratio ", vm.toString(ratios[r])),
@@ -173,38 +193,48 @@ contract TestMinterRoundedKneeLeaks is TestConversionBoundReleaseSetUp {
         assertGt(differing, 0, "the proposal must change something at the peg, or nothing was installed");
     }
 
-    /// @notice A rule installed on the MINTER ALONE does not reach the fee-paying paths - pinned here
-    /// because it decides where the rule has to live, and because it shows up as an ABSENCE of change,
-    /// which no ordinary comparison would flag.
+    /// @notice The rule reaches the FEE-PAYING paths, not only the prices and the free conversion.
     ///
-    /// `MinterAdjustments_v1` divides the collateral's value itself, at six separate sites, and it is an
-    /// external library reached by delegatecall - so it cannot call back into anything the minter
-    /// overrides. Every fee-paying mint and redeem therefore keeps using the OLD division while the
-    /// prices and the free conversion use the new one. A market like that would quote the anchor at 0.99
-    /// and pay out a fee-paying redeem at 1.00.
+    /// This is the test that decides where the rule may live, and it guards against a failure that shows
+    /// up as an ABSENCE of change, which no ordinary comparison would flag. `MinterAdjustments_v1`
+    /// divides the collateral's value itself, at six separate sites, and it is an external library
+    /// reached by delegatecall - so it cannot call back into anything the minter overrides. A rule
+    /// installed as an override on `Minter_v3` therefore leaves every fee-paying mint and redeem on the
+    /// OLD division while the prices and the free conversion use the new one. That market would quote the
+    /// anchor at 0.99 and pay out a fee-paying redeem at 1.00, and nothing would say so.
     ///
-    /// The conclusion is not that the subclass is wrong - it measures the prices and the conversion
-    /// faithfully, which is what it was built for - but that the rule cannot ship as an override on
-    /// `Minter_v3`. It belongs in `MinterValuationLib.tokenValuesE36`, which is the one function that
-    /// performs the division and is compiled into BOTH the contract and the external library, so every
-    /// consumer picks it up with no seam at all.
-    function test_aRuleOnTheMinterAloneDoesNotReachTheFeePayingPaths() public {
+    /// Which is why the rule lives in `MinterValuationLib`: the one function that performs the division,
+    /// compiled into BOTH the contract and the external library, so every consumer picks it up with no
+    /// seam at all. Asserting the four fee-paying entry points MOVE is what holds it there - put the rule
+    /// back behind a seam the external library cannot see and this goes red.
+    ///
+    /// Measured just INSIDE the band rather than at the peg itself, because the fee-paying leveraged
+    /// redeem is refused at exactly one for a reason that has nothing to do with the valuation: its band
+    /// floor is one, redeeming lowers the ratio, so standing on the floor the band has no room and the
+    /// walk breaks out at the next band down. Refused under both rules compares equal, which would read
+    /// as the rule failing to reach it. The band walk is indexed by the collateral ratio with the anchor
+    /// taken at par, which the floor deliberately does not change - so moving off the floor is the whole
+    /// of the fix.
+    function test_theRuleReachesTheFeePayingPaths() public {
+        // Inside the band and below where the rounding begins, so the anchor's price moves by the shift
+        // alone and every call has room to complete.
+        uint256 insideTheBand = 1.005 ether;
         (bytes[] memory calls, string[] memory names) = _surface();
 
-        (bytes[] memory current, ) = _resultsAt(1 ether);
+        (bytes[] memory current, ) = _resultsAt(insideTheBand);
         uint256 snapshot = vm.snapshotState();
         installContractAt(minter, roundedImplementation);
-        (bytes[] memory proposed, ) = _resultsAt(1 ether);
+        (bytes[] memory proposed, ) = _resultsAt(insideTheBand);
         vm.revertToStateAndDelete(snapshot);
 
-        // The four fee-paying entry points, which price the anchor and so MUST move once its price moves.
+        // The four fee-paying entry points, which price the anchor and so must move once its price moves.
         uint256[4] memory feePaying = [uint256(4), 5, 6, 7];
         for (uint256 i = 0; i < feePaying.length; i++) {
             uint256 at = feePaying[i];
-            assertEq(
+            assertNotEq(
                 keccak256(proposed[at]),
                 keccak256(current[at]),
-                string.concat(names[at], " changed - the library can now see the rule, so this pin is stale")
+                string.concat(names[at], " did not move - the external library cannot see the rule")
             );
         }
         assertEq(calls.length, names.length, "every call must be named");
