@@ -3,11 +3,11 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
+import {MinterClaimRescaleLib} from "@harbor-test/MinterClaimRescaleLib.sol";
 import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
 
 /// @notice What it would cost to put a FLOOR under the sail's claim, and what that buys.
@@ -63,53 +63,48 @@ contract TestGraphsSailClaimFloor is GraphTestBase, TestConversionBoundReleaseSe
         );
     }
 
-    /// @dev The market's own valuation, in the units the contract works in.
-    function _residualAndCollateral() private view returns (uint256 residualE36, uint256 collateralValueE36) {
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        collateralValueE36 = IMinter(minter).collateralTokenBalance() * price;
-        uint256 anchorClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
-        residualE36 = collateralValueE36 > anchorClaimE36 ? collateralValueE36 - anchorClaimE36 : 0;
-    }
-
     /// @notice The floor's cost and its effect, from just above the peg to a healthy market.
     function test_whatAFlooredSailClaimCostsAndBuys() public {
         for (uint256 above = FIRST_ABOVE_PEG; above <= LAST_ABOVE_PEG; above = (above * 12) / 5) {
             uint256 snapshot = vm.snapshotState();
             setCollateralRatio(1 ether + above);
 
-            (uint256 residualE36, uint256 collateralValueE36) = _residualAndCollateral();
-            uint256 floorE36 = collateralValueE36 / FLOOR_DIVISOR;
-            uint256 hardE36 = Math.max(residualE36, floorE36);
-            uint256 blendE36 = ((BLEND_DENOMINATOR - BLEND_NUMERATOR) *
-                residualE36 +
-                BLEND_NUMERATOR *
-                floorE36) / BLEND_DENOMINATOR;
+            MinterClaimRescaleLib.Valuation memory valuation = MinterClaimRescaleLib.valuationOf(minter, priceOracle);
+            uint256 floorE36 = valuation.collateralValueE36 / FLOOR_DIVISOR;
+            uint256 hardE36 = Math.max(valuation.residualE36, floorE36);
+            uint256 blendE36 = ((BLEND_DENOMINATOR - BLEND_NUMERATOR) * valuation.residualE36 +
+                BLEND_NUMERATOR * floorE36) / BLEND_DENOMINATOR;
 
             int256 measured = NaN;
             int256 hardRate = NaN;
             int256 blendRate = NaN;
             try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 out) {
                 measured = int256(out);
-                // The rate goes as one over the claim and nothing else in it moves, so rescaling the
-                // measured rate by the ratio of claims is exact rather than a model of the measurement.
-                hardRate = int256(Math.mulDiv(out, residualE36, hardE36));
-                blendRate = int256(Math.mulDiv(out, residualE36, blendE36));
+                // Neither candidate touches the anchor's price, the sail supply, or the path the
+                // operation takes, so rescaling by the ratio of claims is exact - see the library.
+                hardRate = int256(MinterClaimRescaleLib.rescaleToClaim(out, valuation.residualE36, hardE36));
+                blendRate = int256(MinterClaimRescaleLib.rescaleToClaim(out, valuation.residualE36, blendE36));
             } catch {
                 // no residual at all: nothing can be priced, and a gap says so
             }
-
             int256[] memory row = new int256[](7);
             row[0] = int256(IMinter(minter).collateralRatio());
-            row[1] = int256(Math.mulDiv(residualE36, 1 ether, collateralValueE36));
+            row[1] = int256(Math.mulDiv(valuation.residualE36, 1 ether, valuation.collateralValueE36));
             row[2] = measured;
             row[3] = hardRate;
             row[4] = blendRate;
-            // What the fund hands over, as a fraction of the collateral value. The hard floor only ever
-            // pays out; the blend takes while the residual is above the floor and pays below it.
-            row[5] = int256(Math.mulDiv(hardE36 - residualE36, 1 ether, collateralValueE36));
-            row[6] = blendE36 >= residualE36
-                ? int256(Math.mulDiv(blendE36 - residualE36, 1 ether, collateralValueE36))
-                : -int256(Math.mulDiv(residualE36 - blendE36, 1 ether, collateralValueE36));
+            // What the fund hands over. The hard floor only ever pays out; the blend takes while the
+            // residual is above the floor and pays below it, which is why the sign is carried.
+            row[5] = MinterClaimRescaleLib.signedFlowShare(
+                hardE36,
+                valuation.residualE36,
+                valuation.collateralValueE36
+            );
+            row[6] = MinterClaimRescaleLib.signedFlowShare(
+                blendE36,
+                valuation.residualE36,
+                valuation.collateralValueE36
+            );
             writeLine(file, row);
 
             vm.revertToStateAndDelete(snapshot);

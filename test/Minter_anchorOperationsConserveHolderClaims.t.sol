@@ -332,7 +332,11 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
         uint256 tolerance = _perToken(upward, IMinter_v3(minter).peggedTokenBalance());
         uint256 anchorPriceAfter = IMinter_v3(minter).peggedTokenPrice();
         assertLe(anchorPriceAfter, anchorPriceBefore + tolerance, "fee'd mint raised the anchor price beyond rounding");
-        assertGe(anchorPriceAfter + tolerance, anchorPriceBefore, "fee'd mint diluted the anchor price beyond rounding");
+        assertGe(
+            anchorPriceAfter + tolerance,
+            anchorPriceBefore,
+            "fee'd mint diluted the anchor price beyond rounding"
+        );
 
         _lowerCollateralPrice();
         assertGt(

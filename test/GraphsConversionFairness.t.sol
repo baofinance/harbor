@@ -106,8 +106,8 @@ contract TestGraphsConversionFairness is GraphTestBase, TestCollateralRatioRange
     ///      one it took value from the sail already outstanding, below one it gave value to it.
     function _valuePerAnchorConverted(uint256 sizeOfResidual) private returns (int256 valuePerAnchor) {
         uint256 anchorPrice = IMinter_v3(minter).peggedTokenPrice();
-        uint256 residual = (IMinter_v3(minter).leveragedTokenBalance() *
-            IMinter_v3(minter).leveragedTokenPrice()) / 1 ether;
+        uint256 residual = (IMinter_v3(minter).leveragedTokenBalance() * IMinter_v3(minter).leveragedTokenPrice()) /
+            1 ether;
         if (residual == 0 || anchorPrice == 0) {
             return NaN;
         }

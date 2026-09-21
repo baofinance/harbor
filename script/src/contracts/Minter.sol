@@ -34,12 +34,11 @@ abstract contract Minter is HarborDeployer {
         string memory key,
         address wrappedCollateral,
         address peggedToken,
-        address leveragedToken,
-        uint256 sailClaimFloorShare
+        address leveragedToken
     ) internal virtual returns (address impl) {
         _reportContract(key);
 
-        impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken, sailClaimFloorShare));
+        impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken));
         _reportImplementation(impl);
 
         _recordImplementation(stateData, key, "@harbor/minter/Minter_v3.sol", "Minter_v3", impl);
@@ -63,8 +62,7 @@ abstract contract Minter is HarborDeployer {
             key,
             cfg.wrappedCollateralToken(),
             peggedTokenAddress(marketConfig),
-            leveragedTokenAddress(marketConfig),
-            cfg.sailClaimFloorShare()
+            leveragedTokenAddress(marketConfig)
         );
 
         bytes memory initData = abi.encodeCall(Minter_v3.initialize, (address(this), owner()));

@@ -168,10 +168,6 @@ interface IMinter_v3 is IToken {
     /// operation priced against that value has no answer.
     error ZeroPeggedTokenPrice();
 
-    /// @dev Thrown when constructing a minter whose sail claim floor is a whole share of the collateral or more,
-    /// which would leave the anchor no claim at all.
-    error SailClaimFloorShareTooLarge(uint256 share);
-
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
     error TooManyCollateralRatioBounds(string config, uint count, uint max); // solhint-disable-line explicit-types
@@ -216,11 +212,6 @@ interface IMinter_v3 is IToken {
     /// @notice Return the address of the leveraged token.
     // solhint-disable-next-line func-name-mixedcase
     function LEVERAGED_TOKEN() external view returns (address);
-
-    /// @notice Return the share of the collateral's value the anchor may never claim, and which the sail
-    ///         therefore always may. Zero prices both tokens as an unfloored market does.
-    // solhint-disable-next-line func-name-mixedcase
-    function SAIL_CLAIM_FLOOR_SHARE() external view returns (uint256);
 
     /// @notice Return the current config.
     function config() external view returns (Config memory);

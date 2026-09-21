@@ -46,19 +46,15 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
     }
 
-    /// @notice The cap on the leverage ratio the market under test actually reports against.
-    /// @dev Read from the market rather than restated, because the cap is a consequence of the floor under
-    ///      the sail's claim: a market deployed with a floor tops out at one over it, and only a market
-    ///      with no floor tops out at the fixed ceiling.
-    function leverageRatioCap() internal view returns (uint256) {
-        return MinterValuationLib.leverageRatioCap(IMinter_v3(minter).SAIL_CLAIM_FLOOR_SHARE());
-    }
-
     /// @notice The collateral ratio at which the bound lets go: the leverage ratio `C/(C-P)` reaches the
     ///         cap `K` at `C/P = K/(K-1)`, so it is fixed by the cap and moves with nothing else.
-    function releaseCollateralRatio() internal view returns (uint256) {
-        uint256 cap = leverageRatioCap();
-        return Math.mulDiv(cap, 1 ether, cap - 1 ether);
+    function releaseCollateralRatio() internal pure returns (uint256) {
+        return
+            Math.mulDiv(
+                MinterValuationLib.LEVERAGE_RATIO_CAP,
+                1 ether,
+                MinterValuationLib.LEVERAGE_RATIO_CAP - 1 ether
+            );
     }
 
     /// @dev Price the collateral so the market reports `requested`, derived from where the market is now
@@ -122,7 +118,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
             setCollateralRatio(middle);
             uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
             // Above the bound the crossing is still higher; at or below it, lower.
-            if (sailPrice == 0 || (1 ether * 1 ether) / sailPrice > leverageRatioCap()) {
+            if (sailPrice == 0 || (1 ether * 1 ether) / sailPrice > MinterValuationLib.LEVERAGE_RATIO_CAP) {
                 low = middle;
             } else {
                 high = middle;
@@ -142,7 +138,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         for (uint256 round = 0; round < 40; round++) {
             uint256 middle = (low + high) / 2;
             setCollateralRatio(middle);
-            if (IMinter_v3(minter).leverageRatio() >= leverageRatioCap()) {
+            if (IMinter_v3(minter).leverageRatio() >= MinterValuationLib.LEVERAGE_RATIO_CAP) {
                 low = middle;
             } else {
                 high = middle;

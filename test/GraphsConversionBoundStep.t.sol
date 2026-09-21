@@ -53,10 +53,7 @@ contract TestGraphsConversionBoundStep is GraphTestBase, TestConversionBoundRele
             uint256 achieved = setSailSupplyMultiple(minter, priceOracle, target);
             (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
 
-            writeLine(
-                file,
-                ua(achieved, bounded, released, released == 0 ? 0 : (bounded * 1 ether) / released)
-            );
+            writeLine(file, ua(achieved, bounded, released, released == 0 ? 0 : (bounded * 1 ether) / released));
 
             vm.revertToStateAndDelete(snapshot);
         }

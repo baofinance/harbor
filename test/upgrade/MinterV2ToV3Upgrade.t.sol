@@ -64,10 +64,7 @@ contract MinterV2ToV3UpgradeTest is TestMinterSetUp {
     ///      proxy has already consumed that slot as v2, so there is no re-initialisation step — which is
     ///      precisely why the storage layouts have to line up on their own.
     function _upgradeToV3() private {
-        // The upgrade is tested at a sail claim floor of zero, which is the setting under which every
-        // holding is worth exactly what it was worth under v2 - so anything the comparison below finds is
-        // the upgrade's doing rather than a deliberate change of valuation.
-        address implementation = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, 0));
+        address implementation = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken));
 
         vm.startPrank(owner());
         UUPSUpgradeable(minter).upgradeToAndCall(implementation, "");

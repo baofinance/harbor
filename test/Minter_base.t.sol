@@ -443,7 +443,7 @@ contract TestMinterInit is TestMinterSetUp {
 
     function setUp() public override {
         super.setUp();
-        impl = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, 0));
+        impl = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken));
     }
 
     /// Ownership initialisation names the deployer explicitly rather than taking it from msg.sender, and the
@@ -474,19 +474,17 @@ contract TestMinterInit is TestMinterSetUp {
     // TODO: do this test for all contracts
     // TODO: do test for initialize calls
     function test_notERC20() public {
-        // The sail claim floor is zero throughout: the tokens are what is under test here, and a floor of
-        // zero is the setting at which the two tokens are priced exactly as they always have been.
-        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, 0);
+        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken);
 
         // zero address
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
-        new Minter_v3(address(0), peggedToken, leveragedToken, 0);
+        new Minter_v3(address(0), peggedToken, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
-        new Minter_v3(Deployed.wstETH, address(0), leveragedToken, 0);
+        new Minter_v3(Deployed.wstETH, address(0), leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
-        new Minter_v3(Deployed.wstETH, peggedToken, address(0), 0);
+        new Minter_v3(Deployed.wstETH, peggedToken, address(0));
 
         // not a contract - an address chosen for having no code, rather than an actor that happens to lack
         // it. Asserted, because on a fork "has no code" is a fact about the chain at that block: this used
@@ -496,43 +494,29 @@ contract TestMinterInit is TestMinterSetUp {
         assertEq(notAContract.code.length, 0, "the address must have no code for this to test what it says");
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
-        new Minter_v3(notAContract, peggedToken, leveragedToken, 0);
+        new Minter_v3(notAContract, peggedToken, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
-        new Minter_v3(Deployed.wstETH, notAContract, leveragedToken, 0);
+        new Minter_v3(Deployed.wstETH, notAContract, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
-        new Minter_v3(Deployed.wstETH, peggedToken, notAContract, 0);
+        new Minter_v3(Deployed.wstETH, peggedToken, notAContract);
 
         // contract but not ERC20
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(priceOracle, peggedToken, leveragedToken, 0);
+        new Minter_v3(priceOracle, peggedToken, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(Deployed.wstETH, priceOracle, leveragedToken, 0);
+        new Minter_v3(Deployed.wstETH, priceOracle, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(Deployed.wstETH, peggedToken, priceOracle, 0);
-    }
-
-    /// A sail claim floor of a whole share of the collateral or more would leave the anchor no claim at all,
-    /// so the constructor refuses it rather than deploying a market whose anchor can never be worth anything.
-    /// Everything below a whole share is accepted, including the largest such value.
-    function test_sailClaimFloorShareMustLeaveTheAnchorAClaim() public {
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.SailClaimFloorShareTooLarge.selector, 1 ether));
-        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, 1 ether);
-
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.SailClaimFloorShareTooLarge.selector, 2 ether));
-        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, 2 ether);
-
-        address accepted = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, 1 ether - 1));
-        assertEq(Minter_v3(accepted).SAIL_CLAIM_FLOOR_SHARE(), 1 ether - 1, "the largest floor short of the whole");
+        new Minter_v3(Deployed.wstETH, peggedToken, priceOracle);
     }
 
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new Minter_v3(Deployed.wstETH, peggedToken, address(leveragedToken), 0));
+        address(new Minter_v3(Deployed.wstETH, peggedToken, address(leveragedToken)));
     }
 
     function test_initEvents() public {

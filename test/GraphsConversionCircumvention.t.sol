@@ -93,7 +93,6 @@ contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatio
         } catch {
             // the first leg is refused
         }
-
         vm.revertToState(snapshot);
     }
 
@@ -101,9 +100,6 @@ contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatio
         uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
         int256 fair = sailPrice == 0 ? NaN : int256((1 ether * 1 ether) / sailPrice);
 
-        writeLine(
-            file,
-            ia(int256(currentCollateralRatio), _throughTheConversion(), _theLongWayRound(), fair)
-        );
+        writeLine(file, ia(int256(currentCollateralRatio), _throughTheConversion(), _theLongWayRound(), fair));
     }
 }

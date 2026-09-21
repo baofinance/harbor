@@ -87,7 +87,6 @@ contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundRele
             } catch {
                 // refused here, and a gap says so
             }
-
             writeLine(
                 file,
                 ia(
