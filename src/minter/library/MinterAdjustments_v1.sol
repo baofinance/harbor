@@ -79,7 +79,8 @@ library MinterAdjustments_v1 {
         w.peggedTokenPriceE36 = MinterValuationLib.peggedTokenPriceE36(
             cr.peggedTokenBalance,
             cr.underlyingCollateral,
-            cr.price
+            cr.price,
+            cr.sailClaimFloorShare
         );
         // Below the reportable floor the anchor price rounds to zero everywhere outside this contract, and the
         // band walk below divides by it for every band it enters - at zero backing that division panics, and
@@ -257,7 +258,8 @@ library MinterAdjustments_v1 {
         peggedPriceE36 = MinterValuationLib.peggedTokenPriceE36(
             cr.peggedTokenBalance,
             cr.underlyingCollateral,
-            cr.price
+            cr.price,
+            cr.sailClaimFloorShare
         );
 
         w.peggedInLeftE36 = peggedIn * 1 ether; // scaled to 1e36
@@ -392,7 +394,8 @@ library MinterAdjustments_v1 {
         (w.collateralValueE36, w.peggedValueE36) = MinterValuationLib.tokenValuesE36(
             cr.peggedTokenBalance,
             cr.underlyingCollateral,
-            cr.price
+            cr.price,
+            cr.sailClaimFloorShare
         );
         // leveraged tokens have no value (we may not have quite depegged, though)
         if (w.collateralValueE36 <= w.peggedValueE36) {
@@ -568,7 +571,8 @@ library MinterAdjustments_v1 {
             (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                 cr.peggedTokenBalance,
                 cr.underlyingCollateral,
-                cr.price
+                cr.price,
+                cr.sailClaimFloorShare
             );
             if (collateralValueE36 <= peggedValueE36 || cr.leveragedTokenBalance == 0 || leveragedIn == 0) {
                 // there is no value in the leveraged being offered
@@ -652,12 +656,18 @@ library MinterAdjustments_v1 {
         uint256 underlyingCollateral_,
         uint256 price,
         uint256 rate,
-        uint256 leveragedTokenBalance_
+        uint256 leveragedTokenBalance_,
+        uint256 sailClaimFloorShare
     ) external pure returns (uint256 wrappedCollateralOut, uint256 leveragedOut, uint256 underlyingCollateralOutE36) {
         if (peggedForCollateral > 0) {
             underlyingCollateralOutE36 = Math.mulDiv(
                 peggedForCollateral,
-                MinterValuationLib.peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price),
+                MinterValuationLib.peggedTokenPriceE36(
+                    peggedTokenBalance_,
+                    underlyingCollateral_,
+                    price,
+                    sailClaimFloorShare
+                ),
                 price
             );
             wrappedCollateralOut = underlyingCollateralOutE36 / rate;
@@ -665,35 +675,36 @@ library MinterAdjustments_v1 {
 
         if (peggedForLeveraged > 0) {
             if (leveragedTokenBalance_ > 0) {
-                // The leverage ratio decides only WHETHER the cap binds. It is deliberately not what the
-                // conversion is then priced by: a sail token is a claim on the residual, so the rate is
-                // the sail supply over the residual, and the collateral value the leverage ratio carries
-                // cancels against the collateral value it would have to be divided by again.
-                uint256 leverageRatio_ = MinterValuationLib.leverageRatio(
+                (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                     peggedTokenBalance_,
                     underlyingCollateral_,
-                    price
+                    price,
+                    sailClaimFloorShare
                 );
-                // slither-disable-next-line incorrect-equality
-                if (leverageRatio_ == MinterValuationLib.LEVERAGE_RATIO_CAP) {
-                    leveragedOut = Math.mulDiv(peggedForLeveraged, MinterValuationLib.LEVERAGE_RATIO_CAP, 1 ether);
-                } else {
-                    // Below the cap the residual is positive, so this cannot divide by zero: the ratio
-                    // reports the cap both when it is exceeded and when the residual is gone.
-                    //
-                    // Pricing against the residual directly is also what keeps the arithmetic inside a
-                    // word. Carrying the cancelling collateral value through forces the anchor being
-                    // converted to be multiplied by the whole sail supply before `mulDiv` can widen
-                    // anything, and that product leaves 256 bits at supplies a market can really hold.
-                    (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
-                        peggedTokenBalance_,
-                        underlyingCollateral_,
-                        price
-                    );
+                uint256 residualE36 = collateralValueE36 - peggedValueE36;
+                // A sail token is a claim on the residual, so what a unit of anchor value buys is the
+                // share of the sail supply that the residual it represents is worth. Where there is no
+                // residual the sail is worth exactly nothing, no quantity of it settles the anchor being
+                // burned, and a payout of zero says so: the redeem refuses on it, because a leg that
+                // takes anchor must hand something back, while a preview reports it unharmed.
+                //
+                // This is priced from the residual and deliberately NOT from the reported leverage ratio.
+                // That ratio carries a collateral value which cancels against the collateral value it
+                // would then have to be divided by, so the detour changes no result - it only imports the
+                // ratio's cap, bounding a rate that is already fair, and forces the anchor being
+                // converted to be multiplied by the whole sail supply before `mulDiv` can widen anything.
+                // That product leaves 256 bits at supplies a market can really hold.
+                if (residualE36 > 0) {
+                    // The anchor is valued EXPLICITLY rather than taken to be worth one. With no floor
+                    // under the sail's claim the two are the same thing, because a residual exists only
+                    // where the anchor is fully covered - but a floor leaves a residual in a band where
+                    // the anchor is worth less than one, and assuming otherwise hands over more sail than
+                    // the anchor was worth.
+                    uint256 anchorPriceE18 = peggedValueE36 / peggedTokenBalance_;
                     leveragedOut = Math.mulDiv(
-                        peggedForLeveraged * 1 ether,
+                        peggedForLeveraged * anchorPriceE18,
                         leveragedTokenBalance_,
-                        collateralValueE36 - peggedValueE36
+                        residualE36
                     );
                 }
             } else {

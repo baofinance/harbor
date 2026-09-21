@@ -50,8 +50,14 @@ contract TestGraphsWhichLimitBindsFirst is GraphTestBase, TestStabilityPoolManag
         string memory key,
         address wrappedCollateral,
         address peggedToken_,
-        address leveragedToken_
+        address leveragedToken_,
+        uint256 sailClaimFloorShare
     ) internal override returns (address impl) {
+        // The candidate is a cap on the QUANTITY one conversion issues, laid over an unchanged division of
+        // the collateral - so a market whose config asks for a floor under the sail's claim would be
+        // measuring two rules at once. Asserted rather than assumed, because the substitution below drops
+        // the value on the floor and nothing else would say so.
+        assertEq(sailClaimFloorShare, 0, "this candidate is only meaningful against an unfloored valuation");
         _reportContract(key);
         impl = address(new MinterSupplyRelativeBound(wrappedCollateral, peggedToken_, leveragedToken_));
         _reportImplementation(impl);

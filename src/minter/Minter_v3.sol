@@ -132,6 +132,21 @@ contract Minter_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
 
+    /// @notice The share of the collateral's value the anchor may never claim, and which the sail therefore
+    ///         always may.
+    /// @dev Zero is the rule with no floor at all: the anchor is worth one wherever it is covered, and the
+    /// sail's claim on a market at the peg is nothing - which is the point at which one conversion can
+    /// multiply the sail supply without limit, because it is buying a claim of zero. Any positive value
+    /// leaves the sail a claim everywhere and so bounds that conversion, at the cost of the anchor being
+    /// worth slightly less than one within a narrow band above the peg. Everywhere outside the band - which
+    /// includes every collateral ratio a market is normally run at and every rebalance threshold - both
+    /// tokens are priced exactly as they are at zero.
+    /// <br>
+    /// It is an immutable rather than config because it changes what every holding is worth: a market can
+    /// be redeployed against a new value, but it cannot be turned by a transaction.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 public immutable SAIL_CLAIM_FLOOR_SHARE;
+
     /////////////
     // Storage //
     /////////////
@@ -196,7 +211,12 @@ contract Minter_v3 is
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     // slither-disable-next-line missing-zero-check // sanityCheckERC20Token is called
-    constructor(address collateralToken_, address peggedToken_, address leveragedToken_) {
+    constructor(
+        address collateralToken_,
+        address peggedToken_,
+        address leveragedToken_,
+        uint256 sailClaimFloorShare_
+    ) {
         _disableInitializers();
 
         Token.sanityCheckERC20Token(collateralToken_);
@@ -208,6 +228,12 @@ contract Minter_v3 is
         Token.sanityCheckERC20Token(peggedToken_);
         // slither-disable-next-line missing-zero-check
         PEGGED_TOKEN = peggedToken_;
+        // A floor at or above the whole collateral would leave the anchor no claim at all, and at exactly
+        // one it would leave the sail the entire collateral however much anchor is outstanding.
+        if (sailClaimFloorShare_ >= 1 ether) {
+            revert SailClaimFloorShareTooLarge(sailClaimFloorShare_);
+        }
+        SAIL_CLAIM_FLOOR_SHARE = sailClaimFloorShare_;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -281,7 +307,12 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
 
         uint256 price = _fetchMidPrice($.priceOracle);
-        ratio = MinterValuationLib.leverageRatio($.peggedTokenBalance, _effectiveBacking($), price);
+        ratio = MinterValuationLib.leverageRatio(
+            $.peggedTokenBalance,
+            _effectiveBacking($),
+            price,
+            SAIL_CLAIM_FLOOR_SHARE
+        );
     }
 
     /// @inheritdoc IMinter_v3
@@ -291,7 +322,8 @@ contract Minter_v3 is
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
             _effectiveBacking($),
-            price
+            price,
+            SAIL_CLAIM_FLOOR_SHARE
         );
         nav = _leveragedTokenPriceE36(collateralValueE36, peggedValueE36, _leveragedTokenBalance()) / 1 ether;
     }
@@ -321,7 +353,8 @@ contract Minter_v3 is
             (, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                 peggedTokenBalance_,
                 _effectiveBacking($),
-                price
+                price,
+                SAIL_CLAIM_FLOOR_SHARE
             );
             nav = peggedValueE36 / peggedTokenBalance_;
         }
@@ -450,7 +483,8 @@ contract Minter_v3 is
                     price,
                     rate,
                     $.peggedTokenBalance,
-                    _leveragedTokenBalance()
+                    _leveragedTokenBalance(),
+                    SAIL_CLAIM_FLOOR_SHARE
                 ),
                 maxFeeRatio
             );
@@ -493,7 +527,8 @@ contract Minter_v3 is
                     price,
                     rate,
                     peggedTokenBalance_,
-                    _leveragedTokenBalance()
+                    _leveragedTokenBalance(),
+                    SAIL_CLAIM_FLOOR_SHARE
                 ),
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
             );
@@ -545,7 +580,8 @@ contract Minter_v3 is
                     price,
                     rate,
                     $.peggedTokenBalance,
-                    _leveragedTokenBalance()
+                    _leveragedTokenBalance(),
+                    SAIL_CLAIM_FLOOR_SHARE
                 ),
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
             );
@@ -596,7 +632,8 @@ contract Minter_v3 is
                 price,
                 rate,
                 $.peggedTokenBalance,
-                leveragedTokenBalance_
+                leveragedTokenBalance_,
+                SAIL_CLAIM_FLOOR_SHARE
             )
         );
         // slither-disable-next-line incorrect-equality
@@ -747,7 +784,8 @@ contract Minter_v3 is
                     price,
                     rate,
                     peggedTokenBalance_,
-                    _leveragedTokenBalance()
+                    _leveragedTokenBalance(),
+                    SAIL_CLAIM_FLOOR_SHARE
                 ),
                 maxFeeRatio
             );
@@ -826,7 +864,8 @@ contract Minter_v3 is
                     price,
                     rate,
                     peggedTokenBalance_,
-                    _leveragedTokenBalance()
+                    _leveragedTokenBalance(),
+                    SAIL_CLAIM_FLOOR_SHARE
                 ),
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
             );
@@ -884,7 +923,8 @@ contract Minter_v3 is
                 price,
                 rate,
                 $.peggedTokenBalance,
-                _leveragedTokenBalance()
+                _leveragedTokenBalance(),
+                SAIL_CLAIM_FLOOR_SHARE
             );
         }
         uint256 wrappedFee;
@@ -957,7 +997,8 @@ contract Minter_v3 is
                     price,
                     rate,
                     $.peggedTokenBalance,
-                    leveragedTokenBalance_
+                    leveragedTokenBalance_,
+                    SAIL_CLAIM_FLOOR_SHARE
                 )
             );
         // slither-disable-next-line incorrect-equality
@@ -1005,7 +1046,8 @@ contract Minter_v3 is
         uint256 peggedPriceE36 = MinterValuationLib.peggedTokenPriceE36(
             peggedTokenBalance_,
             underlyingCollateral_,
-            price
+            price,
+            SAIL_CLAIM_FLOOR_SHARE
         );
         if (peggedPriceE36 < MinterValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
             revert ZeroPeggedTokenPrice();
@@ -1144,7 +1186,8 @@ contract Minter_v3 is
                 underlyingCollateral_,
                 price,
                 rate,
-                _leveragedTokenBalance()
+                _leveragedTokenBalance(),
+                SAIL_CLAIM_FLOOR_SHARE
             );
     }
 
@@ -1160,7 +1203,8 @@ contract Minter_v3 is
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
             _effectiveBacking($),
-            price
+            price,
+            SAIL_CLAIM_FLOOR_SHARE
         );
         uint256 underlyingCollateralInE36 = wrappedCollateralIn * rate;
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
@@ -1180,9 +1224,14 @@ contract Minter_v3 is
         } else {
             // The first sail issued takes the residual this deposit itself creates, so it is the balance AFTER the
             // deposit that must cover the anchor claim - which is why the test is not the one above. The claim is
-            // taken unclamped: `tokenValuesE36` caps it at the collateral value, and the shortfall is the point here.
+            // taken against the same division every other path uses, so a deposit that does not cover the anchor
+            // leaves no residual and issues nothing.
             uint256 postDepositValueE36 = collateralValueE36 + Math.mulDiv(underlyingCollateralInE36, price, 1e18);
-            uint256 anchorClaimE36 = $.peggedTokenBalance * 1e18;
+            uint256 anchorClaimE36 = MinterValuationLib.peggedClaimE36(
+                $.peggedTokenBalance,
+                postDepositValueE36,
+                SAIL_CLAIM_FLOOR_SHARE
+            );
             if (postDepositValueE36 > anchorClaimE36) {
                 leveragedOut = (postDepositValueE36 - anchorClaimE36) / 1e18;
             }
@@ -1210,7 +1259,8 @@ contract Minter_v3 is
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
             _effectiveBacking($.underlyingCollateral, rate),
-            price
+            price,
+            SAIL_CLAIM_FLOOR_SHARE
         );
         if (collateralValueE36 <= peggedValueE36) {
             collateralOut = 0;

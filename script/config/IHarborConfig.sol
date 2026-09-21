@@ -27,6 +27,9 @@ interface IHarborConfig {
     /// @dev Declared `view` (not `pure`) so test subclasses returning immutable addresses compile.
     function minterConfig() external view returns (IMinter.Config memory);
 
+    /// @dev Declared `view` (not `pure`) so a test subclass can sweep it from a constructor argument.
+    function sailClaimFloorShare() external view returns (uint256);
+
     // ========== PEG ==========
 
     function minTotalSupply() external view returns (uint256);

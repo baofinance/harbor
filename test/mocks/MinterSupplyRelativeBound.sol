@@ -34,11 +34,14 @@ contract MinterSupplyRelativeBound is Minter_v3 {
     ///         permits a conversion to double the supply.
     uint256 public gamma;
 
+    /// @dev Built with no floor under the sail's claim, which is the valuation this bound was proposed
+    ///      against: it is a limit on the QUANTITY one conversion may issue, laid over the unchanged
+    ///      division of the collateral, and measuring it against a changed division would confound the two.
     constructor(
         address collateralToken_,
         address peggedToken_,
         address leveragedToken_
-    ) Minter_v3(collateralToken_, peggedToken_, leveragedToken_) {}
+    ) Minter_v3(collateralToken_, peggedToken_, leveragedToken_, 0) {}
 
     function setGamma(uint256 gamma_) external {
         gamma = gamma_;
@@ -85,7 +88,8 @@ contract MinterSupplyRelativeBound is Minter_v3 {
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             peggedTokenBalance_,
             underlyingCollateral_,
-            price
+            price,
+            SAIL_CLAIM_FLOOR_SHARE
         );
         uint256 residualE36 = collateralValueE36 - peggedValueE36;
         if (residualE36 == 0) {
@@ -97,7 +101,12 @@ contract MinterSupplyRelativeBound is Minter_v3 {
         // a collateral ratio of one is less than a whole unit of the underlying.
         uint256 anchorValueE36 = Math.mulDiv(
             peggedForLeveraged,
-            MinterValuationLib.peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price),
+            MinterValuationLib.peggedTokenPriceE36(
+                peggedTokenBalance_,
+                underlyingCollateral_,
+                price,
+                SAIL_CLAIM_FLOOR_SHARE
+            ),
             1 ether
         );
         uint256 fair = Math.mulDiv(anchorValueE36, leveragedSupply, residualE36);

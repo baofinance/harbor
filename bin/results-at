@@ -25,10 +25,34 @@
 #   ./bin/results-at                 # against the previous commit
 #   ./bin/results-at HEAD~5
 #   ./bin/results-at some-branch
+#   ./bin/results-at HEAD~5 --open   # ...and open every recovered plot beside its current version
+#
+# --open is opt-in so that the report still works where there is no editor to open - over ssh, in CI, or
+# when the answer to "what moved?" is all that was wanted.
 
 set -euo pipefail
 
-ref="${1:-HEAD~1}"
+open_in_editor=""
+ref=""
+for arg in "$@"; do
+    case "${arg}" in
+        --open)
+            open_in_editor=1
+            ;;
+        -*)
+            echo "results-at: unknown option '${arg}'" >&2
+            exit 1
+            ;;
+        *)
+            if [[ -n "${ref}" ]]; then
+                echo "results-at: more than one ref given ('${ref}' and '${arg}')" >&2
+                exit 1
+            fi
+            ref="${arg}"
+            ;;
+    esac
+done
+ref="${ref:-HEAD~1}"
 
 # A ref may name a branch with slashes in it, which cannot be a single directory component.
 dir="tmp/results/${ref//\//_}"
@@ -201,3 +225,35 @@ echo "${#csv_delta[@]} CSVs changed, ${#csv_added[@]} added, ${#csv_removed[@]} 
 echo "${#gp_delta[@]} plots changed, ${#gp_added[@]} added, ${#gp_removed[@]} removed"
 echo
 echo "to see the before of any graph:  cd ${dir} && gnuplot <name>.gp > <name>.svg"
+
+if [[ -n "${open_in_editor}" ]]; then
+    if ! command -v code > /dev/null; then
+        echo "results-at: --open needs the 'code' command, which is not on PATH" >&2
+        exit 1
+    fi
+
+    # Recovered and current interleaved, so each pair is adjacent. Both tabs carry the same basename -
+    # their order is what says which is which, recovered first.
+    pairs=()
+    for plot in "${dir}"/*.gp; do
+        [[ -e "${plot}" ]] || continue
+        pairs+=("${plot}")
+        now="results/$(basename "${plot}")"
+        # A plot recovered from the ref has no counterpart if it has been deleted since.
+        if [[ -f "${now}" ]]; then
+            pairs+=("${now}")
+        fi
+    done
+
+    if [[ "${#pairs[@]}" -eq 0 ]]; then
+        echo
+        echo "--open: nothing to open, no plots were recovered"
+        exit 0
+    fi
+
+    # One `code -r` for the lot: it opens them as tabs in the window already showing this folder, which
+    # is the only placement the CLI offers - it has no flag for a window, a group or a column.
+    code -r "${pairs[@]}"
+    echo
+    echo "opened ${#pairs[@]} files in VSCode, each recovered plot followed by its current version"
+fi
