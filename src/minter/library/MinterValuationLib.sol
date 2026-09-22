@@ -17,9 +17,6 @@ import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol"
 ///      Everything here is `pure`: state and immutables belong to the caller, which resolves them and passes
 ///      primitives in. That is what lets the same code serve a contract and a `DELEGATECALL` library.
 library MinterValuationLib {
-    /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
-    uint256 internal constant LEVERAGE_RATIO_CAP = 20 ether;
-
     /// @notice The smallest anchor price the protocol can report: one wei of the 1e18-scaled price.
     /// @dev The operations price the anchor at 1e36 while `peggedTokenPrice()` reports it at 1e18, so a price
     /// below this floors to zero in every external report while the operations still divide by it happily. Two
@@ -171,14 +168,13 @@ library MinterValuationLib {
             price
         );
         if (peggedValueE36 >= collateralValueE36) {
-            // it divides by 0 or goes negative!
-            ratio = LEVERAGE_RATIO_CAP;
+            // The sail has no claim at all, so the ratio is a division by zero. Reported as the largest
+            // representable number because the LIMIT is unbounded: the nearer the claim gets to nothing
+            // the higher the ratio, without end. It is a genuine state, not an error - the market at or
+            // below its peg - so a view says so rather than reverting on every reader.
+            ratio = type(uint256).max;
         } else {
-            // we have collateral and it's worth something
             ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
-            if (ratio > LEVERAGE_RATIO_CAP) {
-                ratio = LEVERAGE_RATIO_CAP;
-            }
         }
     }
 

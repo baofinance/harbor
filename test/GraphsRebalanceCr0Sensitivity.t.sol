@@ -4,14 +4,14 @@ pragma solidity >=0.8.28 <0.9.0;
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
 
-/// @notice Graphs where the conversion bound engages against where it ought to, for markets opened at
+/// @notice Graphs where a conversion bound engages against where it ought to, for markets opened at
 /// different collateral ratios - the question of whether one bound can serve all of them.
 ///
-/// The bound is a ceiling on the conversion rate, so it ought to engage where the FAIR conversion rate
-/// reaches the ceiling. It engages instead where the reported leverage ratio reaches the cap, and those
-/// are two different collateral ratios. The gap between them is the band in which the conversion is
-/// bounded but unfair, and this graph is that band's position and width against the ratio a market opened
-/// at.
+/// A bound on the conversion is a ceiling on the conversion RATE, so it ought to engage where the FAIR
+/// conversion rate reaches the ceiling. Tested against the reported LEVERAGE ratio instead, it engages
+/// somewhere else, and those are two different collateral ratios. The gap between them is the band in
+/// which the conversion is bounded but unfair, and this graph is that band's position and width against
+/// the ratio a market opened at.
 ///
 /// A market's opening collateral ratio fixes how many sail tokens it carries per anchor token: opening at
 /// `r` funds the residual `r - 1` against an anchor supply of 1, and the first sail is issued at a price
@@ -27,6 +27,12 @@ contract TestGraphsRebalanceCr0Sensitivity is GraphTestBase, TestConversionBound
     uint256 private constant FIRST_OPENING_RATIO = 1.02 ether;
     uint256 private constant LAST_OPENING_RATIO = 6 ether;
     uint256 private constant OPENING_RATIO_STEP = 0.02 ether;
+
+    /// @dev The bound the two crossings are measured against. The graph's subject is the GAP between
+    ///      them, which only exists relative to a chosen number, so the number is the graph's own
+    ///      parameter rather than anything the market enforces. Twenty, because that is what the removed
+    ///      cap used, which keeps this sweep comparable with the ones taken while it was in force.
+    uint256 private constant CANDIDATE_BOUND = 20 ether;
 
     string private file;
 
@@ -54,8 +60,8 @@ contract TestGraphsRebalanceCr0Sensitivity is GraphTestBase, TestConversionBound
                 file,
                 ua(
                     opening,
-                    collateralRatioWhereTheBoundEngages(),
-                    collateralRatioWhereTheFairRateMeetsTheBound(),
+                    collateralRatioWhereTheLeverageRatioReaches(CANDIDATE_BOUND),
+                    collateralRatioWhereTheFairRateMeetsTheBound(CANDIDATE_BOUND),
                     stepAcrossTheRelease()
                 )
             );

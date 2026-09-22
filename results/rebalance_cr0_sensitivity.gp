@@ -25,11 +25,15 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb
 # describes. Every other market gets a band between the two lines in which the conversion is bounded but
 # not fair, and the further from 2.05 it opened the wider that band is.
 #
-# The lower panel is what it costs in that band: the applied conversion rate over the fair one at the
-# moment the bound lets go. Above one the bound engaged too early and over-issues sail, taking value from
-# existing sail holders - fifty-fold for a market opened at 1.02. Below one it engaged too late and
-# under-issues, taking value from the pool instead. The same constant, in opposite directions, with
-# nothing in between but a single opening ratio that no protocol rule holds a market at.
+# The lower panel is what that band costs: the applied conversion rate over the fair one at the moment
+# the bound lets go. Above one a bound engaged too early and over-issues sail, taking value from existing
+# sail holders; below one it engaged too late and under-issues, taking value from the pool instead - the
+# same constant in opposite directions, with nothing in between but a single opening ratio that no
+# protocol rule holds a market at. With no bound in force the line sits on one across every market drawn.
+#
+# So the two panels are the defect and its removal. The gap in the upper panel is untouched, because both
+# crossings are properties of the arithmetic rather than of any clamp; what a market opened at 1.02 paid
+# for that gap has gone from fifty-fold to nothing.
 #
 # BOTH AXES MEASURE DISTANCE ABOVE THE PEG, logarithmically, because that is what these quantities are
 # functions of - the residual a market carries is proportional to it. On those axes each relationship is

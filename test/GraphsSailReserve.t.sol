@@ -64,7 +64,7 @@ contract TestGraphsSailReserve is GraphTestBase, TestConversionBoundReleaseSetUp
     /// @dev How far above the peg the sweep runs, from a millionth to a healthy market. Geometric,
     ///      because the interesting behaviour is all within a hair of the peg and a linear sweep would
     ///      spend every sample where nothing happens.
-    uint256 private constant FIRST_ABOVE_PEG = 0.000001 ether;
+    uint256 private constant FIRST_ABOVE_PEG = 1; // one wei of collateral ratio above the peg
     uint256 private constant LAST_ABOVE_PEG = 1 ether;
 
     string private file;

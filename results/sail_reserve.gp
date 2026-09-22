@@ -44,17 +44,18 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 820 background rgb
 # pegged tokens. The sail is worth one pegged token when first minted, so the three sizes read as a
 # tenth, a hundredth and a thousandth of the sail's opening price.
 #
-# The x axis is the residual as a share of the collateral's value, which is one over the leverage ratio.
-# The pole is on the LEFT.
+# The x axis is the collateral ratio minus one, logarithmic, running from ONE WEI above the peg to a
+# healthy market - eighteen orders of magnitude. The pole is on the LEFT. It is not the residual share,
+# which floors to zero at the sample nearest the peg and would be dropped by a log axis.
 #
 # THE UPPER PANEL is the conversion rate.
 #
-#   NO CAP AND NO ESCROW is the fair rate, running to a million sail per anchor token inside this sweep.
-#   That is the defect being addressed.
+#   NO CAP AND NO ESCROW is the fair rate. It runs to a MILLION MILLION MILLION sail per anchor token
+#   one wei above the peg, and to two in a healthy market - eighteen orders. That is the defect.
 #
 #   AS THE MARKET ANSWERS TODAY is flat at twenty across the whole region - not a rate but the leverage
-#   ratio cap handed over as though it were one, so a converter near the peg is paid twenty where the
-#   fair answer is a million. The cap does not bound the pole; it replaces the price with a constant.
+#   ratio cap handed over as though it were one, so a converter one wei above the peg is paid twenty
+#   where the fair answer is a million million million. The cap does not bound the pole; it replaces the price with a constant.
 #
 #   THE ESCROW LINES bound it. Sized at a hundredth of the opening sail price the bound is about two
 #   hundred; at a tenth, about twenty. Not one over the size, because the escrow is collateral and the
@@ -91,15 +92,15 @@ set ylabel "sail per anchor token"
 set key at screen 0.5, screen 0.60 center top horizontal maxcols 2 spacing 1.2
 
 plot \
-     datafile using 2:4 with lines linewidth 3 linetype 1 \
+     datafile using ($1 - 1):4 with lines linewidth 3 linetype 1 \
          title "no cap and no escrow", \
-     datafile using 2:3 with lines linewidth 3 linetype 7 dashtype 2 \
+     datafile using ($1 - 1):3 with lines linewidth 3 linetype 7 dashtype 2 \
          title "as the market answers today", \
-     datafile using 2:5 with lines linewidth 2 linetype 2 \
+     datafile using ($1 - 1):5 with lines linewidth 2 linetype 2 \
          title "escrow sized at 0.001", \
-     datafile using 2:6 with lines linewidth 2 linetype 3 \
+     datafile using ($1 - 1):6 with lines linewidth 2 linetype 3 \
          title "escrow sized at 0.01", \
-     datafile using 2:7 with lines linewidth 2 linetype 4 \
+     datafile using ($1 - 1):7 with lines linewidth 2 linetype 4 \
          title "escrow sized at 0.1"
 
 # ─────────────── what it does to the supply
@@ -108,14 +109,14 @@ set bmargin at screen 0.22
 
 unset logscale y
 set format y "%g"
-set yrange [0.999:1.012]
-set xlabel "residual as a share of the collateral value - the pole is on the left"
+set yrange [0.9999:1.0105]
+set xlabel "collateral ratio minus one - the pole is on the left"
 set ylabel "sail supply multiple from one conversion"
 set key at screen 0.5, screen 0.10 center top horizontal maxcols 3 spacing 1.2
 
 plot \
-     datafile using 2:8 with lines linewidth 2 linetype 2 title "escrow sized at 0.001", \
-     datafile using 2:9 with lines linewidth 2 linetype 3 title "escrow sized at 0.01", \
-     datafile using 2:10 with lines linewidth 2 linetype 4 title "escrow sized at 0.1"
+     datafile using ($1 - 1):8 with lines linewidth 2 linetype 2 title "escrow sized at 0.001", \
+     datafile using ($1 - 1):9 with lines linewidth 2 linetype 3 title "escrow sized at 0.01", \
+     datafile using ($1 - 1):10 with lines linewidth 2 linetype 4 title "escrow sized at 0.1"
 
 unset multiplot

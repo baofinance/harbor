@@ -7,7 +7,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -45,15 +44,19 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
     }
 
-    /// @notice The collateral ratio at which the bound lets go: the leverage ratio `C/(C-P)` reaches the
-    ///         cap `K` at `C/P = K/(K-1)`, so it is fixed by the cap and moves with nothing else.
+    /// @notice The collateral ratio where the leverage ratio cap used to let go.
+    ///
+    /// @dev A TERMINAL coordinate, with no successor. It is twenty over nineteen: the leverage ratio
+    /// `C/(C-P)` reaches twenty at `C/P = 20/19`, so it was a function of that cap and of nothing else. A
+    /// literal rather than a derivation because the cap it derived from no longer exists.
+    ///
+    /// Its one remaining job is to let the callers sample the conversion just inside and just outside the
+    /// point where a five percent step used to be, and find no step - the measurement that records the
+    /// removal. Nothing replaces it: a price floor adds to the sail's claim rather than clamping it, so
+    /// there is no collateral ratio at which anything engages and no release to measure across. This
+    /// function retires with the tests that call it.
     function releaseCollateralRatio() internal pure returns (uint256) {
-        return
-            Math.mulDiv(
-                MinterValuationLib.LEVERAGE_RATIO_CAP,
-                1 ether,
-                MinterValuationLib.LEVERAGE_RATIO_CAP - 1 ether
-            );
+        return 1052631578947368421;
     }
 
     /// @dev Price the collateral so the market reports `requested`, derived from where the market is now
@@ -101,13 +104,19 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         stepAsMultiple = Math.mulDiv(bounded, 1 ether, released);
     }
 
-    /// @notice The collateral ratio at which the FAIR conversion rate meets the bound - where a ceiling
-    ///         of `K` on the conversion rate would engage, as against where this one actually does.
-    /// @dev Found by bisection on the market itself rather than computed: the fair conversion rate is the
+    /// @notice The collateral ratio at which the FAIR conversion rate falls to `rateBound` - where a
+    ///         ceiling on the conversion rate itself would engage.
+    /// @dev Found by bisection on the market rather than computed: the fair conversion rate is the
     ///      reciprocal of the sail price the minter reports, and it falls as the collateral ratio rises,
     ///      so the crossing is bracketed and halved. Forty rounds takes a bracket of one to a fraction of
     ///      a wei, and each round is a price write and a view.
-    function collateralRatioWhereTheFairRateMeetsTheBound() internal returns (uint256 crossing) {
+    ///
+    ///      Paired with `collateralRatioWhereTheLeverageRatioReaches` below, and the two take the SAME
+    ///      number and return DIFFERENT collateral ratios. That difference is the whole defect: a bound
+    ///      meant as a ceiling on the conversion rate, tested instead against the leverage ratio, engages
+    ///      where the fair rate has not yet reached it. The gap between the two answers is the band in
+    ///      which the conversion is bounded but unfair, and measuring it is what this pair is for.
+    function collateralRatioWhereTheFairRateMeetsTheBound(uint256 rateBound) internal returns (uint256 crossing) {
         uint256 snapshot = vm.snapshotState();
         uint256 low = 1 ether + 1; // just above the peg, where the fair conversion rate is unbounded
         uint256 high = 2 ether; // well clear of it, where the fair conversion rate is small
@@ -117,7 +126,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
             setCollateralRatio(middle);
             uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
             // Above the bound the crossing is still higher; at or below it, lower.
-            if (sailPrice == 0 || (1 ether * 1 ether) / sailPrice > MinterValuationLib.LEVERAGE_RATIO_CAP) {
+            if (sailPrice == 0 || (1 ether * 1 ether) / sailPrice > rateBound) {
                 low = middle;
             } else {
                 high = middle;
@@ -127,9 +136,11 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         vm.revertToState(snapshot);
     }
 
-    /// @notice The collateral ratio at which the bound ACTUALLY engages, found the same way - by asking
-    ///         the market where its reported leverage ratio reaches the cap.
-    function collateralRatioWhereTheBoundEngages() internal returns (uint256 engagement) {
+    /// @notice The collateral ratio at which the reported LEVERAGE ratio falls to `leverageBound`, found
+    ///         the same way - by asking the market rather than by computing it.
+    /// @dev Where a bound tested against the leverage ratio actually engages, as against where the
+    ///      function above says it ought to.
+    function collateralRatioWhereTheLeverageRatioReaches(uint256 leverageBound) internal returns (uint256 engagement) {
         uint256 snapshot = vm.snapshotState();
         uint256 low = 1 ether + 1;
         uint256 high = 2 ether;
@@ -137,7 +148,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         for (uint256 round = 0; round < 40; round++) {
             uint256 middle = (low + high) / 2;
             setCollateralRatio(middle);
-            if (IMinter_v3(minter).leverageRatio() >= MinterValuationLib.LEVERAGE_RATIO_CAP) {
+            if (IMinter_v3(minter).leverageRatio() >= leverageBound) {
                 low = middle;
             } else {
                 high = middle;

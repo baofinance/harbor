@@ -6,7 +6,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
 import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
 
@@ -31,6 +30,18 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     ///      therefore defined at all.
     uint256 private constant LOWEST_RATIO = 1.002 ether;
     uint256 private constant HIGHEST_RATIO = 1.6 ether;
+
+    /// @dev The floor under the sail's price that the design owes, as a share of the price a sail token
+    ///      is worth when first minted. Every bound below is ONE OVER IT, because a conversion rate is
+    ///      the anchor's price over the sail's and the sail's cannot go lower - so a floor on the price
+    ///      is a ceiling on the rate, with no rule on any transaction anywhere.
+    ///
+    ///      Stated as what the DESIGN must provide rather than as what the code currently does. Nothing
+    ///      provides it at present: the leverage ratio cap that used to bound the rate has been removed,
+    ///      being a ceiling on the wrong quantity, and the reserve that will provide this one is not
+    ///      built. So the two requirements using it fail, which is what a requirement written ahead of
+    ///      its implementation is for.
+    uint256 private constant REQUIRED_SAIL_PRICE_FLOOR = 0.01 ether;
 
     /// @dev What the market reports before and after one conversion, and what moved.
     struct Conversion {
@@ -80,12 +91,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     /// ratio at which the bound lets go must be priced almost identically; a step there is a cliff for
     /// anyone whose transaction lands on the wrong side of it.
     function test_theConversionRateDoesNotJumpWhereTheBoundReleases() public {
-        uint256 release = Math.mulDiv(
-            MinterValuationLib.LEVERAGE_RATIO_CAP,
-            1 ether,
-            MinterValuationLib.LEVERAGE_RATIO_CAP - 1 ether
-        );
-        uint256 nudge = release / 1_000_000;
+        uint256 nudge = releaseCollateralRatio() / 1_000_000;
 
         (uint256 inside, uint256 outside) = ratesAcrossTheRelease();
 
@@ -140,7 +146,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 valueIn = Math.mulDiv(done.anchorTaken, done.anchorPrice, 1 ether);
         assertLe(
             done.sailGiven,
-            Math.mulDiv(valueIn, MinterValuationLib.LEVERAGE_RATIO_CAP, 1 ether) + 1,
+            Math.mulDiv(valueIn, 1 ether, REQUIRED_SAIL_PRICE_FLOOR) + 1,
             "one conversion must not issue without limit"
         );
         assertGe(IMinter(minter).leveragedTokenBalance(), sailBefore, "and the supply cannot go backwards");
@@ -162,7 +168,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
             assertGt(done.anchorTaken, 0, "the conversion must consume the anchor it was given");
             assertLe(
                 done.sailGiven,
-                Math.mulDiv(anchorSupply, MinterValuationLib.LEVERAGE_RATIO_CAP, 1 ether),
+                Math.mulDiv(anchorSupply, 1 ether, REQUIRED_SAIL_PRICE_FLOOR),
                 "and must not issue an unbounded quantity of sail where the residual has gone"
             );
             vm.revertToStateAndDelete(snapshot);

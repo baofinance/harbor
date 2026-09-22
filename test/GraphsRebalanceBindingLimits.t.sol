@@ -79,16 +79,12 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
     }
 
     function test_whatStopsARebalanceShort() public {
-        // The band this graph is about: the bound is engaged at and below here, so the distressed ratio
-        // each point starts from has to be inside it for the escape to be the one being measured.
+        // A rebalance only happens below the threshold, so every point has to start there or the graph
+        // measures nothing being stopped short.
         assertLt(
             DISTRESSED_COLLATERAL_RATIO,
-            Math.mulDiv(
-                MinterValuationLib.LEVERAGE_RATIO_CAP,
-                1 ether,
-                MinterValuationLib.LEVERAGE_RATIO_CAP - 1 ether
-            ),
-            "the sweep must start inside the band where the conversion bound is engaged"
+            IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold(),
+            "the sweep must start where a rebalance is possible at all"
         );
 
         for (uint256 share = FIRST_POOL_SHARE; share <= LAST_POOL_SHARE; share = (share * 3) / 2) {
