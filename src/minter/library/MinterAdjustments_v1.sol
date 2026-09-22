@@ -81,13 +81,13 @@ library MinterAdjustments_v1 {
             cr.underlyingCollateral,
             cr.price
         );
-        // Below the reportable floor the anchor price rounds to zero everywhere outside this contract, and the
+        // Below the reportable floor the pegged price rounds to zero everywhere outside this contract, and the
         // band walk below divides by it for every band it enters - at zero backing that division panics, and
         // just above it the mint issues against a price no consumer can see. Refuse by name, the same name the
         // zero-fee mint uses. A band table that disallows minting at this ratio would break out of the walk
         // first and hide it, which is exactly why this cannot be left to the config: it is the arithmetic that
         // fails, not the policy that forbids.
-        if (w.peggedTokenPriceE36 < MinterValuationLib.MIN_REPORTABLE_ANCHOR_PRICE_E36) {
+        if (w.peggedTokenPriceE36 < MinterValuationLib.MIN_REPORTABLE_PEGGED_PRICE_E36) {
             revert IMinter_v3.ZeroPeggedTokenPrice();
         }
 
@@ -503,13 +503,18 @@ library MinterAdjustments_v1 {
         );
         // The tokens are issued against the collateral the record actually gained, not against the unrounded
         // figure the band walk accumulated. Issuing against more than was credited buys the holder a share of a
-        // residual that never arrived, which shows up as the sail price moving on a mint that should not move it.
+        // residual that never arrived, which shows up as the leveraged price moving on a mint that should not move it.
         uint256 addedE36 = underlyingCollateralAdded * 1 ether;
         if (w.leveragedTokenBalance > 0) {
             leveragedMinted = Math.mulDiv(
                 addedE36,
                 cr.price * w.leveragedTokenBalance,
-                w.collateralValueE36 - w.peggedValueE36
+                MinterValuationLib.leveragedClaimE36(
+                    w.collateralValueE36,
+                    w.peggedValueE36,
+                    cr.leveragedCollateralEscrow,
+                    cr.price
+                )
             );
         } else if (addedE36 > 0) {
             leveragedMinted =
@@ -570,14 +575,20 @@ library MinterAdjustments_v1 {
                 cr.underlyingCollateral,
                 cr.price
             );
-            if (collateralValueE36 <= peggedValueE36 || cr.leveragedTokenBalance == 0 || leveragedIn == 0) {
+            uint256 claimE36 = MinterValuationLib.leveragedClaimE36(
+                collateralValueE36,
+                peggedValueE36,
+                cr.leveragedCollateralEscrow,
+                cr.price
+            );
+            if (claimE36 == 0 || cr.leveragedTokenBalance == 0 || leveragedIn == 0) {
                 // there is no value in the leveraged being offered
                 return (0, 0, 0, 0);
             }
 
             // we know leveraged token balance is > 0
             w.underlyingCollateralInE36 = Math.mulDiv(
-                collateralValueE36 - peggedValueE36,
+                claimE36,
                 leveragedIn * 1e18,
                 cr.price * cr.leveragedTokenBalance
             );
@@ -652,7 +663,8 @@ library MinterAdjustments_v1 {
         uint256 underlyingCollateral_,
         uint256 price,
         uint256 rate,
-        uint256 leveragedTokenBalance_
+        uint256 leveragedTokenBalance_,
+        uint256 leveragedCollateralEscrow
     ) external pure returns (uint256 wrappedCollateralOut, uint256 leveragedOut, uint256 underlyingCollateralOutE36) {
         if (peggedForCollateral > 0) {
             underlyingCollateralOutE36 = Math.mulDiv(
@@ -665,26 +677,30 @@ library MinterAdjustments_v1 {
 
         if (peggedForLeveraged > 0) {
             if (leveragedTokenBalance_ > 0) {
-                // A sail token is a claim on the residual, so the rate is the sail supply over that
-                // residual and nothing else. Pricing against it directly also keeps the arithmetic
-                // inside a word: the collateral value cancels, and carrying it through would force the
-                // anchor being converted to be multiplied by the whole sail supply before `mulDiv` can
-                // widen anything - a product that leaves 256 bits at supplies a market can really hold.
+                // A leveraged token is a claim on the residual PLUS the escrow, so the rate is the
+                // leveraged supply over that claim and nothing else. Pricing against it directly also
+                // keeps the arithmetic inside a word: the collateral value cancels, and carrying it
+                // through would force the pegged tokens being converted to be multiplied by the whole
+                // leveraged supply before `mulDiv` can widen anything - a product that leaves 256 bits
+                // at supplies a market can really hold.
                 //
-                // NOTHING BOUNDS THIS. As the residual runs to zero the rate runs away with it, and at a
-                // residual of zero there is no claim to buy into and the conversion returns nothing.
-                // That is the pole, exposed rather than papered over.
+                // The escrow is what bounds the rate. Against the residual alone the claim vanishes at
+                // the peg and the rate runs away with it; the escrow is held per leveraged token, so the
+                // claim cannot fall below it and the rate cannot rise above the reciprocal of what is
+                // escrowed per token.
                 (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                     peggedTokenBalance_,
                     underlyingCollateral_,
                     price
                 );
-                if (collateralValueE36 > peggedValueE36) {
-                    leveragedOut = Math.mulDiv(
-                        peggedForLeveraged * 1 ether,
-                        leveragedTokenBalance_,
-                        collateralValueE36 - peggedValueE36
-                    );
+                uint256 claimE36 = MinterValuationLib.leveragedClaimE36(
+                    collateralValueE36,
+                    peggedValueE36,
+                    leveragedCollateralEscrow,
+                    price
+                );
+                if (claimE36 > 0) {
+                    leveragedOut = Math.mulDiv(peggedForLeveraged * 1 ether, leveragedTokenBalance_, claimE36);
                 }
             } else {
                 leveragedOut = peggedForLeveraged; // initial price of leverage = 1 ether

@@ -133,7 +133,6 @@ contract TestGraphsSailReserve is GraphTestBase, TestConversionBoundReleaseSetUp
             } catch {
                 // the market refuses: with no residual there is nothing to buy into
             }
-
             if (valuation.residualE36 > 0) {
                 uint256 fair = Math.mulDiv(ANCHOR_IN * 1 ether, supply, valuation.residualE36);
                 row[3] = int256(fair);
@@ -142,8 +141,7 @@ contract TestGraphsSailReserve is GraphTestBase, TestConversionBoundReleaseSetUp
                     // is that collateral priced - not a share of the collateral, which would cap the
                     // anchor, and not a fixed pegged amount, which no collateral balance can hold up.
                     uint256 claimE36 = valuation.residualE36 +
-                        Math.mulDiv(supply, escrows[i], 1 ether) *
-                        valuation.collateralPrice;
+                        Math.mulDiv(supply, escrows[i], 1 ether) * valuation.collateralPrice;
                     uint256 issued = MinterClaimRescaleLib.rescaleToClaim(fair, valuation.residualE36, claimE36);
                     row[4 + i] = int256(issued);
                     // What one conversion of this size does to the whole supply, which is the quantity a

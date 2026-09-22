@@ -17,18 +17,18 @@ import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol"
 ///      Everything here is `pure`: state and immutables belong to the caller, which resolves them and passes
 ///      primitives in. That is what lets the same code serve a contract and a `DELEGATECALL` library.
 library MinterValuationLib {
-    /// @notice The smallest anchor price the protocol can report: one wei of the 1e18-scaled price.
-    /// @dev The operations price the anchor at 1e36 while `peggedTokenPrice()` reports it at 1e18, so a price
+    /// @notice The smallest pegged token price the protocol can report: one wei of the 1e18-scaled price.
+    /// @dev The operations price the pegged token at 1e36 while `peggedTokenPrice()` reports it at 1e18, so a price
     /// below this floors to zero in every external report while the operations still divide by it happily. Two
     /// things follow, and both are why minting stops here rather than at zero. A mint below it is priced against
     /// a figure nothing outside the contract can see, so no consumer can tell that it happened at all. And the
     /// tokens issued per unit of collateral value are `1e36 / price`, which grows without bound as the price
     /// falls - at the floor it is already 1e18, and below it there is no limit at all.
     ///
-    /// This is a floor on REPORTABILITY, not on solvency: a depegged anchor well above it is still minted at its
+    /// This is a floor on REPORTABILITY, not on solvency: a depegged pegged token well above it is still minted at its
     /// depressed price, which is the intended behaviour. It only refuses the range the protocol has no way to
     /// describe.
-    uint256 internal constant MIN_REPORTABLE_ANCHOR_PRICE_E36 = 1 ether;
+    uint256 internal constant MIN_REPORTABLE_PEGGED_PRICE_E36 = 1 ether;
 
     /// @notice The state a valuation is computed against, gathered once by the caller.
     /// @dev Passed by memory reference, so it costs one stack slot however many fields it carries — which is what
@@ -39,6 +39,10 @@ library MinterValuationLib {
         uint256 rate;
         uint256 peggedTokenBalance;
         uint256 leveragedTokenBalance;
+        // Collateral held for the leveraged token alone, and no part of `underlyingCollateral`. It arrives as
+        // data rather than being read directly because the adjustments are an external library reached by
+        // DELEGATECALL, which shares the caller's storage but cannot see its immutables.
+        uint256 leveragedCollateralEscrow;
     }
 
     /// @notice The collateral a wrapped amount stands for, at a given rate.
@@ -157,9 +161,32 @@ library MinterValuationLib {
         }
     }
 
+    /// @notice The value the leveraged token has a claim on: whatever the pegged token's claim leaves of the
+    ///         main account, PLUS the collateral escrowed for the leveraged token.
+    /// @dev The escrow is what stops this reaching zero. The residual on its own vanishes as the market
+    /// approaches its peg, and a claim of nothing prices the leveraged token at nothing - which is what makes
+    /// the conversion into it unbounded there, since the conversion issues one claim's worth per unit paid in.
+    /// The escrow is held for the leveraged token and for nothing else, so the claim is worth at least the
+    /// escrow at any residual whatsoever, and the price and the conversion rate are finite everywhere.
+    ///
+    /// The subtraction cannot go negative: `tokenValuesE36` caps the pegged claim at what the account holds.
+    /// @param collateralValueE36 The main account's value, at 1e36.
+    /// @param peggedValueE36 The pegged token's claim on that account, at 1e36.
+    /// @param leveragedCollateralEscrow The collateral escrowed for the leveraged token.
+    /// @param collateralPrice The price of the collateral in pegged tokens, at 1e18.
+    function leveragedClaimE36(
+        uint256 collateralValueE36,
+        uint256 peggedValueE36,
+        uint256 leveragedCollateralEscrow,
+        uint256 collateralPrice
+    ) internal pure returns (uint256 claimE36) {
+        claimE36 = (collateralValueE36 - peggedValueE36) + leveragedCollateralEscrow * collateralPrice;
+    }
+
     function leverageRatio(
         uint256 peggedTokenBalance_,
         uint256 underlyingCollateral_,
+        uint256 leveragedCollateralEscrow,
         uint256 price
     ) internal pure returns (uint256 ratio) {
         (uint256 collateralValueE36, uint256 peggedValueE36) = tokenValuesE36(
@@ -167,14 +194,15 @@ library MinterValuationLib {
             underlyingCollateral_,
             price
         );
-        if (peggedValueE36 >= collateralValueE36) {
-            // The sail has no claim at all, so the ratio is a division by zero. Reported as the largest
-            // representable number because the LIMIT is unbounded: the nearer the claim gets to nothing
-            // the higher the ratio, without end. It is a genuine state, not an error - the market at or
-            // below its peg - so a view says so rather than reverting on every reader.
+        uint256 claimE36 = leveragedClaimE36(collateralValueE36, peggedValueE36, leveragedCollateralEscrow, price);
+        if (claimE36 == 0) {
+            // There is no leveraged token outstanding to be levered, so the ratio is a division by zero.
+            // Escrow is held per leveraged token, so it is zero exactly when the supply is, and the
+            // pegged token's claim can only swallow the whole of the main account - never the escrow.
+            // Reported as the largest representable number because that is the limit the ratio tends to.
             ratio = type(uint256).max;
         } else {
-            ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
+            ratio = Math.mulDiv(collateralValueE36, 1 ether, claimE36);
         }
     }
 

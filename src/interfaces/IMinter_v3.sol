@@ -545,11 +545,11 @@ interface IMinter_v3 is IToken {
     /// at the lower of the record and what the holding converts to, so an impairment is priced correctly from the
     /// moment the rate falls, with no call needed. What this changes is the harvest: while the record stands above
     /// the holding there is no surplus, so `harvestable` is zero and the collateral's yield closes the gap —
-    /// restoring the sail claim instead of reaching the stability pools. Writing the record down ends that.
+    /// restoring the leveraged claim instead of reaching the stability pools. Writing the record down ends that.
     ///
     /// Owner-gated because it is a judgement, not a reading. A fall in the rate does not say whether the loss is
     /// permanent: a market may be collateralised by an asset whose value falls and recovers as a matter of course,
-    /// and writing the record down automatically would make every such fall permanent at the sail holders'
+    /// and writing the record down automatically would make every such fall permanent at the leveraged holders'
     /// expense. Nothing on-chain distinguishes the two cases.
     ///
     /// Reverts when the record does not exceed the holding, so a call that would do nothing fails visibly rather

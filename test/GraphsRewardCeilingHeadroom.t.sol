@@ -167,7 +167,6 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
                 } catch {
                     // the market will not price it, which is itself worth seeing as a gap
                 }
-
                 MinterClaimRescaleLib.Valuation memory valuation = MinterClaimRescaleLib.valuationOf(
                     minter,
                     priceOracle

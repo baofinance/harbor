@@ -21,12 +21,12 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// ever offer. The sweep is over the price's last digits for exactly that reason - any coarser axis
 /// steps straight over the interesting part.
 ///
-/// The second question is where the REPORTED sail price goes to zero. Operations divide by the residual
-/// at its full precision, while `leveragedTokenPrice()` reports it scaled to eighteen decimals, so there
-/// is a band where the protocol issues sail against a price that every external reader sees as zero. The
-/// anchor has a rule for exactly this - `MIN_REPORTABLE_ANCHOR_PRICE_E36`, which refuses to mint below
-/// the smallest price it can report - and the sail has no counterpart. This measures how wide the band
-/// that rule would cover is.
+/// The second question is where the REPORTED leveraged price goes to zero. Operations divide by the
+/// residual at its full precision, while `leveragedTokenPrice()` reports it scaled to eighteen decimals,
+/// so there is a band where the protocol issues leveraged tokens against a price that every external
+/// reader sees as zero. The pegged token has a rule for exactly this - `MIN_REPORTABLE_PEGGED_PRICE_E36`,
+/// which refuses to mint below the smallest price it can report - and the leveraged token has no
+/// counterpart. This measures how wide the band that rule would cover is.
 contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundReleaseSetUp {
     /// @dev How many doublings of the price offset above parity to walk. 2^60 wei of price is far past
     ///      the point where the market is ordinary again, so the walk covers the whole approach.

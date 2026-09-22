@@ -13,11 +13,11 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// @notice Where a conversion would start refusing, under the two rules that could make it refuse, as the
 /// sail supply varies.
 ///
-/// A conversion issues `anchor / sailPrice`, so something has to stop it before the sail price reaches
-/// zero. Two rules can: a FLOOR ON THE SAIL PRICE, which is the mirror of the rule the anchor already has
-/// in `MIN_REPORTABLE_ANCHOR_PRICE_E36`, or a CAP ON THE LEVERAGE RATIO, which is what the contract
-/// already tests for and then declines to act on. They are not the same rule and the difference is the
-/// whole point of this graph.
+/// A conversion issues `pegged / leveragedPrice`, so something has to stop it before the leveraged price
+/// reaches zero. Two rules can: a FLOOR ON THE LEVERAGED PRICE, which is the mirror of the rule the
+/// pegged token already has in `MIN_REPORTABLE_PEGGED_PRICE_E36`, or a CAP ON THE LEVERAGE RATIO, which
+/// is what the contract already tests for and then declines to act on. They are not the same rule and
+/// the difference is the whole point of this graph.
 ///
 /// The sail price is the residual divided by the sail SUPPLY, while the leverage ratio is the collateral
 /// value divided by the same residual and so depends on no supply at all. A market with more sail in it
