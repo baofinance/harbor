@@ -142,11 +142,6 @@ interface IMinter_v3 is IToken {
 
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
-    /// @dev Thrown when the oracle price is zero.
-    error ZeroOraclePrice();
-    /// @dev Thrown when the oracle wrapped-to-underlying rate is zero. A rate of zero is a units conversion, not an
-    /// economic state, so it can only mean the oracle is faulty.
-    error ZeroOracleRate();
 
     error RequestedBonusNotGiven(uint256 requested, uint256 available);
 
@@ -223,9 +218,9 @@ interface IMinter_v3 is IToken {
     /// Special cases:
     /// - If both collateral and pegged tokens are zero: Returns 1 ether (to avoid discontinuity when first minting)
     /// - If pegged tokens are zero but collateral exists: Returns 1 ether * 1 ether, encoding +infinity
-    /// - A zero collateral price reverts with ZeroOraclePrice rather than being reported as a ratio. A ratio of zero
-    ///   says the system is wholly undercollateralised, which is a call to act; a dead feed must not be able to say
-    ///   it.
+    /// - A dead feed reverts in the oracle rather than being reported here as a ratio. A ratio of zero says the
+    ///   system is wholly undercollateralised, which is a call to act; a source that cannot price must not be
+    ///   able to say it.
     ///
     /// This value is used for critical system operations like rebalancing, especially in depegged scenarios.
     /// For the real market value of the pegged token, see peggedTokenPrice() instead.
@@ -235,21 +230,23 @@ interface IMinter_v3 is IToken {
     function leverageRatio() external view returns (uint256);
 
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying (18 decimals).
-    /// The leveraged token holds the residual: the collateral value left once every pegged token is covered.
+    /// The leveraged token's claim is the residual - the collateral value left once every pegged token is covered -
+    /// PLUS the collateral escrowed for it, which the pegged token never had a claim on.
     ///
-    /// Zero is a real answer, and a common one. The pegged claim is capped at the collateral value, so the residual
-    /// is exactly zero at any collateral ratio at or below 1 - an ordinary depeg, not an extreme one - and stays
-    /// zero just above 1 while the residual per leveraged token is under a wei. A consumer valuing a holding from
-    /// this getter values it at nothing there, which is what the holding is worth.
+    /// ZERO IS NEVER AN ANSWER while any leveraged token exists. The residual alone does reach zero, at any
+    /// collateral ratio at or below 1, which is an ordinary depeg rather than an extreme one; the escrow is what
+    /// carries the price through it. Each token carries a fixed quantity of collateral, so the price cannot fall
+    /// below what that quantity is worth, and a holding valued from this getter is never valued at nothing.
+    ///
+    /// That matters most to a market that takes a LEVERAGED TOKEN AS ITS OWN COLLATERAL, whose oracle reports
+    /// this price as its rate. Such a market used to face a reading of zero during an ordinary depeg of the token
+    /// beneath it - indistinguishable from a source that could not price at all, and arriving exactly when it
+    /// could least afford the ambiguity.
     ///
     /// Unavailability arrives out of band, as a revert, and that guarantee belongs to the price oracle rather than
     /// to the Minter: `latestAnswer()` hands over four numbers and no metadata, so the Minter cannot tell a stale
-    /// reading from a fresh one, and a conforming oracle reverts rather than answer when it cannot price. What the
-    /// Minter adds is a backstop for the one in-band value that would be a lie - a zero price or rate on a reading
-    /// it consumes reverts with ZeroOraclePrice or ZeroOracleRate.
-    ///
-    /// So a zero here means "worth nothing", never "cannot tell", and the two must not be conflated by anything
-    /// reading it.
+    /// reading from a fresh one. A conforming oracle reverts rather than answer when it cannot price, and refuses
+    /// a zero reading of its own - so the Minter consumes what it is given rather than checking it again.
     ///
     /// With no leveraged tokens outstanding the price is 1 ether by definition.
     function leveragedTokenPrice() external view returns (uint256);
@@ -265,7 +262,7 @@ interface IMinter_v3 is IToken {
     /// zero as a halt condition rather than a valuation.
     ///
     /// The same split holds as for leveragedTokenPrice(): a conforming oracle reverts rather than answer when it
-    /// cannot price, and the Minter backstops a zero reading with ZeroOraclePrice or ZeroOracleRate.
+    /// cannot price, and refuses a zero reading of its own rather than leaving the Minter to check it again.
     ///
     /// With no pegged tokens outstanding the price is 1 ether by definition, without reading the oracle at all.
     function peggedTokenPrice() external view returns (uint256);
@@ -308,9 +305,32 @@ interface IMinter_v3 is IToken {
     /// This number is the same as the totelSupply of the leveraged token
     function leveragedTokenBalance() external view returns (uint256);
 
-    /// @notice Returns the totalAmount of collateral tokens received in exchange for pegged and leveraged tokens
-    /// (18 decimals)
+    /// @notice Returns the collateral BACKING the pegged token (18 decimals): the account every price, ratio and
+    /// fee band is computed against, so that a reader deriving the collateral ratio from this figure gets the
+    /// same answer `collateralRatio()` does.
+    /// @dev This is not all the collateral the minter holds. Collateral escrowed for the leveraged token is held
+    /// apart and excluded here, because the pegged token has no claim on it - including it would report cover
+    /// that cannot be drawn on. Read `leveragedCollateralEscrow()` for that account.
     function collateralTokenBalance() external view returns (uint256);
+
+    /// @notice Returns both collateral accounts (18 decimals): the backing the pegged token has a claim on, and
+    ///         the collateral escrowed for the leveraged token so that its claim - the residual PLUS this -
+    ///         cannot fall to nothing.
+    /// @dev Returned together because they are floored against the SAME holding and must agree about it. Read
+    /// apart, across blocks or against different holdings, they can between them account for more collateral
+    /// than exists; read here they close the account exactly:
+    ///
+    ///     what the minter holds = backing + leveragedCollateralEscrow + harvestable
+    ///
+    /// which is the reason the escrow is exposed at all. Without it that identity cannot be checked from
+    /// outside, a difference in `harvestable()` cannot be attributed to either account, and how much of the
+    /// leveraged token's price is durable floor rather than volatile residual cannot be told apart.
+    ///
+    /// `collateralTokenBalance()` returns the first of these on its own, and is kept because it is the shape
+    /// every existing caller and the deployed predecessor use.
+    /// @return backing The collateral the pegged token's claim is covered by.
+    /// @return leveragedCollateralEscrow The collateral held for the leveraged token, and for nothing else.
+    function collateralAccounts() external view returns (uint256 backing, uint256 leveragedCollateralEscrow);
 
     /// @notice Returns the current instantaneous incentive ratio for minting pegged tokens (18 decimals).
     /// A positive number is a fee ratio; a negative number indicates a discount.

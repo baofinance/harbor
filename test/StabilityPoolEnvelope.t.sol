@@ -1855,7 +1855,6 @@ abstract contract StabilityPoolEnvelopeBase is
     /// minter holds exactly the wrapped count it must return (a grow/rebalance rate mismatch would strand it). The grow
     /// and rebalance each run in their own external unit so a caught revert is attributable. Correctness on a hold: the
     /// shared conservation + solvency, asserted unconditionally.
-    /// forge-config: default.fuzz.runs = 512
     function testFuzz_rebalance_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
@@ -1933,7 +1932,6 @@ abstract contract StabilityPoolEnvelopeBase is
     /// integral. Grow at the cheapest wrap rate so the minter's wrapped holdings (and thus the harvested count) are
     /// largest; sweep the pool so that count crosses the streamed-field widths and the fuzzer locates where they
     /// overflow. Correctness on a hold: the shared conservation + solvency, asserted unconditionally.
-    /// forge-config: default.fuzz.runs = 512
     function testFuzz_harvest_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
@@ -1988,7 +1986,6 @@ abstract contract StabilityPoolEnvelopeBase is
     /// `pending`. Sweep the pool so the accrued reward crosses uint128; the fuzzer locates where the pending write
     /// overflows. A silent truncation instead of a clean revert is caught too: the whale must receive essentially the
     /// whole reward, so a shrunk payout fails. Correctness on a hold: conservation + full payout, unconditional.
-    /// forge-config: default.fuzz.runs = 512
     function testFuzz_claim_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);

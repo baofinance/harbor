@@ -4,6 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
+
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -26,6 +28,8 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 ///   drop 25.00%  → true ratio 1.05, below which sail redemption is disallowed
 contract MinterImpairedBackingTest is TestMinterSetUp {
     uint256 private constant _WRAPPED_IN = 140 ether;
+    /// @dev The part of `_WRAPPED_IN` that buys leveraged tokens, and so the deposit the escrow is a share of.
+    uint256 private constant _WRAPPED_FOR_LEVERAGED = 40 ether;
     uint256 private constant _STARTING_RATIO = 1.4 ether;
 
     /// drops at which each disallow bound is crossed, in basis points
@@ -76,6 +80,29 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         return Math.mulDiv(IERC20(wrappedCollateralToken).balanceOf(minter), _rate(), 1 ether);
     }
 
+    /// The collateral escrowed for the leveraged token, as the DESIGN fixes it rather than as the contract
+    /// reports it: a share of the deposit that bought the first leveraged tokens, taken at the rate ruling
+    /// then, which every market here opens at par. No leveraged token is minted or redeemed afterwards in this
+    /// file, so the escrow does not move again and the share stays what it was set to.
+    /// @dev Floored at what is held, because a record is only a claim about the holding and cannot outlive the
+    /// collateral it describes. Read from the constant rather than written out, so these tests follow the
+    /// protocol's choice of share instead of pinning a value of their own.
+    function _escrowAsCollateral() private view returns (uint256 escrow) {
+        escrow = Math.mulDiv(_WRAPPED_FOR_LEVERAGED, MinterValuationLib.LEVERAGED_ESCROW_RATIO, 1 ether);
+        uint256 held = _heldAsCollateral();
+        if (escrow > held) {
+            escrow = held;
+        }
+    }
+
+    /// What the PEGGED token's claim is covered by, which is what is held less the escrow.
+    /// @dev The distinction every assertion below turns on. The escrow is collateral the minter holds and the
+    /// pegged token has no claim on, so a price, a ratio or a write-down computed from the whole holding
+    /// credits the pegged token with cover that is not its own.
+    function _peggedCoverAsCollateral() private view returns (uint256) {
+        return _heldAsCollateral() - _escrowAsCollateral();
+    }
+
     /*//////////////////////////////////////////////////////////////
                           THE CORE INVARIANT
     //////////////////////////////////////////////////////////////*/
@@ -90,14 +117,44 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         assertLe(
             IMinter(minter).collateralTokenBalance(),
-            _heldAsCollateral(),
-            "recorded backing must not exceed the collateral actually held"
+            _peggedCoverAsCollateral(),
+            "recorded backing must not exceed the collateral actually held for it"
         );
     }
 
-    /// Below par the recorded backing is exactly what is held — the protocol recognises the whole
-    /// impairment, neither more nor less.
-    function testFuzz_recordedBackingEqualsHeldOnceImpaired(uint256 dropBps) public {
+    /// WHAT THE TWO TOKENS CLAIM BETWEEN THEM CAN NEVER EXCEED WHAT IS HELD.
+    ///
+    /// The protocol keeps two records of collateral — the backing the pegged token draws on, and the escrow
+    /// held for the leveraged token — and each is only ever a CLAIM about the holding. Floored separately, or
+    /// one of them not floored at all, they can between them assert more collateral than exists, and every
+    /// price derived from them then pays out of cover that is not there.
+    ///
+    /// Asserted at a MEASURED point rather than swept. This market holds 140 collateral and escrows a hundredth
+    /// of the 40 deposited for leveraged tokens, so the escrow is 0.4 - and the holding has to fall below THAT
+    /// before the escrow record can overstate what is there. A drop of 99.9% leaves 0.14 held against a record
+    /// of 0.4, which is the condition. Valuing the claim against the record instead of the holding puts it at
+    /// 800 where only 280 exists, and the numbers here are exactly those.
+    function test_theLeveragedClaimCannotExceedTheHoldingOnceTheEscrowDoes() public {
+        setUp_collateral(100 ether, 40 ether);
+
+        _impair(9_990);
+
+        uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
+        uint256 leveragedClaim = Math.mulDiv(
+            IMinter(minter).leveragedTokenBalance(),
+            IMinter_v3(minter).leveragedTokenPrice(),
+            1 ether
+        );
+
+        // The pegged claim has already been written down to nothing at this depth, so the leveraged claim is
+        // the whole of what is held - and can be no more than it.
+        assertEq(IMinter_v3(minter).peggedTokenPrice(), 0, "the pegged claim is already gone at this impairment");
+        assertLe(leveragedClaim, heldValue, "the leveraged claim must not exceed the collateral held");
+    }
+
+    /// Below par the recorded backing is exactly what is held FOR IT — the whole holding less the escrow, which
+    /// was never the pegged token's. The protocol recognises the whole impairment, neither more nor less.
+    function testFuzz_recordedBackingEqualsWhatIsHeldForItOnceImpaired(uint256 dropBps) public {
         dropBps = bound(dropBps, 1, 9_000);
         setUp_collateral(100 ether, 40 ether);
 
@@ -105,45 +162,47 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         assertEq(
             IMinter(minter).collateralTokenBalance(),
-            _heldAsCollateral(),
-            "impaired backing must equal what is held"
+            _peggedCoverAsCollateral(),
+            "impaired backing must equal what is held for the pegged token"
         );
     }
 
-    /// The collateral ratio follows the collateral behind it. Asserted against the ratio recomputed
-    /// from the held quantity, so it cannot pass by mirroring the Minter's own arithmetic.
-    function testFuzz_collateralRatioTracksHeldCollateral(uint256 dropBps) public {
+    /// The collateral ratio follows the collateral behind THE PEGGED TOKEN, which is the holding less the
+    /// escrow. Asserted against the ratio recomputed from the held quantity, so it cannot pass by mirroring the
+    /// Minter's own arithmetic.
+    function testFuzz_collateralRatioTracksTheCollateralHeldForIt(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
 
-        uint256 expected = Math.mulDiv(_heldAsCollateral(), _price(), anchorClaims);
+        uint256 expected = Math.mulDiv(_peggedCoverAsCollateral(), _price(), peggedClaims);
         assertApproxEqAbs(
             IMinter(minter).collateralRatio(),
             expected,
             1, // one wei, from the two floored divisions
-            "collateral ratio must follow the collateral held"
+            "collateral ratio must follow the collateral held for the pegged token"
         );
     }
 
-    /// An anchor token is worth its face value while covered and its share of what remains once not.
-    /// The expectation is computed from the collateral held, not from the ratio the Minter reports —
-    /// comparing it against that ratio would compare two figures that are wrong together.
-    function testFuzz_anchorPriceIsShareOfWhatIsHeld(uint256 dropBps) public {
+    /// A pegged token is worth its face value while covered and its share of what remains once not - where
+    /// "what remains" is the holding less the escrow, which is not its cover. The expectation is computed from
+    /// the collateral held, not from the ratio the Minter reports — comparing it against that ratio would
+    /// compare two figures that are wrong together.
+    function testFuzz_peggedPriceIsShareOfWhatIsHeldForIt(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
 
-        uint256 covered = Math.mulDiv(_heldAsCollateral(), _price(), anchorClaims);
+        uint256 covered = Math.mulDiv(_peggedCoverAsCollateral(), _price(), peggedClaims);
         assertApproxEqAbs(
             IMinter(minter).peggedTokenPrice(),
             covered < 1 ether ? covered : 1 ether,
             1,
-            "anchor prices at par, or at its share of what is held"
+            "the pegged token prices at par, or at its share of what is held for it"
         );
     }
 
@@ -234,23 +293,38 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertGt(collateralOut, 0, "sail redemption still permitted");
     }
 
-    /// Below both bounds, the junior claim is worthless and must not be paid out of the senior
-    /// claim's backing.
-    function test_deepImpairment_forbidsBothAnchorMintingAndSailRedemption() public {
+    /// Below both bounds the residual is gone, so the leveraged claim is worth ONLY its escrow - the collateral
+    /// set aside for it, which the pegged token never had a claim on - and both operations are refused.
+    ///
+    /// The half of this that the escrow does not change is the half that matters: whatever the leveraged token
+    /// is worth, it is not worth it at the pegged token's expense. The pegged token is still marked to its own
+    /// cover exactly, and the escrow is simply not part of that cover.
+    function test_deepImpairment_leavesTheLeveragedClaimOnlyItsEscrow() public {
         setUp_collateral(100 ether, 40 ether);
-        _impair(3_000); // true ratio 0.98
+        _impair(3_000);
 
-        assertLt(IMinter(minter).collateralRatio(), 1.05 ether, "below the sail-redeem bound");
-        assertEq(IMinter(minter).leveragedTokenPrice(), 0, "the sail claim is worthless");
+        uint256 escrowValue = Math.mulDiv(_escrowAsCollateral(), _price(), 1 ether);
+        uint256 backingValue = Math.mulDiv(_peggedCoverAsCollateral(), _price(), 1 ether);
+
+        assertLt(IMinter(minter).collateralRatio(), 1.05 ether, "below the leveraged-redeem bound");
+        assertEq(
+            IMinter(minter).leveragedTokenPrice(),
+            Math.mulDiv(escrowValue, 1 ether, IMinter(minter).leveragedTokenBalance()),
+            "the leveraged claim is worth its escrow and nothing more"
+        );
 
         (, , uint256 collateralUsed, , , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-        assertEq(collateralUsed, 0, "anchor minting forbidden");
+        assertEq(collateralUsed, 0, "pegged minting forbidden");
 
         (, , , uint256 collateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
-        assertEq(collateralOut, 0, "sail redemption forbidden");
+        assertEq(collateralOut, 0, "leveraged redemption forbidden");
 
-        // and the senior claim is marked down to what is left of its cover
-        assertEq(IMinter(minter).peggedTokenPrice(), 0.98 ether, "anchor marked to its share");
+        // and the pegged claim is marked down to what is left of ITS OWN cover
+        assertEq(
+            IMinter(minter).peggedTokenPrice(),
+            Math.mulDiv(backingValue, 1 ether, IMinter(minter).peggedTokenBalance()),
+            "the pegged token is marked to its own share, untouched by the leveraged claim"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -320,35 +394,55 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
                       THE REMAINING HEALTH METRICS
     //////////////////////////////////////////////////////////////*/
 
-    /// Leverage rises as cover falls, saturating at the reported cap once the residual is gone.
-    function testFuzz_leverageRatioTracksHeldCollateral(uint256 dropBps) public {
+    /// Leverage rises as cover falls, and the escrow is what stops it running away: the claim it divides by is
+    /// the residual PLUS the escrow, so it can never divide by nothing.
+    ///
+    /// Its ceiling is where the residual has gone entirely and the claim is the escrow alone - the collateral
+    /// value over the escrow's value. That ceiling is a property of this market rather than of the protocol,
+    /// because it carries how much pegged is outstanding against how much was ever escrowed; and it FALLS as
+    /// the holding falls, since the escrow is taken out first and the backing shrinks around it. So the worst
+    /// leverage a market can show is in its healthiest state, not its most distressed.
+    function testFuzz_leverageRatioTracksTheCoverHeld(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
 
-        uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
-        uint256 expected = heldValue <= anchorClaims
-            ? 20 ether
-            : Math.min(20 ether, Math.mulDiv(heldValue, 1 ether, heldValue - anchorClaims));
+        uint256 escrowValue = Math.mulDiv(_escrowAsCollateral(), _price(), 1 ether);
+        uint256 coverValue = Math.mulDiv(_peggedCoverAsCollateral(), _price(), 1 ether);
+        uint256 residual = coverValue > peggedClaims ? coverValue - peggedClaims : 0;
 
-        assertApproxEqAbs(IMinter(minter).leverageRatio(), expected, 1, "leverage must follow the cover held");
+        assertApproxEqAbs(
+            IMinter(minter).leverageRatio(),
+            Math.mulDiv(coverValue, 1 ether, residual + escrowValue),
+            1,
+            "leverage must follow the cover held, over the claim the escrow guarantees"
+        );
     }
 
-    /// The sail claim is the residual of what is held, and is worth nothing once cover is gone.
-    function testFuzz_sailPriceIsResidualOfWhatIsHeld(uint256 dropBps) public {
+    /// The leveraged claim is the residual of what is held PLUS the collateral escrowed for it, so it keeps a
+    /// price once the residual has gone. That is what the escrow is for: the leveraged token is no longer wiped
+    /// out first, because part of what is held was never the pegged token's to claim.
+    function testFuzz_leveragedPriceIsTheResidualPlusTheEscrow(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
-        uint256 sailSupply = IMinter(minter).leveragedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
+        uint256 leveragedSupply = IMinter(minter).leveragedTokenBalance();
 
         _impair(dropBps);
 
-        uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
-        uint256 expected = heldValue <= anchorClaims ? 0 : Math.mulDiv(heldValue - anchorClaims, 1 ether, sailSupply);
+        // The escrow is not cover for the pegged token, so the residual is what the REST of the holding leaves.
+        uint256 escrowValue = Math.mulDiv(_escrowAsCollateral(), _price(), 1 ether);
+        uint256 backingValue = Math.mulDiv(_peggedCoverAsCollateral(), _price(), 1 ether);
+        uint256 residual = backingValue > peggedClaims ? backingValue - peggedClaims : 0;
 
-        assertApproxEqAbs(IMinter(minter).leveragedTokenPrice(), expected, 1, "sail is the residual of what is held");
+        assertApproxEqAbs(
+            IMinter(minter).leveragedTokenPrice(),
+            Math.mulDiv(residual + escrowValue, 1 ether, leveragedSupply),
+            1,
+            "the leveraged price is the residual plus the escrow, over the supply"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -406,19 +500,35 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertEq(IMinter(minter).harvestable(), 0, "and nothing was taken from it on the way");
     }
 
-    /// No mutating call writes the record down. Redeeming a worthless sail claim moves no collateral
-    /// at all, so the record and the holding are both untouched by it — and once the rate returns to
-    /// where it started, there is no surplus. A crystallising mutator would leave one behind.
+    /// No mutating call writes the record down. A leveraged redemption during an impairment moves exactly what
+    /// the redeemer's claim is entitled to and not a wei more, so both records stay in step with the holding —
+    /// and once the rate returns to where it started there is no surplus. A crystallising mutator would have
+    /// written the record down to the impaired holding and left one behind.
+    ///
+    /// The redemption is the probe because it is the mutator most able to do the damage: it is the one that
+    /// draws on both accounts at once. Measuring what it moves, rather than requiring it to move nothing, is
+    /// what lets it stay the probe now that a leveraged claim is worth something at this depth.
     function test_mutatingWhileImpaired_doesNotWriteTheRecordDown() public {
-        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
 
         _impair(3_000);
 
+        uint256 escrow = _escrowAsCollateral();
+        uint256 redeemed = leveragedTokens / 10;
+        uint256 supply = IMinter(minter).leveragedTokenBalance();
+
         vm.startPrank(zeroFee);
-        IERC20(leveragedToken).approve(minter, sailTokens);
-        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(sailTokens / 10, zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(redeemed, zeroFee);
         vm.stopPrank();
-        assertEq(returned, 0, "the mutator must move no collateral, or it cannot isolate the record");
+
+        // the residual is gone at this cover, so the claim is the escrow and this takes its share of it
+        assertApproxEqAbs(
+            Math.mulDiv(returned, _rate(), 1 ether),
+            Math.mulDiv(escrow, redeemed, supply),
+            1,
+            "the mutator moves only what the claim is entitled to"
+        );
 
         _setRate(1 ether);
 
@@ -439,6 +549,31 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
             IMinter(minter).harvestable(),
             IERC20(wrappedCollateralToken).balanceOf(minter) - held,
             "the record sits at the impaired holding, so everything above it is surplus"
+        );
+    }
+
+    /// Recognition writes down BOTH collateral records, not just the pegged token's backing. An impairment
+    /// devalues the wrapped collateral the whole contract holds, so the escrow is worth less by the same
+    /// proportion - and two records that between them claim more than is held is the same defect whichever of
+    /// them is overstated.
+    ///
+    /// Taken at a depth where the ESCROW is the binding record: the holding has fallen below the escrow itself,
+    /// so the backing is already nothing and the escrow is the only thing left that can overstate. The rate is
+    /// restored afterwards, because a record written down correctly leaves everything above it as surplus, and
+    /// one left overstated quietly keeps claiming collateral that the impairment destroyed.
+    function test_recogniseImpairment_writesBothAccountsDownToWhatIsHeld() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(9_990);
+
+        uint256 held = _heldAsCollateral();
+        _recogniseImpairment();
+
+        _setRate(1 ether);
+
+        assertEq(
+            IMinter(minter).harvestable(),
+            IERC20(wrappedCollateralToken).balanceOf(minter) - held,
+            "both records sit at the impaired holding, so everything above them is surplus"
         );
     }
 
@@ -534,15 +669,27 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
 
-        uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
-        assertEq(sailPrice, 0, "the sail claim is worthless at this cover");
+        // The escrow leaves a claim to buy into where the residual alone would leave none, so the mint has an
+        // answer. What it must not do is price that answer off a record that overstates what is held, which
+        // would hand the buyer more tokens than the cover supports.
+        uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
+        assertGt(leveragedPrice, 0, "the escrow leaves a claim to buy into");
 
+        uint256 supplyBefore = IMinter(minter).leveragedTokenBalance();
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, leveragedToken));
-        IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
+        uint256 minted = IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
         vm.stopPrank();
+
+        // one wrapped token is worth `rate` of collateral, and each of those is worth `price`
+        assertApproxEqAbs(
+            minted,
+            Math.mulDiv(Math.mulDiv(1 ether, _rate(), 1 ether), _price(), leveragedPrice),
+            1,
+            "the mint issues the deposit's value over the recognised price"
+        );
+        assertEq(IMinter(minter).leveragedTokenBalance(), supplyBefore + minted, "and the supply follows");
     }
 
     /// With no collateral left behind an outstanding anchor supply, an anchor token is worth nothing,
@@ -625,17 +772,21 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     //////////////////////////////////////////////////////////////*/
 
     /// Genesis opens a market through this path, and it consults no fee schedule — so nothing forbids
-    /// it under an impairment. What must be right is the price: a depegged anchor is issued at its
+    /// it under an impairment. What must be right is the price: a depegged pegged token is issued at its
     /// depressed value, which yields more tokens per unit of collateral, not fewer.
-    function test_impairedBacking_freeAnchorMintIssuesAtTheDepressedPrice() public {
+    ///
+    /// Priced against the cover held FOR IT rather than the whole holding, so the escrow makes the depression
+    /// slightly deeper and the issue slightly larger. That is the funding working as intended: a leveraged
+    /// mint hands the pegged token most of its deposit as backing, and keeps a sliver back.
+    function test_impairedBacking_freePeggedMintIssuesAtTheDepressedPrice() public {
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(3_000);
 
-        uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
-        uint256 anchorPrice = Math.min(1 ether, Math.mulDiv(heldValue, 1 ether, anchorClaims));
-        uint256 expected = Math.mulDiv(Math.mulDiv(1 ether, _rate(), 1 ether), _price(), anchorPrice);
+        uint256 coverValue = Math.mulDiv(_peggedCoverAsCollateral(), _price(), 1 ether);
+        uint256 peggedPrice = Math.min(1 ether, Math.mulDiv(coverValue, 1 ether, peggedClaims));
+        uint256 expected = Math.mulDiv(Math.mulDiv(1 ether, _rate(), 1 ether), _price(), peggedPrice);
 
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
@@ -643,20 +794,41 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
         vm.stopPrank();
 
-        assertApproxEqAbs(minted, expected, 1, "a depegged anchor is issued at its depressed price");
+        assertApproxEqAbs(minted, expected, 1, "a depegged pegged token is issued at its depressed price");
     }
 
-    /// The zero-fee sail redemption returns what the residual is worth. Once cover is gone that is
-    /// nothing, and it must return nothing rather than paying out of the senior claim's backing.
-    function test_impairedBacking_freeSailRedemptionReturnsNothing() public {
-        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
+    /// The zero-fee leveraged redemption returns what the claim is worth, and once the residual is gone that is
+    /// the redeemer's share OF THE ESCROW - not nothing, and not a penny of the pegged token's backing.
+    ///
+    /// The escrow is why the two are different now. It was set aside out of what leveraged mints paid in, so
+    /// paying it out is returning the leveraged token's own collateral; the test that matters is that what
+    /// leaves is the share of the ESCROW and not a share of the whole holding.
+    function test_impairedBacking_freeLeveragedRedemptionReturnsItsShareOfTheEscrow() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
 
+        uint256 escrow = _escrowAsCollateral();
+        uint256 redeemed = leveragedTokens / 10;
+        uint256 supply = IMinter(minter).leveragedTokenBalance();
+        uint256 backingBefore = IMinter(minter).collateralTokenBalance();
+
         vm.startPrank(zeroFee);
-        IERC20(leveragedToken).approve(minter, sailTokens);
-        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(sailTokens / 10, zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(redeemed, zeroFee);
         vm.stopPrank();
 
-        assertEq(returned, 0, "a worthless residual returns nothing");
+        // the residual is gone at this cover, so the whole claim is the escrow and a tenth of the supply
+        // takes a tenth of it
+        assertApproxEqAbs(
+            Math.mulDiv(returned, _rate(), 1 ether),
+            Math.mulDiv(escrow, redeemed, supply),
+            1,
+            "the redemption returns its share of the escrow"
+        );
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            backingBefore,
+            "and takes nothing from the pegged token's backing"
+        );
     }
 }

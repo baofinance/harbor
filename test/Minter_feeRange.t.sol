@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -429,6 +431,9 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         uint256 minterLeveraged;
         uint256 minterWrapped;
         uint256 minterUnderlying;
+        /// @dev The collateral escrowed for the leveraged token. Held apart from `minterUnderlying`, which is the
+        /// pegged token's backing alone, so a deposit lands in the two of them and the pair is what conserves.
+        uint256 minterEscrow;
         uint256 feeWrapped;
         uint256 reservePoolWrapped;
         uint256 collateralRatio;
@@ -445,7 +450,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         m.minterPegged = IMinter(minter).peggedTokenBalance();
         m.minterLeveraged = IERC20(leveragedToken).totalSupply();
         m.minterWrapped = IERC20(wrappedCollateralToken).balanceOf(minter);
-        m.minterUnderlying = IMinter(minter).collateralTokenBalance();
+        (m.minterUnderlying, m.minterEscrow) = IMinter_v3(minter).collateralAccounts();
 
         m.feeWrapped = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
         m.reservePoolWrapped = IERC20(wrappedCollateralToken).balanceOf(reservePool);
@@ -788,11 +793,27 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 "ml dry run fee ratio"
             );
 
+            // The deposit lands in the two collateral accounts and nowhere else: the escrow takes its share and
+            // the pegged token's backing takes the rest. Asserted as a PAIR, because which of them a given wei
+            // goes to is the next assertion's business, not this one's.
+            uint256 deposited = ((wrapped - fee + discount) * r) / 1e18;
             assertApprox(
-                post.minterUnderlying,
-                pre.minterUnderlying + ((wrapped - fee + discount) * r) / 1e18,
+                post.minterUnderlying + post.minterEscrow,
+                pre.minterUnderlying + pre.minterEscrow + deposited,
                 q + 2,
-                "ml minter underlying"
+                "ml collateral accounts"
+            );
+
+            // And the share the escrow takes is the rule, not whatever happened: a proportion of the supply
+            // being minted, or - opening an empty market - a share of the deposit itself. Computed from the
+            // state BEFORE the mint, so it cannot agree with a wrong implementation by construction.
+            assertApprox(
+                post.minterEscrow - pre.minterEscrow,
+                pre.minterLeveraged == 0
+                    ? Math.ceilDiv(deposited * MinterValuationLib.LEVERAGED_ESCROW_RATIO, 1 ether)
+                    : Math.ceilDiv(pre.minterEscrow * minted, pre.minterLeveraged),
+                q + 2,
+                "ml minter escrow"
             );
 
             assertEq(post.userWrapped, pre.userWrapped - wrapped, "ml user wrapped");
@@ -855,16 +876,20 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         }
     }
 
+    /// @dev The leveraged token's claim is the residual of the PEGGED TOKEN'S BACKING plus the collateral
+    /// escrowed for it. The two accounts are read together so they are recognised against the same holding, and
+    /// the escrow is kept out of the residual - it was never the pegged token's to be left over from.
     function _leveragedPriceE36(uint256 p) internal view returns (uint256) {
         uint256 leveragedTokenBalance = IMinter(minter).leveragedTokenBalance();
         if (leveragedTokenBalance == 0) {
             return 1e18;
         }
 
-        uint256 collateralValueE36 = IMinter(minter).collateralTokenBalance() * p;
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        uint256 collateralValueE36 = backing * p;
         uint256 peggedValueE36 = IMinter(minter).peggedTokenBalance() * IMinter(minter).peggedTokenPrice();
 
-        return Math.mulDiv(collateralValueE36 - peggedValueE36, 1e18, leveragedTokenBalance);
+        return Math.mulDiv(collateralValueE36 - peggedValueE36 + escrow * p, 1e18, leveragedTokenBalance);
     }
 
     function _redeemLeveraged(uint256 wrapped) internal override {
@@ -924,12 +949,26 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         // holding did - and that ceiling is a second, independent wei on top of the
                         // rate granularity. So the bound is `_qR + 1`, not `_qR`: the two roundings
                         // are in the same direction and cannot cancel.
+                        // The redemption draws on both collateral accounts - the escrow gives up the redeemer's
+                        // proportion of it and the pegged token's backing the rest - so the PAIR is what falls
+                        // by what left, and the split between them is the next assertion's business.
                         assertApprox(
-                            post.minterUnderlying,
-                            pre.minterUnderlying - (wrapped * r) / 1e18,
+                            post.minterUnderlying + post.minterEscrow,
+                            pre.minterUnderlying + pre.minterEscrow - (wrapped * r) / 1e18,
                             _qR(p, r) + 1,
                             0,
-                            "rl minter underlying"
+                            "rl collateral accounts"
+                        );
+
+                        // The escrow gives up the proportion of itself that the redeemed tokens are of the
+                        // supply, floored so it never pays out more than that share. Computed from the state
+                        // BEFORE the redeem, so it cannot agree with a wrong implementation by construction.
+                        assertApprox(
+                            pre.minterEscrow - post.minterEscrow,
+                            Math.mulDiv(pre.minterEscrow, leveraged, pre.minterLeveraged),
+                            _qR(p, r) + 1,
+                            0,
+                            "rl minter escrow"
                         );
 
                         // conservation identity
@@ -1537,13 +1576,18 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 (_mlTransitions() + 1) * steps * 10,
                 "ml integral minter wrapped"
             );
+            // Asserted as a PAIR. The escrow takes its share on every step and rounds UP each time, so many small
+            // mints leave slightly more escrowed - and slightly less backing - than one large one. That split is
+            // genuinely path-dependent, by a wei per step; what the collateral cannot do is go anywhere else.
             assertApprox(
-                post.minterUnderlying,
-                postSteps.minterUnderlying,
+                post.minterUnderlying + post.minterEscrow,
+                postSteps.minterUnderlying + postSteps.minterEscrow,
                 steps,
                 steps,
-                "ml integral minter underlying"
+                "ml integral collateral accounts"
             );
+            // And the drift is only that rounding: a wei per step, never a proportion of what was minted.
+            assertApprox(postSteps.minterEscrow, post.minterEscrow, steps, steps, "ml integral minter escrow");
         }
     }
 

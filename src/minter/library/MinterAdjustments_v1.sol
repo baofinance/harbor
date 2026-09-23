@@ -351,6 +351,9 @@ library MinterAdjustments_v1 {
         uint256 leveragedTokenBalance;
         uint256 collateralValueE36;
         uint256 peggedValueE36;
+        // The escrow's share of the leveraged claim, at 1e18, and so the share of any deposit that goes to the
+        // escrow rather than to the backing. A constant of the state the mint is priced against.
+        uint256 escrowShare;
     }
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
@@ -413,6 +416,26 @@ library MinterAdjustments_v1 {
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1e18;
         w.underlyingCollateralAddedE36 = 0;
         w.peggedTokenHeldE36 = cr.peggedTokenBalance * 1e18;
+        // What a deposit hands to the escrow rather than to the backing. The escrow takes the same share of a
+        // deposit as it already is of the claim - minting `deltaS` escrows `escrow x deltaS / supply`, and
+        // `deltaS` is the deposit's value over the claim per token, so the supply cancels and the share is left.
+        // Fixed by the state this mint prices against, which is what stops the fee being circular: the fee
+        // depends on how far the ratio moves, the ratio moves by what reaches the backing, and what reaches the
+        // backing is a known fraction of the deposit rather than something the fee itself decides.
+        {
+            uint256 claimE36 = MinterValuationLib.leveragedClaimE36(
+                w.collateralValueE36,
+                w.peggedValueE36,
+                cr.leveragedCollateralEscrow,
+                cr.price
+            );
+            if (claimE36 > 0) {
+                w.escrowShare = Math.mulDiv(cr.leveragedCollateralEscrow * cr.price, 1e18, claimE36);
+                if (w.escrowShare > 1e18) {
+                    w.escrowShare = 1e18;
+                }
+            }
+        }
 
         while (w.underlyingCollateralInLeftE36 > 0) {
             // we calculate the collateral and discount for the current band
@@ -435,8 +458,12 @@ library MinterAdjustments_v1 {
                 // gross collateral includes fees and discounts
                 collateralInBandE36 = w.underlyingCollateralInLeftE36;
                 if (w.bandDiscountRatio > 0) {
-                    // theoretical
-                    bandDiscountE36 = Math.mulDiv(collateralInBandE36, w.bandDiscountRatio, 1e18);
+                    // theoretical - on the part that reaches the backing, since that is what the discount buys
+                    bandDiscountE36 = Math.mulDiv(
+                        Math.mulDiv(collateralInBandE36, 1e18 - w.escrowShare, 1e18),
+                        w.bandDiscountRatio,
+                        1e18
+                    );
                     // actual
                     bandDiscountE36 = Math.min(bandDiscountE36, w.underlyingReserveCapacityE36);
                 }
@@ -449,11 +476,18 @@ library MinterAdjustments_v1 {
                     1e18,
                     cr.price * (1e18 + w.bandDiscountRatio)
                 );
+                // Only what reaches the BACKING moves the ratio, so more input is needed to cross the band by
+                // whatever share the escrow takes.
+                collateralInBandE36 = _grossedUpForTheEscrow(collateralInBandE36, w.escrowShare);
                 // user limits how much of the band collateral is used (and the discount)
                 collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
 
-                // now check that the reserve pool can do it's corresponding bit
-                bandDiscountE36 = Math.mulDiv(collateralInBandE36, w.bandDiscountRatio, 1e18);
+                // now check that the reserve pool can do it's corresponding bit, on the part reaching the backing
+                bandDiscountE36 = Math.mulDiv(
+                    Math.mulDiv(collateralInBandE36, 1e18 - w.escrowShare, 1e18),
+                    w.bandDiscountRatio,
+                    1e18
+                );
                 if (bandDiscountE36 > w.underlyingReserveCapacityE36) {
                     // Reserve pool has a capacity limit and wont be able to supply it's part of the collateralInBand,
                     // so we shift the onus on reaching the upper bound to the supplied collateral
@@ -469,17 +503,24 @@ library MinterAdjustments_v1 {
                     1e18,
                     cr.price * (1e18 - w.bandFeeRatio)
                 );
+                collateralInBandE36 = _grossedUpForTheEscrow(collateralInBandE36, w.escrowShare);
                 collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
             }
 
             // we have, for the band the user collateral needed, and the band discount
 
-            w.underlyingCollateralHeldE36 += collateralInBandE36;
+            // Of what comes in, the escrow takes its share and only the rest reaches the backing. The fee and
+            // the discount are charged on THAT rest, because both price how far the collateral ratio moves and
+            // the escrow's share moves it not at all - it is collateral the ratio is not measured against.
+            // Charging one and not the other would be worse than charging neither: a discount paid on the
+            // escrow's share would pay for a movement that never happened.
+            uint256 backingInBandE36 = Math.mulDiv(collateralInBandE36, 1e18 - w.escrowShare, 1e18);
+            w.underlyingCollateralHeldE36 += backingInBandE36;
             w.underlyingCollateralInLeftE36 -= collateralInBandE36;
             w.underlyingCollateralAddedE36 += collateralInBandE36;
 
             if (w.bandFeeRatio > 0) {
-                uint256 bandFeeE36 = Math.mulDiv(collateralInBandE36, w.bandFeeRatio, 1e18);
+                uint256 bandFeeE36 = Math.mulDiv(backingInBandE36, w.bandFeeRatio, 1e18);
                 w.underlyingFeeE36 += bandFeeE36;
                 w.underlyingCollateralHeldE36 -= bandFeeE36;
                 w.underlyingCollateralAddedE36 -= bandFeeE36;
@@ -532,6 +573,7 @@ library MinterAdjustments_v1 {
         uint256 underlyingFeeE54; // Σ(collateralInBandE36 * feeRatio)
         uint256 underlyingCollateralRemovedE36; // Σ(collateralInBandE36) (underlying * 1e18, pre-fee)
         uint256 underlyingCollateralHeldE36; // provisional collateral balance (underlying * 1e18)
+        uint256 escrowReleasedE36; // the escrow's share of the redemption, which walks no bands
     }
 
     /// @notice Perform a dry run of a redeem leveraged to calculate the various transfers of tokens
@@ -592,7 +634,19 @@ library MinterAdjustments_v1 {
                 leveragedIn * 1e18,
                 cr.price * cr.leveragedTokenBalance
             );
-            w.underlyingCollateralInLeftE36 = w.underlyingCollateralInE36;
+            // The escrow gives up the share of itself that these tokens are of the supply, and that collateral
+            // leaves WITHOUT MOVING THE COLLATERAL RATIO - it was never part of the backing the ratio is
+            // measured against. So it is taken off before the walk and never charged a band: the fee prices the
+            // ratio's movement, and this moves it not at all. Only the rest walks.
+            w.escrowReleasedE36 = Math.mulDiv(
+                cr.leveragedCollateralEscrow * 1e18,
+                leveragedIn,
+                cr.leveragedTokenBalance
+            );
+            if (w.escrowReleasedE36 > w.underlyingCollateralInE36) {
+                w.escrowReleasedE36 = w.underlyingCollateralInE36;
+            }
+            w.underlyingCollateralInLeftE36 = w.underlyingCollateralInE36 - w.escrowReleasedE36;
         }
         // solhint-disable-next-line explicit-types
         uint band = MinterValuationLib.findBand(
@@ -618,10 +672,10 @@ library MinterAdjustments_v1 {
             }
             uint256 collateralInBandE36;
             {
-                // segment pre-fee underlying (1e18 scale):
-                // netValue = (segment - fee)*price = segment*(1 - f/1e18)*price/1e18
-                // => segment = valueToLowerBoundE36 * 1e18 / (price * (1 - f))
-                // the fee is taken from the returned collateral not the input
+                // How much collateral can leave before the ratio reaches this band's lower bound. The WHOLE
+                // segment counts, fee included: the fee is transferred out to the fee receiver rather than kept,
+                // so all of it leaves the backing and the ratio moves by the gross amount. A `1/(1 - f)` factor
+                // would belong here only if the fee stayed, leaving the net to move the ratio - it does not.
                 collateralInBandE36 =
                     w.underlyingCollateralHeldE36 - Math.mulDiv(bandLowerBound * 1e18, cr.peggedTokenBalance, cr.price);
                 collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
@@ -638,6 +692,19 @@ library MinterAdjustments_v1 {
             w.underlyingCollateralHeldE36 -= collateralInBandE36;
             band--;
         }
+        // The escrow's share rejoins what is leaving, having walked no bands and paid no fee. The walk may have
+        // stopped short of the whole backing share - a disallow band, or the ratio reaching a bound - and the
+        // tokens redeemed follow what actually left, so the escrow is scaled back by the same proportion rather
+        // than released in full against a redemption that was cut down.
+        if (w.underlyingCollateralInLeftE36 > 0 && w.escrowReleasedE36 > 0) {
+            w.escrowReleasedE36 = Math.mulDiv(
+                w.escrowReleasedE36,
+                w.underlyingCollateralRemovedE36,
+                w.underlyingCollateralInE36 - w.escrowReleasedE36
+            );
+        }
+        w.underlyingCollateralRemovedE36 += w.escrowReleasedE36;
+
         // calculate the leveraged for the collateral assuming constant leveraged price.
         leveragedRedeemed = Math.mulDiv(leveragedIn, w.underlyingCollateralRemovedE36, w.underlyingCollateralInE36);
 
@@ -706,6 +773,20 @@ library MinterAdjustments_v1 {
                 leveragedOut = peggedForLeveraged; // initial price of leverage = 1 ether
             }
         }
+    }
+
+    /// @dev How much must come IN for `backing` of it to reach the backing, given the escrow takes `escrowShare`
+    /// of every deposit. The band walk works in collateral-ratio distance, and only what reaches the backing
+    /// moves the ratio, so each band's crossing costs more input than the distance it covers.
+    ///
+    /// A share of one - the whole claim being escrow, which is the market at its peg - would need an unbounded
+    /// deposit to move the ratio at all, and is returned unchanged rather than divided by nothing. The band is
+    /// then uncrossable, which is the truth: no deposit moves a ratio that has no residual to move.
+    function _grossedUpForTheEscrow(uint256 backing, uint256 escrowShare) private pure returns (uint256) {
+        if (escrowShare == 0 || escrowShare >= 1e18) {
+            return backing;
+        }
+        return Math.mulDiv(backing, 1e18, 1e18 - escrowShare, Math.Rounding.Ceil);
     }
 
     /// @dev function to accumulate an error term from a divide by 1 ether

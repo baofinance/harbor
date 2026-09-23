@@ -30,6 +30,33 @@ library MinterValuationLib {
     /// describe.
     uint256 internal constant MIN_REPORTABLE_PEGGED_PRICE_E36 = 1 ether;
 
+    /// @notice ESCROWED COLLATERAL against COLLATERAL PAID IN, at the first leveraged mint into an empty market:
+    ///         the fraction of that deposit held back for the leveraged token. Not to be confused with
+    ///         `leverageRatio()`, which is the collateral value over the leveraged token's whole claim.
+    /// @dev This is what puts a floor under the leveraged token's price: its reciprocal bounds how far that price
+    /// can FALL from what the first leveraged tokens were bought for, and bounds nothing else directly.
+    ///
+    /// In particular it is NOT a bound on tokens issued per unit of collateral. The collateral escrowed per token
+    /// is this ratio over the collateral price ruling at a market's first leveraged mint, so the most a
+    /// conversion can issue per unit of collateral given up is `collateralPrice / ratio` - a constant of THAT
+    /// MARKET, set at its opening, rather than a constant of the protocol.
+    ///
+    /// Denominated in COLLATERAL because that is what funds it. A floor promised in pegged terms would need the
+    /// escrow to GROW exactly when the collateral price fell, so it would fail in a collateral crash - the event
+    /// it exists for. In collateral it is always fundable, being literally what was set aside.
+    ///
+    /// Expressed as a fraction of the deposit rather than as an amount of collateral per token, because a
+    /// leveraged token is worth ONE PEGGED TOKEN when first minted, so what that is worth in collateral depends
+    /// on the collateral price and would differ for every market. A fraction needs no such calibration: the same
+    /// value is correct at any price, and the collateral escrowed per token follows from what the first tokens
+    /// were actually bought for.
+    ///
+    /// A CONSTANT rather than a per-market setting, for the same reason: one value is right everywhere, so a
+    /// per-market knob would be flexibility with nothing to express - and a mis-set one would not revert, it
+    /// would quietly put the floor in the wrong place and be discovered during a depeg. Should a market ever
+    /// need to advertise a different maximum leverage, this becomes an immutable and the deploy threads it.
+    uint256 internal constant LEVERAGED_ESCROW_RATIO = 0.01 ether;
+
     /// @notice The state a valuation is computed against, gathered once by the caller.
     /// @dev Passed by memory reference, so it costs one stack slot however many fields it carries — which is what
     /// lets the leveraged balance travel with the rest of the state rather than as a further argument.

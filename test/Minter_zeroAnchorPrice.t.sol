@@ -6,6 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IPriceOracleErrors} from "@bao/interfaces/IPriceOracleErrors.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -114,18 +115,18 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenPrice(), 0, "yet the anchor price reads zero");
     }
 
-    /// A faulty oracle cannot produce the zero silently. The price is read through the mid-price
-    /// fetch and the backing through the min-rate fetch, and each validates the reading it consumes,
-    /// so a zero on either side reverts by name instead of floating through the arithmetic.
+    /// A faulty oracle cannot produce the zero silently. The oracle refuses a reading that is stale, negative or
+    /// zero, and a rate at or below zero, so a fault on either side reverts by name at the source; what the
+    /// Minter must do is carry that refusal out rather than let a zero float through the arithmetic.
     function test_anchorPriceRevertsRatherThanReportingZeroOnAFaultyOracle() public {
         setUp_collateral(100 ether, 40 ether);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, _rate());
-        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
+        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
         IMinter(minter).peggedTokenPrice();
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 0);
-        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
+        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
         IMinter(minter).peggedTokenPrice();
     }
 

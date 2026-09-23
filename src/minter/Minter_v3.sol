@@ -171,12 +171,18 @@ contract Minter_v3 is
         //                                             slot*2*4
         ConfigIncentiveLib.ActionIncentive[4] incentiveConfig;
         //                                             slot
-        // Collateral held for the leveraged token and for nothing else, so that its claim cannot fall to
-        // nothing however little of the collateral the pegged token's claim leaves behind. It is NOT part
-        // of `underlyingCollateral`: the collateral ratio, the pegged token's claim and its price are all
-        // computed from that account alone and are unaffected by anything here. The leveraged token's
-        // claim is the residual of that account PLUS this one.
-        uint256 leveragedCollateralEscrow; //            256
+        // Collateral escrowed PER LEVERAGED TOKEN, at 1e18, so that the leveraged claim cannot fall to
+        // nothing however little of the collateral the pegged token's claim leaves behind. The escrow
+        // itself is this times the supply, and is NOT part of `underlyingCollateral`: the collateral
+        // ratio, the pegged token's claim and its price are computed from that account alone and are
+        // unaffected by anything here. The leveraged claim is the residual of that account PLUS the escrow.
+        //
+        // Held per token rather than as a balance so that the escrow FOLLOWS the supply instead of being
+        // moved alongside it. A mint, a redeem and a conversion all leave it untouched, so the collateral
+        // escrowed per token cannot drift: the same supply always gives the same escrow, whatever path
+        // reached it. Set once by the first mint into an empty supply, and moved afterwards only by a
+        // recognised impairment.
+        uint256 escrowPerLeveragedToken; //              256
     }
 
     ////////////////////
@@ -267,7 +273,13 @@ contract Minter_v3 is
     /// @inheritdoc IMinter_v3
     function collateralTokenBalance() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
-        return _effectiveBacking($);
+        return _recordedBacking($);
+    }
+
+    /// @inheritdoc IMinter_v3
+    function collateralAccounts() external view override returns (uint256 backing, uint256 leveragedCollateralEscrow) {
+        MinterStorage storage $ = _getMinterStorage();
+        (backing, leveragedCollateralEscrow) = _recordedAccounts($);
     }
 
     /// @inheritdoc IMinter_v3
@@ -280,7 +292,7 @@ contract Minter_v3 is
     function collateralRatio() external view override returns (uint256 collateralRatio_) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchMidPrice($.priceOracle);
-        collateralRatio_ = MinterValuationLib.collateralRatio(_effectiveBacking($), price, $.peggedTokenBalance);
+        collateralRatio_ = MinterValuationLib.collateralRatio(_recordedBacking($), price, $.peggedTokenBalance);
     }
 
     /// @inheritdoc IMinter_v3
@@ -288,31 +300,23 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
 
         uint256 price = _fetchMidPrice($.priceOracle);
-        ratio = MinterValuationLib.leverageRatio(
-            $.peggedTokenBalance,
-            _effectiveBacking($),
-            $.leveragedCollateralEscrow,
-            price
-        );
+        (uint256 backing, uint256 escrow) = _recordedAccounts($);
+        ratio = MinterValuationLib.leverageRatio($.peggedTokenBalance, backing, escrow, price);
     }
 
     /// @inheritdoc IMinter_v3
     function leveragedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchMidPrice($.priceOracle);
+        (uint256 backing, uint256 escrow) = _recordedAccounts($);
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
-            _effectiveBacking($),
+            backing,
             price
         );
         nav =
-            _leveragedTokenPriceE36(
-                collateralValueE36,
-                peggedValueE36,
-                $.leveragedCollateralEscrow,
-                price,
-                _leveragedTokenBalance()
-            ) / 1 ether;
+            _leveragedTokenPriceE36(collateralValueE36, peggedValueE36, escrow, price, _leveragedTokenBalance()) /
+            1 ether;
     }
 
     function _leveragedTokenPriceE36(
@@ -351,7 +355,7 @@ contract Minter_v3 is
             // slither-disable-next-line unused-return only the pegged value is needed here
             (, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                 peggedTokenBalance_,
-                _effectiveBacking($),
+                _recordedBacking($),
                 price
             );
             nav = peggedValueE36 / peggedTokenBalance_;
@@ -371,7 +375,14 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 price = _fetchMaxPrice($.priceOracle);
-        uint256 collateralTokenBalance_ = _effectiveBacking($);
+        // Scoped so the escrow is off the stack before the split's ten arguments arrive.
+        uint256 collateralTokenBalance_;
+        uint256 escrowedPerPegged;
+        {
+            uint256 escrow;
+            (collateralTokenBalance_, escrow) = _recordedAccounts($);
+            escrowedPerPegged = _escrowedPerPegged(collateralTokenBalance_, escrow, peggedTokenBalance_, price);
+        }
         (peggedForCollateral, peggedForLeveraged) = RebalanceSizing_v1.split(
             targetCollateralRatio,
             MinterValuationLib.collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_),
@@ -381,8 +392,56 @@ contract Minter_v3 is
             holdingLeveraged,
             peggedTokenBalance_,
             collateralTokenBalance_,
+            price,
+            escrowedPerPegged
+        );
+    }
+
+    /// @notice The collateral a conversion moves into the escrow for each pegged token it converts, at 1e18.
+    /// @dev The conversion issues `a x peggedPrice / leveragedPrice` tokens and escrows the same proportion of the
+    /// escrow that those are of the supply, so the move per pegged token is
+    ///
+    ///     escrow x peggedPrice / claim
+    ///
+    /// with the claim being the residual plus the escrow - the supply cancels out of it entirely, which is what
+    /// keeps this a constant of the pre-burn state rather than something that moves as the conversion proceeds.
+    ///
+    /// Never more than `C/n`, so the conversion it sizes cannot lower the collateral ratio. That is a property of
+    /// the expression rather than a bound imposed on it: above the peg the claim exceeds the escrow by the
+    /// residual and the two are strictly apart, and at or below the peg the residual is gone and they are equal
+    /// to the wei. Capping here as well would put a floor under the sizing that the conversion does not apply,
+    /// and the two would then disagree at exactly the collateral ratio the rebalance is reaching for.
+    function _escrowedPerPegged(
+        uint256 collateralTokenBalance_,
+        uint256 escrow,
+        uint256 peggedTokenBalance_,
+        uint256 price
+    ) private view returns (uint256 perPegged) {
+        if (peggedTokenBalance_ == 0) {
+            return 0;
+        }
+        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
+            peggedTokenBalance_,
+            collateralTokenBalance_,
             price
         );
+        if (_leveragedTokenBalance() == 0) {
+            // The conversion is opening the leveraged side, so it escrows a share of the collateral it converts
+            // rather than a proportion of an escrow that does not exist yet. Sizing off the CURRENT escrow here
+            // would report no move at all and leave the target short by the whole of what the conversion is
+            // about to set aside.
+            perPegged = Math.mulDiv(
+                MinterValuationLib.peggedTokenPriceE36(peggedTokenBalance_, collateralTokenBalance_, price),
+                MinterValuationLib.LEVERAGED_ESCROW_RATIO,
+                price * 1 ether
+            );
+        } else {
+            uint256 claimE36 = MinterValuationLib.leveragedClaimE36(collateralValueE36, peggedValueE36, escrow, price);
+            if (claimE36 == 0) {
+                return 0;
+            }
+            perPegged = Math.mulDiv(escrow, 1 ether * 1 ether, claimE36);
+        }
     }
 
     // incentive ratios
@@ -392,7 +451,7 @@ contract Minter_v3 is
     function _lookupIncentiveRatio(uint action) internal view returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchMidPrice($.priceOracle);
-        uint256 collateralTokenBalance_ = _effectiveBacking($);
+        uint256 collateralTokenBalance_ = _recordedBacking($);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
         ConfigIncentiveLib.ActionIncentive memory config_ = $.incentiveConfig[action];
@@ -476,14 +535,7 @@ contract Minter_v3 is
             .mintPeggedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_PEGGED],
                 wrappedCollateralIn,
-                MinterValuationLib.CollateralRatioData(
-                    _effectiveBacking($),
-                    price,
-                    rate,
-                    $.peggedTokenBalance,
-                    _leveragedTokenBalance(),
-                    $.leveragedCollateralEscrow
-                ),
+                _collateralRatioData($, price, rate, $.peggedTokenBalance, _leveragedTokenBalance()),
                 maxFeeRatio
             );
         // slither-disable-next-line incorrect-equality
@@ -520,14 +572,7 @@ contract Minter_v3 is
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
-                MinterValuationLib.CollateralRatioData(
-                    _effectiveBacking($),
-                    price,
-                    rate,
-                    peggedTokenBalance_,
-                    _leveragedTokenBalance(),
-                    $.leveragedCollateralEscrow
-                ),
+                _collateralRatioData($, price, rate, peggedTokenBalance_, _leveragedTokenBalance()),
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
             );
         // slither-disable-next-line incorrect-equality
@@ -573,14 +618,7 @@ contract Minter_v3 is
             .mintLeveragedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_LEVERAGED],
                 wrappedCollateralIn,
-                MinterValuationLib.CollateralRatioData(
-                    _effectiveBacking($),
-                    price,
-                    rate,
-                    $.peggedTokenBalance,
-                    _leveragedTokenBalance(),
-                    $.leveragedCollateralEscrow
-                ),
+                _collateralRatioData($, price, rate, $.peggedTokenBalance, _leveragedTokenBalance()),
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
             );
         // slither-disable-next-line incorrect-equality
@@ -625,14 +663,7 @@ contract Minter_v3 is
         (wrappedFee, leveragedRedeemed, wrappedCollateralReturned, ) = MinterAdjustments_v1.redeemLeveragedAdjustments(
             $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
             leveragedIn,
-            MinterValuationLib.CollateralRatioData(
-                _effectiveBacking($),
-                price,
-                rate,
-                $.peggedTokenBalance,
-                leveragedTokenBalance_,
-                $.leveragedCollateralEscrow
-            )
+            _collateralRatioData($, price, rate, $.peggedTokenBalance, leveragedTokenBalance_)
         );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralReturned == 0
@@ -645,11 +676,11 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         uint256 rate = _fetchMinRate($.priceOracle);
         uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
-        uint256 value = Math.mulDiv(
-            _effectiveBacking($.underlyingCollateral, $.leveragedCollateralEscrow, rate),
-            1 ether,
-            rate
-        );
+        // The surplus is what the holding exceeds BOTH accounts by. The escrow sits in the same token and is
+        // already spoken for, so leaving it out of the comparison would report it as yield - and a harvest would
+        // carry the leveraged token's floor away as a gain, which is the one thing the floor cannot survive.
+        (uint256 backing, uint256 escrow) = _recordedAccounts($);
+        uint256 value = Math.mulDiv(backing + escrow, 1 ether, rate);
         wrappedAmount = (balance > value) ? balance - value : 0;
     }
 
@@ -679,11 +710,29 @@ contract Minter_v3 is
     function recogniseImpairment() external onlyOwner {
         MinterStorage storage $ = _getMinterStorage();
         uint256 backing = $.underlyingCollateral;
-        uint256 recognised = _effectiveBacking($);
+        (uint256 recognised, uint256 recognisedEscrow) = _accountsAsHeld(
+            backing,
+            _escrow($),
+            _fetchMinRate($.priceOracle)
+        );
         if (recognised >= backing) {
             revert NothingToRecognise(backing);
         }
         $.underlyingCollateral = recognised;
+        // An impairment devalues the wrapped collateral the whole contract holds, so the escrow is worth less by
+        // it too. Writing only the backing down would leave the escrow claiming collateral the impairment
+        // destroyed - and two records that between them claim more than is held is the same defect whichever of
+        // them is overstated. It only bites once the holding is below the escrow ITSELF, because the escrow is
+        // taken out of the holding first and is the last thing an impairment reaches.
+        //
+        // This is the only thing other than a first mint that moves the collateral escrowed per token, and the
+        // write is per token because the record is: floored, so what the supply derives never exceeds what is
+        // recognised here. With no supply there is nothing to divide by and nothing standing on the figure, so
+        // it is left for the next mint into an empty supply to set afresh.
+        uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
+        if (leveragedTokenBalance_ > 0) {
+            $.escrowPerLeveragedToken = Math.mulDiv(recognisedEscrow, 1 ether, leveragedTokenBalance_);
+        }
 
         emit RecogniseImpairment(backing, recognised);
     }
@@ -773,7 +822,6 @@ contract Minter_v3 is
         wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 underlyingCollateral_ = _effectiveBacking($);
 
         uint256 wrappedFee;
         uint256 underlyingCollateralAdded;
@@ -781,14 +829,7 @@ contract Minter_v3 is
             .mintPeggedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_PEGGED],
                 wrappedCollateralIn,
-                MinterValuationLib.CollateralRatioData(
-                    underlyingCollateral_,
-                    price,
-                    rate,
-                    peggedTokenBalance_,
-                    _leveragedTokenBalance(),
-                    $.leveragedCollateralEscrow
-                ),
+                _collateralRatioData($, price, rate, peggedTokenBalance_, _leveragedTokenBalance()),
                 maxFeeRatio
             );
 
@@ -850,7 +891,6 @@ contract Minter_v3 is
         peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
         (uint256 price, uint256 rate) = _fetchMax($.priceOracle);
 
-        uint256 underlyingCollateral_ = _effectiveBacking($);
         address reservePool_ = $.reservePool;
 
         uint256 wrappedFee;
@@ -861,14 +901,7 @@ contract Minter_v3 is
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
-                MinterValuationLib.CollateralRatioData(
-                    underlyingCollateral_,
-                    price,
-                    rate,
-                    peggedTokenBalance_,
-                    _leveragedTokenBalance(),
-                    $.leveragedCollateralEscrow
-                ),
+                _collateralRatioData($, price, rate, peggedTokenBalance_, _leveragedTokenBalance()),
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
             );
         // make sure it meets the minimum requirements
@@ -920,14 +953,7 @@ contract Minter_v3 is
         MinterValuationLib.CollateralRatioData memory crData;
         {
             (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
-            crData = MinterValuationLib.CollateralRatioData(
-                _effectiveBacking($),
-                price,
-                rate,
-                $.peggedTokenBalance,
-                _leveragedTokenBalance(),
-                $.leveragedCollateralEscrow
-            );
+            crData = _collateralRatioData($, price, rate, $.peggedTokenBalance, _leveragedTokenBalance());
         }
         uint256 wrappedFee;
         uint256 wrappedDiscount;
@@ -969,8 +995,11 @@ contract Minter_v3 is
         if (wrappedFee > 0) {
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, wrappedFee);
         }
-        // update our records
-        $.underlyingCollateral += underlyingCollateralAdded;
+        // update our records: the escrow follows the supply the mint has already raised, so nothing writes it.
+        // What the deposit must do is hand over that much collateral, and add only the rest to the backing.
+        $.underlyingCollateral +=
+            underlyingCollateralAdded -
+            _escrowTakenByAMint($, crData.leveragedTokenBalance, leveragedOut, underlyingCollateralAdded);
     }
 
     /// @inheritdoc IMinter_v3
@@ -986,22 +1015,13 @@ contract Minter_v3 is
         leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
         (uint256 price, uint256 rate) = _fetchMin($.priceOracle);
 
-        uint256 underlyingCollateral_ = _effectiveBacking($.underlyingCollateral, $.leveragedCollateralEscrow, rate);
-
         uint256 wrappedFee;
         uint256 underlyingCollateralOut;
         (wrappedFee, leveragedIn, wrappedCollateralOut, underlyingCollateralOut) = MinterAdjustments_v1
             .redeemLeveragedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
                 leveragedIn,
-                MinterValuationLib.CollateralRatioData(
-                    underlyingCollateral_,
-                    price,
-                    rate,
-                    $.peggedTokenBalance,
-                    leveragedTokenBalance_,
-                    $.leveragedCollateralEscrow
-                )
+                _collateralRatioData($, price, rate, $.peggedTokenBalance, leveragedTokenBalance_)
             );
         // slither-disable-next-line incorrect-equality
         if (wrappedCollateralOut == 0) {
@@ -1018,8 +1038,12 @@ contract Minter_v3 is
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, wrappedFee);
         }
 
-        // update our records
-        $.underlyingCollateral -= underlyingCollateralOut;
+        // update our records: the escrow follows the supply the redemption has already lowered, so nothing
+        // writes it. What is left is to pay the holder that much out of the escrow, and only the rest out of
+        // the backing.
+        $.underlyingCollateral -=
+            underlyingCollateralOut -
+            _escrowReleasedByARedeem($, leveragedTokenBalance_, leveragedIn, underlyingCollateralOut);
     }
 
     //////////////////////////////////
@@ -1039,7 +1063,7 @@ contract Minter_v3 is
         uint256 underlyingCollateralInE36 = wrappedCollateralIn * rate;
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 underlyingCollateral_ = _effectiveBacking($);
+        uint256 underlyingCollateral_ = _recordedBacking($);
         // A depegged pegged token is issued at its depressed price, which yields more tokens per unit of collateral -
         // but only while that price is one the protocol can report. Below the reportable floor it rounds to zero
         // everywhere outside this contract, so the mint would issue against a figure no consumer can see, in
@@ -1090,7 +1114,7 @@ contract Minter_v3 is
 
             // Snapshot original state so both paths price against the same pre-burn balances,
             // consistent with how redeemPeggedForCollateralRatio computed the amounts.
-            uint256 underlyingCollateral_ = _effectiveBacking($);
+            uint256 underlyingCollateral_ = _recordedBacking($);
 
             uint256 underlyingCollateralOutE36;
             (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = _freeRedeemAmounts(
@@ -1122,6 +1146,16 @@ contract Minter_v3 is
                 if (leveragedOut == 0) {
                     revert ReturnZeroAmount(LEVERAGED_TOKEN);
                 }
+
+                $.underlyingCollateral -= _conversionEscrowMove(
+                    $,
+                    peggedForLeveraged,
+                    leveragedOut,
+                    peggedTokenBalance_,
+                    underlyingCollateral_,
+                    price
+                );
+
                 // mint the tokens to the receiver
                 // wake-disable-next-line reentrancy
                 IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
@@ -1154,7 +1188,7 @@ contract Minter_v3 is
             peggedForCollateral,
             peggedForLeveraged,
             $.peggedTokenBalance,
-            _effectiveBacking($),
+            _recordedBacking($),
             price,
             rate
         );
@@ -1192,7 +1226,7 @@ contract Minter_v3 is
                 price,
                 rate,
                 _leveragedTokenBalance(),
-                _getMinterStorage().leveragedCollateralEscrow
+                _escrow(_getMinterStorage())
             );
     }
 
@@ -1207,7 +1241,7 @@ contract Minter_v3 is
 
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
-            _effectiveBacking($),
+            _recordedBacking($),
             price
         );
         uint256 underlyingCollateralInE36 = wrappedCollateralIn * rate;
@@ -1220,7 +1254,7 @@ contract Minter_v3 is
             uint256 leveragedPriceE36 = _leveragedTokenPriceE36(
                 collateralValueE36,
                 peggedValueE36,
-                $.leveragedCollateralEscrow,
+                _escrow($),
                 price,
                 leveragedTokenBalance_
             );
@@ -1242,8 +1276,12 @@ contract Minter_v3 is
         // mint the tokens to the receiver
         _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);
 
-        // update our records
-        $.underlyingCollateral += underlyingCollateralInE36 / 1e18;
+        // update our records: the escrow follows the supply the mint has already raised, so nothing writes it.
+        // What the deposit must do is hand over that much collateral, and add only the rest to the backing.
+        uint256 underlyingCollateralIn = underlyingCollateralInE36 / 1e18;
+        $.underlyingCollateral +=
+            underlyingCollateralIn -
+            _escrowTakenByAMint($, leveragedTokenBalance_, leveragedOut, underlyingCollateralIn);
     }
 
     // @inheritdoc IMinter
@@ -1258,17 +1296,17 @@ contract Minter_v3 is
 
         (uint256 price, uint256 rate) = _fetchMin($.priceOracle);
 
-        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
-            $.peggedTokenBalance,
-            _effectiveBacking($.underlyingCollateral, $.leveragedCollateralEscrow, rate),
-            price
-        );
-        uint256 claimE36 = MinterValuationLib.leveragedClaimE36(
-            collateralValueE36,
-            peggedValueE36,
-            $.leveragedCollateralEscrow,
-            price
-        );
+        // Scoped so the two valuations are off the stack before the redemption's own locals arrive.
+        uint256 claimE36;
+        {
+            (uint256 backing_, uint256 escrow_) = _recordedAccounts($);
+            (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
+                $.peggedTokenBalance,
+                backing_,
+                price
+            );
+            claimE36 = MinterValuationLib.leveragedClaimE36(collateralValueE36, peggedValueE36, escrow_, price);
+        }
         if (claimE36 == 0) {
             collateralOut = 0;
         } else {
@@ -1286,14 +1324,59 @@ contract Minter_v3 is
 
             _redeemLeveragedToken(leveragedIn, collateralOut, receiver);
 
-            // update our records
-            $.underlyingCollateral -= underlyingCollateralOutE36 / 1 ether;
+            // update our records: the escrow follows the supply the redemption has already lowered, so nothing
+            // writes it. What is left is to pay the holder that much out of the escrow, and only the rest out
+            // of the backing.
+            uint256 underlyingCollateralOut = underlyingCollateralOutE36 / 1 ether;
+            $.underlyingCollateral -=
+                underlyingCollateralOut -
+                _escrowReleasedByARedeem($, leveragedTokenBalance_, leveragedIn, underlyingCollateralOut);
         }
     }
 
     ///////////////////////
     // Private functions //
     ///////////////////////
+
+    /// @notice How much collateral a conversion moves from the account backing the pegged token into the escrow.
+    /// @dev A conversion issues leveraged tokens without any collateral arriving, so the escrow that follows the
+    /// new supply is MOVED out of the backing rather than taken from a deposit. That costs the conversion
+    /// nothing: the leveraged claim is the residual PLUS the escrow, so shifting between the two leaves their
+    /// sum alone, and with it the price and the rate this conversion was quoted at.
+    ///
+    /// It escrows as a mint would, and against the collateral the converted pegged would have redeemed for at
+    /// the price the collateral leg settles at, because the two routes have to agree: redeeming that pegged and
+    /// minting leveraged with the proceeds is open to anyone, and would escrow exactly that. That figure only
+    /// decides anything where this conversion is opening the leveraged side of the market; after that the
+    /// collateral escrowed per token is already set, and the move is that figure times the tokens issued.
+    ///
+    /// The move cannot lower the collateral ratio, so it needs no bound to say so. Writing `C` for the backing,
+    /// `n` for the pegged supply and `a` for the pegged converted, the ratio is unharmed exactly while
+    /// `move <= C x a / n`. The escrow's share of the claim is at most all of it, and the pegged redeems for at
+    /// most its share of the backing, so the move is at most `a x C / n` by construction.
+    ///
+    /// @dev Its own function because the conversion's frame cannot hold these locals: inline, the compiler runs
+    /// out of stack. Called once, for that reason and no other.
+    function _conversionEscrowMove(
+        MinterStorage storage $,
+        uint256 peggedForLeveraged,
+        uint256 leveragedOut,
+        uint256 peggedTokenBalance_,
+        uint256 underlyingCollateral_,
+        uint256 price
+    ) private returns (uint256) {
+        return
+            _escrowTakenByAMint(
+                $,
+                _leveragedTokenBalance(),
+                leveragedOut,
+                Math.mulDiv(
+                    peggedForLeveraged,
+                    MinterValuationLib.peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price),
+                    price
+                ) / 1 ether
+            );
+    }
 
     /// @notice The storage hash for the shared-with-proxy storage
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff))'
@@ -1402,48 +1485,152 @@ contract Minter_v3 is
     // and fairly, where, say a large deposit is made in the face of a relatively small collateral balance or when fee boundaries
     // are placed closely together to create the correct incentives for investors.
 
-    /// @notice The recorded backing, recognised against the collateral actually standing behind it.
-    /// @dev The record is a collateral-token quantity, but what the contract holds is the wrapped token. An
-    /// impairment of the collateral lowers the wrapped-to-collateral rate, so the record comes to claim more
-    /// collateral than the holding converts to, and everything priced from it favours whoever leaves first: the
-    /// junior claim escapes the band that stops it being paid out of the senior claim's backing, the senior claim
-    /// redeems at face value on short cover, and the rebalance that would resolve it reads a ratio too high to
-    /// fire. Taking the lower of the two can never overstate.
-    ///
-    /// The min rate decides, as it does for `harvestable`: the conservative edge writes the record down hardest,
-    /// so the band's width is never spent claiming cover that may not be there.
-    function _effectiveBacking(MinterStorage storage $) private view returns (uint256 backing) {
-        backing = _effectiveBacking($.underlyingCollateral, $.leveragedCollateralEscrow, _fetchMinRate($.priceOracle));
+    /// @notice The recorded backing, as recorded.
+    /// @dev It is NOT compared against the wrapped collateral the contract holds. Doing so would decide, on
+    /// every read, that a fall in the wrapped-to-collateral rate is a real loss - and that is a judgement, not a
+    /// reading. A market may be collateralised by an asset whose value falls and recovers as a matter of course,
+    /// and only `recogniseImpairment` is entitled to say which has happened. Making the same judgement silently
+    /// here as well put it in two places with two different permanences.
+    function _recordedBacking(MinterStorage storage $) private view returns (uint256 backing) {
+        backing = $.underlyingCollateral;
     }
 
-    /// @notice The recognised backing, for a caller holding the record and the min rate already.
-    /// @dev The min rate is the one that decides, whichever edge the operation itself prices at: the conservative
-    /// edge writes the record down hardest, so the band's width is never spent claiming cover that may not be
-    /// there. An operation must not substitute its own rate for it — valuing the backing at the max rate during an
-    /// pegged redemption would report more cover than is held and pay out against it.
+    /// @notice The state a valuation is computed against, with both collateral accounts recognised together.
+    /// @dev The ONLY way this struct is built. Its two collateral fields have to be floored against the same
+    /// holding or they can between them account for more collateral than exists, and the adjustments library
+    /// then values a claim against cover that is not there. Constructing it field by field at each call site is
+    /// what allowed a raw escrow record to be paired with a recognised backing; there is now no site where that
+    /// is possible.
+    ///
+    /// Do not be tempted to reach for a disallow band to make such a mispricing unreachable. The bands are
+    /// per-market configuration and a market may carry none at all, so they bound what a PARTICULAR deployment
+    /// permits and never what the arithmetic can produce.
+    function _collateralRatioData(
+        MinterStorage storage $,
+        uint256 price,
+        uint256 rate,
+        uint256 peggedTokenBalance_,
+        uint256 leveragedTokenBalance_
+    ) private view returns (MinterValuationLib.CollateralRatioData memory cr) {
+        (cr.underlyingCollateral, cr.leveragedCollateralEscrow) = _recordedAccounts($);
+        cr.price = price;
+        cr.rate = rate;
+        cr.peggedTokenBalance = peggedTokenBalance_;
+        cr.leveragedTokenBalance = leveragedTokenBalance_;
+    }
+
+    /// @notice Both collateral accounts as RECORDED: the backing the pegged token has a claim on, and the
+    ///         collateral escrowed for the leveraged token.
+    /// @dev Returned together because everything valuing the leveraged token's claim needs both - the claim is
+    /// the residual of the backing PLUS the escrow - and taking them from one read keeps them talking about the
+    /// same moment.
+    ///
+    /// Neither is compared against what the contract holds. See `_recordedBacking`: deciding that a fallen rate
+    /// is a real loss belongs to `recogniseImpairment` and to nothing else.
+    function _recordedAccounts(MinterStorage storage $) private view returns (uint256 backing, uint256 escrow) {
+        backing = $.underlyingCollateral;
+        escrow = _escrow($);
+    }
+
+    /// @notice The collateral a mint hands to the escrow rather than to the backing, setting the per-token
+    ///         figure first where this mint is opening the leveraged side of the market.
+    /// @dev The escrow itself needs no write - it is the per-token figure times a supply this mint has already
+    /// raised. All that is left is to take that much out of the deposit, so the two accounts sum to what arrived.
+    ///
+    /// Where there is no supply yet there is no per-token figure either, and this deposit sets it: a share of
+    /// what it brings, spread over the tokens it issues. That is the ONLY moment the ratio is read, and the only
+    /// moment this figure moves other than a recognised impairment. It is set BEFORE the escrow is computed so
+    /// the two agree to the wei; deriving the escrow first and the figure from it would leave them a rounding
+    /// apart, and the backing would take the difference.
+    ///
+    /// What the mint hands over is the DIFFERENCE the escrow function takes across the mint, not that function
+    /// applied to the tokens minted. The escrow is `floor(e x supply)`, so a mint raises it by
+    /// `floor(e x supplyAfter) - floor(e x supplyBefore)` - which is not `floor(e x minted)`, because a mint can
+    /// carry a fraction the last one left behind over a whole number. Taking the difference makes the two
+    /// records agree to the wei however the market got here: the moves telescope, so the collateral handed to
+    /// the escrow over any run of mints is exactly the escrow those mints created.
+    ///
+    /// Rounding the product instead - either way - is what a separately-rounded figure costs, and both
+    /// directions are wrong. Floored, the escrow claims a wei the backing still holds, once per mint and always
+    /// in the same direction, until two records claim more collateral than ever arrived: what the impairment
+    /// guard halts a market for. Ceiled, the backing overpays instead, which splitting a mint into pieces turns
+    /// into a gain for the splitter - a wei of collateral is thousands of leveraged tokens where the leveraged
+    /// token is cheap, which is exactly where it would be exploited.
+    function _escrowTakenByAMint(
+        MinterStorage storage $,
+        uint256 leveragedTokenBalanceBefore,
+        uint256 leveragedOut,
+        uint256 underlyingCollateralIn
+    ) private returns (uint256) {
+        if (leveragedTokenBalanceBefore == 0 && leveragedOut > 0) {
+            $.escrowPerLeveragedToken = Math.mulDiv(
+                Math.mulDiv(underlyingCollateralIn, MinterValuationLib.LEVERAGED_ESCROW_RATIO, 1 ether),
+                1 ether,
+                leveragedOut
+            );
+        }
+        uint256 escrowPerLeveragedToken_ = $.escrowPerLeveragedToken;
+        uint256 escrowIn = Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore + leveragedOut, 1 ether) -
+            Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore, 1 ether);
+        return (escrowIn > underlyingCollateralIn) ? underlyingCollateralIn : escrowIn;
+    }
+
+    /// @notice The collateral a redemption pays out of the escrow rather than out of the backing.
+    /// @dev The mirror of `_escrowTakenByAMint`, and writes nothing for the same reason: the escrow is the
+    /// per-token figure times a supply the redemption has already lowered, so all that is left is to take that
+    /// much of the payout off the escrow and only the rest off the backing. It is the DIFFERENCE the escrow
+    /// function takes across the redemption, for the reason the mint takes a difference rather than a product.
+    ///
+    /// The redemption is paid out of a claim worth at least the escrow's share of it, so the share can exceed
+    /// what is leaving only through rounding at the pole - where the residual is gone and the claim IS the
+    /// escrow. Capped there so the backing is never asked for collateral it is not being handed.
+    function _escrowReleasedByARedeem(
+        MinterStorage storage $,
+        uint256 leveragedTokenBalanceBefore,
+        uint256 leveragedIn,
+        uint256 underlyingCollateralOut
+    ) private view returns (uint256) {
+        uint256 escrowPerLeveragedToken_ = $.escrowPerLeveragedToken;
+        uint256 escrowOut = Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore, 1 ether) -
+            Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore - leveragedIn, 1 ether);
+        return (escrowOut > underlyingCollateralOut) ? underlyingCollateralOut : escrowOut;
+    }
+
+    /// @notice The collateral escrowed for the leveraged token: the per-token figure times the supply.
+    /// @dev Computed rather than stored, so it cannot drift from the supply it is meant to track. Nothing moves
+    /// it: a mint, a redeem and a conversion change the supply and the escrow follows, which is what makes the
+    /// collateral escrowed per token a constant of the market rather than an artefact of who traded recently.
+    function _escrow(MinterStorage storage $) private view returns (uint256) {
+        return Math.mulDiv($.escrowPerLeveragedToken, _leveragedTokenBalance(), 1 ether);
+    }
+
+    /// @notice What the two records would be if the collateral standing behind them were taken as the truth.
+    /// @dev The recognition itself, and used by `recogniseImpairment` alone. The records are collateral-token
+    /// quantities while the contract holds the wrapped token, so a fall in the rate leaves them claiming more
+    /// collateral than the holding converts to; this is what they become when that fall is judged real.
+    ///
+    /// The escrow is taken out first, so a recognised impairment falls on the pegged token's backing before it
+    /// reaches the leveraged token's floor. That is what makes the floor a floor: it is spoken for, and a
+    /// shortfall elsewhere cannot be met out of it. Only once the holding is short of the escrow ITSELF does the
+    /// escrow give way, and then the backing is nothing.
+    ///
+    /// The min rate decides: the conservative edge writes the records down hardest, so the band's width is never
+    /// spent claiming cover that may not be there.
     /// @param underlyingCollateral_ The recorded backing.
-    /// @param leveragedCollateralEscrow_ Collateral held for the leveraged token, which is not cover for the
-    /// pegged token and so is taken out of what is held before the record is floored against it. Where not even
-    /// the escrow is fully held there is nothing over, and the recognised backing is zero.
+    /// @param leveragedCollateralEscrow_ The recorded escrow.
     /// @param minRate The min wrapped-to-collateral rate.
-    function _effectiveBacking(
+    function _accountsAsHeld(
         uint256 underlyingCollateral_,
         uint256 leveragedCollateralEscrow_,
         uint256 minRate
-    ) private view returns (uint256 backing) {
-        backing = underlyingCollateral_;
+    ) private view returns (uint256 backing, uint256 escrow) {
         uint256 held = MinterValuationLib.wrappedAsCollateral(
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)),
             minRate
         );
-        if (held > leveragedCollateralEscrow_) {
-            held -= leveragedCollateralEscrow_;
-        } else {
-            held = 0;
-        }
-        if (held < backing) {
-            backing = held;
-        }
+        escrow = (leveragedCollateralEscrow_ < held) ? leveragedCollateralEscrow_ : held;
+        held -= escrow;
+        backing = (underlyingCollateral_ < held) ? underlyingCollateral_ : held;
     }
 
     /// @notice Returns the amount of leveraged tokens being managed
@@ -1454,43 +1641,28 @@ contract Minter_v3 is
     // fetching collateral price in terms of the pegged tokens
     // -------------------------------------------------------
 
-    /// @notice Reads the oracle, rejecting a zero reading that the caller would go on to consume.
-    /// @dev Neither zero is an economic state: a collateral asset worth nothing and a wrapped-to-underlying
-    /// conversion of zero can only mean the oracle is faulty. Left through, they are indistinguishable from real
-    /// extremes that drive automated action - a zero price reports the collateral ratio as 0, i.e. wholly
-    /// undercollateralised. The oracle cannot supply this guarantee itself: its underlying feed check rejects only
-    /// prices strictly below zero, and the wrapped rate is passed through unvalidated.
+    /// @notice Reads the oracle.
+    /// @dev The readings are not checked here, because the oracle does not hand out a zero. Its feed refuses a
+    /// reading that is stale, negative or zero, and its rate libraries refuse a rate at or below zero or outside
+    /// the band configured for it, so it either answers with positive numbers or reverts by name. Checking again
+    /// would restate a guarantee the source already gives, in a contract with little room to spare.
     ///
-    /// The RAW readings are checked, not each caller's result. `_fetchMid` averages min and max, so an oracle
-    /// reporting a zero min against a doubled max rounds to a healthy-looking mid and would slip past a check
-    /// applied afterwards, while `_fetchMin` hands back a hard zero from that same reading.
-    ///
-    /// Each reading is checked only when the caller consumes it, which the flags declare. A view that reads the
-    /// price and never the rate must not be stopped by a faulty rate, nor the reverse: refusing to answer a question
-    /// whose inputs are all sound would be a fault of its own.
+    /// That holds for every collateral, a leveraged token included. Such a token used to be able to reach zero -
+    /// at a collateral ratio of one the residual is gone and the claim with it - and the aggregator pricing it
+    /// documented that zero as a value rather than a fault. The collateral escrowed for it has since put a floor
+    /// under the price, so no product this protocol issues is worth nothing while any of it exists, and a zero
+    /// from anywhere is a broken source rather than a market state.
     function _latestAnswer(
-        address priceOracle_,
-        bool checkPrice,
-        bool checkRate
+        address priceOracle_
     ) private view returns (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) {
         (minPrice, maxPrice, minRate, maxRate) = IWrappedPriceOracle(priceOracle_).latestAnswer();
-        if (checkPrice && (minPrice == 0 || maxPrice == 0)) {
-            revert ZeroOraclePrice();
-        }
-        if (checkRate && (minRate == 0 || maxRate == 0)) {
-            revert ZeroOracleRate();
-        }
     }
 
     /// @notice Returns the mid collateral price and the mid wrapped-to-underlying rate.
     /// @dev The oracle reports each value as a band; the mid is the rounded average of the band's two edges. Both
     /// readings are validated, since every caller of this variant consumes both.
     function _fetchMid(address priceOracle_) private view returns (uint256 price, uint256 rate) {
-        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = _latestAnswer(
-            priceOracle_,
-            true,
-            true
-        );
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = _latestAnswer(priceOracle_);
         price = MinterValuationLib.round(minPrice + maxPrice, 2);
         rate = MinterValuationLib.round(minRate + maxRate, 2);
     }
@@ -1501,7 +1673,7 @@ contract Minter_v3 is
     /// this variant consumes both.
     function _fetchMin(address priceOracle_) private view returns (uint256 price, uint256 rate) {
         // slither-disable-next-line unused-return
-        (price, , rate, ) = _latestAnswer(priceOracle_, true, true);
+        (price, , rate, ) = _latestAnswer(priceOracle_);
     }
 
     /// @notice Returns the high edge of the collateral price band and of the rate band.
@@ -1509,7 +1681,7 @@ contract Minter_v3 is
     /// of this variant consumes both.
     function _fetchMax(address priceOracle_) private view returns (uint256 price, uint256 rate) {
         // slither-disable-next-line unused-return
-        (, price, , rate) = _latestAnswer(priceOracle_, true, true);
+        (, price, , rate) = _latestAnswer(priceOracle_);
     }
 
     /// @notice Returns the min wrapped-to-underlying rate, for callers that do not consume the price.
@@ -1523,7 +1695,7 @@ contract Minter_v3 is
     /// as for `_fetchMin` and `_fetchMax`: a zero on either side is a faulty oracle whichever side is used.
     function _fetchMinRate(address priceOracle_) private view returns (uint256 rate) {
         // slither-disable-next-line unused-return
-        (, , rate, ) = _latestAnswer(priceOracle_, false, true);
+        (, , rate, ) = _latestAnswer(priceOracle_);
     }
 
     /// @notice Returns the mid price for the collateral token, for callers that do not consume the rate.
@@ -1531,7 +1703,7 @@ contract Minter_v3 is
     /// cannot invalidate its answer, so a faulty rate must not stop a purely price-based view from reporting.
     function _fetchMidPrice(address priceOracle_) private view returns (uint256 price) {
         // slither-disable-next-line unused-return
-        (uint256 minPrice, uint256 maxPrice, , ) = _latestAnswer(priceOracle_, true, false);
+        (uint256 minPrice, uint256 maxPrice, , ) = _latestAnswer(priceOracle_);
         price = MinterValuationLib.round(minPrice + maxPrice, 2);
     }
 
@@ -1539,7 +1711,7 @@ contract Minter_v3 is
     /// @dev Checks the price readings only, as `_fetchMidPrice` does.
     function _fetchMaxPrice(address priceOracle_) private view returns (uint256 price) {
         // slither-disable-next-line unused-return
-        (, price, , ) = _latestAnswer(priceOracle_, true, false);
+        (, price, , ) = _latestAnswer(priceOracle_);
     }
 
     // Harvesting support

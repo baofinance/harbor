@@ -11,7 +11,6 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";

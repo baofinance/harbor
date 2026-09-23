@@ -3,6 +3,20 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
+/// @notice Stands in for the aggregators in `harbor-price-aggregators`, and refuses what they refuse.
+///
+/// A zero is never an answer. The feed rejects a reading that is stale, negative or zero (`ZeroPrice`), and the
+/// rate libraries reject a rate at or below zero or outside a configured band (`InvalidRate`), so an aggregator
+/// either reverts or hands back four positive numbers. A consumer never sees a zero from one, and so never has to
+/// decide whether a zero means "worth nothing" or "could not price it".
+///
+/// That holds for a leveraged token used as collateral too, which is the case that used to be the exception: its
+/// price is floored by the collateral escrowed for it, so it cannot reach zero while any of it exists. No product
+/// this protocol issues is ever worth nothing.
+///
+/// @dev A mock must not be more permissive than the thing it stands for. Returning whatever it was handed - which
+/// is what this did before - lets a test drive a consumer into a state no real aggregator produces, and the
+/// consumer's handling of that state then looks tested when nothing exercises it.
 contract MockWrappedPriceOracle is IWrappedPriceOracle {
     // Errors specific to implementation details
     error InconsistentRoundData(uint80 roundId, uint80 prevRoundId);
@@ -38,11 +52,22 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
             uint256 maxWrappedRate_
         )
     {
+        if (_minUnderlyingPrice == 0) {
+            revert ZeroPrice(address(this), int256(_minUnderlyingPrice));
+        }
+        if (_maxUnderlyingPrice == 0) {
+            revert ZeroPrice(address(this), int256(_maxUnderlyingPrice));
+        }
+        if (_minWrappedRate == 0) {
+            revert InvalidRate(_minWrappedRate);
+        }
+        if (_maxWrappedRate == 0) {
+            revert InvalidRate(_maxWrappedRate);
+        }
         minUnderlyingPrice_ = _minUnderlyingPrice;
         maxUnderlyingPrice_ = _maxUnderlyingPrice;
         minWrappedRate_ = _minWrappedRate;
         maxWrappedRate_ = _maxWrappedRate;
-        // console2.log("MockWrappedPriceOracle.latestAnswer() -> (%s, , %s, )", minUnderlyingPrice_, minWrappedRate_);
     }
 
     function _setLatestAnswer(
@@ -55,7 +80,6 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
         _maxUnderlyingPrice = maxUnderlyingPrice_;
         _minWrappedRate = minWrappedRate_;
         _maxWrappedRate = maxWrappedRate_;
-        // console2.log("MockWrappedPriceOracle.setLatestAnswer(%s, , %s, )", minUnderlyingPrice_, minWrappedRate_);
     }
 
     function setLatestAnswer(
