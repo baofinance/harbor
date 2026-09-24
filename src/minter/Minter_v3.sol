@@ -1646,10 +1646,22 @@ contract Minter_v3 is
     /// quantities while the contract holds the wrapped token, so a fall in the rate leaves them claiming more
     /// collateral than the holding converts to; this is what they become when that fall is judged real.
     ///
-    /// The escrow is taken out first, so a recognised impairment falls on the pegged token's backing before it
-    /// reaches the leveraged token's floor. That is what makes the floor a floor: it is spoken for, and a
-    /// shortfall elsewhere cannot be met out of it. Only once the holding is short of the escrow ITSELF does the
-    /// escrow give way, and then the backing is nothing.
+    /// Both records fall by the SAME FRACTION, because they are two claims on one pool of wrapped tokens and
+    /// an impairment devalues every token in it. The escrow is not a segregated pile of coins that could keep
+    /// its value while the backing's lost theirs; it is a number describing a claim on the same holding.
+    ///
+    /// Paying the escrow first would make it senior to the pegged token - backwards from every other statement
+    /// the design makes, and total at the extreme: once the holding falls below the escrow, escrow-first hands
+    /// it the entire remainder and writes the pegged token's backing to nothing. It would also make the whole
+    /// distressed range unmeasurable, every collateral ratio there reporting zero.
+    ///
+    /// The floor therefore falls with the collateral it is made of, which is the same reasoning that
+    /// denominates `LEVERAGED_ESCROW_RATIO` in collateral: a floor promised through a crash would have to GROW
+    /// exactly when the collateral it is funded from was worth less, and nothing could fund that.
+    ///
+    /// Both products are FLOORED, so the two together can only come in under the holding, never over it. That
+    /// direction is what the impairment guard rests on: records summing above the holding would leave a market
+    /// halted that this very call is supposed to unhalt.
     ///
     /// The min rate decides: the conservative edge writes the records down hardest, so the band's width is never
     /// spent claiming cover that may not be there.
@@ -1665,9 +1677,14 @@ contract Minter_v3 is
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)),
             minRate
         );
-        escrow = (leveragedCollateralEscrow_ < held) ? leveragedCollateralEscrow_ : held;
-        held -= escrow;
-        backing = (underlyingCollateral_ < held) ? underlyingCollateral_ : held;
+        uint256 recorded = underlyingCollateral_ + leveragedCollateralEscrow_;
+        // Covered, so nothing is written down - and the early return is also what keeps the division below
+        // from meeting a zero denominator, records of nothing being covered by any holding at all.
+        if (recorded <= held) {
+            return (underlyingCollateral_, leveragedCollateralEscrow_);
+        }
+        backing = Math.mulDiv(underlyingCollateral_, held, recorded);
+        escrow = Math.mulDiv(leveragedCollateralEscrow_, held, recorded);
     }
 
     /// @notice Returns the amount of leveraged tokens being managed

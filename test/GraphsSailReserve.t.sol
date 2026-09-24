@@ -93,11 +93,15 @@ contract TestGraphsSailReserve is GraphTestBase, TestConversionBoundReleaseSetUp
 
     /// @notice The pole, and what each reserve size does to it.
     ///
-    /// @dev The market's own answer and the FAIR answer are separate columns because they differ, and the
-    /// difference is the point. Below a collateral ratio of about 1.053 this contract does not price the
-    /// conversion at all - it hands over the leverage ratio cap as though it were a rate, so the answer is
-    /// a flat twenty however far the residual has fallen. The fair rate is therefore not observable there,
-    /// and it is the fair rate a reserve has to be chosen against.
+    /// @dev The market's own answer and the FAIR answer are separate columns because they USED to differ,
+    /// and the difference was the point. Below a collateral ratio of about 1.053 the contract did not price
+    /// the conversion at all - it handed over the leverage ratio cap as though it were a rate, so the answer
+    /// was a flat twenty however far the residual had fallen. The fair rate was therefore not observable
+    /// there, and it is the fair rate a reserve has to be chosen against.
+    ///
+    /// The cap is gone, so the two columns now agree and the fair one could be measured rather than
+    /// computed. That change belongs with promoting this graph from a rescaled model to a direct
+    /// measurement, not with correcting this sentence.
     ///
     /// So the fair column is COMPUTED, from the contract's own uncapped expression
     /// `anchorIn x 1e18 x supply / residual`, evaluated on the state the market is actually in. Every

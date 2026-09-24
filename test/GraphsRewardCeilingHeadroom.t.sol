@@ -19,10 +19,12 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 
 /// @notice Whether the leveraged pool could absorb a rebalance if the conversion were not capped.
 ///
-/// The conversion currently hands over the leverage ratio cap as though it were a rate, so a rebalance
-/// near the peg issues twenty sail per anchor however far the residual has fallen. Removing that is the
-/// first step of the reserve work, and it raises a question that has to be answered BEFORE the removal
-/// rather than after: the sail a rebalance hands the leveraged pool is accrued into that pool's reward
+/// The conversion used to hand over the leverage ratio cap as though it were a rate, so a rebalance near
+/// the peg issued twenty sail per anchor however far the residual had fallen. Removing that was the first
+/// step of the reserve work, and it raised a question that had to be answered BEFORE the removal rather
+/// than after - so this graph is the answer that let the removal go ahead, and it stays as the standing
+/// measurement of the headroom: the sail a rebalance hands the leveraged pool is accrued into that pool's
+/// reward
 /// integral, and the integral has a ceiling. `maxLiquidationReward` is that ceiling - not a policy but
 /// the field width, scaled by the pool's share - and `StabilityPoolManager._capLiquidation` scales the
 /// whole leg down in proportion to any overshoot.

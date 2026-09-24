@@ -87,18 +87,21 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         vm.revertToState(snapshot);
     }
 
-    /// @notice The applied conversion rate either side of the release: inside the bound, where it is the
-    ///         ceiling, and outside it, where it is whatever is fair.
-    /// @dev One part in a million either side of the release - far inside the step, far outside the
-    ///      rounding.
+    /// @notice The applied conversion rate either side of the collateral ratio where the leverage ratio cap
+    ///         used to let go.
+    /// @dev One part in a million either side of it - far inside the step the cap produced, far outside the
+    ///      rounding. With the cap gone both readings are the fair rate and the pair is a continuity probe;
+    ///      the names are kept because what makes them worth reading is that the two used to differ.
     function ratesAcrossTheRelease() internal returns (uint256 bounded, uint256 released) {
         uint256 release = releaseCollateralRatio();
         bounded = appliedConversionRateAt(release - release / 1_000_000);
         released = appliedConversionRateAt(release + release / 1_000_000);
     }
 
-    /// @notice What the conversion rate does across the release, as a multiple. One would be a continuous
-    ///         join; above one the bound over-issues right up to the release, below one it under-issues.
+    /// @notice What the conversion rate does across that coordinate, as a multiple. ONE is a continuous
+    ///         join, which is what it now reads everywhere; above one the cap over-issued right up to the
+    ///         release, below one it under-issued, and which of those a market got depended on how many
+    ///         leveraged tokens it carried rather than on the cap.
     function stepAcrossTheRelease() internal returns (uint256 stepAsMultiple) {
         (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
         stepAsMultiple = Math.mulDiv(bounded, 1 ether, released);

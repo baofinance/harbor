@@ -96,14 +96,17 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// reports it: a share of the deposit that bought the first leveraged tokens, taken at the rate ruling
     /// then, which every market here opens at par. No leveraged token is minted or redeemed afterwards in this
     /// file, so the escrow does not move again and the share stays what it was set to.
-    /// @dev Floored at what is held, because a record is only a claim about the holding and cannot outlive the
-    /// collateral it describes. Read from the constant rather than written out, so these tests follow the
-    /// protocol's choice of share instead of pinning a value of their own.
+    /// @dev Scaled DOWN IN PROPORTION where the records together exceed the holding, because an impairment
+    /// devalues one pool of wrapped tokens and both claims on it alike - not floored at the holding, which
+    /// would pay the escrow first and make it senior to the pegged token. Read from the constant rather than
+    /// written out, so these tests follow the protocol's choice of share instead of pinning a value of their
+    /// own.
     function _escrowAsCollateral() private view returns (uint256 escrow) {
         escrow = Math.mulDiv(_WRAPPED_FOR_LEVERAGED, MinterValuationLib.LEVERAGED_ESCROW_RATIO, 1 ether);
+        uint256 recorded = _WRAPPED_IN;
         uint256 held = _heldAsCollateral();
-        if (escrow > held) {
-            escrow = held;
+        if (recorded > held) {
+            escrow = Math.mulDiv(escrow, held, recorded);
         }
     }
 
@@ -148,12 +151,16 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// one of them not floored at all, they can between them assert more collateral than exists, and every
     /// price derived from them then pays out of cover that is not there.
     ///
-    /// Asserted at a MEASURED point rather than swept. This market holds 140 collateral and escrows a hundredth
-    /// of the 40 deposited for leveraged tokens, so the escrow is 0.4 - and the holding has to fall below THAT
-    /// before the escrow record can overstate what is there. A drop of 99.9% leaves 0.14 held against a record
-    /// of 0.4, which is the condition. Valuing the claim against the record instead of the holding puts it at
-    /// 800 where only 280 exists, and the numbers here are exactly those.
-    function test_theLeveragedClaimCannotExceedTheHoldingOnceTheEscrowDoes() public {
+    /// Asserted at a MEASURED point rather than swept, and at the deepest one the fixture reaches: a drop of
+    /// 99.9% leaves 0.14 collateral held against records of 140. Valuing either claim against its record
+    /// rather than against the holding would put the pair at 800 where only 0.28 of value exists.
+    ///
+    /// BOTH claims survive it, which is the half worth stating. An impairment devalues one pool and both
+    /// claims on it alike, so each keeps its share and neither is wiped to fund the other. Writing the escrow
+    /// down last instead would hand it the entire remainder here and leave the pegged token - the senior
+    /// claim - with nothing, which is both the wrong way round and the reason the whole distressed range was
+    /// unmeasurable before.
+    function test_deepImpairment_neitherClaimExceedsTheHoldingAndBothSurvive() public {
         setUp_collateral(100 ether, 40 ether);
 
         _impair(9_990);
@@ -165,11 +172,15 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
             IMinter_v3(minter).leveragedTokenPrice(),
             1 ether
         );
+        uint256 peggedClaim = Math.mulDiv(
+            IMinter(minter).peggedTokenBalance(),
+            IMinter_v3(minter).peggedTokenPrice(),
+            1 ether
+        );
 
-        // The pegged claim has already been written down to nothing at this depth, so the leveraged claim is
-        // the whole of what is held - and can be no more than it.
-        assertEq(IMinter_v3(minter).peggedTokenPrice(), 0, "the pegged claim is already gone at this impairment");
-        assertLe(leveragedClaim, heldValue, "the leveraged claim must not exceed the collateral held");
+        assertGt(IMinter_v3(minter).peggedTokenPrice(), 0, "the pegged claim survives at this depth");
+        assertGt(IMinter_v3(minter).leveragedTokenPrice(), 0, "and so does the leveraged one");
+        assertLe(leveragedClaim + peggedClaim, heldValue, "and between them they claim no more than is held");
     }
 
     /// Below par the recorded backing is exactly what is held FOR IT — the whole holding less the escrow, which
@@ -1193,5 +1204,143 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
 
         assertGt(minted, 0, "so the band's width alone halts nothing");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+       AN IMPAIRMENT FALLS ON ALL THE COLLATERAL, IN PROPORTION
+    //////////////////////////////////////////////////////////////*/
+
+    // The two records are claims on ONE pool of wrapped tokens. A fall in the rate devalues every token in
+    // that pool, so it devalues both claims by the same fraction: the escrow is not a separate pile of coins
+    // that kept its value while the backing's lost theirs. Paying the escrow first instead would make it
+    // senior to the pegged token, which is backwards from every other statement the design makes.
+
+    /// @dev The escrow's share of the two records, at 1e18. What an impairment must not move.
+    function _escrowShareOfTheRecords() private view returns (uint256) {
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        return (backing + escrow == 0) ? 0 : Math.mulDiv(escrow, 1 ether, backing + escrow);
+    }
+
+    /// The defining property: both records fall by the same fraction, so their ratio is untouched.
+    /// @dev Each is floored once, so the share can move by at most a wei or so of its 1e18 scale.
+    function testFuzz_impairmentFallsOnBothAccountsInProportion(uint256 dropBps) public {
+        setUp_collateral(100 ether, 40 ether);
+        dropBps = bound(dropBps, 1, 9_000);
+
+        uint256 shareBefore = _escrowShareOfTheRecords();
+        _impair(dropBps);
+        _recogniseImpairment();
+
+        assertApproxEqAbs(
+            _escrowShareOfTheRecords(),
+            shareBefore,
+            2,
+            "the escrow keeps exactly the share of the records it had"
+        );
+    }
+
+    /// The senior claim is not wiped while the junior one keeps everything. Escrow-first does exactly that
+    /// once the holding falls below the escrow: it takes the whole remainder and the backing reaches zero.
+    function test_deepImpairment_leavesThePeggedTokensBackingSomething() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(9_990);
+        _recogniseImpairment();
+
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        assertGt(backing, 0, "the pegged token's backing survives an impairment the escrow survives");
+        assertGt(backing, escrow, "and keeps the larger part, the escrow being the smaller share");
+    }
+
+    /// The rounding direction the guard depends on. Two floored products can only come in under the
+    /// holding, never over it - and over it would leave a market halted that recognition cannot unhalt.
+    function testFuzz_recognisedAccountsSumToAtMostTheHolding(uint256 dropBps) public {
+        setUp_collateral(100 ether, 40 ether);
+        dropBps = bound(dropBps, 1, 9_990);
+
+        _impair(dropBps);
+        _recogniseImpairment();
+
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        assertLe(backing + escrow, _heldAsCollateral(), "the records must not between them claim more than is held");
+    }
+
+    /// Recognition completes in one call. If the flooring left a residue the records would still overstate,
+    /// the guard would still be refusing, and a second call would find something to do.
+    function test_recognisingTwiceFindsNothingTheSecondTime() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(3_000);
+        _recogniseImpairment();
+
+        (uint256 backing, ) = IMinter_v3(minter).collateralAccounts();
+        vm.startPrank(owner());
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.NothingToRecognise.selector, backing));
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
+    }
+
+    /// The floor falls with the collateral it is made of. What was set aside is worth less, and promising
+    /// otherwise would need the escrow to GROW in a crash - the one event it exists for.
+    function testFuzz_theFloorPerTokenScalesWithTheImpairment(uint256 dropBps) public {
+        setUp_collateral(100 ether, 40 ether);
+        dropBps = bound(dropBps, 1, 9_000);
+
+        uint256 priceBefore = IMinter_v3(minter).leveragedTokenPrice();
+        uint256 shareBefore = _escrowShareOfTheRecords();
+
+        _impair(dropBps);
+        _recogniseImpairment();
+
+        // The supply has not moved, so the price falls by exactly what the records did.
+        assertLt(IMinter_v3(minter).leveragedTokenPrice(), priceBefore, "the floor falls with its collateral");
+        assertApproxEqAbs(_escrowShareOfTheRecords(), shareBefore, 2, "and keeps its share while falling");
+    }
+
+    /// The floor is not rounded out of existence while collateral remains - that is the condition under
+    /// which the pole would come back, the leveraged claim having nothing left to stand on.
+    function test_theEscrowReachesZeroOnlyWhenTheHoldingDoes() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(9_990);
+        _recogniseImpairment();
+
+        (, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        assertGt(_heldAsCollateral(), 0, "collateral remains at this depth");
+        assertGt(escrow, 0, "so the floor does too");
+        assertGt(IMinter_v3(minter).leveragedTokenPrice(), 0, "and the leveraged token still has a price");
+    }
+
+    /// What a holder actually receives is the scaled escrow, not the one the market opened with.
+    function test_afterImpairmentTheRedemptionReturnsTheReducedShare() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+
+        uint256 snapshot = vm.snapshotState();
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        uint256 unimpaired = IMinter(minter).freeRedeemLeveragedToken(leveragedTokens / 10, zeroFee);
+        vm.stopPrank();
+        vm.revertToStateAndDelete(snapshot);
+
+        _impair(3_000);
+        _recogniseImpairment();
+
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        uint256 impaired = IMinter(minter).freeRedeemLeveragedToken(leveragedTokens / 10, zeroFee);
+        vm.stopPrank();
+
+        assertLt(impaired, unimpaired, "the redemption returns less once the impairment is recognised");
+    }
+
+    /// The zero-denominator case: no leveraged supply means no escrow to apportion, so the backing takes
+    /// the whole impairment and the split never divides by nothing.
+    function test_impairmentWithNoLeveragedSupplyWritesTheBackingDownAlone() public {
+        setUp_collateral(100 ether, 0);
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged supply for this to bite");
+
+        _impair(3_000);
+        _recogniseImpairment();
+
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        assertEq(escrow, 0, "no supply, no escrow");
+        assertApproxEqAbs(backing, _heldAsCollateral(), 1, "and the backing is written down to the whole holding");
     }
 }

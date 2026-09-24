@@ -6,6 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
 import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
 
@@ -31,17 +32,27 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     uint256 private constant LOWEST_RATIO = 1.002 ether;
     uint256 private constant HIGHEST_RATIO = 1.6 ether;
 
-    /// @dev The floor under the sail's price that the design owes, as a share of the price a sail token
-    ///      is worth when first minted. Every bound below is ONE OVER IT, because a conversion rate is
-    ///      the anchor's price over the sail's and the sail's cannot go lower - so a floor on the price
-    ///      is a ceiling on the rate, with no rule on any transaction anywhere.
+    /// @dev The floor under the leveraged token's price that the design owes, AT A MARKET'S BIRTH, as a
+    ///      share of what a leveraged token is worth when first minted. Every bound below is ONE OVER IT,
+    ///      because a conversion rate is the pegged token's price over the leveraged token's and the
+    ///      leveraged token's cannot go lower - so a floor on the price is a ceiling on the rate, with no
+    ///      rule on any transaction anywhere.
     ///
-    ///      Stated as what the DESIGN must provide rather than as what the code currently does. Nothing
-    ///      provides it at present: the leverage ratio cap that used to bound the rate has been removed,
-    ///      being a ceiling on the wrong quantity, and the reserve that will provide this one is not
-    ///      built. So the two requirements using it fail, which is what a requirement written ahead of
-    ///      its implementation is for.
-    uint256 private constant REQUIRED_SAIL_PRICE_FLOOR = 0.01 ether;
+    ///      "At a market's birth" is the whole of the difference between this and a constant. The escrow
+    ///      that provides the floor is denominated in COLLATERAL, so what it is worth in pegged terms
+    ///      moves with the collateral price: the floor is this share only while the collateral is worth
+    ///      what it was when the first leveraged tokens were bought, and is this share times the price
+    ///      move afterwards. A floor fixed in pegged terms would have to GROW as the collateral price
+    ///      fell, which is the one thing a collateral-funded floor cannot do - so the design rejects it,
+    ///      and a bound written here as a constant would be asserting a requirement that was considered
+    ///      and declined rather than one not yet built.
+    uint256 private constant REQUIRED_LEVERAGED_PRICE_FLOOR_AT_BIRTH = 0.01 ether;
+
+    /// @dev The collateral price the conversion is settled at, taken from the edge the conversion reads.
+    function _collateralPrice() private view returns (uint256 price) {
+        // slither-disable-next-line unused-return the conversion settles at the high edge of the band
+        (, price, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+    }
 
     /// @dev What the market reports before and after one conversion, and what moved.
     struct Conversion {
@@ -137,16 +148,29 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
         uint256 share = bound(shareSeed, 0.0001 ether, 0.5 ether);
 
+        // Taken before anything moves the price, so it is the price the first leveraged tokens were
+        // bought at - which is what fixed the collateral escrowed per token, and so where the floor was
+        // set. This market mints its whole supply in `setUp` and moves the price only afterwards.
+        uint256 priceAtBirth = _collateralPrice();
+
         uint256 sailBefore = IMinter(minter).leveragedTokenBalance();
         Conversion memory done = _convertShareAt(collateralRatio, share);
 
-        // The rule in use caps the RATE at the leverage cap, so the sail issued cannot exceed that many
-        // per unit of anchor value. A supply-relative rule bounds the same quantity a different way; what
-        // matters to this requirement is that some finite bound holds.
+        // The floor is a fixed quantity of COLLATERAL per leveraged token, so in the pegged terms this
+        // bound is written in it is the birth share scaled by what the collateral price has done since.
+        // Deriving it from the constant and the two prices rather than reading the escrow back from the
+        // contract is what keeps this a statement of what the design OWES: a conversion that issued
+        // against an escrow the contract had got wrong would still satisfy a bound read from that escrow.
+        uint256 floorNow = Math.mulDiv(
+            REQUIRED_LEVERAGED_PRICE_FLOOR_AT_BIRTH,
+            _collateralPrice(),
+            priceAtBirth
+        );
+
         uint256 valueIn = Math.mulDiv(done.anchorTaken, done.anchorPrice, 1 ether);
         assertLe(
             done.sailGiven,
-            Math.mulDiv(valueIn, 1 ether, REQUIRED_SAIL_PRICE_FLOOR) + 1,
+            Math.mulDiv(valueIn, 1 ether, floorNow) + 1,
             "one conversion must not issue without limit"
         );
         assertGe(IMinter(minter).leveragedTokenBalance(), sailBefore, "and the supply cannot go backwards");
@@ -158,20 +182,63 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     function test_theConversionStaysFiniteAsTheResidualVanishes() public {
         uint256[4] memory ratios = [uint256(1.02 ether), 1.002 ether, 1 ether, 0.5 ether];
 
+        // Before the loop, and valid throughout it: each iteration reverts the price it set.
+        uint256 priceAtBirth = _collateralPrice();
+
         for (uint256 i = 0; i < ratios.length; i++) {
             uint256 snapshot = vm.snapshotState();
             setCollateralRatio(ratios[i]);
 
-            uint256 anchorSupply = IMinter(minter).peggedTokenBalance();
+            uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
             Conversion memory done = _convert(1 ether);
 
-            assertGt(done.anchorTaken, 0, "the conversion must consume the anchor it was given");
+            assertGt(done.anchorTaken, 0, "the conversion must consume the pegged it was given");
             assertLe(
                 done.sailGiven,
-                Math.mulDiv(anchorSupply, 1 ether, REQUIRED_SAIL_PRICE_FLOOR),
-                "and must not issue an unbounded quantity of sail where the residual has gone"
+                Math.mulDiv(
+                    peggedSupply,
+                    1 ether,
+                    Math.mulDiv(REQUIRED_LEVERAGED_PRICE_FLOOR_AT_BIRTH, _collateralPrice(), priceAtBirth)
+                ),
+                "and must not issue an unbounded quantity of leveraged where the residual has gone"
             );
             vm.revertToStateAndDelete(snapshot);
         }
+    }
+
+    /// R6. BELOW A COLLATERAL RATIO OF ONE, THE CONVERSION MUST NOT OVERPAY AND MUST NOT MAKE THE RATIO
+    /// WORSE.
+    ///
+    /// Below one the pegged token is worth less than par - its price is its share of the collateral, not
+    /// its face value. A conversion that values what it burns at par therefore hands the converter more
+    /// than they gave up, and the difference comes out of the pegged token's own backing: the holders a
+    /// rebalance exists to rescue pay the premium to the party being rescued.
+    ///
+    /// Two assertions, because these are two distinct failures with one cause. The records between them
+    /// claiming more than is held is a SOLVENCY statement - collateral has been promised twice. The
+    /// collateral ratio falling is an EFFICACY one: a rebalance that lowers the ratio has done the
+    /// opposite of its job.
+    ///
+    /// This regime only became reachable when the escrow was added. Before it, the leveraged claim below
+    /// one was nothing, the conversion returned nothing, and `freeRedeemPeggedToken` refused to burn
+    /// pegged for a zero return - so a valuation that is only correct at or above one was never evaluated
+    /// anywhere else. The floor gave the claim a value here and the arithmetic came with it.
+    function test_belowOne_theConversionNeitherOverpaysNorLowersTheRatio() public {
+        setCollateralRatio(0.98 ether);
+
+        uint256 ratioBefore = IMinter(minter).collateralRatio();
+        _convert(IMinter(minter).peggedTokenBalance() / 100);
+
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        // slither-disable-next-line unused-return only the conservative rate values the holding
+        (, , uint256 minRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 held = Math.mulDiv(IERC20(wrappedCollateralToken).balanceOf(minter), minRate, 1 ether);
+
+        assertLe(backing + escrow, held, "the two records must not between them claim more than is held");
+        assertGe(
+            IMinter(minter).collateralRatio(),
+            ratioBefore,
+            "and the conversion must not lower the collateral ratio it exists to raise"
+        );
     }
 }

@@ -51,8 +51,30 @@ abstract contract TestGraphsAnchorMintDivergenceBase is GraphTestBase, TestColla
 
     function graphName() internal pure virtual returns (string memory);
 
+    /// @dev Swept above two, where a market is comfortably covered and the divergence ought to vanish - a
+    /// measurement that only ever looks at distress cannot show where distress begins.
+    ///
+    /// All three mechanisms reach all of it, which is what makes them comparable at every ratio drawn. A
+    /// price and a rate move the ratio either way and need no help; taking the collateral away can only
+    /// LOWER it, so the market is opened above the top of this range for all three alike - see `setUp`.
+    /// Raising the funding for that one mechanism alone would have been the mistake: their pegged supplies
+    /// would then start from different markets and the comparison between them would mean nothing.
+    function setUpRange() internal virtual override {
+        super.setUpRange();
+        finish = 2.5 ether;
+    }
+
     function setUp() public virtual override {
         super.setUp();
+        // Opened ABOVE the top of the range, so that all three mechanisms sweep the same ratios and can be
+        // read against each other across the whole of it. Two of them move the ratio either way and need no
+        // headroom; taking the collateral away can only lower it, so without this the backing-driven line
+        // would stop where the market opened and there would be nothing to compare the other two against
+        // above that point. Funded here rather than per mechanism: they must be funded ALIKE or their pegged
+        // supplies are not comparable, which is the entire measurement.
+        setUp_collateral(0, 10 ether, address(this));
+        startCollateralRatio = IMinter(minter).collateralRatio();
+
         (, , startRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         startHeld = IERC20(wrappedCollateralToken).balanceOf(minter);
         file = openFile(
@@ -153,7 +175,7 @@ contract TestGraphsAnchorMintDivergenceByRate is TestGraphsAnchorMintDivergenceB
             minter,
             priceOracle,
             requested,
-            (startRate * requested) / START_COLLATERAL_RATIO
+            (startRate * requested) / startCollateralRatio
         );
         currentCollateralRatio = IMinter(minter).collateralRatio();
     }
@@ -172,9 +194,40 @@ contract TestGraphsAnchorMintDivergenceByBacking is TestGraphsAnchorMintDivergen
         return "anchor_mint_divergence_by_backing";
     }
 
+    /// @dev A guard, not a working limit: the market is opened above the whole range precisely so this never
+    /// binds. It stays because the constraint it encodes is real - removing collateral can only LOWER the
+    /// ratio - and because the alternative, leaving the overshoot to the refusal machinery, does not work
+    /// here: refinement probes each interval OUTSIDE the try that catches a refused sample.
+    function setUp() public virtual override {
+        super.setUp();
+        if (finish > startCollateralRatio) {
+            finish = startCollateralRatio;
+        }
+    }
+
     /// @inheritdoc TestCollateralRatioRangeSetUp
+    /// @dev Two steps, because the protocol takes two. Removing the collateral does not move the record -
+    /// the record says it was received and only `recogniseImpairment` is entitled to say otherwise, which is
+    /// why every price and ratio reads the same until it is called. The contract used to floor the record
+    /// against the holding on every read and so appeared to do this in one step; that flooring was a
+    /// judgement made on every read, and removing it is what made the second step explicit rather than
+    /// implicit. Each sample is snapshotted and rolled back by `emitSampleAt`, so a write-down here cannot
+    /// carry into the next point - which matters, because recognition only ever writes DOWN.
     function _setCollateralRatio(uint256 requested) internal override {
-        deal(address(wrappedCollateralToken), minter, (startHeld * requested) / START_COLLATERAL_RATIO);
+        // Removing collateral can only lower the ratio, so anything above where the market opened is not
+        // reachable by this mechanism at all. Refused rather than approximated: the sweep leaves the point
+        // out and the line stops where the mechanism stops working, which is the honest report.
+        if (requested > startCollateralRatio) {
+            revert("backing-driven sweep cannot raise the collateral ratio");
+        }
+        deal(address(wrappedCollateralToken), minter, (startHeld * requested) / startCollateralRatio);
+        // Near the top of the range the deal leaves barely anything to recognise, and at the opening ratio
+        // nothing at all - so the one revert that means "the records already match the holding" is the
+        // expected answer there rather than a failure. Any other revert is a real one and propagates.
+        vm.prank(owner());
+        try IMinter_v3(minter).recogniseImpairment() {} catch (bytes memory reason) {
+            require(bytes4(reason) == IMinter_v3.NothingToRecognise.selector, "unexpected recognition failure");
+        }
         currentCollateralRatio = IMinter(minter).collateralRatio();
         assertApproxEqAbs(
             currentCollateralRatio,

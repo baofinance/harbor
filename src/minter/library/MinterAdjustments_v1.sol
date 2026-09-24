@@ -755,6 +755,15 @@ library MinterAdjustments_v1 {
                 // the peg and the rate runs away with it; the escrow is held per leveraged token, so the
                 // claim cannot fall below it and the rate cannot rise above the reciprocal of what is
                 // escrowed per token.
+                //
+                // What is handed over is what the burned pegged is WORTH, which below a collateral ratio
+                // of one is its share of the collateral rather than its face value. Valuing it at face
+                // value there would pay the converter more than they gave up, out of the backing of the
+                // very holders a rebalance exists to rescue - and the move funding it would exceed what
+                // keeps the collateral ratio from falling, so the rebalance would lower the ratio it was
+                // called to raise. At or above one the two are the same number, `peggedValueE36` being
+                // capped at the collateral value, which is why face value was safe until the escrow gave
+                // the claim a value below one and made the regime reachable at all.
                 (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                     peggedTokenBalance_,
                     underlyingCollateral_,
@@ -767,7 +776,11 @@ library MinterAdjustments_v1 {
                     price
                 );
                 if (claimE36 > 0) {
-                    leveragedOut = Math.mulDiv(peggedForLeveraged * 1 ether, leveragedTokenBalance_, claimE36);
+                    leveragedOut = Math.mulDiv(
+                        Math.mulDiv(peggedForLeveraged, peggedValueE36, peggedTokenBalance_),
+                        leveragedTokenBalance_,
+                        claimE36
+                    );
                 }
             } else {
                 leveragedOut = peggedForLeveraged; // initial price of leverage = 1 ether
