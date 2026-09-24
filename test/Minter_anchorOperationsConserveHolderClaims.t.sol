@@ -47,10 +47,15 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
 
     /// @dev Put the market at `targetRatio` with the rate scaled to `rateBps` of its starting level.
     ///      The rate decides which figure the recognised backing comes from, so the range spans both:
-    ///      below its starting level the record is overstated and the held collateral binds, which is
-    ///      the impairment a price move cannot reach at any ratio; above it the collateral has accrued
-    ///      and the record binds instead. A range that stopped at the starting level would leave every
-    ///      run on the held branch and never price off the record at all.
+    ///      below its starting level the record is overstated and RECOGNISING it brings the record down to
+    ///      the held collateral, which is the impairment a price move cannot reach at any ratio; above it
+    ///      the collateral has accrued and the record binds instead. A range that stopped at the starting
+    ///      level would leave every run on the held branch and never price off the record at all.
+    ///
+    ///      Recognising the impairment a low rate creates is what the contract used to do implicitly, by
+    ///      flooring the record against the holding on every read. That flooring has gone, so
+    ///      `setCollateralRatioByRate` does it explicitly - and does it BEFORE deriving the price, since a
+    ///      price aimed at a record that is about to be written down lands on the target only until it is.
     function _moveTo(uint256 targetRatio, uint256 rateBps) private {
         setCollateralRatioByRate(minter, priceOracle, targetRatio, (startingRate * rateBps) / 10_000);
     }

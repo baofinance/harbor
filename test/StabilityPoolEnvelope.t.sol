@@ -468,12 +468,29 @@ abstract contract StabilityPoolEnvelopeBase is
         // Each mint floors the collateral credited and the tokens issued by at most a wei, so the ratio - collateral
         // value over anchor claim, scaled by 1e18 - carries at most (3 + 3 x 1.5) x 1e18 / claim of that flooring.
         uint256 anchorClaim = IMinter(minter).peggedTokenBalance();
+
+        // The proportions above put three tranches in against an anchor claim of two, which is the 1.5 this
+        // market is named for - but the collateral ratio is measured against the BACKING alone, and the
+        // escrow holds a share of the leveraged tranche out of it. So the ratio the tranches were chosen
+        // for is the one the two accounts give TOGETHER, and the market stands up a little below it.
+        //
+        // Scaled by the accounts rather than recomputed from the price: the ratio is linear in the
+        // collateral it is measured against, so this is the reported figure asked what it would have been
+        // had none of it been held back - and it needs no second copy of the ratio's own arithmetic.
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
         assertApproxEqAbs(
+            Math.mulDiv(IMinter(minter).collateralRatio(), backing + escrow, backing),
+            DEPLOY_COLLATERAL_RATIO,
+            (8 ether / anchorClaim) + 2, // one wei more than the reported figure carries, for this scaling
+            "the tranches put in genesis proportions plus one anchor tranche"
+        );
+        assertGt(escrow, 0, "the escrow holds part of the leveraged tranche");
+        assertLt(
             IMinter(minter).collateralRatio(),
             DEPLOY_COLLATERAL_RATIO,
-            (8 ether / anchorClaim) + 1,
-            "the market stands up over-collateralised, at genesis proportions plus one anchor tranche"
+            "so the market stands up just below that, the escrow not being the pegged token's cover"
         );
+        assertGt(IMinter(minter).collateralRatio(), 1 ether, "and over-collateralised all the same");
     }
 
     function _seedPool() internal {

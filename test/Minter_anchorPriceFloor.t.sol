@@ -31,17 +31,39 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
-    /// Scale the reported rate down, which lowers the recognised backing without touching the
-    /// record — the impairment path, as distinct from starving the holding outright.
+    /// Scale the reported rate down and recognise it, which writes the backing down to what is held — the
+    /// impairment path, as distinct from starving the holding outright.
+    ///
+    /// @dev The recognition is the half the contract used to do implicitly. A fallen rate leaves the record
+    /// claiming more collateral than the holding converts to, but does not MOVE the record: deciding that
+    /// such a fall is a real loss is a judgement, and only `recogniseImpairment` may make it. So without
+    /// this every price below reads exactly as it did before the rate moved, and the market is not impaired
+    /// at all - it is merely halted, which is a different state and not the one these tests measure.
     function _impair(uint256 dropBps) internal {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), (_rate() * (10_000 - dropBps)) / 10_000);
+        vm.prank(owner());
+        try IMinter_v3(minter).recogniseImpairment() {} catch (bytes memory reason) {
+            require(bytes4(reason) == IMinter_v3.NothingToRecognise.selector, "unexpected recognition failure");
+        }
     }
 
-    /// Open the standard market, then reduce what the Minter holds to `held` wei.
+    /// Open the standard market, then reduce what the Minter holds to `held` wei and recognise it.
+    ///
+    /// @dev The recognition is the second half of starving the holding. Taking the collateral away does not
+    /// move the record - it still says the collateral was received, and only `recogniseImpairment` is
+    /// entitled to say otherwise - so without it every price and ratio below would read as though the
+    /// market were untouched, and the guard would refuse the operations these tests are here to measure.
+    /// The contract used to floor the record against the holding on every read and so appeared to do this
+    /// in one step; that flooring was a judgement made on every read, and its removal is what makes the
+    /// second step explicit.
     function _setUpMarketHolding(uint256 held) internal {
         setUp_collateral(100 ether, 40 ether);
         assertGt(IMinter(minter).peggedTokenBalance(), 0, "anchor must be outstanding for any of this to bite");
         deal(wrappedCollateralToken, minter, held);
+        vm.prank(owner());
+        try IMinter_v3(minter).recogniseImpairment() {} catch (bytes memory reason) {
+            require(bytes4(reason) == IMinter_v3.NothingToRecognise.selector, "unexpected recognition failure");
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
