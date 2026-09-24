@@ -57,6 +57,38 @@ library MinterValuationLib {
     /// need to advertise a different maximum leverage, this becomes an immutable and the deploy threads it.
     uint256 internal constant LEVERAGED_ESCROW_RATIO = 0.01 ether;
 
+    /// @notice The dearest collateral the escrow is carried properly for: a unit of collateral worth this many
+    /// pegged tokens, 1e18-scaled.
+    /// @dev Together with `ESCROW_STEPS` this is the protocol's declared capability, and `StabilityPoolEnvelope`
+    /// derives the peg range it sweeps from it rather than restating a number that would go stale.
+    ///
+    /// It is a limit because the escrow per leveraged token is a FIXED-POINT figure. A founding mint issues
+    /// leveraged tokens at par with the pegged residual while escrowing a fixed fraction of the deposit, so the
+    /// deposit cancels and what is stored is `LEVERAGED_ESCROW_RATIO x ESCROW_PER_TOKEN_SCALE / price`. Dearer
+    /// collateral buys more leveraged tokens with the same escrow, so the figure falls - and at the point it
+    /// reaches zero the market has no leveraged floor at all, for the life of its supply: the figure is written
+    /// only by a mint into an empty supply, and moved afterwards only downwards, by a recognised impairment.
+    uint256 internal constant MAX_COLLATERAL_PRICE = 1e36;
+
+    /// @notice How finely the escrow per leveraged token must still be carried at `MAX_COLLATERAL_PRICE`.
+    /// @dev The stored figure is a count of steps, so the escrow is carried to about one part in it. A hundred
+    /// steps is the escrow held to a percent of itself at the dearest collateral declared; one step would be a
+    /// floor in name only, quantised to the whole of itself.
+    uint256 internal constant ESCROW_STEPS = 100;
+
+    /// @notice The scale the collateral escrowed per leveraged token is stored at - NOT the usual 1e18.
+    /// @dev Derived, never chosen. Precision is carried by the PRODUCT `LEVERAGED_ESCROW_RATIO x SCALE`, so the
+    /// two trade off exactly: every decade off the ratio is a decade that must go back on the scale. Pinning the
+    /// scale as a literal would therefore make the ratio's next change silently narrow what the protocol supports,
+    /// with nothing failing to say so. Deriving it means the ratio is the only thing chosen, and the declared
+    /// capability above holds at whatever it is set to.
+    ///
+    /// Ceiling division: the guarantee may be exceeded but never rounded below. The product is `ESCROW_STEPS x
+    /// MAX_COLLATERAL_PRICE` whatever the ratio, so the stored figure is bounded by that - which is what keeps the
+    /// widths here independent of a ratio nobody has chosen yet.
+    uint256 internal constant ESCROW_PER_TOKEN_SCALE =
+        (ESCROW_STEPS * MAX_COLLATERAL_PRICE + LEVERAGED_ESCROW_RATIO - 1) / LEVERAGED_ESCROW_RATIO;
+
     /// @notice The state a valuation is computed against, gathered once by the caller.
     /// @dev Passed by memory reference, so it costs one stack slot however many fields it carries — which is what
     /// lets the leveraged balance travel with the rest of the state rather than as a further argument.

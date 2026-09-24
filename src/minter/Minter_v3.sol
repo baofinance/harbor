@@ -731,7 +731,11 @@ contract Minter_v3 is
         // it is left for the next mint into an empty supply to set afresh.
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
         if (leveragedTokenBalance_ > 0) {
-            $.escrowPerLeveragedToken = Math.mulDiv(recognisedEscrow, 1 ether, leveragedTokenBalance_);
+            $.escrowPerLeveragedToken = Math.mulDiv(
+                recognisedEscrow,
+                MinterValuationLib.ESCROW_PER_TOKEN_SCALE,
+                leveragedTokenBalance_
+            );
         }
 
         emit RecogniseImpairment(backing, recognised);
@@ -1600,15 +1604,16 @@ contract Minter_v3 is
         uint256 underlyingCollateralIn
     ) private returns (uint256) {
         if (leveragedTokenBalanceBefore == 0 && leveragedOut > 0) {
+            // The `1 ether` is the RATIO's own scale; the escrow's is not 1e18, and `_escrowAt` holds it.
             $.escrowPerLeveragedToken = Math.mulDiv(
                 Math.mulDiv(underlyingCollateralIn, MinterValuationLib.LEVERAGED_ESCROW_RATIO, 1 ether),
-                1 ether,
+                MinterValuationLib.ESCROW_PER_TOKEN_SCALE,
                 leveragedOut
             );
         }
         uint256 escrowPerLeveragedToken_ = $.escrowPerLeveragedToken;
-        uint256 escrowIn = Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore + leveragedOut, 1 ether) -
-            Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore, 1 ether);
+        uint256 escrowIn = _escrowAt(escrowPerLeveragedToken_, leveragedTokenBalanceBefore + leveragedOut) -
+            _escrowAt(escrowPerLeveragedToken_, leveragedTokenBalanceBefore);
         return (escrowIn > underlyingCollateralIn) ? underlyingCollateralIn : escrowIn;
     }
 
@@ -1628,9 +1633,24 @@ contract Minter_v3 is
         uint256 underlyingCollateralOut
     ) private view returns (uint256) {
         uint256 escrowPerLeveragedToken_ = $.escrowPerLeveragedToken;
-        uint256 escrowOut = Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore, 1 ether) -
-            Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalanceBefore - leveragedIn, 1 ether);
+        uint256 escrowOut = _escrowAt(escrowPerLeveragedToken_, leveragedTokenBalanceBefore) -
+            _escrowAt(escrowPerLeveragedToken_, leveragedTokenBalanceBefore - leveragedIn);
         return (escrowOut > underlyingCollateralOut) ? underlyingCollateralOut : escrowOut;
+    }
+
+    /// @notice The collateral standing behind a leveraged supply, at the stored per-token figure.
+    /// @dev The one place that knows the escrow's scale, which is NOT the 1e18 used everywhere else: the figure is
+    /// stored at `MinterValuationLib.ESCROW_PER_TOKEN_SCALE`, derived so that the ratio and the scale together
+    /// carry the escrow to the declared precision at the dearest collateral supported.
+    ///
+    /// Floored, and always applied as a DIFFERENCE of two supplies by the callers rather than to a movement
+    /// directly - so the moves telescope, and a mint split into pieces cannot escrow less than the same mint made
+    /// whole.
+    function _escrowAt(
+        uint256 escrowPerLeveragedToken_,
+        uint256 leveragedTokenBalance_
+    ) private pure returns (uint256) {
+        return Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalance_, MinterValuationLib.ESCROW_PER_TOKEN_SCALE);
     }
 
     /// @notice The collateral escrowed for the leveraged token: the per-token figure times the supply.
@@ -1638,7 +1658,7 @@ contract Minter_v3 is
     /// it: a mint, a redeem and a conversion change the supply and the escrow follows, which is what makes the
     /// collateral escrowed per token a constant of the market rather than an artefact of who traded recently.
     function _escrow(MinterStorage storage $) private view returns (uint256) {
-        return Math.mulDiv($.escrowPerLeveragedToken, _leveragedTokenBalance(), 1 ether);
+        return _escrowAt($.escrowPerLeveragedToken, _leveragedTokenBalance());
     }
 
     /// @notice What the two records would be if the collateral standing behind them were taken as the truth.

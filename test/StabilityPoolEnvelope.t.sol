@@ -15,6 +15,7 @@ import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -66,7 +67,7 @@ struct StartState {
 /// from another entry and tweaking a single field.
 library EnvelopeLib {
     /// @dev ETH::fxUSD anchored on a real market - collateral fxUSD near $1, wrapped fxSAVE at a yield premium (>= $1) -
-    /// but with the peg $ price swept as a deliberately wide axis ($1e-12 hyperinflation floor to $1e12 appreciation
+    /// but with the peg $ price swept as a deliberately wide axis (a hyperinflation floor to a $1e12 appreciation
     /// ceiling), far beyond haETH's real ~$4000, to exercise the many-pegs goal. The expensive-peg corner where the
     /// collateral can no longer back a mint is pinned by `test_corner_expensivePeg_mintCannotBackPool`; the field-width
     /// limits by the `test_widthCorner_*` tests and the config-corner sibling markets.
@@ -76,13 +77,27 @@ library EnvelopeLib {
             maxPoolValueUSD: 1e10 ether, // $01B
             maxPoolUsers: 1e4,
             pegPriceUSD: 1 ether, // $1 nominal
-            minPegPriceUSD: 1e-12 ether, // hyperinflation floor (a devalued unit worth <$1e-6) ...
-            maxPegPriceUSD: 1e12 ether, // ... through appreciation ceiling (a token worth >$1e6, e.g. a risen BTC)
+            minPegPriceUSD: 0, // derived below, from the collateral ceiling it is paired against
+            maxPegPriceUSD: 1e12 ether, // appreciation ceiling (a token worth >$1e6, e.g. a risen BTC)
             minCollateralUSD: 1e-6 ether,
             maxCollateralUSD: 1e6 ether,
             minWrapRate: 0.001 ether,
             maxWrapRate: 1000 ether
         });
+
+        // The peg floor is not a free choice: it is the collateral ceiling above, read against the dearest
+        // collateral the minter declares it carries the leveraged escrow for.
+        //
+        // A unit of collateral's worth in pegged is its $ price over the peg's, so a cheaper peg is a dearer
+        // collateral by exactly the same factor - and the escrow per leveraged token, being a fixed-point figure
+        // that falls as collateral dearens, is what runs out first. `MAX_COLLATERAL_PRICE` is where the minter says
+        // it stops; below the peg floor that implies, a market would found with no leveraged floor at all. See
+        // doc/DataEnvelope.md section 1.3.
+        //
+        // Read from the minter rather than restated, so the sweep covers what the protocol claims and neither can
+        // drift from the other: the scale there is derived from LEVERAGED_ESCROW_RATIO, so choosing the ratio moves
+        // the scale to hold this floor where it is, rather than moving the floor.
+        e.minPegPriceUSD = (e.maxCollateralUSD * 1e18) / MinterValuationLib.MAX_COLLATERAL_PRICE;
     }
 
     /// @dev A per-peg-MIN market (D2): the ethFxUSD envelope re-centred on `nominalPeg` with a modest ~3x band (the
@@ -157,6 +172,10 @@ abstract contract StabilityPoolEnvelopeBase is
     address[] internal users; // MAX_FUZZ_USERS deposit actors
     address internal background; // holds the arranged pre-existing deposit
 
+    /// @dev The deployment with its actors in place and no capital yet, so a test can fund its market under
+    ///      its own conditions rather than under the nominal ones `setUp` uses. Set once, never changed.
+    uint256 internal preFundingState;
+
     function buildEnvelope() internal pure virtual returns (Envelope memory);
 
     /// @dev A short filesystem-safe market identifier, so each market's stress sweep writes its own constraints CSV
@@ -219,6 +238,10 @@ abstract contract StabilityPoolEnvelopeBase is
 
         background = makeAddr("background");
         _createUsers(MAX_FUZZ_USERS);
+
+        // Taken before ANY capital exists, so a test whose point is not the nominal one can rewind to here and
+        // fund its market under its own conditions instead. See `_seedMarketAt`.
+        preFundingState = vm.snapshotState();
 
         // a nominal envelope point (geometric-mean centre of the log-range) so the seed mint has a price to work from
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), buildEnvelope().pegPriceUSD);
@@ -345,6 +368,55 @@ abstract contract StabilityPoolEnvelopeBase is
         mockOracle.setLatestAnswer(currentPrice, currentRate);
     }
 
+    /// @dev Establish the market AT this point: set the conditions FIRST, then fund the deploy-time capital
+    /// structure under them. The order is the whole of it.
+    ///
+    /// The envelope's question is whether the protocol works across a declared range of conditions, and that
+    /// means a market that LIVES at each point - not one market funded at nominal and then dragged across
+    /// them. Funding first and moving after leaves the records stating a collateral value the holding no
+    /// longer converts to, which is an impairment: real, but a different axis from the one these tests
+    /// sweep, and one the guard refuses to trade through. Seeding at the point leaves nothing overstated
+    /// and keeps the rate what it is meant to be here - a SCALE axis, widening the numbers running through
+    /// the protocol without also deciding how healthy the market is.
+    ///
+    /// Recognising instead would make the arithmetic agree while leaving the wrong market underneath: the
+    /// backing written down but the supplies still those minted at nominal, so a more leveraged market than
+    /// any that could exist at this point.
+    ///
+    /// It REWINDS rather than topping up, because `setUp` has already funded a market at nominal and there is
+    /// no way to unfund one. The snapshot is taken after the actors exist and before any capital does, so
+    /// what comes back is the same deployment with no market in it yet.
+    ///
+    /// Returns whether a market could be founded at all. Where the collateral is worth less than a wei of pegged
+    /// per unit, no amount of it mints anything and the first tranche divides by the floored price - the same
+    /// located limit a later mint reaches, met earlier because founding is the first thing to need a price. It is
+    /// OBSERVED through a probe rather than pre-checked, so the boundary is discovered each run. Only the funding
+    /// is probed: the rewind and the oracle write happen here, where no revert can roll them back.
+    function _seedMarketAt(uint256 collateralUSD, uint256 wrapRate, uint256 pegPriceUSD) internal returns (bool) {
+        vm.revertToState(preFundingState);
+        _setEnvelopePoint(collateralUSD, wrapRate, pegPriceUSD);
+
+        try this.seedFundingProbe() {
+            return true;
+        } catch (bytes memory err) {
+            // Tolerate ONLY the price underflow. Anything else - a seed assertion, a guard - is a real failure and
+            // must propagate UNCHANGED rather than being reported as a point where markets cannot exist.
+            if (!_isPanic(err, PANIC_DIVIDE_BY_ZERO)) {
+                assembly {
+                    revert(add(err, 0x20), mload(err))
+                }
+            }
+            return false;
+        }
+    }
+
+    /// @dev The deploy-time capital structure, external so `_seedMarketAt` can observe the one limit founding a
+    /// market can reach. Nothing else may call it: the point must already be set.
+    function seedFundingProbe() external {
+        _seedMarket();
+        _seedPool();
+    }
+
     /// @dev Put the market at `targetCollateralRatio` at the given wrap rate, deriving the collateral price that
     /// achieves it.
     ///
@@ -375,8 +447,28 @@ abstract contract StabilityPoolEnvelopeBase is
         // Say so rather than leaving the market at a price the suite never claimed to cover.
         uint256 impliedCollateralUSD = Math.mulDiv(currentPrice, pegPriceUSD, 1 ether);
         Envelope memory e = buildEnvelope();
+
+        // The escrow moved this envelope, and the product's with it. It holds part of every leveraged
+        // deposit out of the backing while the collateral ratio is measured against the backing ALONE, so
+        // reaching a given ratio now needs a collateral price higher by exactly what it holds - the same
+        // declared price range reaches a slightly narrower band of ratios than it did before the floor
+        // existed. The bounds are stretched by that factor rather than the tests being asked for less.
+        //
+        // Read from the accounts rather than restated, so it tracks whatever `LEVERAGED_ESCROW_RATIO` is
+        // set to and cannot drift when that is finally chosen.
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        uint256 reach = backing == 0 ? 1 ether : Math.mulDiv(1 ether, backing + escrow, backing);
+
+        // Only the CEILING moves. What the escrow does is raise the price a given ratio needs, so it can
+        // push a point past the top of the declared range and never below the bottom of it - relaxing both
+        // ends would shift every point down and start refusing markets at the cheap end that are perfectly
+        // expressible.
         assertGe(impliedCollateralUSD, e.minCollateralUSD, "the ratio needs a collateral price below the envelope");
-        assertLe(impliedCollateralUSD, e.maxCollateralUSD, "the ratio needs a collateral price above the envelope");
+        assertLe(
+            Math.mulDiv(impliedCollateralUSD, 1 ether, reach),
+            e.maxCollateralUSD,
+            "the ratio needs a collateral price above the envelope"
+        );
     }
 
     // ─── actors ───
@@ -454,10 +546,11 @@ abstract contract StabilityPoolEnvelopeBase is
     /// one half and sail with the other, which leaves the anchor claim on half the collateral value - a collateral
     /// ratio of 2. A further anchor tranche of the same size then brings it to 1.5, mid-band on the fee schedules.
     ///
-    /// This is deployment-time state and belongs at nominal conditions, BEFORE any envelope point is applied. Sail
-    /// is the junior claim that absorbs an impairment, so a market that stands up without one is underwater on the
-    /// first adverse move, and sail cannot be added afterwards: minting it requires a residual to sell, and an
-    /// impaired market has none. The buffer has to exist before conditions change, exactly as in production.
+    /// This is deployment-time state, and it must be complete before anything ADVERSE happens - which the point a
+    /// market is founded at is not, however extreme (see `_seedMarketAt`). Sail is the junior claim that absorbs an
+    /// impairment, so a market that stands up without one is underwater on the first adverse move, and sail cannot
+    /// be added afterwards: minting it requires a residual to sell, and an impaired market has none. The buffer has
+    /// to exist before conditions change, exactly as in production.
     function _seedMarket() internal {
         // Three equal tranches of collateral: anchor and sail at genesis, then anchor again.
         // Value 3X against an anchor claim of 2X is a collateral ratio of 1.5.
@@ -465,8 +558,6 @@ abstract contract StabilityPoolEnvelopeBase is
         genesisMint(minter, tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
         genesisMint(minter, tranche, 0, address(this)); // the anchor tranche that takes it to 1.5
 
-        // Each mint floors the collateral credited and the tokens issued by at most a wei, so the ratio - collateral
-        // value over anchor claim, scaled by 1e18 - carries at most (3 + 3 x 1.5) x 1e18 / claim of that flooring.
         uint256 anchorClaim = IMinter(minter).peggedTokenBalance();
 
         // The proportions above put three tranches in against an anchor claim of two, which is the 1.5 this
@@ -478,10 +569,25 @@ abstract contract StabilityPoolEnvelopeBase is
         // collateral it is measured against, so this is the reported figure asked what it would have been
         // had none of it been held back - and it needs no second copy of the ratio's own arithmetic.
         (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+
+        // What the flooring costs the reported ratio. The ratio is `backing x price / claim`, so a wei lost from
+        // either side moves it by the ratio's own size over that side - and BOTH sides are counted in units the
+        // tranches are not. The tranches are paid in WRAPPED collateral and recorded as underlying, one floor per
+        // mint; they are claimed in pegged, one floor per pegged mint. So:
+        //   - three tranches of backing, each short by at most a wei of underlying: 3 x ratio / backing
+        //   - two pegged mints, each issuing at most a wei short:                   2 x ratio / claim
+        //   - the ratio's own floor, and the floor in the scaling below:            2
+        // The backing term is the one that bites, and it is the wrap rate that decides how hard: a tranche of
+        // wrapped collateral records `tranche x rate` of underlying, so at the bottom of the rate range the same
+        // wei of flooring is a far larger share of a far smaller backing. Sizing this off the claim alone reads
+        // as a tight bound at nominal and silently becomes one three decades too tight at the rate floor.
+        uint256 flooring = Math.mulDiv(3, DEPLOY_COLLATERAL_RATIO, backing) +
+            Math.mulDiv(2, DEPLOY_COLLATERAL_RATIO, anchorClaim) +
+            2;
         assertApproxEqAbs(
             Math.mulDiv(IMinter(minter).collateralRatio(), backing + escrow, backing),
             DEPLOY_COLLATERAL_RATIO,
-            (8 ether / anchorClaim) + 2, // one wei more than the reported figure carries, for this scaling
+            flooring,
             "the tranches put in genesis proportions plus one anchor tranche"
         );
         assertGt(escrow, 0, "the escrow holds part of the leveraged tranche");
@@ -575,9 +681,18 @@ abstract contract StabilityPoolEnvelopeBase is
         // `_collateralFor` divides by it. Observe it through an external probe - a revert is a located limit that is
         // recorded and ends the run; a success proceeds to the read-backs. This discovers the boundary each run rather
         // than pre-judging it, so a later widening simply lets the same walk hold at a wider corner.
-        // Set the oracle point HERE too (the probe sets it again inside `_arrange`, but that inner write rolls back on
-        // a probe revert): the recorded row below must log the point that produced the failure, not the prior one.
-        _setEnvelopePoint(collateralUSD, wrapRate, pegPriceUSD);
+        // Fund the market AT this point rather than moving a nominal one to it, so the rate is the scale axis
+        // it is meant to be here and nothing is left overstated. Set the oracle point HERE too (the probe sets
+        // it again inside `_arrange`, but that inner write rolls back on a probe revert): the recorded row
+        // below must log the point that produced the failure, not the prior one.
+        //
+        // Founding is itself priced, so the cheap-collateral corner is refused here rather than at the mint
+        // below - the same located limit, one step earlier. Record it under its own name: at this point there is
+        // no market to deposit into, which is a stronger statement than a pool that cannot be grown.
+        if (!_seedMarketAt(collateralUSD, wrapRate, pegPriceUSD)) {
+            _record("depositWithdraw", poolPegged, "broke", "found: divide-by-zero");
+            return;
+        }
 
         try this.depositWithdrawSetupProbe(collateralUSD, wrapRate, pegPriceUSD, s, poolPegged, shares, n) {
             // setup held - exercise the behaviour below
@@ -648,6 +763,14 @@ abstract contract StabilityPoolEnvelopeBase is
     function test_corner_depositWithdraw_holds() public {
         Envelope memory e = buildEnvelope();
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
+
+        // Found the market at the cheap corner rather than dragging a nominal one down to it: the cheapness is a
+        // condition this market is meant to live under, not a loss it has suffered, and the two are different
+        // markets. See `_seedMarketAt`.
+        assertTrue(
+            _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),
+            "a market stands up at the envelope's cheapest collateral"
+        );
 
         _arrange(
             e.minCollateralUSD,
@@ -1049,7 +1172,10 @@ abstract contract StabilityPoolEnvelopeBase is
     /// failing all-or-nothing.
     function test_envelope_harvestCorner_holds() public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        assertTrue(
+            _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),
+            "a market stands up at the envelope's cheapest collateral"
+        );
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _growPool(poolPegged, MAX_FUZZ_USERS);
         currentRate = e.maxWrapRate; // one un-harvested step: the wrapped collateral appreciates from min to MAX rate
@@ -1089,7 +1215,10 @@ abstract contract StabilityPoolEnvelopeBase is
     /// across-period asymmetry is exercised against the live `committed = queued + rate*period`, not a fixed stand-in.
     function test_envelope_harvestRecovery_realCapNoMock() public {
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        assertTrue(
+            _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),
+            "a market stands up at the envelope's cheapest collateral"
+        );
         _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS);
         currentRate = e.maxWrapRate; // the largest single-step yield the envelope declares - far exceeds one period
         mockOracle.setLatestAnswer(currentPrice, currentRate);
@@ -1169,7 +1298,10 @@ abstract contract StabilityPoolEnvelopeBase is
             return;
         }
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        assertTrue(
+            _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),
+            "a market stands up at the envelope's cheapest collateral"
+        );
         _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS);
         currentRate = e.maxWrapRate;
         mockOracle.setLatestAnswer(currentPrice, currentRate);
@@ -1297,7 +1429,10 @@ abstract contract StabilityPoolEnvelopeBase is
         // Corner: cheapest collateral + the max single-step wrap-rate jump -> the collateral pool's residual share
         // far exceeds one period's stream capacity, so the harvest defers a backlog rather than depositing it all.
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        assertTrue(
+            _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),
+            "a market stands up at the envelope's cheapest collateral"
+        );
         _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS); // collateral pool only
 
         // Mint the late entrant's pegged NOW (its collateral folds into the corner yield) but hold it in-wallet, so the
@@ -1369,7 +1504,10 @@ abstract contract StabilityPoolEnvelopeBase is
             return; // full cut: nothing streams to the pools, so no backlog forms
         }
         Envelope memory e = buildEnvelope();
-        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        assertTrue(
+            _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),
+            "a market stands up at the envelope's cheapest collateral"
+        );
         _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS); // collateral pool only
 
         address lateEntrant = makeAddr("lateEntrantDrain");
@@ -1711,15 +1849,44 @@ abstract contract StabilityPoolEnvelopeBase is
         // past the buffer: the collateral no longer covers the anchor claim at all
         _setEnvelopePointAtCollateralRatio(0.7 ether, e.minWrapRate, e.pegPriceUSD);
 
-        assertEq(IMinter(minter).leveragedTokenPrice(), 0, "sail is the junior claim and is wiped out first");
-        assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the anchor depegs once sail can absorb no more");
-        assertEq(IMinter(minter).harvestable(), 0, "a shortfall is not a surplus");
+        // The RESIDUAL is wiped: the leveraged token is the junior claim on the backing and has absorbed the
+        // whole of it, the pegged token holding par until there was nothing left to absorb. What remains of
+        // the leveraged price is the ESCROW, and the pegged token never reaches it at any depth - it was
+        // part of what the leveraged buyers paid in and comes back to them when they redeem. Those are two
+        // different statements and the second is the one the floor exists to make.
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        assertGt(escrow, 0, "the escrow survives, being the leveraged token's own collateral and not cover");
+        assertGt(IMinter(minter).leveragedTokenPrice(), 0, "so the leveraged price is the escrow's share, not nothing");
 
-        // both directions that would take value out of a market that cannot cover its anchor are refused
+        assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the anchor depegs once the residual can absorb no more");
+        // Reconstructing the claim from a per-token price costs one wei of claim per token: the price is
+        // that claim divided by the supply and floored, so multiplying back cannot recover what the floor
+        // took. The bound is therefore the supply itself, in whole tokens, plus the claim's own rounding.
+        assertApproxEqAbs(
+            Math.mulDiv(IMinter(minter).peggedTokenBalance(), IMinter(minter).peggedTokenPrice(), 1 ether),
+            Math.mulDiv(backing, currentPrice, 1 ether),
+            (IMinter(minter).peggedTokenBalance() / 1 ether) + 1,
+            "and the anchor's claim is the backing alone - never the escrow, at any depth"
+        );
+        // A shortfall is not a surplus - but recognising one leaves a few wei that is. The write-down
+        // scales both records by the holding they share, and both products are FLOORED so that between
+        // them they can never claim more than is held; what they leave behind is genuinely unclaimed, and
+        // the harvest reports it. At most a wei of collateral per record, which at the envelope's cheapest
+        // wrapped collateral is that many wrapped wei over again.
+        assertLe(
+            IMinter(minter).harvestable(),
+            Math.mulDiv(2, 1 ether, currentRate) + 1,
+            "a shortfall is not a surplus, beyond the dust the write-down's flooring leaves"
+        );
+
+        // Anchor minting is refused - it would issue against cover that is not there. Leveraged redemption
+        // is NOT: it returns the redeemer's share of the escrow, which is their own collateral, and takes
+        // not a wei of the backing. A disallow band cannot reach it either, the escrow being taken off
+        // before the band walk.
         (, , , uint256 anchorMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
         assertEq(anchorMinted, 0, "anchor minting is refused while the anchor is uncovered");
         (, , , uint256 sailCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
-        assertEq(sailCollateralOut, 0, "sail redemption is refused while it stands behind an uncovered anchor");
+        assertGt(sailCollateralOut, 0, "leveraged redemption returns the escrow that was paid in for it");
 
         // the rebalance is the protocol's answer, and it must still conserve at this depth
         assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "a wiped-out market is rebalanceable");
