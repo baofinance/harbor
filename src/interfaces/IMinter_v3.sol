@@ -159,6 +159,13 @@ interface IMinter_v3 is IToken {
     /// @dev Thrown when recognising an impairment would change nothing, the record not exceeding the holding.
     error NothingToRecognise(uint256 backing);
 
+    /// @dev Thrown when an operation would act on collateral records that between them claim more than the
+    /// holding stands up, the difference not having been recognised. Reports what is recorded and what is held,
+    /// both in collateral tokens at the conservative rate, and says nothing about why they differ - whether the
+    /// shortfall is a permanent loss or a dip that will reverse is the judgement `recogniseImpairment` exists
+    /// to make, and the same call is what clears this.
+    error UnrecognisedImpairment(uint256 recorded, uint256 held);
+
     /// @dev Thrown when a pegged token is worth nothing - no collateral stands behind an outstanding supply - so an
     /// operation priced against that value has no answer.
     error ZeroPeggedTokenPrice();

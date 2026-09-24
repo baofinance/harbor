@@ -817,6 +817,7 @@ contract Minter_v3 is
         uint256 maxFeeRatio
     ) internal nonReentrant returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
         MinterStorage storage $ = _getMinterStorage();
+        _requireRecordsAreCovered($);
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
 
         wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
@@ -886,6 +887,7 @@ contract Minter_v3 is
         )
     {
         MinterStorage storage $ = _getMinterStorage();
+        _requireRecordsAreCovered($);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
         peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
@@ -948,6 +950,7 @@ contract Minter_v3 is
         uint256 minLeveragedOut
     ) external override nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
+        _requireRecordsAreCovered($);
         wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
         MinterValuationLib.CollateralRatioData memory crData;
@@ -1009,6 +1012,7 @@ contract Minter_v3 is
         uint256 minWrappedCollateralOut
     ) external override nonReentrant returns (uint256 wrappedCollateralOut) {
         MinterStorage storage $ = _getMinterStorage();
+        _requireRecordsAreCovered($);
         leveragedIn = Token.allOf(_msgSender(), LEVERAGED_TOKEN, leveragedIn);
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
@@ -1059,6 +1063,7 @@ contract Minter_v3 is
         address receiver
     ) external override onlyOwnerOrRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
         MinterStorage storage $ = _getMinterStorage();
+        _requireRecordsAreCovered($);
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
         uint256 underlyingCollateralInE36 = wrappedCollateralIn * rate;
 
@@ -1100,6 +1105,7 @@ contract Minter_v3 is
     {
         if (peggedForCollateral + peggedForLeveraged > 0) {
             MinterStorage storage $ = _getMinterStorage();
+            _requireRecordsAreCovered($);
             uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
             if ((peggedForCollateral + peggedForLeveraged) > peggedTokenBalance_) {
@@ -1236,6 +1242,7 @@ contract Minter_v3 is
         address receiver
     ) external override onlyOwnerOrRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
+        _requireRecordsAreCovered($);
         // how much collateral to use
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
 
@@ -1290,6 +1297,7 @@ contract Minter_v3 is
         address receiver
     ) external override onlyOwnerOrRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
+        _requireRecordsAreCovered($);
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
         leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
@@ -1530,6 +1538,35 @@ contract Minter_v3 is
     function _recordedAccounts(MinterStorage storage $) private view returns (uint256 backing, uint256 escrow) {
         backing = $.underlyingCollateral;
         escrow = _escrow($);
+    }
+
+    /// @notice Refuses to act while the two collateral records claim more collateral than the holding stands up.
+    /// @dev Every path that CHANGES the records passes through here; nothing that only reports does. A view that
+    /// marked itself down would be deciding, on every read, that a fallen rate is a real loss - the judgement
+    /// `recogniseImpairment` exists to make and the reason `_recordedBacking` reports what is recorded. So the
+    /// prices and ratios keep answering from the records, deliberately, and what protects the protocol is that
+    /// nothing can act on them until someone has said whether the shortfall is real.
+    ///
+    /// The MIN rate is not merely the conservative edge here, it is forced. `recogniseImpairment` measures at
+    /// the min rate and refuses when the records are not overstated, so reading the same edge makes this
+    /// condition and that one the SAME condition: this reverts exactly when recognition would succeed, and
+    /// never when recognition would refuse. Any other edge admits a market that is halted and cannot be
+    /// unhalted, or one that is recognisable while it goes on trading against records nobody has stood behind.
+    ///
+    /// A harvest needs no call to this: it pays out only what the holding exceeds BOTH records by, so an
+    /// overstatement leaves it reporting nothing. A donation needs none either, though for a different reason -
+    /// it credits the record with exactly what the holding gains, so it can neither widen the shortfall nor
+    /// close it, and a halted market stays halted however much is donated to it.
+    function _requireRecordsAreCovered(MinterStorage storage $) private view {
+        (uint256 backing, uint256 escrow) = _recordedAccounts($);
+        uint256 recorded = backing + escrow;
+        uint256 held = MinterValuationLib.wrappedAsCollateral(
+            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)),
+            _fetchMinRate($.priceOracle)
+        );
+        if (recorded > held) {
+            revert UnrecognisedImpairment(recorded, held);
+        }
     }
 
     /// @notice The collateral a mint hands to the escrow rather than to the backing, setting the per-token

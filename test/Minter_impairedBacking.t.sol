@@ -73,6 +73,18 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
+    /// Recognise where there is something to recognise, for tests that sweep a range of drops including none.
+    /// @dev `recogniseImpairment` refuses when the records are not overstated, which is the same condition the
+    /// guard refuses on - so swallowing exactly that one revert leaves the market in the state these tests are
+    /// about either way: records that agree with the holding.
+    function _recogniseImpairmentIfThereIsAny() private {
+        vm.startPrank(owner());
+        try IMinter_v3(minter).recogniseImpairment() {} catch (bytes memory reason) {
+            assertEq(bytes4(reason), IMinter_v3.NothingToRecognise.selector, "only a no-op recognition is expected");
+        }
+        vm.stopPrank();
+    }
+
     /// What the protocol actually holds, expressed in collateral tokens. This is the quantity the
     /// recorded backing must never exceed, and it is computed here from the balance and the rate
     /// rather than from anything the Minter reports.
@@ -107,6 +119,12 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
                           THE CORE INVARIANT
     //////////////////////////////////////////////////////////////*/
 
+    // The records report what is RECORDED, and a fall in the rate does not move them: deciding that such a fall
+    // is a real loss is a judgement, and `recogniseImpairment` is the only thing entitled to make it. So every
+    // property below about the records matching the holding is a property of a RECOGNISED impairment, and each
+    // test recognises before asserting it. What holds in the meantime is the guard: nothing can act on records
+    // that overstate, which is what makes it safe for them to overstate at all.
+
     /// The recorded backing may never exceed what is held, converted at the current rate. This is
     /// the property every other assertion in this file rests on.
     function testFuzz_recordedBackingNeverExceedsHeld(uint256 dropBps) public {
@@ -114,6 +132,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         setUp_collateral(100 ether, 40 ether);
 
         _impair(dropBps);
+        _recogniseImpairmentIfThereIsAny();
 
         assertLe(
             IMinter(minter).collateralTokenBalance(),
@@ -138,6 +157,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         setUp_collateral(100 ether, 40 ether);
 
         _impair(9_990);
+        _recogniseImpairmentIfThereIsAny();
 
         uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
         uint256 leveragedClaim = Math.mulDiv(
@@ -159,6 +179,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         setUp_collateral(100 ether, 40 ether);
 
         _impair(dropBps);
+        _recogniseImpairmentIfThereIsAny();
 
         assertEq(
             IMinter(minter).collateralTokenBalance(),
@@ -176,6 +197,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
+        _recogniseImpairmentIfThereIsAny();
 
         uint256 expected = Math.mulDiv(_peggedCoverAsCollateral(), _price(), peggedClaims);
         assertApproxEqAbs(
@@ -196,6 +218,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
+        _recogniseImpairmentIfThereIsAny();
 
         uint256 covered = Math.mulDiv(_peggedCoverAsCollateral(), _price(), peggedClaims);
         assertApproxEqAbs(
@@ -281,6 +304,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_middlingImpairment_forbidsAnchorMintingOnly() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(1_500); // true ratio 1.19
+        _recogniseImpairment();
 
         uint256 ratio = IMinter(minter).collateralRatio();
         assertLt(ratio, 1.30 ether, "below the anchor-mint bound");
@@ -302,6 +326,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_deepImpairment_leavesTheLeveragedClaimOnlyItsEscrow() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
+        _recogniseImpairment();
 
         uint256 escrowValue = Math.mulDiv(_escrowAsCollateral(), _price(), 1 ether);
         uint256 backingValue = Math.mulDiv(_peggedCoverAsCollateral(), _price(), 1 ether);
@@ -316,8 +341,12 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         (, , uint256 collateralUsed, , , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
         assertEq(collateralUsed, 0, "pegged minting forbidden");
 
+        // Leveraged redemption is NOT forbidden here, though the band disallows it. A disallow bound exists to
+        // stop a leveraged redemption draining the pegged token's cover at a low collateral ratio, and the
+        // escrow is not that cover - it is taken off before the band walk, so it walks no bands and no bound
+        // reaches it. The redeemer takes their own collateral and the pegged token is untouched.
         (, , , uint256 collateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
-        assertEq(collateralOut, 0, "leveraged redemption forbidden");
+        assertGt(collateralOut, 0, "leveraged redemption still returns the escrow's share");
 
         // and the pegged claim is marked down to what is left of ITS OWN cover
         assertEq(
@@ -337,6 +366,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_anchorRedeemDryRunMatchesTheCall() public {
         (uint256 anchorTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
+        _recogniseImpairment();
 
         uint256 redeeming = anchorTokens / 100;
         (, , , , uint256 forecast, , ) = IMinter(minter).redeemPeggedTokenDryRun(redeeming);
@@ -352,6 +382,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_sailMintDryRunMatchesTheCall() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(1_500);
+        _recogniseImpairment();
 
         (, , , , uint256 forecast, , ) = IMinter(minter).mintLeveragedTokenDryRun(1 ether);
 
@@ -374,6 +405,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_rebalanceSizingUsesRecognisedBacking() public {
         (uint256 anchorTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(1_500); // true ratio 1.19, below the 1.30 target
+        _recogniseImpairment();
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             1.30 ether,
@@ -408,6 +440,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
+        _recogniseImpairmentIfThereIsAny();
 
         uint256 escrowValue = Math.mulDiv(_escrowAsCollateral(), _price(), 1 ether);
         uint256 coverValue = Math.mulDiv(_peggedCoverAsCollateral(), _price(), 1 ether);
@@ -431,6 +464,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 leveragedSupply = IMinter(minter).leveragedTokenBalance();
 
         _impair(dropBps);
+        _recogniseImpairmentIfThereIsAny();
 
         // The escrow is not cover for the pegged token, so the residual is what the REST of the holding leaves.
         uint256 escrowValue = Math.mulDiv(_escrowAsCollateral(), _price(), 1 ether);
@@ -483,52 +517,49 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         );
     }
 
-    /// The mirror, and the reason recognition is a deliberate act rather than an automatic one. With
-    /// no recognition, a dip that reverses costs sail holders nothing: the recovery accrues back to
-    /// the junior claim, and there is no surplus to harvest until the record is exceeded again. A
-    /// system that wrote the record down automatically would have made this loss permanent.
-    function test_transientDip_leavesBackingIntactAndRecoversSail() public {
+    /// The mirror, and the reason recognition is a deliberate act rather than an automatic one. A dip that
+    /// reverses costs leveraged holders nothing, and it costs them nothing in the strongest possible way: the
+    /// price does not move at all while the dip lasts, because it reports what is RECORDED and a fallen rate
+    /// does not move a record. The market simply stops until the dip passes. A system that wrote the record
+    /// down automatically would have made the loss permanent instead.
+    function test_transientDip_leavesBackingIntactAndRecoversLeveraged() public {
         setUp_collateral(100 ether, 40 ether);
-        uint256 sailPriceBefore = IMinter(minter).leveragedTokenPrice();
+        uint256 leveragedPriceBefore = IMinter_v3(minter).leveragedTokenPrice();
 
         _impair(1_500);
-        assertLt(IMinter(minter).leveragedTokenPrice(), sailPriceBefore, "the dip marks sail down while it lasts");
+        assertEq(
+            IMinter_v3(minter).leveragedTokenPrice(),
+            leveragedPriceBefore,
+            "the dip does not mark the leveraged token down - nothing has judged it a loss"
+        );
 
         _setRate(1 ether); // the dip reverses
 
-        assertEq(IMinter(minter).leveragedTokenPrice(), sailPriceBefore, "sail is whole again");
-        assertEq(IMinter(minter).harvestable(), 0, "and nothing was taken from it on the way");
+        assertEq(IMinter_v3(minter).leveragedTokenPrice(), leveragedPriceBefore, "and it is whole throughout");
+        assertEq(IMinter(minter).harvestable(), 0, "with nothing taken from it on the way");
     }
 
-    /// No mutating call writes the record down. A leveraged redemption during an impairment moves exactly what
-    /// the redeemer's claim is entitled to and not a wei more, so both records stay in step with the holding —
-    /// and once the rate returns to where it started there is no surplus. A crystallising mutator would have
-    /// written the record down to the impaired holding and left one behind.
+    /// No mutating call writes the record down, and the guard is what makes that STRUCTURAL rather than a
+    /// property each mutator has to be careful to have: while the records overstate, no mutator runs at all.
     ///
-    /// The redemption is the probe because it is the mutator most able to do the damage: it is the one that
-    /// draws on both accounts at once. Measuring what it moves, rather than requiring it to move nothing, is
-    /// what lets it stay the probe now that a leveraged claim is worth something at this depth.
-    function test_mutatingWhileImpaired_doesNotWriteTheRecordDown() public {
+    /// The leveraged redemption is the probe because it is the mutator most able to do the damage - the one
+    /// that draws on both accounts at once. What it shows now is that it cannot draw on either, and that the
+    /// records are therefore exactly where the dip found them when the dip reverses.
+    function test_mutatingWhileImpaired_isRefusedSoNothingCanWriteTheRecordDown() public {
         (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        (uint256 backingBefore, uint256 escrowBefore) = IMinter_v3(minter).collateralAccounts();
 
         _impair(3_000);
 
-        uint256 escrow = _escrowAsCollateral();
-        uint256 redeemed = leveragedTokens / 10;
-        uint256 supply = IMinter(minter).leveragedTokenBalance();
-
         vm.startPrank(zeroFee);
         IERC20(leveragedToken).approve(minter, leveragedTokens);
-        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(redeemed, zeroFee);
+        _expectUnrecognisedImpairment();
+        IMinter(minter).freeRedeemLeveragedToken(leveragedTokens / 10, zeroFee);
         vm.stopPrank();
 
-        // the residual is gone at this cover, so the claim is the escrow and this takes its share of it
-        assertApproxEqAbs(
-            Math.mulDiv(returned, _rate(), 1 ether),
-            Math.mulDiv(escrow, redeemed, supply),
-            1,
-            "the mutator moves only what the claim is entitled to"
-        );
+        (uint256 backingAfter, uint256 escrowAfter) = IMinter_v3(minter).collateralAccounts();
+        assertEq(backingAfter, backingBefore, "the backing is untouched");
+        assertEq(escrowAfter, escrowBefore, "and so is the escrow");
 
         _setRate(1 ether);
 
@@ -629,6 +660,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_incentiveRatiosUseRecognisedBacking() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000); // true ratio 0.98 — the depegged band of every schedule
+        _recogniseImpairment();
 
         assertEq(IMinter(minter).mintPeggedTokenIncentiveRatio(), 1 ether, "anchor minting disallowed");
         assertEq(IMinter(minter).redeemLeveragedTokenIncentiveRatio(), 1 ether, "sail redemption disallowed");
@@ -641,6 +673,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_freeRedeemDryRunMatchesTheCall() public {
         (uint256 anchorTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(1_500);
+        _recogniseImpairment();
 
         uint256 forCollateral = anchorTokens / 100;
         (uint256 forecastCollateral, uint256 forecastSail) = IMinter_v3(minter).freeRedeemDryRun(forCollateral, 0);
@@ -668,6 +701,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_freeMintPricesFromRecognisedBacking() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
+        _recogniseImpairment();
 
         // The escrow leaves a claim to buy into where the residual alone would leave none, so the mint has an
         // answer. What it must not do is price that answer off a record that overstates what is held, which
@@ -699,8 +733,10 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         setUp_collateral(100 ether, 40 ether);
         assertGt(IMinter(minter).peggedTokenBalance(), 0, "anchor must be outstanding for this to bite");
 
-        // the whole holding is gone: the recognised backing floors to nothing
+        // The whole holding is gone, and recognising that is what makes the record say so - until then the
+        // guard is what stands in the way, and this test is about what happens once it does not.
         deal(wrappedCollateralToken, minter, 0);
+        _recogniseImpairment();
         assertEq(IMinter(minter).collateralTokenBalance(), 0, "no collateral stands behind the anchor claim");
 
         deal(wrappedCollateralToken, zeroFee, 1 ether);
@@ -719,6 +755,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_anchorMintingCallIsRefused() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
+        _recogniseImpairment();
 
         address anchorMinter = makeAddr("anchorMinter");
         deal(wrappedCollateralToken, anchorMinter, 1 ether);
@@ -729,17 +766,32 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    function test_impairedBacking_sailRedemptionCallIsRefused() public {
-        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
+    /// A disallow bound cannot reach the escrow, so the fee-paying redemption returns the redeemer's share of
+    /// it even at a collateral ratio the configuration forbids leveraged redemption at.
+    ///
+    /// That is the bound doing its job rather than failing to: it exists to stop a leveraged redemption
+    /// draining the PEGGED token's cover, and the escrow was never part of that cover. It is taken off the
+    /// redemption before the band walk, so it walks no bands and no bound applies to it - and what the bound
+    /// still blocks is every wei that would have come out of the backing.
+    function test_impairedBacking_leveragedRedemptionStillReturnsTheEscrowsShare() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
+        _recogniseImpairment();
 
-        // Approve before arming the expectation: a one-shot cheatcode binds to the next external
-        // call, which would otherwise be the approval rather than the redemption.
+        assertLt(IMinter(minter).collateralRatio(), 1.05 ether, "below the leveraged-redeem bound");
+        uint256 backingBefore = IMinter(minter).collateralTokenBalance();
+
         vm.startPrank(zeroFee);
-        IERC20(leveragedToken).approve(minter, sailTokens);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
-        IMinter(minter).redeemLeveragedToken(sailTokens / 10, zeroFee, 0);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        uint256 returned = IMinter(minter).redeemLeveragedToken(leveragedTokens / 10, zeroFee, 0);
         vm.stopPrank();
+
+        assertGt(returned, 0, "the escrow's share is returned");
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            backingBefore,
+            "and not a wei of it comes from the pegged token's backing"
+        );
     }
 
     /// The fee-capped overload takes only as much collateral as it can mint within the cap. Below the
@@ -748,6 +800,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_cappedAnchorMintingTakesNothing() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
+        _recogniseImpairment();
 
         (, , uint256 forecastTaken, uint256 forecastMinted, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
             1 ether,
@@ -783,6 +836,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(3_000);
+        _recogniseImpairment();
 
         uint256 coverValue = Math.mulDiv(_peggedCoverAsCollateral(), _price(), 1 ether);
         uint256 peggedPrice = Math.min(1 ether, Math.mulDiv(coverValue, 1 ether, peggedClaims));
@@ -806,6 +860,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function test_impairedBacking_freeLeveragedRedemptionReturnsItsShareOfTheEscrow() public {
         (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
+        _recogniseImpairment();
 
         uint256 escrow = _escrowAsCollateral();
         uint256 redeemed = leveragedTokens / 10;
@@ -830,5 +885,313 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
             backingBefore,
             "and takes nothing from the pegged token's backing"
         );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+              THE GUARD: READING REPORTS, UPDATING REFUSES
+    //////////////////////////////////////////////////////////////*/
+
+    /// @dev A drop small enough that no disallow bound is crossed, so every operation below would otherwise
+    ///      succeed. That is what makes these tests about the guard and not about the bands: at 1.386 the
+    ///      configuration permits everything, and only the records overstating the holding stops it.
+    uint256 private constant _SMALL_DROP_BPS = 100; // 1.4 -> 1.386
+
+    /// Arms the expectation with BOTH figures the guard reports, read from the contract rather than restated.
+    /// @dev Every external call it makes happens before the cheatcode, so the expectation binds to the caller's
+    /// next call and not to one of these.
+    function _expectUnrecognisedImpairment() private {
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter_v3.UnrecognisedImpairment.selector,
+                backing + escrow,
+                _heldAsCollateral()
+            )
+        );
+    }
+
+    /// Whether the two records together claim more collateral than the holding stands up. Computed from the
+    /// balance and the rate, not from anything the Minter decides, so it is an independent statement of the
+    /// condition the guard is supposed to be testing.
+    function _recordsOverstateTheHolding() private view returns (bool) {
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        return backing + escrow > _heldAsCollateral();
+    }
+
+    function test_impairment_haltsPeggedMinting() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        address minterOfPegged = makeAddr("minterOfPegged");
+        deal(wrappedCollateralToken, minterOfPegged, 1 ether);
+        vm.startPrank(minterOfPegged);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        _expectUnrecognisedImpairment();
+        IMinter(minter).mintPeggedToken(1 ether, minterOfPegged, 0);
+        vm.stopPrank();
+    }
+
+    function test_impairment_haltsPeggedRedemption() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, peggedTokens);
+        _expectUnrecognisedImpairment();
+        IMinter(minter).redeemPeggedToken(peggedTokens / 10, zeroFee, 0);
+        vm.stopPrank();
+    }
+
+    function test_impairment_haltsLeveragedMinting() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        address minterOfLeveraged = makeAddr("minterOfLeveraged");
+        deal(wrappedCollateralToken, minterOfLeveraged, 1 ether);
+        vm.startPrank(minterOfLeveraged);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        _expectUnrecognisedImpairment();
+        IMinter(minter).mintLeveragedToken(1 ether, minterOfLeveraged, 0);
+        vm.stopPrank();
+    }
+
+    function test_impairment_haltsLeveragedRedemption() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        _expectUnrecognisedImpairment();
+        IMinter(minter).redeemLeveragedToken(leveragedTokens / 10, zeroFee, 0);
+        vm.stopPrank();
+    }
+
+    /// The leg that pays out wrapped collateral is a redemption in everything but the caller, so it is
+    /// refused for the reason a redemption is.
+    function test_impairment_haltsTheRebalancesCollateralLeg() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, peggedTokens);
+        _expectUnrecognisedImpairment();
+        IMinter_v3(minter).freeRedeemPeggedToken(peggedTokens / 10, 0, zeroFee);
+        vm.stopPrank();
+    }
+
+    /// The leg that hands out leveraged tokens takes no collateral away, but it prices them against a
+    /// residual that is not there - and the stability pool is the counterparty that cannot decline.
+    function test_impairment_haltsTheRebalancesLeveragedLeg() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, peggedTokens);
+        _expectUnrecognisedImpairment();
+        IMinter_v3(minter).freeRedeemPeggedToken(0, peggedTokens / 10, zeroFee);
+        vm.stopPrank();
+    }
+
+    function test_impairment_haltsTheFreeMints() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        deal(wrappedCollateralToken, zeroFee, 2 ether);
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, 2 ether);
+
+        _expectUnrecognisedImpairment();
+        IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
+
+        _expectUnrecognisedImpairment();
+        IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
+        vm.stopPrank();
+    }
+
+    /// A donation is permitted while a market is halted - and does not unhalt it, however large.
+    ///
+    /// It credits the backing with exactly what the holding gains, so it raises both sides of the guard's
+    /// comparison by the same amount and leaves the shortfall between them untouched. That is not a defect in
+    /// either: a donation repairs the COLLATERAL RATIO, and recognition repairs the record's claim about the
+    /// holding. They fix different things, and only the second is what a halt is waiting for.
+    function test_impairment_leavesDonationPermittedAndStillHalted() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        uint256 ratioBefore = IMinter(minter).collateralRatio();
+
+        address donor = makeAddr("donor");
+        deal(wrappedCollateralToken, donor, 50 ether);
+        vm.startPrank(donor);
+        IERC20(wrappedCollateralToken).approve(minter, 50 ether);
+        IMinter_v3(minter).donateWrappedCollateral(50 ether);
+        vm.stopPrank();
+
+        assertGt(IMinter(minter).collateralRatio(), ratioBefore, "the donation is taken and lifts the ratio");
+        assertTrue(_recordsOverstateTheHolding(), "but the shortfall it was not addressing is still there");
+    }
+
+    /// Recognition is the cure, so it is the one updater an impairment must never stop.
+    function test_impairment_leavesRecognitionPermitted() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        _recogniseImpairment();
+
+        assertFalse(_recordsOverstateTheHolding(), "recognition makes the records true");
+    }
+
+    /// Reading reports; only updating refuses. The views answer, and answer what is RECORDED - deciding that a
+    /// fallen rate is a real loss belongs to `recogniseImpairment` and to nothing else, so a view that marked
+    /// itself down would be making that judgement on every read.
+    function test_impairment_leavesEveryViewReportingTheRecords() public {
+        setUp_collateral(100 ether, 40 ether);
+
+        (uint256 backingBefore, uint256 escrowBefore) = IMinter_v3(minter).collateralAccounts();
+        uint256 ratioBefore = IMinter(minter).collateralRatio();
+
+        _impair(_SMALL_DROP_BPS);
+
+        (uint256 backingAfter, uint256 escrowAfter) = IMinter_v3(minter).collateralAccounts();
+        assertEq(backingAfter, backingBefore, "the backing reports what is recorded");
+        assertEq(escrowAfter, escrowBefore, "and so does the escrow");
+        assertEq(IMinter(minter).collateralTokenBalance(), backingBefore, "as does the single-account view");
+        assertEq(IMinter(minter).collateralRatio(), ratioBefore, "the collateral ratio is unmoved by the rate");
+
+        // The remaining views must answer rather than revert; their values follow from the records above.
+        assertGt(IMinter(minter).peggedTokenPrice(), 0, "the pegged price still reports");
+        assertGt(IMinter_v3(minter).leveragedTokenPrice(), 0, "the leveraged price still reports");
+        assertGt(IMinter(minter).leverageRatio(), 0, "the leverage ratio still reports");
+    }
+
+    /// The harvest needs no guard because it already has one: it pays out only what the holding exceeds BOTH
+    /// records by, so an overstatement makes it report nothing rather than carry the shortfall away.
+    function test_impairment_nothingIsHarvestable() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        assertEq(IMinter_v3(minter).harvestable(), 0, "an overstated record leaves no surplus to sweep");
+    }
+
+    /// A dry run is a reporting function, so it answers where its call refuses. The two have never had the
+    /// contract "both succeed or both fail" - `Token.allOfQuiet` and `_redeemableQuiet` return zero exactly
+    /// where `allOf` and `_redeemable` revert - and what they do share is the backing they price from.
+    function test_everyDryRunStillReportsWhereItsCallRefuses() public {
+        (uint256 peggedTokens, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        (, , uint256 peggedMintTaken, , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(1 ether);
+        assertGt(peggedMintTaken, 0, "the pegged mint still forecasts");
+
+        (, , , , uint256 peggedRedeemOut, , ) = IMinter_v3(minter).redeemPeggedTokenDryRun(peggedTokens / 10);
+        assertGt(peggedRedeemOut, 0, "the pegged redeem still forecasts");
+
+        (, , , uint256 leveragedMintTaken, , , ) = IMinter_v3(minter).mintLeveragedTokenDryRun(1 ether);
+        assertGt(leveragedMintTaken, 0, "the leveraged mint still forecasts");
+
+        (, , , uint256 leveragedRedeemOut, , ) = IMinter_v3(minter).redeemLeveragedTokenDryRun(
+            leveragedTokens / 10
+        );
+        assertGt(leveragedRedeemOut, 0, "the leveraged redeem still forecasts");
+    }
+
+    /// The halt is curable by the one call that exists to cure it, which is the whole point of halting rather
+    /// than quietly marking the records down.
+    function test_recognitionUnhaltsTheMarket() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        _recogniseImpairment();
+
+        address minterOfPegged = makeAddr("minterAfterRecognition");
+        deal(wrappedCollateralToken, minterOfPegged, 1 ether);
+        vm.startPrank(minterOfPegged);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, minterOfPegged, 0);
+        vm.stopPrank();
+
+        assertGt(minted, 0, "the market mints again once the records are true");
+    }
+
+    /// The guard and recognition must test the SAME condition, or a market can reach a state that is halted
+    /// and cannot be unhalted - or one that is recognisable while trading continues against records nobody
+    /// has stood behind. Both read the min rate, which is what makes the two coincide.
+    function testFuzz_theGuardTripsExactlyWhenRecognitionWould(uint256 dropBps) public {
+        setUp_collateral(100 ether, 40 ether);
+        dropBps = bound(dropBps, 0, 9_000);
+        _impair(dropBps);
+
+        bool overstated = _recordsOverstateTheHolding();
+
+        uint256 snapshot = vm.snapshotState();
+        bool recognitionSucceeds;
+        vm.startPrank(owner());
+        try IMinter_v3(minter).recogniseImpairment() {
+            recognitionSucceeds = true;
+        } catch {
+            recognitionSucceeds = false;
+        }
+        vm.stopPrank();
+        vm.revertToStateAndDelete(snapshot);
+
+        assertEq(recognitionSucceeds, overstated, "recognition has something to do exactly when the records overstate");
+
+        snapshot = vm.snapshotState();
+        bool guardTrips;
+        address prober = makeAddr("guardProber");
+        deal(wrappedCollateralToken, prober, 1 ether);
+        vm.startPrank(prober);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        try IMinter(minter).mintLeveragedToken(1 ether, prober, 0) returns (uint256) {
+            guardTrips = false;
+        } catch (bytes memory reason) {
+            guardTrips = bytes4(reason) == IMinter_v3.UnrecognisedImpairment.selector;
+        }
+        vm.stopPrank();
+        vm.revertToStateAndDelete(snapshot);
+
+        assertEq(guardTrips, overstated, "and the guard refuses on exactly the same condition");
+    }
+
+    /// A dip that reverses needs no owner call: the guard states a condition about the present, not a
+    /// judgement that outlives it, so the market trades again the moment the cover returns.
+    function test_transientDip_haltsAndRecoversWithoutRecognition() public {
+        setUp_collateral(100 ether, 40 ether);
+        uint256 rateBefore = _rate();
+
+        _impair(_SMALL_DROP_BPS);
+        assertTrue(_recordsOverstateTheHolding(), "the dip overstates the records while it lasts");
+
+        _setRate(rateBefore);
+        assertFalse(_recordsOverstateTheHolding(), "and the recovery covers them again");
+
+        address minterOfPegged = makeAddr("minterAfterDip");
+        deal(wrappedCollateralToken, minterOfPegged, 1 ether);
+        vm.startPrank(minterOfPegged);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, minterOfPegged, 0);
+        vm.stopPrank();
+
+        assertGt(minted, 0, "with no owner call in between");
+    }
+
+    /// The guard reads the LOW edge of the rate band, so a market covered at that edge is covered. A wide
+    /// band is the oracle's uncertainty, never a loss, and must not halt a market on its own.
+    function test_aWideOracleBandDoesNotHaltAHealthyMarket() public {
+        setUp_collateral(100 ether, 40 ether);
+        uint256 rate = _rate();
+
+        // The records are covered at the low edge, and the band is opened wide ABOVE it.
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _price(), rate, rate * 2);
+        assertFalse(_recordsOverstateTheHolding(), "the low edge still covers the records");
+
+        address minterOfPegged = makeAddr("minterUnderAWideBand");
+        deal(wrappedCollateralToken, minterOfPegged, 1 ether);
+        vm.startPrank(minterOfPegged);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, minterOfPegged, 0);
+        vm.stopPrank();
+
+        assertGt(minted, 0, "so the band's width alone halts nothing");
     }
 }
