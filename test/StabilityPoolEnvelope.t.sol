@@ -313,6 +313,41 @@ abstract contract StabilityPoolEnvelopeBase is
         );
     }
 
+    /// @notice Config integrity, layer 3: how far the sweeps below reach. Layers 1 and 2 check that configured values
+    /// arrive where they are read; this checks that the RANGE swept still covers what the product claims, which no
+    /// amount of value-matching can see.
+    ///
+    /// The peg floor every sweep in this file runs down to is DERIVED from the minter's declared
+    /// `MAX_COLLATERAL_PRICE`, so lowering that constant narrows all of them at once - and a narrowing makes nothing
+    /// fail, because a sweep that covers less still passes everywhere it still goes. So the claim is stated here
+    /// independently, in the dollars it is made in rather than in the constants that implement it, and a narrowing has
+    /// to be argued for rather than absorbed.
+    ///
+    /// The claim: collateral worth up to $1e6 a unit must still work against a peg devalued to $1e-12 - the
+    /// hyperinflation corner the deliberately wide peg axis exists to reach. A unit of collateral is worth
+    /// $1e6 / $1e-12 = 1e18 pegged tokens there, so the escrow must be carried to at least that price for a market
+    /// founded at the corner to have a leveraged floor at all.
+    ///
+    /// Both halves are asserted because either can rot alone: the minter could keep the capability while the envelope
+    /// stopped sweeping to it, or the envelope could declare a range the minter no longer carries. It reads
+    /// `EnvelopeLib.ethFxUSD()` rather than this market's own envelope because that is where the wide peg axis is
+    /// declared - the per-scale markets band the peg deliberately narrowly around their nominal.
+    function test_configIntegrity_envelopeReachesTheDeclaredHyperinflationFloor() public {
+        uint256 dearestCollateralUSD = 1e6 ether;
+        uint256 cheapestPegUSD = 1e-12 ether;
+
+        assertGe(
+            MinterValuationLib.MAX_COLLATERAL_PRICE,
+            (dearestCollateralUSD * 1e18) / cheapestPegUSD,
+            "the minter no longer carries the leveraged escrow across the declared peg range"
+        );
+        assertLe(
+            EnvelopeLib.ethFxUSD().minPegPriceUSD,
+            cheapestPegUSD,
+            "the swept peg range no longer reaches the hyperinflation floor the product claims"
+        );
+    }
+
     /// @dev The ceiling the constructor derives: `MIN * FACTOR_PRECISION`, saturated at the uint128 supply field above
     /// which a larger ceiling is unreachable anyway.
     function _expectedMaxTotalAssetSupply(uint256 minTotalSupply) internal pure returns (uint256) {
@@ -322,24 +357,80 @@ abstract contract StabilityPoolEnvelopeBase is
                 : minTotalSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
     }
 
-    /// @notice The same collateral ratio is reached at any rate in the declared range, the price absorbing the
-    ///         difference - including below the record, where the backing becomes the holding and the price must
-    ///         rise by the factor the rate fell. This is what lets the rate sweep its whole range without the
-    ///         market's health riding on it.
+    /// @notice The wrap rate is a SCALE axis, not a health one: the collateral ratio is computed from the RECORDED
+    ///         backing, so moving the rate across its whole declared range does not move it. What a fallen rate
+    ///         changes is whether the record is still covered by the holding - and the market halts until an owner
+    ///         says the shortfall is real. Recognition is the only thing that moves the ratio, and only ever down.
+    ///
+    /// @dev Four parts, because each is a separate thing that could break and the first three look alike from
+    /// outside. A reader who only checks that the ratio moved eventually cannot tell a market that held its ratio
+    /// through a rate fall from one that never noticed the fall at all - part (b) is what separates them.
     function test_envelopePointAtCollateralRatio_holdsTheRatioAcrossTheRateRange() public {
         Envelope memory e = buildEnvelope();
-        uint256 target = 1.4 ether; // inside the fee bands, and off the deploy-time 1.5 so it must actually move
+        assertTrue(
+            _seedMarketAt(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD),
+            "a market stands up at the nominal point"
+        );
+        uint256 ratioAtNominal = IMinter(minter).collateralRatio();
 
-        // the rate at, below and above the record: the backing is the holding for the first two and the record for
-        // the third, so the derivation is exercised on both sides of the min()
-        _setEnvelopePointAtCollateralRatio(target, e.minWrapRate, e.pegPriceUSD);
-        uint256 priceAtFloor = currentPrice;
-        _setEnvelopePointAtCollateralRatio(target, _nominalWrapRate(), e.pegPriceUSD);
-        uint256 priceAtNominal = currentPrice;
-        _setEnvelopePointAtCollateralRatio(target, e.maxWrapRate, e.pegPriceUSD);
+        // (a) the rate falls to the bottom of the declared range and the ratio does not move: the backing is a
+        // record, and nothing has yet decided the shortfall is real
+        mockOracle.setLatestAnswer(currentPrice, e.minWrapRate);
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            ratioAtNominal,
+            "a fallen rate does not move a ratio measured against the record"
+        );
 
-        // the cheaper the wrapped, the more of the peg each unit of collateral price has to carry
-        assertGt(priceAtFloor, priceAtNominal, "a fallen rate is answered by a risen collateral price");
+        // (b) but the market is HALTED, not merely unchanged - which is what makes (a) a decision deferred rather
+        // than a fall gone unnoticed
+        address halted = makeAddr("haltedMinter");
+        deal(wrappedCollateral, halted, 1 ether);
+        vm.startPrank(halted);
+        IERC20(wrappedCollateral).approve(minter, 1 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter_v3.UnrecognisedImpairment.selector,
+                _recordedCollateral(),
+                _heldAsCollateralAtRate(e.minWrapRate)
+            )
+        );
+        IMinter(minter).mintPeggedToken(1 ether, halted, 0);
+        vm.stopPrank();
+
+        // (c) recognising is what moves it, and it moves by the factor the rate fell
+        vm.prank(IBaoOwnable(minter).owner());
+        IMinter_v3(minter).recogniseImpairment();
+        uint256 ratioRecognised = IMinter(minter).collateralRatio();
+        // Exactly, not approximately. The write-down sets the record to what the holding converts to, and the same
+        // holding is being converted at both rates - so the ratio carries the rate's own factor and the floors on
+        // either side land on the same wei. An approximate assertion here would admit a write-down that was merely
+        // close to the rate it claims to follow.
+        assertEq(
+            ratioRecognised,
+            Math.mulDiv(ratioAtNominal, e.minWrapRate, _nominalWrapRate()),
+            "recognition writes the ratio down by the factor the rate fell"
+        );
+
+        // (d) and the rate returning does NOT restore it: a recognised loss is a decision, not a reading
+        mockOracle.setLatestAnswer(currentPrice, e.maxWrapRate);
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            ratioRecognised,
+            "a risen rate does not undo a recognised impairment"
+        );
+    }
+
+    /// @dev The two figures the impairment guard compares, as it computes them: what the records claim between
+    /// them, and what the holding converts to at the min rate. Read rather than restated so the expected revert
+    /// arguments cannot drift from the guard's own arithmetic.
+    function _recordedCollateral() internal view returns (uint256) {
+        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
+        return backing + escrow;
+    }
+
+    function _heldAsCollateralAtRate(uint256 rate) internal view returns (uint256) {
+        return Math.mulDiv(IERC20(wrappedCollateral).balanceOf(minter), rate, 1 ether);
     }
 
     /// @dev A collateral ratio deep enough below the rebalance threshold to make the rebalance return a large
