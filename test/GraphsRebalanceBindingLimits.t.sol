@@ -11,6 +11,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
@@ -78,12 +79,16 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
     }
 
     function test_whatStopsARebalanceShort() public {
-        // A rebalance only happens below the threshold, so every point has to start there or the graph
-        // measures nothing being stopped short.
+        // The band this graph is about: the bound is engaged at and below here, so the distressed ratio
+        // each point starts from has to be inside it for the escape to be the one being measured.
         assertLt(
             DISTRESSED_COLLATERAL_RATIO,
-            IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold(),
-            "the sweep must start where a rebalance is possible at all"
+            Math.mulDiv(
+                MinterValuationLib.LEVERAGE_RATIO_CAP,
+                1 ether,
+                MinterValuationLib.LEVERAGE_RATIO_CAP - 1 ether
+            ),
+            "the sweep must start inside the band where the conversion bound is engaged"
         );
 
         for (uint256 share = FIRST_POOL_SHARE; share <= LAST_POOL_SHARE; share = (share * 3) / 2) {

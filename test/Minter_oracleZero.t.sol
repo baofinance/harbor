@@ -4,25 +4,16 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IPriceOracleErrors} from "@bao/interfaces/IPriceOracleErrors.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
-/// @notice The Minter must not act on a zero collateral price or a zero wrapped-to-underlying rate, and must let
-/// the refusal through rather than answering anyway.
-///
-/// Neither is an economic state. A collateral asset worth nothing and a units conversion of zero can only mean the
-/// source is faulty - and that is true of a leveraged token used as collateral too, now that the collateral
-/// escrowed for it puts a floor under its price. No product this protocol issues is worth nothing while any of it
-/// exists, so a zero can only have come from something broken.
-///
-/// The REFUSAL ITSELF belongs to the oracle, which rejects a reading that is stale, negative or zero and a rate at
-/// or below zero. What is asserted here is that the Minter consumes that refusal rather than swallowing it: the
-/// values a faulty source produces are indistinguishable from real extremes that drive automated action - a dead
-/// feed makes the collateral ratio read 0, which is "wholly undercollateralised, liquidate now" - so every path
-/// that reads the oracle must carry the revert out to its caller rather than return a number that lies.
+/// @notice The Minter must refuse to act on a zero collateral price or a zero wrapped-to-underlying rate.
+/// Neither is an economic state: a collateral asset worth nothing and a units conversion of zero can only mean the
+/// oracle is faulty. The values they produce are indistinguishable from real extremes that drive automated action -
+/// a dead feed makes the collateral ratio read 0, which is "wholly undercollateralised, liquidate now" - so the
+/// contract must revert rather than return a number that lies.
 contract MinterOracleZeroTest is TestMinterSetUp {
     uint256 private constant COLLATERAL_FOR_PEGGED = 100 ether;
     uint256 private constant COLLATERAL_FOR_LEVERAGED = 40 ether;
@@ -54,7 +45,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (, uint256 rate) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, rate);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).collateralRatio();
     }
 
@@ -63,7 +54,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (, uint256 rate) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, rate);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).leveragedTokenPrice();
     }
 
@@ -72,7 +63,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, ) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).harvestable();
     }
 
@@ -83,7 +74,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, uint256 rate) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, 2 * price, rate, rate);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).collateralRatio();
     }
 
@@ -93,7 +84,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, uint256 rate) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(2 * price, 0, rate, rate);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).collateralRatio();
     }
 
@@ -102,7 +93,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, uint256 rate) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, price, 2 * rate, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).harvestable();
     }
 
@@ -115,7 +106,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, ) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).collateralRatio();
     }
 
@@ -123,7 +114,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, ) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).leverageRatio();
     }
 
@@ -131,19 +122,16 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, ) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).peggedTokenPrice();
     }
 
-    /// harvestable() reads no price, but a faulty one still stops it - because a conforming oracle refuses to
-    /// answer AT ALL rather than handing back a zero for the reading it cannot make. There is no such thing as a
-    /// faulty price arriving alongside a sound rate, so nothing is lost by the whole answer being refused.
-    function test_harvestable_zeroPrice_reverts() public {
+    /// harvestable() reads no price, so a faulty price must not stop it reporting.
+    function test_harvestable_zeroPrice_stillReports() public {
         (, uint256 rate) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, rate);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
-        IMinter_v3(minter).harvestable();
+        assertEq(IMinter_v3(minter).harvestable(), 0, "a faulty price must not block a rate-only reading");
     }
 
     /// harvestable() takes the MIN rate, not the mid. It divides the recorded collateral by the rate, so the low
@@ -155,10 +143,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         uint256 maxRate = 2 ether;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, price, minRate, maxRate);
 
-        // Both accounts, because the surplus is what the holding exceeds the pair by: the escrow is spoken for,
-        // so leaving it out would model it as yield and expect a harvest to carry the leveraged floor away.
-        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
-        uint256 collateral = backing + escrow;
+        uint256 collateral = IMinter_v3(minter).collateralTokenBalance();
         uint256 balance = IERC20(wrappedCollateralToken).balanceOf(minter);
         uint256 valueAtMin = (collateral * 1 ether) / minRate;
         uint256 valueAtMid = (collateral * 1 ether) / ((minRate + maxRate) / 2);
@@ -180,7 +165,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         deal(wrappedCollateralToken, donor, 1 ether);
         vm.startPrank(donor);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).donateWrappedCollateral(1 ether);
         vm.stopPrank();
     }
@@ -196,7 +181,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         deal(wrappedCollateralToken, donor, 1 ether);
         vm.startPrank(donor);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).donateWrappedCollateral(1 ether);
         vm.stopPrank();
 
@@ -216,7 +201,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         _fundAndApprove(address(this), 10 ether);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, rate);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).mintPeggedToken(1 ether, address(this), 0);
     }
 
@@ -226,7 +211,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         _fundAndApprove(address(this), 10 ether);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).mintPeggedToken(1 ether, address(this), 0);
     }
 
@@ -236,7 +221,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, rate);
 
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).redeemPeggedToken(1 ether, zeroFee, 0);
         vm.stopPrank();
     }
@@ -247,7 +232,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, rate);
 
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).redeemLeveragedToken(1 ether, zeroFee, 0);
         vm.stopPrank();
     }
@@ -259,7 +244,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (, uint256 rate) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, rate);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.ZeroPrice.selector, priceOracle, int256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
         IMinter_v3(minter).mintPeggedTokenDryRun(1 ether);
     }
 
@@ -268,7 +253,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, ) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IPriceOracleErrors.InvalidRate.selector, uint256(0)));
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).mintPeggedTokenDryRun(1 ether);
     }
 }

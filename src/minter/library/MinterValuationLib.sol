@@ -17,77 +17,21 @@ import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol"
 ///      Everything here is `pure`: state and immutables belong to the caller, which resolves them and passes
 ///      primitives in. That is what lets the same code serve a contract and a `DELEGATECALL` library.
 library MinterValuationLib {
-    /// @notice The smallest pegged token price the protocol can report: one wei of the 1e18-scaled price.
-    /// @dev The operations price the pegged token at 1e36 while `peggedTokenPrice()` reports it at 1e18, so a price
+    /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
+    uint256 internal constant LEVERAGE_RATIO_CAP = 20 ether;
+
+    /// @notice The smallest pegged price the protocol can report: one wei of the 1e18-scaled price.
+    /// @dev The operations price the pegged at 1e36 while `peggedTokenPrice()` reports it at 1e18, so a price
     /// below this floors to zero in every external report while the operations still divide by it happily. Two
     /// things follow, and both are why minting stops here rather than at zero. A mint below it is priced against
     /// a figure nothing outside the contract can see, so no consumer can tell that it happened at all. And the
     /// tokens issued per unit of collateral value are `1e36 / price`, which grows without bound as the price
     /// falls - at the floor it is already 1e18, and below it there is no limit at all.
     ///
-    /// This is a floor on REPORTABILITY, not on solvency: a depegged pegged token well above it is still minted at its
+    /// This is a floor on REPORTABILITY, not on solvency: a depegged pegged well above it is still minted at its
     /// depressed price, which is the intended behaviour. It only refuses the range the protocol has no way to
     /// describe.
     uint256 internal constant MIN_REPORTABLE_PEGGED_PRICE_E36 = 1 ether;
-
-    /// @notice ESCROWED COLLATERAL against COLLATERAL PAID IN, at the first leveraged mint into an empty market:
-    ///         the fraction of that deposit held back for the leveraged token. Not to be confused with
-    ///         `leverageRatio()`, which is the collateral value over the leveraged token's whole claim.
-    /// @dev This is what puts a floor under the leveraged token's price: its reciprocal bounds how far that price
-    /// can FALL from what the first leveraged tokens were bought for, and bounds nothing else directly.
-    ///
-    /// In particular it is NOT a bound on tokens issued per unit of collateral. The collateral escrowed per token
-    /// is this ratio over the collateral price ruling at a market's first leveraged mint, so the most a
-    /// conversion can issue per unit of collateral given up is `collateralPrice / ratio` - a constant of THAT
-    /// MARKET, set at its opening, rather than a constant of the protocol.
-    ///
-    /// Denominated in COLLATERAL because that is what funds it. A floor promised in pegged terms would need the
-    /// escrow to GROW exactly when the collateral price fell, so it would fail in a collateral crash - the event
-    /// it exists for. In collateral it is always fundable, being literally what was set aside.
-    ///
-    /// Expressed as a fraction of the deposit rather than as an amount of collateral per token, because a
-    /// leveraged token is worth ONE PEGGED TOKEN when first minted, so what that is worth in collateral depends
-    /// on the collateral price and would differ for every market. A fraction needs no such calibration: the same
-    /// value is correct at any price, and the collateral escrowed per token follows from what the first tokens
-    /// were actually bought for.
-    ///
-    /// A CONSTANT rather than a per-market setting, for the same reason: one value is right everywhere, so a
-    /// per-market knob would be flexibility with nothing to express - and a mis-set one would not revert, it
-    /// would quietly put the floor in the wrong place and be discovered during a depeg. Should a market ever
-    /// need to advertise a different maximum leverage, this becomes an immutable and the deploy threads it.
-    uint256 internal constant LEVERAGED_ESCROW_RATIO = 0.1 ether;
-
-    /// @notice The dearest collateral the escrow is carried properly for: a unit of collateral worth this many
-    /// pegged tokens, 1e18-scaled.
-    /// @dev Together with `ESCROW_STEPS` this is the protocol's declared capability, and `StabilityPoolEnvelope`
-    /// derives the peg range it sweeps from it rather than restating a number that would go stale.
-    ///
-    /// It is a limit because the escrow per leveraged token is a FIXED-POINT figure. A founding mint issues
-    /// leveraged tokens at par with the pegged residual while escrowing a fixed fraction of the deposit, so the
-    /// deposit cancels and what is stored is `LEVERAGED_ESCROW_RATIO x ESCROW_PER_TOKEN_SCALE / price`. Dearer
-    /// collateral buys more leveraged tokens with the same escrow, so the figure falls - and at the point it
-    /// reaches zero the market has no leveraged floor at all, for the life of its supply: the figure is written
-    /// only by a mint into an empty supply, and moved afterwards only downwards, by a recognised impairment.
-    uint256 internal constant MAX_COLLATERAL_PRICE = 1e36;
-
-    /// @notice How finely the escrow per leveraged token must still be carried at `MAX_COLLATERAL_PRICE`.
-    /// @dev The stored figure is a count of steps, so the escrow is carried to about one part in it. A hundred
-    /// steps is the escrow held to a percent of itself at the dearest collateral declared; one step would be a
-    /// floor in name only, quantised to the whole of itself.
-    uint256 internal constant ESCROW_STEPS = 100;
-
-    /// @notice The scale the collateral escrowed per leveraged token is stored at - NOT the usual 1e18.
-    /// @dev Derived, never chosen. Precision is carried by the PRODUCT `LEVERAGED_ESCROW_RATIO x SCALE`, so the
-    /// two trade off exactly: every decade off the ratio is a decade that must go back on the scale. Pinning the
-    /// scale as a literal would therefore make the ratio's next change silently narrow what the protocol supports,
-    /// with nothing failing to say so. Deriving it means the ratio is the only thing chosen, and the declared
-    /// capability above holds at whatever it is set to.
-    ///
-    /// Ceiling division: the guarantee may be exceeded but never rounded below. The product is `ESCROW_STEPS x
-    /// MAX_COLLATERAL_PRICE` whatever the ratio, so the stored figure is bounded by that - which is what keeps the
-    /// widths here independent of a ratio nobody has chosen yet.
-    uint256 internal constant ESCROW_PER_TOKEN_SCALE =
-        (ESCROW_STEPS * MAX_COLLATERAL_PRICE + LEVERAGED_ESCROW_RATIO - 1) / LEVERAGED_ESCROW_RATIO;
 
     /// @notice The state a valuation is computed against, gathered once by the caller.
     /// @dev Passed by memory reference, so it costs one stack slot however many fields it carries — which is what
@@ -98,10 +42,6 @@ library MinterValuationLib {
         uint256 rate;
         uint256 peggedTokenBalance;
         uint256 leveragedTokenBalance;
-        // Collateral held for the leveraged token alone, and no part of `underlyingCollateral`. It arrives as
-        // data rather than being read directly because the adjustments are an external library reached by
-        // DELEGATECALL, which shares the caller's storage but cannot see its immutables.
-        uint256 leveragedCollateralEscrow;
     }
 
     /// @notice The collateral a wrapped amount stands for, at a given rate.
@@ -220,32 +160,9 @@ library MinterValuationLib {
         }
     }
 
-    /// @notice The value the leveraged token has a claim on: whatever the pegged token's claim leaves of the
-    ///         main account, PLUS the collateral escrowed for the leveraged token.
-    /// @dev The escrow is what stops this reaching zero. The residual on its own vanishes as the market
-    /// approaches its peg, and a claim of nothing prices the leveraged token at nothing - which is what makes
-    /// the conversion into it unbounded there, since the conversion issues one claim's worth per unit paid in.
-    /// The escrow is held for the leveraged token and for nothing else, so the claim is worth at least the
-    /// escrow at any residual whatsoever, and the price and the conversion rate are finite everywhere.
-    ///
-    /// The subtraction cannot go negative: `tokenValuesE36` caps the pegged claim at what the account holds.
-    /// @param collateralValueE36 The main account's value, at 1e36.
-    /// @param peggedValueE36 The pegged token's claim on that account, at 1e36.
-    /// @param leveragedCollateralEscrow The collateral escrowed for the leveraged token.
-    /// @param collateralPrice The price of the collateral in pegged tokens, at 1e18.
-    function leveragedClaimE36(
-        uint256 collateralValueE36,
-        uint256 peggedValueE36,
-        uint256 leveragedCollateralEscrow,
-        uint256 collateralPrice
-    ) internal pure returns (uint256 claimE36) {
-        claimE36 = (collateralValueE36 - peggedValueE36) + leveragedCollateralEscrow * collateralPrice;
-    }
-
     function leverageRatio(
         uint256 peggedTokenBalance_,
         uint256 underlyingCollateral_,
-        uint256 leveragedCollateralEscrow,
         uint256 price
     ) internal pure returns (uint256 ratio) {
         (uint256 collateralValueE36, uint256 peggedValueE36) = tokenValuesE36(
@@ -253,15 +170,15 @@ library MinterValuationLib {
             underlyingCollateral_,
             price
         );
-        uint256 claimE36 = leveragedClaimE36(collateralValueE36, peggedValueE36, leveragedCollateralEscrow, price);
-        if (claimE36 == 0) {
-            // There is no leveraged token outstanding to be levered, so the ratio is a division by zero.
-            // Escrow is held per leveraged token, so it is zero exactly when the supply is, and the
-            // pegged token's claim can only swallow the whole of the main account - never the escrow.
-            // Reported as the largest representable number because that is the limit the ratio tends to.
-            ratio = type(uint256).max;
+        if (peggedValueE36 >= collateralValueE36) {
+            // it divides by 0 or goes negative!
+            ratio = LEVERAGE_RATIO_CAP;
         } else {
-            ratio = Math.mulDiv(collateralValueE36, 1 ether, claimE36);
+            // we have collateral and it's worth something
+            ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
+            if (ratio > LEVERAGE_RATIO_CAP) {
+                ratio = LEVERAGE_RATIO_CAP;
+            }
         }
     }
 

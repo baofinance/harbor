@@ -13,11 +13,11 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// @notice Where a conversion would start refusing, under the two rules that could make it refuse, as the
 /// sail supply varies.
 ///
-/// A conversion issues `pegged / leveragedPrice`, so something has to stop it before the leveraged price
-/// reaches zero. Two rules can: a FLOOR ON THE LEVERAGED PRICE, which is the mirror of the rule the
-/// pegged token already has in `MIN_REPORTABLE_PEGGED_PRICE_E36`, or a CAP ON THE LEVERAGE RATIO, which
-/// is what the contract already tests for and then declines to act on. They are not the same rule and
-/// the difference is the whole point of this graph.
+/// A conversion issues `anchor / sailPrice`, so something has to stop it before the sail price reaches
+/// zero. Two rules can: a FLOOR ON THE SAIL PRICE, which is the mirror of the rule the anchor already has
+/// in `MIN_REPORTABLE_ANCHOR_PRICE_E36`, or a CAP ON THE LEVERAGE RATIO, which is what the contract
+/// already tests for and then declines to act on. They are not the same rule and the difference is the
+/// whole point of this graph.
 ///
 /// The sail price is the residual divided by the sail SUPPLY, while the leverage ratio is the collateral
 /// value divided by the same residual and so depends on no supply at all. A market with more sail in it
@@ -82,21 +82,14 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
     /// @dev The leverage ratio as the market actually stands, uncapped: collateral value over the
     ///      residual. Read from the contract's own balances rather than from `leverageRatio()`, which
     ///      saturates at the cap in force and so cannot express a candidate above it.
-    /// @dev The leveraged token is a claim on the residual PLUS the collateral escrowed for it, so the
-    ///      escrow belongs in the denominator. Leaving it out is what made this the residual-only ratio of
-    ///      the days before the escrow, when a vanishing residual really did leave leverage unbounded.
-    ///      It no longer can: the claim cannot fall below the escrow while any leveraged token exists.
     function _trueLeverageRatio() private view returns (uint256) {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        (uint256 backing, uint256 escrow) = IMinter_v3(minter).collateralAccounts();
-        uint256 collateralValueE36 = backing * price;
-        uint256 peggedClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
-        uint256 residualE36 = collateralValueE36 > peggedClaimE36 ? collateralValueE36 - peggedClaimE36 : 0;
-        uint256 claimE36 = residualE36 + escrow * price;
-        if (claimE36 == 0) {
-            return type(uint256).max; // nothing outstanding to be levered
+        uint256 collateralValueE36 = IMinter(minter).collateralTokenBalance() * price;
+        uint256 anchorClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
+        if (collateralValueE36 <= anchorClaimE36) {
+            return type(uint256).max; // no residual: leverage is unbounded
         }
-        return Math.mulDiv(collateralValueE36, 1 ether, claimE36);
+        return Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - anchorClaimE36);
     }
 
     /// @dev The lowest collateral ratio at which the leverage ratio has fallen to `cap`. The leverage
@@ -218,12 +211,9 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
         uint256[4] memory ratios = [uint256(1.2 ether), 1.5 ether, 2 ether, 5 ether];
         for (uint256 i = 0; i < ratios.length; i++) {
             setCollateralRatio(ratios[i]);
-            assertApproxEqAbs(
-                _trueLeverageRatio(),
-                IMinter_v3(minter).leverageRatio(),
-                1,
-                "the ratio this measurement bisects on is the reported one"
-            );
+            uint256 reported = IMinter_v3(minter).leverageRatio();
+            assertLt(reported, 20 ether, "the reported ratio must be off its cap for this to compare");
+            assertApproxEqAbs(_trueLeverageRatio(), reported, 1, "the uncapped ratio is the reported one");
         }
     }
 }

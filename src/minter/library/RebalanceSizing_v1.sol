@@ -28,9 +28,6 @@ library RebalanceSizing_v1 {
     /// @param peggedTokenBalance The pegged the Minter has issued and not redeemed.
     /// @param collateralTokenBalance The collateral backing it, as recognised by the Minter.
     /// @param price The collateral price used to value the backing.
-    /// @param escrowedPerPegged The collateral the leveraged leg moves OUT of that backing per pegged token it
-    /// converts, at 1e18 - the conversion escrows a share of what it issues, and the backing is what it comes
-    /// from. Zero leaves every figure here exactly as it was before an escrow existed.
     function split(
         uint256 targetCollateralRatio,
         uint256 currentCollateralRatio,
@@ -40,14 +37,12 @@ library RebalanceSizing_v1 {
         uint256 holdingLeveraged,
         uint256 peggedTokenBalance,
         uint256 collateralTokenBalance,
-        uint256 price,
-        uint256 escrowedPerPegged
+        uint256 price
     ) external pure returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
         // The two intercepts of the target-collateral-ratio line: `fullCollateral` reaches the target via the
         // collateral leg alone, `fullLeveraged` via the leveraged leg alone. Redeeming x for collateral AND y for
         // leveraged reaches the target for any (x, y) on `x / fullCollateral + y / fullLeveraged == 1`.
         (uint256 fullCollateral, uint256 fullLeveraged) = _intercepts(
-            escrowedPerPegged,
             targetCollateralRatio,
             currentCollateralRatio,
             peggedTokenBalance,
@@ -107,7 +102,6 @@ library RebalanceSizing_v1 {
     ///      (0, 0) when there is nothing to redeem or the ratio already meets the target. Its own function so its
     ///      locals do not share a stack frame with the split's nine arguments.
     function _intercepts(
-        uint256 escrowedPerPegged,
         uint256 targetCollateralRatio,
         uint256 currentCollateralRatio,
         uint256 peggedTokenBalance,
@@ -135,30 +129,6 @@ library RebalanceSizing_v1 {
         // targetCR > currentCR so peggedBalance > collateral * price / targetCR (subtraction safe)
         unchecked {
             fullLeveraged = peggedTokenBalance - Math.mulDiv(collateralTokenBalance, price, targetCollateralRatio);
-        }
-
-        // The leveraged leg does not leave the backing alone: converting escrows a share of what it issues, and
-        // that collateral comes OUT of the account this ratio is measured against. So the leg has to reach its
-        // target against `C - move` rather than `C`, and solving
-        //
-        //     (C - move) * price / (n - a) == targetCR,   move == escrowedPerPegged * a
-        //
-        // for `a` leaves the figure above over a correction factor:
-        //
-        //     a = (n - C * price / targetCR) / (1 - escrowedPerPegged * price / targetCR)
-        //
-        // It stays closed-form only because the move is LINEAR in `a` - the conversion prices against the
-        // pre-burn state, so what it issues, and the escrow that follows it, are both proportional to what is
-        // converted. A conversion that re-priced as it went would make this a fixed point instead.
-        //
-        // The denominator is positive: the conversion moves at most `C/n` per pegged token, so the subtracted
-        // term is at most `currentCR/targetCR`, and the caller has already returned above unless the target
-        // exceeds the current ratio.
-        if (escrowedPerPegged > 0) {
-            uint256 shrinkage = Math.mulDiv(escrowedPerPegged, price, targetCollateralRatio);
-            if (shrinkage < 1 ether) {
-                fullLeveraged = Math.mulDiv(fullLeveraged, 1 ether, 1 ether - shrinkage, Math.Rounding.Ceil);
-            }
         }
     }
 }

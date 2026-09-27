@@ -25,10 +25,11 @@ import {Array} from "@bao-test/utils/Array.sol";
 /// accumulated state and nothing else - which is what hysteresis means and what makes this a controlled
 /// experiment rather than a sequence of different situations.
 ///
-/// `phi` is carried because it is the carrier: the leverage ratio is exactly
-/// `CR / (max(0, CR-1) + phi)`, with `phi` the escrow's value as a share of the pegged claim, so two markets
-/// at the same collateral ratio report the same leverage only if they agree on it. A `phi` that drifts round
-/// by round IS the hysteresis, and the leverage bound drifting with it is the consequence.
+/// A `phi` column is carried, and is zero: it was the escrow's value as a share of the pegged claim, the
+/// state an escrow rule carried from round to round, and the files the escrow rules wrote have it. This tree
+/// has no escrow, so the column reads zero, and is kept so that a run from this tree and a file from that era
+/// compare column for column. The leverage a rule carries into the next round is the `leverage ratio before`
+/// column, which is the reading that matters.
 abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest {
     /// @dev Where each round starts. Below the peg by default, where the conversion is the only leg that can
     /// recapitalise and where the rules differ most; a run asking whether a rule holds its terms where it
@@ -138,26 +139,6 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
         return Math.mulDiv(valueInPeg, 1 ether, collateralPrice);
     }
 
-    /// @dev The collateral set aside for leveraged holders. It is a SECOND account, held alongside the backing
-    /// rather than inside it - `collateralTokenBalance()` reports the backing alone - so the market's whole
-    /// collateral is the two added together.
-    ///
-    /// Asked of the market's `reader`, which answers in the dialect of the versions actually behind its
-    /// proxies. This replaced a low-level `staticcall` that read ANY revert as zero: a market wired to the
-    /// wrong minter reported "no escrow" and every column downstream of it looked reasonable.
-    function _escrowCollateral() internal view returns (uint256) {
-        return reader.escrowCollateral(market.minter);
-    }
-
-    /// @dev The escrow's value as a share of the pegged claim - the state the leverage ratio carries.
-    function _phi() internal view returns (uint256) {
-        uint256 peggedBalance = IMinter(market.minter).peggedTokenBalance();
-        if (peggedBalance == 0) {
-            return 0;
-        }
-        return Math.mulDiv(Math.mulDiv(_escrowCollateral(), _collateralPrice(), 1 ether), 1 ether, peggedBalance);
-    }
-
     function test_graph_hysteresis() public {
         hysteresisFile = openFile(
             "hysteresis",
@@ -191,7 +172,6 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
             uint256 collateralRatioBefore = IMinter(market.minter).collateralRatio();
             uint256 priceBefore = IMinter_v3(market.minter).leveragedTokenPrice();
             uint256 leverageBefore = IMinter_v3(market.minter).leverageRatio();
-            uint256 phi = _phi();
 
             if (!_canRebalance()) {
                 break;
@@ -228,13 +208,13 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
             row[6] = valueReturned;
             row[7] = valueGivenUp;
             row[8] = valueGivenUp == 0 ? 0 : Math.mulDiv(valueReturned, 1 ether, valueGivenUp);
-            row[9] = phi;
+            // `phi`: zero, this tree having no escrow - see the contract's note on why the column stays.
+            row[9] = 0;
             row[10] = leverageBefore;
-            // BOTH accounts: the backing and the escrow together are what the market holds, and the escrow is
-            // not inside the backing. Recorded every round rather than once, because the claim that it never
-            // moves is what makes the two columns after it a fixed yardstick - so the graph can check that
-            // rather than take it on trust.
-            row[11] = IMinter(market.minter).collateralTokenBalance() + _escrowCollateral();
+            // The market's whole collateral, recorded every round rather than once, because the claim that it
+            // never moves is what makes the two columns after it a fixed yardstick - so the graph can check
+            // that rather than take it on trust.
+            row[11] = IMinter(market.minter).collateralTokenBalance();
             row[12] = holdingBefore;
             row[13] = _holdingInCollateral();
 

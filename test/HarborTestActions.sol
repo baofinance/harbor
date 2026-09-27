@@ -189,22 +189,11 @@ abstract contract HarborTestActions {
         uint256 targetCollateralRatio,
         uint256 wrapRate
     ) internal returns (uint256 collateralPrice) {
-        // The rate first: what the record is worth depends on it, and not on the price it is read at.
+        // The rate first: the recognised backing depends on it, and not on the price it is read at.
         (uint256 priceBefore, , , ) = IWrappedPriceOracle(oracle).latestAnswer();
         MockWrappedPriceOracle(oracle).setLatestAnswer(priceBefore, wrapRate);
 
-        // Then RECOGNISE, before the backing is read. A rate below the one the collateral was recorded at
-        // leaves the record overstating what is held, and the contract no longer floors it away on every
-        // read - it refuses to act at all until someone says whether the shortfall is real. So a market
-        // left overstated here is a halted market, and a price derived from a record that is about to be
-        // written down lands on the target only until it is. Recognising first makes the backing read
-        // below the true one and the derived price land where it is asked to.
-        _vm.prank(IBaoOwnable(minter).owner());
-        try IMinter_v3(minter).recogniseImpairment() {} catch (bytes memory reason) {
-            require(bytes4(reason) == IMinter_v3.NothingToRecognise.selector, "unexpected recognition failure");
-        }
-
-        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 backing = IMinter(minter).collateralTokenBalance(); // recognised: min(record, held x rate)
         uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
         require(backing > 0, "a market with no recognised backing has no collateral ratio to target");
         require(peggedBalance > 0, "a market with no anchor issued has no collateral ratio to target");

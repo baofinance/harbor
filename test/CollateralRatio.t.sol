@@ -5,8 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
-
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
@@ -18,13 +16,7 @@ import {console2} from "forge-std/console2.sol";
 
 abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilityPool2SetUp {
     /// @dev The ratio the market is deployed at, which the swept price is measured against.
-    /// @dev The collateral ratio the market actually opens at, READ from it rather than restated. The
-    ///      funding is ten and ten, which would put it at two if all of it backed the pegged token - but the
-    ///      escrow holds part of the leveraged deposit aside and the collateral ratio is measured against
-    ///      the backing alone, so the market opens a little under two. Every sweep price below is derived
-    ///      from this, so a copy that drifted from the deploy would not fail an assertion, it would quietly
-    ///      aim every sample at the wrong ratio.
-    uint256 internal startCollateralRatio;
+    uint256 internal constant START_COLLATERAL_RATIO = 2 ether;
 
     uint256 startPrice;
     uint256 currentPrice;
@@ -50,7 +42,6 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
 
         (startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 10 ether, address(this));
-        startCollateralRatio = IMinter(minter).collateralRatio();
         deal(address(wrappedCollateralToken), address(this), 1000 ether);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
@@ -209,7 +200,7 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     ///      those AND on how much is still held, so the same collateral ratio reached different ways
     ///      prices a deposit differently.
     function _setCollateralRatio(uint256 requested) internal virtual {
-        currentPrice = (startPrice * requested) / startCollateralRatio;
+        currentPrice = (startPrice * requested) / START_COLLATERAL_RATIO;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);
         currentCollateralRatio = IMinter(minter).collateralRatio();
         assertApproxEqAbs(
@@ -278,11 +269,7 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     }
 
     function test_allCollateralRatios() public virtual {
-        // The sweep derives every price from where the market opened, so it must still be there. Asserted
-        // as a band rather than a value: what the deploy produces is the deploy's business, but a market
-        // that opened below par would make the whole sweep a measurement of a depeg.
-        assertGt(IMinter(minter).collateralRatio(), 1 ether, "the sweep must start from a covered market");
-        assertEq(IMinter(minter).collateralRatio(), startCollateralRatio, "and from where setUp left it");
+        assertEq(IMinter(minter).collateralRatio(), START_COLLATERAL_RATIO);
 
         console2.log("Testing collateral ratios from %s to %s by %s", start, finish, increment);
         bool refining = refinementTolerance() > 0;
@@ -606,14 +593,10 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
             // The leveraged tolerance carries a term the collateral one does not. Backing credited to the
             // record is floored once per operation, so splitting an action into `repeats` of them floors
             // `repeats` times where doing it once floors once — a difference of at most one collateral wei
-            // each. The leveraged token is the residual claim PLUS the escrow, so a collateral wei moves it
-            // by the collateral price times the leverage ratio — and the escrow is what bounds that ratio
-            // now the leverage cap is gone. The leveraged price cannot fall below the collateral escrowed
-            // per token, so the ratio cannot exceed the reciprocal of `LEVERAGED_ESCROW_RATIO`, and that is
-            // how far one wei can reach however close to a depeg the sweep runs.
-            uint256 creditFloorReach = repeats *
-                Math.mulDiv(1 ether, 1 ether, MinterValuationLib.LEVERAGED_ESCROW_RATIO) *
-                (price / 1 ether);
+            // each. Sail is the residual claim, so a collateral wei moves it by the collateral price times
+            // the leverage ratio, and the leverage ratio is capped: `_LEVERAGE_RATIO_CAP` bounds how far one
+            // wei can reach however close to a depeg the sweep runs.
+            uint256 creditFloorReach = repeats * 20 * (price / 1 ether);
             compareDeltaHoldings(
                 largeChanges,
                 smallChanges,
