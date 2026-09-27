@@ -9,6 +9,7 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
@@ -242,7 +243,11 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             // liquidate pegged into collateral, creating an immediate reward
             IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
             vm.prank(rebalancer);
-            IStabilityPool(stabilityPoolCollateral).notifyLiquidation(toLiquidate, toLiquidateTo);
+            IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(
+                wrappedCollateralToken,
+                toLiquidate,
+                toLiquidateTo
+            );
             rebalance1 = true;
         }
 
@@ -258,7 +263,11 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             // liquidate pegged into collateral, creating an immediate reward
             IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
             vm.prank(rebalancer);
-            IStabilityPool(stabilityPoolCollateral).notifyLiquidation(currentPoolDeposit, toLiquidateTo);
+            IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(
+                wrappedCollateralToken,
+                currentPoolDeposit,
+                toLiquidateTo
+            );
             rebalance2 = true;
         }
 

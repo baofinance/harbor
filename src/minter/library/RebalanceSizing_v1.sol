@@ -119,11 +119,28 @@ library RebalanceSizing_v1 {
             // we're depegged, so all we can do is redeem them all
             fullCollateral = peggedTokenBalance;
         } else {
+            // Redeeming `a` at par takes `a` of the pegged claim and `a / price` of the backing, landing the ratio at
+            // `(c·p − a)/(n − a)`; solved for the target, `a = (T·n − c·p)/(T − 1)`. The redemption must REACH the
+            // target as `collateralRatio()` reports it afterwards, not stop a fraction short, because a caller acts on
+            // that report - a rebalance whose target is the floor below which no leverage is sold cannot take its
+            // next step from a hair beneath it. Two roundings could leave it short, and each is allowed for:
+            //   - the amount's own: the quotient is rounded UP;
+            //   - the backing's: where the held collateral decides the backing, it is a wrapped balance valued at a
+            //     rounded-down rate, and debiting whole wrapped tokens can take its valuation one wei further than the
+            //     collateral paid out. Sized against one wei less backing - `c·p − p` - the trade reaches the target
+            //     however that wei falls.
+            // Every other rounding in the redemption favours the market: the record is debited a rounded-down amount,
+            // and the payout is priced at the band's high edge.
             // targetCR > currentCR >= 1 ether so the numerator and denominator subtractions are both safe
             unchecked {
-                fullCollateral =
-                    (targetCollateralRatio * peggedTokenBalance - collateralTokenBalance * price) /
-                    (targetCollateralRatio - 1 ether);
+                fullCollateral = Math.ceilDiv(
+                    targetCollateralRatio * peggedTokenBalance - collateralTokenBalance * price + price,
+                    targetCollateralRatio - 1 ether
+                );
+            }
+            // No more pegged can be redeemed than is outstanding; redeeming all of it empties the market.
+            if (fullCollateral > peggedTokenBalance) {
+                fullCollateral = peggedTokenBalance;
             }
         }
         // targetCR > currentCR so peggedBalance > collateral * price / targetCR (subtraction safe)

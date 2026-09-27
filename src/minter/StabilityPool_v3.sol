@@ -15,7 +15,6 @@ import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
@@ -30,8 +29,8 @@ import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 /// Depositing pegged assets here results in:
 /// * wrapped collateral being deposited here automatically from the minter when wrapped collateral's value increases
 /// In the event of a rebalance, which occurs automatically, when the collateral ratio held by the Minter contract
-/// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
-/// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
+/// drops below a threshold. In that event some, or even all, deposited assets are converted to wrapped collateral
+/// or to leveraged tokens: the rebalancer names the token per liquidation, and it must be one the pool distributes.
 ///
 /// @dev Balances rebase on loss; allowances do NOT (they're nominal uint256, same as stETH).
 ///      A pre-rebase approval represents a larger fraction of the post-rebase balance.
@@ -84,13 +83,9 @@ contract StabilityPool_v3 is
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable ASSET_TOKEN;
-
-    /// @inheritdoc IStabilityPool
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable LIQUIDATION_TOKEN;
 
     /// @dev the pool cannot have less than this supply once it has reached it
     ///      a deposit must leave the total at zero or at least this floor
@@ -262,7 +257,6 @@ contract StabilityPool_v3 is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address minter_,
-        address liquidationToken_,
         uint256 withdrawalStartDelay_,
         uint256 withdrawalEndWindow_,
         uint256 minTotalAssetSupply,
@@ -276,14 +270,6 @@ contract StabilityPool_v3 is
         Token.sanityCheckERC20Token(asset);
         // slither-disable-next-line missing-zero-check
         ASSET_TOKEN = asset;
-        Token.sanityCheckERC20Token(liquidationToken_);
-        if (
-            liquidationToken_ != IMinter(minter_).WRAPPED_COLLATERAL_TOKEN() &&
-            liquidationToken_ != IMinter(minter_).LEVERAGED_TOKEN()
-        ) {
-            revert InvalidLiquidationToken(liquidationToken_);
-        }
-        LIQUIDATION_TOKEN = liquidationToken_;
 
         if (
             withdrawalEndWindow_ == 0 ||
@@ -326,13 +312,13 @@ contract StabilityPool_v3 is
      * Public View Functions *
      *************************/
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     function totalAssetSupply() external view returns (uint256 totalSupply_) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         totalSupply_ = $.totalAssetSupply.amount;
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     // solhint-disable-next-line explicit-types
     function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -341,14 +327,14 @@ contract StabilityPool_v3 is
         amount = record.amount;
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     function assetBalanceOf(address account) external view returns (uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.assetBalances[account];
         amount = _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     function lastAssetLossError() external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.lastAssetLossError;
@@ -356,7 +342,7 @@ contract StabilityPool_v3 is
 
     // expose claimable from parent via interface
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the configured withdrawal request window for an account.
     function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -365,28 +351,28 @@ contract StabilityPool_v3 is
         end = request.end;
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the current early withdrawal fee ratio (scaled by 1e18).
     function getEarlyWithdrawalFee() external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return uint256($.feePayment.earlyWithdrawalFee);
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the current fee recipient address for early withdrawal fees.
     function getFeeAddress() external view returns (address) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.feePayment.feeAddress;
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the global withdrawal window configuration.
     function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow) {
         startDelay = WITHDRAWAL_START_DELAY;
         endWindow = WITHDRAWAL_END_WINDOW;
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     /// @notice The minimum single-call deposit — an alias for MIN_TOTAL_ASSET_SUPPLY: the deposit floor is
     ///         enforced on the resulting total supply (see deposit).
     // solhint-disable-next-line func-name-mixedcase
@@ -398,7 +384,7 @@ contract StabilityPool_v3 is
      * Public Mutator Functions *
      ****************************/
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     // slither-disable-next-line reentrancy-benign,reentrancy-no-eth
     function deposit(
         uint256 assetAmount,
@@ -472,7 +458,7 @@ contract StabilityPool_v3 is
         assetsDeposited = Token.allOfQuiet(_msgSender(), ASSET_TOKEN, assetAmount);
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     // slither-disable-next-line reentrancy-no-eth,reentrancy-eth,reentrancy-unlimited-gas,reentrancy-benign
     // slither-disable-next-line cyclomatic-complexity
     function withdraw(
@@ -570,7 +556,7 @@ contract StabilityPool_v3 is
         }
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     /// @notice Creates or updates the withdrawal request window for msg.sender.
     /// @dev Window is [start, end] where start = now + WITHDRAWAL_START_DELAY and end = start + WITHDRAWAL_END_WINDOW.
     function requestWithdrawal() external nonReentrant {
@@ -777,17 +763,25 @@ contract StabilityPool_v3 is
         return amount > headroom ? headroom : amount;
     }
 
-    /// @inheritdoc IStabilityPool
+    /// @inheritdoc IStabilityPool_v3
     // slither-disable-next-line reentrancy-no-eth,reentrancy-benign should only ever called from nonReentrant functions
-    function notifyLiquidation(uint256 liquidated, uint256 returned) external onlyRoles(REBALANCER_ROLE) {
+    function notifyLiquidation(
+        address rewardToken,
+        uint256 liquidated,
+        uint256 returned
+    ) external onlyRoles(REBALANCER_ROLE) {
+        // A token no claim walks would strand the reward, so the rebalancer may name only one the pool distributes.
+        if (!isActiveRewardToken(rewardToken)) {
+            revert NotActiveRewardToken();
+        }
         // Emit liquidation event to record loss and conversion details
-        emit Liquidated(ASSET_TOKEN, liquidated, LIQUIDATION_TOKEN, returned);
+        emit Liquidated(ASSET_TOKEN, liquidated, rewardToken, returned);
         // recalculate balances and
         // make sure rewards in-flight rewards are distributed on the pre-loss balances
         _checkpoint(address(0));
 
         // capture the reward, distributed immediately, at the prior-to-loss balances
-        _accumulateReward(LIQUIDATION_TOKEN, returned);
+        _accumulateReward(rewardToken, returned);
 
         // update balances due to loss
         _notifyLoss(liquidated);

@@ -387,9 +387,14 @@ contract Minter_v3 is
     ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
         // Resolve this contract's own state and oracle here, and leave the arithmetic to the library: it holds no
         // storage of its own, so there is nothing to keep in step between the two.
+        //
+        // Priced at the MIDDLE of the band, the price `collateralRatio()` and `leveragedIssuable()` report at: the
+        // target is a ratio as those measure it, and a trade sized at any other price lands somewhere else by that
+        // measure. The redemption itself pays out at the band's high edge, which leaves more collateral behind than
+        // the middle would, so the trade can only land further past the target, never short of it.
         MinterStorage storage $ = _getMinterStorage();
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 price = _fetchMaxPrice($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         uint256 collateralTokenBalance_ = _effectiveBacking($);
         (peggedForCollateral, peggedForLeveraged) = RebalanceSizing_v1.split(
             targetCollateralRatio,

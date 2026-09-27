@@ -15,7 +15,6 @@ import {TokenHolder_v2, ITokenHolder} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
@@ -436,7 +435,8 @@ contract StabilityPoolManager_v2 is
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, collateralBounty);
             // transfer the amounts and update the stability pool accounts
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(_STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
-            IStabilityPool(_STABILITY_POOL_COLLATERAL).notifyLiquidation(
+            IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).notifyLiquidation(
+                WRAPPED_COLLATERAL_TOKEN,
                 peggedForCollateral,
                 wrappedCollateralReturned
             );
@@ -448,7 +448,11 @@ contract StabilityPoolManager_v2 is
             IERC20(LEVERAGED_TOKEN).safeTransfer(bountyReceiver, leveragedBounty);
             // transfer the amounts and update the stability pool accounts
             IERC20(LEVERAGED_TOKEN).safeTransfer(_STABILITY_POOL_LEVERAGED, leveragedReturned);
-            IStabilityPool(_STABILITY_POOL_LEVERAGED).notifyLiquidation(peggedForLeveraged, leveragedReturned);
+            IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).notifyLiquidation(
+                LEVERAGED_TOKEN,
+                peggedForLeveraged,
+                leveragedReturned
+            );
         }
 
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);

@@ -38,10 +38,7 @@ import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 // New version for testing upgrades
 contract StabilityPool_vN is StabilityPool_v3 {
     // Keep the same constructor signature
-    constructor(
-        address minter_,
-        address liquidationToken_
-    ) StabilityPool_v3(minter_, liquidationToken_, 3600, 90000, 1 ether, "Mock SP", "mSP") {}
+    constructor(address minter_) StabilityPool_v3(minter_, 3600, 90000, 1 ether, "Mock SP", "mSP") {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
@@ -57,7 +54,6 @@ contract StabilityPool_vN is StabilityPool_v3 {
 contract MockStabilityPool is StabilityPool_v3 {
     constructor(
         address minter_,
-        address liquidationToken_,
         uint256 withdrawalStartDelay_,
         uint256 withdrawalEndWindow_,
         uint256 minTotalAssetSupply_,
@@ -66,7 +62,6 @@ contract MockStabilityPool is StabilityPool_v3 {
     )
         StabilityPool_v3(
             minter_,
-            liquidationToken_,
             withdrawalStartDelay_,
             withdrawalEndWindow_,
             minTotalAssetSupply_,
@@ -170,8 +165,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         string memory key,
         StabilityPoolType poolType,
         Config_MinterMarket marketConfig_,
-        address minter_,
-        address liquidationToken
+        address minter_
     ) internal virtual override returns (address impl) {
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig_));
         bool isCollateral = poolType == StabilityPoolType.Collateral;
@@ -187,7 +181,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         impl = address(
             new MockStabilityPool(
                 minter_,
-                liquidationToken,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
                 cfg.minTotalSupply(),
@@ -239,7 +232,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             address(
                 new MockStabilityPool(
                     minter,
-                    liquidationToken,
                     WITHDRAWAL_START_DELAY,
                     WITHDRAWAL_END_WINDOW,
                     marketConfig.minTotalSupply(),
@@ -303,10 +295,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         vm.warp(start + 1);
     }
 
-    function test_initOnly(address sp, address liquidateTo) internal view {
+    function test_initOnly(address sp) internal view {
         assertEq(StabilityPool_v3(sp).owner(), owner());
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
-        assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
         assertEq(IERC20(sp).totalSupply(), 0);
     }
 }
@@ -315,7 +306,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
     using SafeERC20 for IERC20;
 
     function test_initOnly() public view {
-        test_initOnly(stabilityPoolCollateral, wrappedCollateralToken);
+        test_initOnly(stabilityPoolCollateral);
     }
 
     // Test for _authorizeUpgrade function (coverage for function 192)
@@ -326,7 +317,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
 
         // Create the V2 implementation
-        StabilityPool_vN implementationV2 = new StabilityPool_vN(minter, wrappedCollateralToken);
+        StabilityPool_vN implementationV2 = new StabilityPool_vN(minter);
 
         // Perform the upgrade as the owner
         vm.prank(owner());
@@ -360,7 +351,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         address(
             new StabilityPool_v3(
                 minter,
-                wrappedCollateralToken,
                 WITHDRAWAL_START_DELAY,
                 WITHDRAWAL_END_WINDOW,
                 1 ether,
@@ -370,11 +360,10 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         );
     }
 
-    function test_initEvents(address liquidateTo) internal {
+    function test_initEvents() public {
         address sp = address(
             new StabilityPool_v3(
                 minter,
-                liquidateTo,
                 WITHDRAWAL_START_DELAY,
                 WITHDRAWAL_END_WINDOW,
                 1 ether,
@@ -399,22 +388,13 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         );
         IBaoOwnable(spProxy).transferOwnership(owner());
 
-        test_initOnly(spProxy, liquidateTo);
-    }
-
-    function test_initEventsCollateral() public {
-        test_initEvents(wrappedCollateralToken);
-    }
-
-    function test_initEventsLeveraged() public {
-        test_initEvents(leveragedToken);
+        test_initOnly(spProxy);
     }
 
     function test_initialize_invalidFee_reverts() public {
         address spImpl = address(
             new StabilityPool_v3(
                 minter,
-                wrappedCollateralToken,
                 WITHDRAWAL_START_DELAY,
                 WITHDRAWAL_END_WINDOW,
                 1 ether,
@@ -433,7 +413,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         address spImpl = address(
             new StabilityPool_v3(
                 minter,
-                wrappedCollateralToken,
                 WITHDRAWAL_START_DELAY,
                 WITHDRAWAL_END_WINDOW,
                 1 ether,
@@ -598,7 +577,6 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
             address(
                 new MockStabilityPool(
                     minter,
-                    wrappedCollateralToken,
                     WITHDRAWAL_START_DELAY,
                     WITHDRAWAL_END_WINDOW,
                     marketConfig.minTotalSupply(),

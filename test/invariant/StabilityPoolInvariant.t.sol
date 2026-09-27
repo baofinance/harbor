@@ -10,6 +10,7 @@ import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
@@ -27,6 +28,8 @@ contract StabilityPoolInvariantHandler is Test {
 
     address public immutable POOL;
     address public immutable ASSET_TOKEN;
+    /// @notice The token this handler's liquidations pay the pool in. A v3 pool has no token of its own: the
+    ///         rebalancer names one of the pool's reward tokens per liquidation, and so does the handler.
     address public immutable LIQUIDATION_TOKEN;
     address public immutable REBALANCER;
     address public immutable REWARD_DEPOSITOR;
@@ -62,6 +65,7 @@ contract StabilityPoolInvariantHandler is Test {
 
     constructor(
         address pool,
+        address liquidationToken,
         address rebalancer,
         address rewardDepositor,
         uint256 price,
@@ -70,7 +74,7 @@ contract StabilityPoolInvariantHandler is Test {
     ) {
         POOL = pool;
         ASSET_TOKEN = IStabilityPool(pool).ASSET_TOKEN();
-        LIQUIDATION_TOKEN = IStabilityPool(pool).LIQUIDATION_TOKEN();
+        LIQUIDATION_TOKEN = liquidationToken;
         REBALANCER = rebalancer;
         REWARD_DEPOSITOR = rewardDepositor;
         PRICE = price;
@@ -232,7 +236,7 @@ contract StabilityPoolInvariantHandler is Test {
             deal(LIQUIDATION_TOKEN, REBALANCER, returned);
             IERC20(LIQUIDATION_TOKEN).transfer(POOL, returned);
         }
-        IStabilityPool(POOL).notifyLiquidation(loss, returned);
+        IStabilityPool_v3(POOL).notifyLiquidation(LIQUIDATION_TOKEN, loss, returned);
         vm.stopPrank();
 
         injected[LIQUIDATION_TOKEN] += returned;
@@ -343,6 +347,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
 
         handler = new StabilityPoolInvariantHandler(
             stabilityPoolCollateral,
+            wrappedCollateralToken,
             rebalancer,
             rewardDepositor,
             price,

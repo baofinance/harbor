@@ -85,7 +85,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     function _loss(uint256 loss) internal {
         vm.startPrank(rebalancer);
         ITokenHolder(pool).sweep(peggedToken, loss, rebalancer);
-        IStabilityPool(pool).notifyLiquidation(loss, 0);
+        IStabilityPool_v3(pool).notifyLiquidation(wrappedCollateralToken, loss, 0);
         vm.stopPrank();
     }
 

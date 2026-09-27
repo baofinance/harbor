@@ -6,6 +6,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {ERC20} from "@solady/tokens/ERC20.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
@@ -56,7 +57,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function _applyLoss(uint256 liquidated, uint256 returned) internal {
         deal(wrappedCollateralToken, sp, IERC20(wrappedCollateralToken).balanceOf(sp) + returned);
         vm.prank(spmFxUSD);
-        IStabilityPool(sp).notifyLiquidation(liquidated, returned);
+        IStabilityPool_v3(sp).notifyLiquidation(wrappedCollateralToken, liquidated, returned);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -91,7 +92,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         string memory longName = "1234567890123456789012345678901234567890123456789012345678901234";
         assertEq(bytes(longName).length, 64, "sanity");
         vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
-        new StabilityPool_v3(minterFxUSD, wrappedCollateralToken, 3600, 90000, 1 ether, longName, "s");
+        new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether,longName, "s");
     }
 
     /// Intent: constructor reverts if symbol exceeds 31 characters (pack32 limit).
@@ -100,14 +101,13 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         string memory longSymbol = "12345678901234567890123456789012";
         assertEq(bytes(longSymbol).length, 32, "sanity");
         vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
-        new StabilityPool_v3(minterFxUSD, wrappedCollateralToken, 3600, 90000, 1 ether, "n", longSymbol);
+        new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether,"n", longSymbol);
     }
 
     /// Intent: short strings (<32 chars) round-trip through ERC20MetadataLib_v1 correctly.
     function test_name_shortString() public {
         StabilityPool_v3 sp_ = new StabilityPool_v3(
             minterFxUSD,
-            wrappedCollateralToken,
             3600,
             90000,
             1 ether,
@@ -124,7 +124,6 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         assertEq(bytes(name31).length, 31, "sanity");
         StabilityPool_v3 sp_ = new StabilityPool_v3(
             minterFxUSD,
-            wrappedCollateralToken,
             3600,
             90000,
             1 ether,
@@ -140,7 +139,6 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         assertEq(bytes(name40).length, 40, "sanity");
         StabilityPool_v3 sp_ = new StabilityPool_v3(
             minterFxUSD,
-            wrappedCollateralToken,
             3600,
             90000,
             1 ether,
@@ -156,7 +154,6 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         assertEq(bytes(name63).length, 63, "sanity");
         StabilityPool_v3 sp_ = new StabilityPool_v3(
             minterFxUSD,
-            wrappedCollateralToken,
             3600,
             90000,
             1 ether,

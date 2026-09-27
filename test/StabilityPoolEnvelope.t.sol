@@ -447,7 +447,7 @@ abstract contract StabilityPoolEnvelopeBase is
     /// REBALANCER_ROLE). Mirrors the production liquidation's effect on the pool without a real minter redeem.
     function _applyLoss(uint256 loss) internal {
         ITokenHolder(stabilityPool).sweep(pegged, loss, address(this));
-        IStabilityPool(stabilityPool).notifyLiquidation(loss, 0);
+        IStabilityPool_v3(stabilityPool).notifyLiquidation(wrappedCollateral, loss, 0);
     }
 
     /// @dev Stand the market up the way a real one is: Genesis splits its collateral in half, minting anchor with

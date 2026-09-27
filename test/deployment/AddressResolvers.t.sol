@@ -7,7 +7,7 @@ import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.so
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Genesis_v2} from "@harbor/minter/Genesis_v2.sol";
 import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
-import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {Config_MinterMarket, Market} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice Verifies that every predicted-address resolver on HarborDeployer names the contract the
@@ -98,23 +98,35 @@ contract AddressResolversTest is DeployETHfxUSDSetUp {
         assertEq(pools[1], stabilityPoolAddress(market, StabilityPoolType.Leveraged), "pools[1]");
     }
 
-    /// The two stability-pool resolvers name distinct pools, each holding the token its type implies —
-    /// the check that would catch the two pool sub-keys being swapped or duplicated.
+    /// The two stability-pool resolvers name distinct pools, each distributing the reward tokens its type
+    /// implies — the check that would catch the two pool sub-keys being swapped or duplicated.
+    ///
+    /// A pool's type lives in its registered reward tokens, which are the tokens a rebalance may pay it in.
+    /// Both pools take wrapped collateral: as harvest yield, and as the proceeds of a rebalance where the
+    /// market sells no leverage. Only the leveraged pool takes the leveraged token, the proceeds of a
+    /// rebalance where it does.
     function test_theTwoStabilityPoolResolversNameDistinctCorrectlyTypedPools() public {
         address collateralPool = stabilityPoolAddress(market, StabilityPoolType.Collateral);
         address leveragedPool = stabilityPoolAddress(market, StabilityPoolType.Leveraged);
         assertNotEq(collateralPool, leveragedPool, "the two pools must be distinct");
 
-        // The collateral pool liquidates into wrapped collateral; the leveraged pool into the leveraged token.
-        assertEq(
-            StabilityPool_v3(collateralPool).LIQUIDATION_TOKEN(),
-            IMinter(minterAddress(market)).WRAPPED_COLLATERAL_TOKEN(),
-            "collateral pool LIQUIDATION_TOKEN"
+        address wrappedCollateral = IMinter(minterAddress(market)).WRAPPED_COLLATERAL_TOKEN();
+        address leveraged = leveragedTokenAddress(market);
+        assertTrue(
+            IMultipleRewardDistributor(collateralPool).isActiveRewardToken(wrappedCollateral),
+            "the collateral pool distributes wrapped collateral"
         );
-        assertEq(
-            StabilityPool_v3(leveragedPool).LIQUIDATION_TOKEN(),
-            leveragedTokenAddress(market),
-            "leveraged pool LIQUIDATION_TOKEN"
+        assertFalse(
+            IMultipleRewardDistributor(collateralPool).isActiveRewardToken(leveraged),
+            "the collateral pool is paid in collateral on every route, so it does not distribute the leveraged token"
+        );
+        assertTrue(
+            IMultipleRewardDistributor(leveragedPool).isActiveRewardToken(wrappedCollateral),
+            "the leveraged pool distributes wrapped collateral"
+        );
+        assertTrue(
+            IMultipleRewardDistributor(leveragedPool).isActiveRewardToken(leveraged),
+            "the leveraged pool distributes the leveraged token"
         );
     }
 

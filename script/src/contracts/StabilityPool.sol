@@ -5,7 +5,7 @@ import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
@@ -26,19 +26,17 @@ abstract contract StabilityPool is HarborDeployer {
     /// @dev Uniform with every other implementation function: `(stateData, key, …)` first, then what this
     ///      constructor needs. Reading non-address values off the config is fine here — the invariant this
     ///      layer keeps is that no ADDRESS resolution happens in it, so a test override never has to
-    ///      reproduce address prediction. Both addresses arrive already resolved.
+    ///      reproduce address prediction. The one address arrives already resolved.
     /// @dev `minter` must already be DEPLOYED, unlike every other address here: `StabilityPool_v3`'s
-    ///      constructor calls `PEGGED_TOKEN()`, `WRAPPED_COLLATERAL_TOKEN()` and `LEVERAGED_TOKEN()` on
-    ///      it. It uses the minter for nothing else and does not retain the address, so this is a lookup
-    ///      convenience rather than a real dependency — standing a pool up against a mock minter that
-    ///      answers those three calls is therefore enough.
+    ///      constructor calls `PEGGED_TOKEN()` on it. It uses the minter for nothing else and does not
+    ///      retain the address, so this is a lookup convenience rather than a real dependency — standing a
+    ///      pool up against a mock minter that answers that call is therefore enough.
     function deployStabilityPoolImplementation(
         DeploymentTypes.State memory stateData,
         string memory key,
         StabilityPoolType poolType,
         Config_MinterMarket marketConfig,
-        address minter,
-        address liquidationToken
+        address minter
     ) internal virtual returns (address impl) {
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
         bool isCollateral = poolType == StabilityPoolType.Collateral;
@@ -54,7 +52,6 @@ abstract contract StabilityPool is HarborDeployer {
         impl = address(
             new StabilityPool_v3(
                 minter,
-                liquidationToken,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
                 cfg.minTotalSupply(),
@@ -79,21 +76,13 @@ abstract contract StabilityPool is HarborDeployer {
         _reportContract(spKey);
 
         IHarborConfig cfg = IHarborConfig(address(marketConfig));
-        address wrappedCollateral = cfg.wrappedCollateralToken();
-
-        // The liquidation token is what the pool absorbs when it takes a position off the minter, and it
-        // is what distinguishes the two pools: wrapped collateral for one, the leveraged token for the other.
-        address liquidationToken = poolType == StabilityPoolType.Collateral
-            ? wrappedCollateral
-            : leveragedTokenAddress(marketConfig);
 
         address impl = deployStabilityPoolImplementation(
             stateData,
             spKey,
             poolType,
             marketConfig,
-            minterAddress(marketConfig),
-            liquidationToken
+            minterAddress(marketConfig)
         );
 
         bytes memory initData = abi.encodeCall(
@@ -103,11 +92,13 @@ abstract contract StabilityPool is HarborDeployer {
 
         proxy = _deployProxyAndRecord(stateData, spKey, impl, initData);
 
-        // Both pools earn harvest rewards in wrapped collateral. The leveraged pool additionally receives
-        // leveraged tokens from rebalances, which is its liquidation token.
-        IMultipleRewardDistributor(proxy).registerRewardToken(wrappedCollateral);
+        // A pool's type lives in the reward tokens it distributes, which are the tokens a rebalance may pay it
+        // in. Both pools earn harvest rewards in wrapped collateral, and either may be paid collateral by a
+        // rebalance where the market sells no leverage; the leveraged pool is additionally paid the leveraged
+        // token where it does.
+        IMultipleRewardDistributor(proxy).registerRewardToken(cfg.wrappedCollateralToken());
         if (poolType == StabilityPoolType.Leveraged) {
-            IMultipleRewardDistributor(proxy).registerRewardToken(liquidationToken);
+            IMultipleRewardDistributor(proxy).registerRewardToken(leveragedTokenAddress(marketConfig));
         }
 
         // The manager rebalances into the pool and deposits its rewards. It is not deployed yet — this is
@@ -118,7 +109,7 @@ abstract contract StabilityPool is HarborDeployer {
             proxy,
             stabilityPoolManagerAddress(marketConfig),
             "stabilityPoolManager",
-            IStabilityPool(proxy).REBALANCER_ROLE() | IMultipleRewardDistributor(proxy).REWARD_DEPOSITOR_ROLE(),
+            IStabilityPool_v3(proxy).REBALANCER_ROLE() | IMultipleRewardDistributor(proxy).REWARD_DEPOSITOR_ROLE(),
             "REBALANCER | REWARD_DEPOSITOR"
         );
     }

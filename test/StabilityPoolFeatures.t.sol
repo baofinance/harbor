@@ -308,21 +308,14 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // Constructor revert coverage
     // ═══════════════════════════════════════════════════════════════════════
 
-    function test_constructor_invalidLiquidationToken_reverts() public {
-        // Use the pegged token — it's a valid ERC20 but not wrapped collateral or leveraged
-        address invalidLiq = peggedToken;
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, invalidLiq));
-        new StabilityPool_v3(minter, invalidLiq, 3600, 90000, 1 ether, "Test", "T");
-    }
-
     function test_constructor_zeroWithdrawalDelay_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 0, 90000));
-        new StabilityPool_v3(minter, wrappedCollateralToken, 0, 90000, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter,0, 90000, 1 ether, "Test", "T");
     }
 
     function test_constructor_zeroWithdrawalWindow_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 3600, 0));
-        new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 0, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter,3600, 0, 1 ether, "Test", "T");
     }
 
     // A delay or window beyond a year is rejected. The start delay is ADDED to the current time before being packed
@@ -330,25 +323,25 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // almost certainly a units error - which must fail loudly at deployment rather than lock depositors out for years.
     function test_constructor_withdrawalDelayOverAYear_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 366 days, 90000));
-        new StabilityPool_v3(minter, wrappedCollateralToken, 366 days, 90000, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter,366 days, 90000, 1 ether, "Test", "T");
     }
 
     function test_constructor_withdrawalWindowOverAYear_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 3600, 366 days));
-        new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 366 days, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter,3600, 366 days, 1 ether, "Test", "T");
     }
 
     // A zero minimum total asset supply is rejected: it is the reward-integral floor, and a zero floor lets the
     // per-share reward integral grow unbounded (division by a vanishing pool share).
     function test_constructor_zeroMinTotalAssetSupply_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidMinTotalAssetSupply.selector, 0));
-        new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 0, "Test", "T");
+        new StabilityPool_v3(minter,3600, 90000, 0, "Test", "T");
     }
 
     // Below the field width, the supply ceiling is exactly MIN * FACTOR_PRECISION.
     function test_constructor_maxTotalAssetSupply_isMinTimesFactorPrecision() public {
         uint256 smallMin = 1 ether;
-        address sp = address(new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, smallMin, "Test", "T"));
+        address sp = address(new StabilityPool_v3(minter,3600, 90000, smallMin, "Test", "T"));
         assertEq(
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
             smallMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
@@ -361,7 +354,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // cannot overflow. The cap is then a permanent no-op - deposits are bounded by the field's SafeCast instead.
     function test_constructor_maxTotalAssetSupply_saturatesAtFieldWidthForLargeFloor() public {
         uint256 hugeMin = uint256(type(uint128).max) / DecrementalFloatingPoint_v2.FACTOR_PRECISION + 1;
-        address sp = address(new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, hugeMin, "Test", "T"));
+        address sp = address(new StabilityPool_v3(minter,3600, 90000, hugeMin, "Test", "T"));
         assertEq(
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
             type(uint128).max,

@@ -197,9 +197,10 @@ abstract contract DeployedMarket is Test, Deploy_MCAP_Minter, MarketUnderTest {
     /// WHERE EACH ARGUMENT COMES FROM IS THE WHOLE OF THIS FUNCTION. The two withdrawal figures come from the
     /// market CONFIG, exactly as the deploy script reads them, and not off the proxy - they are immutables
     /// declared on no interface, so reading them back would mean guessing which version is behind that proxy
-    /// today, which is the mistake this upgrade exists to stop being possible. The rest come off the proxy
-    /// through the BASE `IStabilityPool`, which every deployed version implements, so the replacement cannot
-    /// silently re-point a pool at a different token.
+    /// today, which is the mistake this upgrade exists to stop being possible. The floor comes off the proxy
+    /// through the BASE `IStabilityPool`, which every deployed version implements. The deployed pool's
+    /// liquidation token is not carried over: a v3 pool has none, the rebalancer naming one of the pool's
+    /// registered reward tokens per liquidation, and the proxy keeps its registrations across the upgrade.
     function _buildStabilityPool(
         Config_MinterMarket config,
         address pool,
@@ -210,7 +211,6 @@ abstract contract DeployedMarket is Test, Deploy_MCAP_Minter, MarketUnderTest {
             address(
                 new StabilityPool_v3(
                     market.minter,
-                    IStabilityPool(pool).LIQUIDATION_TOKEN(),
                     cfg.stabilityPoolWithdrawalDelay(),
                     cfg.stabilityPoolWithdrawalPeriod(),
                     IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY(),

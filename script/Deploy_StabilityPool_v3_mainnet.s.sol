@@ -57,8 +57,7 @@ contract Deploy_StabilityPool_v3_mainnet is
                 stabilityPoolKey(markets[i], StabilityPoolType.Leveraged),
                 StabilityPoolType.Leveraged,
                 markets[i],
-                minter,
-                leveragedToken
+                minter
             );
 
             address implCollateral = deployStabilityPoolImplementation(
@@ -66,8 +65,7 @@ contract Deploy_StabilityPool_v3_mainnet is
                 stabilityPoolKey(markets[i], StabilityPoolType.Collateral),
                 StabilityPoolType.Collateral,
                 markets[i],
-                minter,
-                collateralToken
+                minter
             );
 
             // Queue Safe upgrade transactions

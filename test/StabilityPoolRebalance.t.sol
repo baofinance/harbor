@@ -8,6 +8,7 @@ import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
@@ -65,15 +66,16 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
+    /// @dev Liquidate `assets` of `pool`'s pegged into wrapped collateral the way a rebalance does: sweep the pegged
+    ///      out, hand the pool the collateral, and notify it naming the token. Every pool distributes the collateral.
     function _liquidate(address pool, uint256 assets) internal returns (uint256 returned) {
         returned = (assets * 1 ether) / price;
         address assetToken = IStabilityPool(pool).ASSET_TOKEN();
-        address liquidateToken = IStabilityPool(pool).LIQUIDATION_TOKEN();
         vm.startPrank(rebalancer);
         ITokenHolder(pool).sweep(assetToken, assets, rebalancer);
-        deal(liquidateToken, rebalancer, returned);
-        IERC20(liquidateToken).transfer(stabilityPoolCollateral, returned);
-        IStabilityPool(pool).notifyLiquidation(assets, returned);
+        deal(wrappedCollateralToken, rebalancer, returned);
+        IERC20(wrappedCollateralToken).transfer(pool, returned);
+        IStabilityPool_v3(pool).notifyLiquidation(wrappedCollateralToken, assets, returned);
         vm.stopPrank();
     }
 
