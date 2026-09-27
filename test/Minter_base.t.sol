@@ -608,7 +608,8 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).leveragedTokenBalance(), 0);
         assertEq(IMinter(minter).collateralTokenBalance(), 0);
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
-        assertEq(IMinter(minter).leverageRatio(), 20 ether); // 20 is the cap.
+        // No residual: the leveraged claim is nothing, which the report encodes as the maximum.
+        assertEq(IMinter(minter).leverageRatio(), type(uint256).max);
         assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether);
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);
     }
@@ -866,7 +867,8 @@ contract TestMinterBasics is TestMinterSetUp {
     function test_ratios() public {
         // initial values
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "initial collateral ratio");
-        assertEq(IMinter(minter).leverageRatio(), 20 ether, "initial leverage ratio"); // highest value
+        // No residual yet: a claim of nothing, reported as the maximum.
+        assertEq(IMinter(minter).leverageRatio(), type(uint256).max, "initial leverage ratio");
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "initial pegged token price");
         assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether, "initial leveraged token price");
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "initial pegged token balance");
@@ -876,7 +878,8 @@ contract TestMinterBasics is TestMinterSetUp {
         // add collateral from minting pegged
         (uint256 peggedMinted, uint256 leveragedMinted) = setUp_collateral(10 ether, 0);
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "post pegged mint collateral ratio");
-        assertEq(IMinter(minter).leverageRatio(), 20 ether, "post pegged mint leverage ratio"); // highest value
+        // Pegged alone puts the ratio at exactly one: still no residual, still a claim of nothing.
+        assertEq(IMinter(minter).leverageRatio(), type(uint256).max, "post pegged mint leverage ratio");
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "post pegged mint pegged token price");
         assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether, "post pegged mint leveraged token price");
         assertEq(IMinter(minter).peggedTokenBalance(), peggedMinted, "post pegged mint pegged token balance"); // minted some pegged

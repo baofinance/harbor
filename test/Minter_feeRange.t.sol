@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -164,6 +165,10 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         w = bound(w, minToken, maxToken);
         setUp_collateral(p, l, user);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
+        // A leveraged deposit small beside the pegged one founds the market at the peg, below the floor at
+        // which leverage is sold. There is no fee to range over where the mint is refused, and the refusal
+        // is `Minter_leverageCap`'s to assert; the fee arithmetic is measured where a mint exists.
+        vm.assume(IMinter_v3(minter).leveragedIssuable());
         _mintLeveraged(w);
     }
 
@@ -266,6 +271,13 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                     assertGt(chk, _bandLower(C.s, C.bounds), "place lower");
                     assertLe(chk, C.bounds[C.s], "place upper");
                 }
+            }
+
+            // No fee range exists where the market sells no leverage: a starting band below the floor at
+            // which leverage is sold has nothing to measure, and the refusal is `Minter_leverageCap`'s to
+            // assert. The bands above the floor still span, so this is a skip and not a stop.
+            if (!IMinter_v3(minter).leveragedIssuable()) {
+                continue;
             }
 
             uint256 startSnap = vm.snapshotState();

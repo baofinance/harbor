@@ -320,7 +320,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
                       THE REMAINING HEALTH METRICS
     //////////////////////////////////////////////////////////////*/
 
-    /// Leverage rises as cover falls, saturating at the reported cap once the residual is gone.
+    /// Leverage rises as cover falls, uncapped - a holder's exposure is what it is - and is a claim of nothing,
+    /// reported as the maximum, once the residual is gone.
     function testFuzz_leverageRatioTracksHeldCollateral(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
@@ -330,8 +331,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
         uint256 expected = heldValue <= anchorClaims
-            ? 20 ether
-            : Math.min(20 ether, Math.mulDiv(heldValue, 1 ether, heldValue - anchorClaims));
+            ? type(uint256).max
+            : Math.mulDiv(heldValue, 1 ether, heldValue - anchorClaims);
 
         assertApproxEqAbs(IMinter(minter).leverageRatio(), expected, 1, "leverage must follow the cover held");
     }
@@ -527,20 +528,23 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// else and must not be exempt from recognising an impairment.
     ///
     /// Once the collateral no longer covers the anchor claim there is no residual to sell, so no sail
-    /// can be issued. It must refuse by the same named error as the fee-paying path, which returns
-    /// zero from its adjustments and is turned away by `_mintLeveragedToken` — not by an arithmetic
-    /// panic, which would take the collateral's measure of the failure away from the caller.
+    /// can be issued. It must refuse by the same named error as the fee-paying path - the leverage cap's
+    /// refusal, judged on the recognised backing, before any pricing that could divide by the zero
+    /// residual - not by an arithmetic panic, which would take the collateral's measure of the failure
+    /// away from the caller.
     function test_impairedBacking_freeMintPricesFromRecognisedBacking() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
 
         uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
         assertEq(sailPrice, 0, "the sail claim is worthless at this cover");
+        uint256 ratio = IMinter(minter).collateralRatio();
+        uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
 
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, leveragedToken));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
         IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
         vm.stopPrank();
     }

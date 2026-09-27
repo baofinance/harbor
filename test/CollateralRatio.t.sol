@@ -594,8 +594,8 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
             // record is floored once per operation, so splitting an action into `repeats` of them floors
             // `repeats` times where doing it once floors once — a difference of at most one collateral wei
             // each. Sail is the residual claim, so a collateral wei moves it by the collateral price times
-            // the leverage ratio, and the leverage ratio is capped: `_LEVERAGE_RATIO_CAP` bounds how far one
-            // wei can reach however close to a depeg the sweep runs.
+            // the leverage ratio, and the market sells no leverage above `MAX_LEVERAGE_RATIO`: 20 is how far
+            // one wei can reach at any ratio the sweep sells at.
             uint256 creditFloorReach = repeats * 20 * (price / 1 ether);
             compareDeltaHoldings(
                 largeChanges,

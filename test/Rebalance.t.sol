@@ -13,7 +13,6 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
-import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
@@ -259,12 +258,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         IStabilityPool(stabilityPoolLeveraged).deposit(2 * price, user1, 0);
         vm.stopPrank();
 
-        // The bound engages on the reported leverage ratio saturating, so a ratio strictly under the
-        // cap is what "unbounded" means here.
-        assertLt(
-            IMinter_v3(minter).leverageRatio(),
-            MinterValuationLib.LEVERAGE_RATIO_CAP,
-            "the conversion must be unbounded for fairness to be the claim under test"
+        // The market sells leverage only at or above its floor, so a market that sells is what "unbounded"
+        // means here: the conversion is priced on the residual, not refused.
+        assertTrue(
+            IMinter_v3(minter).leveragedIssuable(),
+            "the market must be selling leverage for fairness to be the claim under test"
         );
 
         uint256 leveragedPriceBefore = IMinter_v3(minter).leveragedTokenPrice();

@@ -164,15 +164,18 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
 
     /// Once the collateral no longer covers the anchor claim there is no residual, so the sail token
     /// is worthless and neither leg of it may trade. Both are turned away before any pricing that
-    /// could divide by the zero residual.
+    /// could divide by the zero residual: the mint by the leverage cap's refusal, the redemption by
+    /// having nothing to return.
     function test_zeroAnchorPrice_sailMintingAndRedemptionAreRefused() public {
         _setUpMarketHolding(_LAST_ZERO_HOLDING);
+        uint256 ratio = IMinter(minter).collateralRatio();
+        uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
 
         address sailMinter = makeAddr("sailMinter");
         deal(wrappedCollateralToken, sailMinter, 1 ether);
         vm.startPrank(sailMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, leveragedToken));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
         IMinter(minter).mintLeveragedToken(1 ether, sailMinter, 0);
         vm.stopPrank();
 

@@ -22,8 +22,9 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// the price of the thing being exchanged.
 contract TestMinterConversionIsPathIndependent is TestConversionBoundReleaseSetUp {
     /// @dev Distressed enough that the sail price is small and a conversion moves the market hard, which
-    ///      is where a path dependence would show up if there were one.
-    uint256 private constant DISTRESSED_RATIO = 1.02 ether;
+    ///      is where a path dependence would show up if there were one - and above the floor at which the
+    ///      market sells leverage at all, `K/(K-1)` = 1.0526, below which every conversion is refused.
+    uint256 private constant DISTRESSED_RATIO = 1.1 ether;
 
     /// @dev The whole conversion, and how many pieces the split version cuts it into.
     uint256 private constant TOTAL_ANCHOR = 100 ether;

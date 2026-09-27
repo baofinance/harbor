@@ -665,31 +665,23 @@ library MinterAdjustments_v1 {
 
         if (peggedForLeveraged > 0) {
             if (leveragedTokenBalance_ > 0) {
-                // The leverage ratio decides only WHETHER the cap binds. It is deliberately not what the
-                // conversion is then priced by: a leveraged token is a claim on the residual, so the rate is
-                // the leveraged supply over the residual, and the collateral value the leverage ratio carries
-                // cancels against the collateral value it would have to be divided by again.
-                uint256 leverageRatio_ = MinterValuationLib.leverageRatio(
+                // A leveraged token is a claim on the residual, so the rate is the leveraged supply over the
+                // residual, priced against the pre-burn snapshot - the same rate the retail route gets, at
+                // every ratio, so the pool is never paid a count while a hand is paid a price.
+                //
+                // Pricing against the residual directly is also what keeps the arithmetic inside a word.
+                // Carrying the cancelling collateral value through forces the pegged being converted to be
+                // multiplied by the whole leveraged supply before `mulDiv` can widen anything, and that
+                // product leaves 256 bits at supplies a market can really hold.
+                //
+                // Where the residual is gone the claim is nothing and nothing is issued. The minter refuses
+                // the conversion by name before the amounts are asked for; a dry run reports the zero.
+                (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                     peggedTokenBalance_,
                     underlyingCollateral_,
                     price
                 );
-                // slither-disable-next-line incorrect-equality
-                if (leverageRatio_ == MinterValuationLib.LEVERAGE_RATIO_CAP) {
-                    leveragedOut = Math.mulDiv(peggedForLeveraged, MinterValuationLib.LEVERAGE_RATIO_CAP, 1 ether);
-                } else {
-                    // Below the cap the residual is positive, so this cannot divide by zero: the ratio
-                    // reports the cap both when it is exceeded and when the residual is gone.
-                    //
-                    // Pricing against the residual directly is also what keeps the arithmetic inside a
-                    // word. Carrying the cancelling collateral value through forces the pegged being
-                    // converted to be multiplied by the whole leveraged supply before `mulDiv` can widen
-                    // anything, and that product leaves 256 bits at supplies a market can really hold.
-                    (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
-                        peggedTokenBalance_,
-                        underlyingCollateral_,
-                        price
-                    );
+                if (collateralValueE36 > peggedValueE36) {
                     leveragedOut = Math.mulDiv(
                         peggedForLeveraged * 1 ether,
                         leveragedTokenBalance_,

@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -1035,17 +1036,20 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
     }
 
     function test_leveraged() public {
-        // go depegged
+        uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        // go depegged: below the floor the mint is refused by name, before anything is priced
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(500 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        uint256 ratio = IMinter(minter).collateralRatio();
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
 
-        // actually re-pegged but on the border where there be zero divides
+        // actually re-pegged but on the border where there be zero divides - and still below the floor
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(1000 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        ratio = IMinter(minter).collateralRatio();
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
@@ -1082,8 +1086,21 @@ contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
                     IMinter(minter).redeemPeggedToken(minted, address(this), 0);
                     vm.revertToState(snap2);
 
-                    minted = IMinter(minter).mintLeveragedToken(d, address(this), 0);
-                    IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
+                    // A leveraged deposit dwarfed by the pegged one leaves the ratio at the peg, below the
+                    // floor at which leverage is sold: refused by name, and nothing to redeem back.
+                    if (IMinter_v3(minter).leveragedIssuable()) {
+                        minted = IMinter(minter).mintLeveragedToken(d, address(this), 0);
+                        IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
+                    } else {
+                        vm.expectRevert(
+                            abi.encodeWithSelector(
+                                IMinter_v3.LeverageAboveCap.selector,
+                                IMinter(minter).collateralRatio(),
+                                IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+                            )
+                        );
+                        IMinter(minter).mintLeveragedToken(d, address(this), 0);
+                    }
 
                     vm.revertToState(snap);
                 }

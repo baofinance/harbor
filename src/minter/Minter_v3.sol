@@ -132,6 +132,19 @@ contract Minter_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
 
+    /// @inheritdoc IMinter_v3
+    /// @dev `K = 20` puts the floor at `K/(K-1)` = 1.0526, which is where the count cap of `Minter_v2` was
+    /// measured to let go: the same number, seen from the other side. That cap bounded the COUNT a conversion
+    /// issued and left the retail route unbounded; this one refuses, on every route, so no token is ever sold
+    /// carrying more than `K`.
+    uint256 public constant override MAX_LEVERAGE_RATIO = 20 ether;
+
+    /// @inheritdoc IMinter_v3
+    /// @dev Derived from the cap by integer division, which floors it as `Math.mulDiv` would - the one place
+    /// the two figures are related, so they cannot disagree.
+    uint256 public constant override MINIMUM_COLLATERAL_RATIO =
+        (MAX_LEVERAGE_RATIO * 1 ether) / (MAX_LEVERAGE_RATIO - 1 ether);
+
     /////////////
     // Storage //
     /////////////
@@ -282,6 +295,43 @@ contract Minter_v3 is
 
         uint256 price = _fetchMidPrice($.priceOracle);
         ratio = MinterValuationLib.leverageRatio($.peggedTokenBalance, _effectiveBacking($), price);
+    }
+
+    /// @inheritdoc IMinter_v3
+    function leveragedIssuable() external view override returns (bool issuable) {
+        MinterStorage storage $ = _getMinterStorage();
+        (issuable, ) = _leveragedIssuable(_effectiveBacking($), _fetchMidPrice($.priceOracle), $.peggedTokenBalance);
+    }
+
+    /// @notice Whether leverage may be sold against a pre-trade state, and the collateral ratio it was judged at.
+    /// @dev THE RULE, in one place. A leveraged token is a claim on the residual, whose sensitivity to the
+    /// collateral price is `CR/(CR-1)`, so a cap `K` on the leverage sold is a floor `K/(K-1)` on the ratio at
+    /// which any is sold. Judged against the state the caller priced its amounts from - its own snapshot, never
+    /// storage the caller may have part-updated - so the refusal and the pricing see the same market, and the
+    /// ratio is computed exactly as `collateralRatio()` computes it.
+    ///
+    /// NOT APPLIED TO THE FIRST LEVERAGED TOKEN. A market is founded by minting pegged, which puts the ratio at
+    /// exactly one, and then leveraged; judged against that state the founding mint is always refused. On an
+    /// empty supply there is nothing the cap protects - no existing price to diverge, no existing holder to
+    /// dilute - and the deposit creates the residual it buys. Every later issuance is judged against a state
+    /// that includes it.
+    function _leveragedIssuable(
+        uint256 backing,
+        uint256 price,
+        uint256 peggedTokenBalance_
+    ) private view returns (bool issuable, uint256 collateralRatio_) {
+        collateralRatio_ = MinterValuationLib.collateralRatio(backing, price, peggedTokenBalance_);
+        issuable = _leveragedTokenBalance() == 0 || collateralRatio_ >= MINIMUM_COLLATERAL_RATIO;
+    }
+
+    /// @dev The refusal, at every point leveraged is issued - both retail mints and the conversion - before the
+    /// amounts are computed, so a zero-price market reports the rule's own reason rather than a rounding one.
+    /// Reverts with the ratio it judged and the floor it wanted, so a caller turned away knows by how much.
+    function _requireLeveragedIssuable(uint256 backing, uint256 price, uint256 peggedTokenBalance_) private view {
+        (bool issuable, uint256 collateralRatio_) = _leveragedIssuable(backing, price, peggedTokenBalance_);
+        if (!issuable) {
+            revert LeverageAboveCap(collateralRatio_, MINIMUM_COLLATERAL_RATIO);
+        }
     }
 
     /// @inheritdoc IMinter_v3
@@ -879,8 +929,10 @@ contract Minter_v3 is
         MinterValuationLib.CollateralRatioData memory crData;
         {
             (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+            uint256 backing = _effectiveBacking($);
+            _requireLeveragedIssuable(backing, price, $.peggedTokenBalance);
             crData = MinterValuationLib.CollateralRatioData(
-                _effectiveBacking($),
+                backing,
                 price,
                 rate,
                 $.peggedTokenBalance,
@@ -1049,6 +1101,13 @@ contract Minter_v3 is
             // consistent with how redeemPeggedForCollateralRatio computed the amounts.
             uint256 underlyingCollateral_ = _effectiveBacking($);
 
+            // The rule's own refusal FIRST, judged on that snapshot before either leg has moved anything:
+            // below its floor the market sells no leverage on any route, and that is the reason to give
+            // whether or not the amount would also round to nothing.
+            if (peggedForLeveraged > 0) {
+                _requireLeveragedIssuable(underlyingCollateral_, price, peggedTokenBalance_);
+            }
+
             uint256 underlyingCollateralOutE36;
             (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = _freeRedeemAmounts(
                 peggedForCollateral,
@@ -1160,10 +1219,12 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+        uint256 backing = _effectiveBacking($);
+        _requireLeveragedIssuable(backing, price, $.peggedTokenBalance);
 
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
-            _effectiveBacking($),
+            backing,
             price
         );
         uint256 underlyingCollateralInE36 = wrappedCollateralIn * rate;

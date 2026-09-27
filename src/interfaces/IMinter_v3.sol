@@ -237,8 +237,31 @@ interface IMinter_v3 is IToken {
     /// For the real market value of the pegged token, see peggedTokenPrice() instead.
     function collateralRatio() external view returns (uint256);
 
-    /// @notice Return the current leveraged ratio of the leveragedToken (18 decimals).
+    /// @notice The leverage of the leveraged token at the ratio the market stands at, 1e18-scaled: how many
+    ///         percent the token moves for one percent of the collateral. A leveraged token is a claim on the
+    ///         residual, so this is `CR / (CR - 1)` - reported as it is, uncapped, since a holder's leverage
+    ///         rises as the collateral falls and that is what the token is for. `type(uint256).max` where the
+    ///         residual is gone, encoding a claim of nothing. What is bounded is the leverage SOLD - see
+    ///         `MAX_LEVERAGE_RATIO`.
     function leverageRatio() external view returns (uint256);
+
+    /// @notice The most leverage this market will sell, 1e18-scaled. A cap on the leverage of every leveraged
+    ///         token at the moment it is issued, applied by refusing to issue below `MINIMUM_COLLATERAL_RATIO`
+    ///         on every route alike - the retail mints and the conversion a rebalance performs.
+    function MAX_LEVERAGE_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice `K / (K - 1)` for `K = MAX_LEVERAGE_RATIO`: the collateral ratio at which the residual's
+    ///         sensitivity to the collateral price is exactly the cap. Since that sensitivity is `CR / (CR - 1)`,
+    ///         `beta <= K` if and only if `CR >= K / (K - 1)`, so refusing every issuance below this ratio bounds
+    ///         the leverage of every token ever sold without capping a count or moving any collateral.
+    function MINIMUM_COLLATERAL_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Whether the market will sell leverage at the ratio it stands at: true at or above
+    ///         `MINIMUM_COLLATERAL_RATIO` and false below it, on every route alike; and true on an empty
+    ///         leveraged supply, where the first token has nothing to dilute and creates the residual it buys.
+    ///         The refusal itself reverts `LeverageAboveCap`; this is the same judgement as a view, for a
+    ///         caller that would rather not ask by trying.
+    function leveragedIssuable() external view returns (bool);
 
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying (18 decimals).
     /// The leveraged token holds the residual: the collateral value left once every pegged token is covered.

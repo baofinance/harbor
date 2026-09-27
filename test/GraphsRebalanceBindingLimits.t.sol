@@ -11,7 +11,6 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
@@ -83,11 +82,7 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
         // each point starts from has to be inside it for the escape to be the one being measured.
         assertLt(
             DISTRESSED_COLLATERAL_RATIO,
-            Math.mulDiv(
-                MinterValuationLib.LEVERAGE_RATIO_CAP,
-                1 ether,
-                MinterValuationLib.LEVERAGE_RATIO_CAP - 1 ether
-            ),
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO(),
             "the sweep must start inside the band where the conversion bound is engaged"
         );
 
