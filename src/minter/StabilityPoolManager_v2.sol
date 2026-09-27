@@ -376,7 +376,7 @@ contract StabilityPoolManager_v2 is
         (uint256 peggedForCollateral, uint256 peggedForLeveraged) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
             rebalanceThreshold_,
             IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
-            IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss(),
+            _leveragedLegHeadroom(),
             poolHoldingCollateral,
             poolHoldingLeveraged
         );
@@ -454,6 +454,16 @@ contract StabilityPoolManager_v2 is
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
         // slither-disable-next-line unused-return
         _compoundRegistered();
+    }
+
+    /// @notice The most pegged the leveraged leg may give up in this rebalance.
+    /// @dev The leveraged pool's solvency headroom, `maxAssetLoss`, by default - the same bound the collateral leg is
+    ///      sized against. It is the one input to the split that says whether the leveraged leg is AVAILABLE, so a
+    ///      manager paired with a minter that declines to sell leverage in some market states overrides this to
+    ///      report zero there: the split then slides the whole target along the target-ratio line into the collateral
+    ///      leg, and the rebalance proceeds on that leg alone instead of reverting inside the one the minter refuses.
+    function _leveragedLegHeadroom() internal view virtual returns (uint256) {
+        return IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss();
     }
 
     /// @dev Clamp a liquidation leg's pegged amount to what `pool` will honour, given the redeem's previewed `returned`

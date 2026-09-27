@@ -188,6 +188,12 @@ interface IMinter_v3 is IToken {
     error CollateralRatioBoundTooPrecise(string config, uint256 value);
     error NoDepegBoundaryOrDisallow(string config);
 
+    /// @notice Leveraged issuance was refused because the market's collateral ratio is below the floor at
+    ///         which the leverage it would sell stays within the maximum. Thrown by a rule that bounds
+    ///         leverage by REFUSING to issue rather than by capping the count issued; `Minter_v3`'s own
+    ///         default refuses nothing.
+    error LeverageAboveCap(uint256 collateralRatio, uint256 minimumCollateralRatio);
+
     /// @notice Thrown when the burn interface does not match one known by this contract
     error UnsupportedBurnInterface(bytes4 interfaceId);
 

@@ -157,6 +157,11 @@ abstract contract StabilityPoolEnvelopeBase is
     /// a third of the collateral's value before the anchor is touched.
     uint256 internal constant DEPLOY_COLLATERAL_RATIO = 1.5 ether;
 
+    /// @dev Just inside the range where a rebalance can still do anything. Above one, so the pegged token is
+    /// redeemed at face value and burning it raises the ratio; close enough to one that the liquidation required
+    /// to reach the threshold is most of the supply, which is what forces a small pool onto its floor.
+    uint256 internal constant REBALANCE_LIVE_RATIO = 1.02 ether;
+
     address internal minter;
     address internal stabilityPool; // the collateral-side StabilityPool
     address internal stabilityPoolLeveraged; // the leveraged-side StabilityPool (harvest splits across both)
@@ -1848,15 +1853,24 @@ abstract contract StabilityPoolEnvelopeBase is
         _depositPeggedTo(stabilityPoolLeveraged, background, levHold);
         _mintLeveragedBuffer(levHold); // start the CR healthy so it can be dropped
 
-        // Drop deep below the threshold so the required liquidation exceeds the small collateral pool's headroom and it
-        // floors on the first rebalance.
-        _dropPriceBelowRebalanceThreshold();
-        for (uint256 i = 0; i < 6; i++) {
-            currentPrice = (currentPrice * 6) / 10;
-            mockOracle.setLatestAnswer(currentPrice, currentRate);
-        }
+        // Put the market just above a collateral ratio of one, which is where the required liquidation is largest:
+        // restoring a ratio `r` to a threshold `t` has to burn `Q(t - r)/(t - 1)` of the pegged supply, which grows
+        // without bound as `r` approaches one. So this is the deepest the mechanism reaches AND the hardest case for
+        // a pool whose headroom must cover its share.
+        //
+        // Not below one, though, and that is not a margin for error - it is a different regime. There the redeem
+        // pays each pegged token its share of the backing rather than face value, and a share is exactly the
+        // average: burning `P` leaves `B(1 - P/Q)` against `Q - P`, the same ratio it started at. A rebalance moves
+        // it not at all, so no number of calls converges and the floored-pool mechanism this test is about never
+        // gets to show itself. `results/liquidate_partial_both44.csv` measures the boundary at exactly one.
+        _setEnvelopePointAtCollateralRatio(REBALANCE_LIVE_RATIO, currentRate, e.pegPriceUSD);
+        assertGt(
+            IMinter(minter).collateralRatio(),
+            1 ether,
+            "a rebalance can only restore a ratio that is still above one"
+        );
         if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
-            return; // the drop over/under-shot for this market's config; the scenario is not set up
+            return; // this market's threshold sits at or below the point; the scenario is not set up
         }
 
         address keeper = makeAddr("rebalanceKeeper");

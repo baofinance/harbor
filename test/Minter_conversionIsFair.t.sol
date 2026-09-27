@@ -8,6 +8,9 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
+import {MinterEscrowFollowsCollateral} from "@harbor-test/candidates/MinterEscrowFollowsCollateral.sol";
 import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
 
 /// @notice What the anchor-to-sail conversion must satisfy, whatever rule bounds it.
@@ -240,5 +243,60 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
             ratioBefore,
             "and the conversion must not lower the collateral ratio it exists to raise"
         );
+    }
+
+    /// R7. BELOW A COLLATERAL RATIO OF ONE, THE CONVERSION MUST RAISE THE RATIO. R6 asks only that it does
+    /// not FALL, and a conversion that changes the ratio by nothing at all satisfies that while being
+    /// useless: the rebalance's leveraged leg exists to recapitalise a market that is short, and below the
+    /// peg it is the only leg that can. The collateral leg pays each pegged token its share of the backing,
+    /// which is the average, so burning some leaves the ratio exactly where it was - arithmetic, not a
+    /// defect. All the recapitalising below the peg has to come from here.
+    ///
+    /// The conversion is notionally a redemption of pegged followed by a mint of leveraged: the redemption
+    /// frees the collateral backing that pegged, and the mint spends it on leveraged tokens - funding BOTH
+    /// the backing and the escrow. Only the escrow's share leaves the pegged token's cover, so the backing
+    /// falls by less than the claim does and the ratio rises. That holds at every collateral ratio above
+    /// zero, because the escrow is a fraction of what is spent and never the whole of it.
+    ///
+    /// Measured across the ratio range rather than at a point: the requirement is that the leveraged leg
+    /// works wherever a market can be, and a single sample cannot distinguish that from working at one
+    /// ratio. `results/liquidate_partial_leveraged.csv` is the same measurement as a graph - the rows where
+    /// a liquidation moves the ratio - and the count there is what this requirement is worth in practice.
+    function testFuzz_belowOne_theConversionRaisesTheRatio(uint256 ratioSeed, uint256 shareSeed) public {
+        // strictly below one, and above the dust where the market has nothing left to recapitalise with
+        uint256 collateralRatio = bound(ratioSeed, 0.01 ether, 0.99 ether);
+        uint256 share = bound(shareSeed, 0.01 ether, 0.5 ether);
+
+        setCollateralRatio(collateralRatio);
+        uint256 ratioBefore = IMinter(minter).collateralRatio();
+        uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
+        vm.assume(peggedIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= peggedIn);
+
+        _convert(peggedIn);
+
+        assertGt(
+            IMinter(minter).collateralRatio(),
+            ratioBefore,
+            "a conversion below the peg must recapitalise, not merely decline to make things worse"
+        );
+    }
+}
+
+/// @notice The same requirements, asked of a candidate escrow rule instead of the rule in use.
+///
+/// This is what makes R1 to R7 an ACCEPTANCE TEST rather than a description of an intention: a candidate is
+/// only a candidate if it satisfies the requirements the redesign was written against, and the two that
+/// matter pull in opposite directions. R1 says the exchange must return what it took, which the rule in use
+/// satisfies and which `main` breaks by capping what it pays. R7 says a conversion below the peg must raise
+/// the collateral ratio, which `main` satisfies and which the rule in use breaks by moving collateral out of
+/// the backing to fund an escrow. A candidate has to hold both at once, and nothing measured so far does.
+contract TestMinterConversionIsFairFollowsCollateral is TestMinterConversionIsFair {
+    function installEscrowRule() internal override {
+        vm.startPrank(owner());
+        UUPSUpgradeable(minter).upgradeToAndCall(
+            address(new MinterEscrowFollowsCollateral(wrappedCollateralToken, peggedToken, leveragedToken)),
+            ""
+        );
+        vm.stopPrank();
     }
 }

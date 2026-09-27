@@ -55,7 +55,7 @@ library MinterValuationLib {
     /// per-market knob would be flexibility with nothing to express - and a mis-set one would not revert, it
     /// would quietly put the floor in the wrong place and be discovered during a depeg. Should a market ever
     /// need to advertise a different maximum leverage, this becomes an immutable and the deploy threads it.
-    uint256 internal constant LEVERAGED_ESCROW_RATIO = 0.01 ether;
+    uint256 internal constant LEVERAGED_ESCROW_RATIO = 0.1 ether;
 
     /// @notice The dearest collateral the escrow is carried properly for: a unit of collateral worth this many
     /// pegged tokens, 1e18-scaled.

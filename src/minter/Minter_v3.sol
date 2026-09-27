@@ -411,12 +411,18 @@ contract Minter_v3 is
     /// residual and the two are strictly apart, and at or below the peg the residual is gone and they are equal
     /// to the wei. Capping here as well would put a floor under the sizing that the conversion does not apply,
     /// and the two would then disagree at exactly the collateral ratio the rebalance is reaching for.
+    /// ESCROW RULE, PART 5 OF 5. The sizing's half of `_conversionEscrowMove`: that one decides what a
+    /// conversion MOVES, this one tells the rebalance's split how much each pegged token will drag out of
+    /// the backing, so it can solve for the burn that lands on the target. The two must agree. Override one
+    /// without the other and the split solves an equation the conversion does not satisfy - measured, a rule
+    /// that moved nothing while this still promised a drag liquidated the entire pool at every collateral
+    /// ratio below the peg, and reported ratios in the thousands.
     function _escrowedPerPegged(
         uint256 collateralTokenBalance_,
         uint256 escrow,
         uint256 peggedTokenBalance_,
         uint256 price
-    ) private view returns (uint256 perPegged) {
+    ) internal view virtual returns (uint256 perPegged) {
         if (peggedTokenBalance_ == 0) {
             return 0;
         }
@@ -960,6 +966,7 @@ contract Minter_v3 is
         MinterValuationLib.CollateralRatioData memory crData;
         {
             (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+            _requireLeveragedIssuable(_recordedBacking($), price, $.peggedTokenBalance);
             crData = _collateralRatioData($, price, rate, $.peggedTokenBalance, _leveragedTokenBalance());
         }
         uint256 wrappedFee;
@@ -1152,6 +1159,14 @@ contract Minter_v3 is
             }
 
             if (peggedForLeveraged > 0) {
+                // The rule's own refusal FIRST. Below its floor a rule declines to sell leverage at all, and
+                // that is the reason to give whether or not the amount also happens to round to nothing - a
+                // zero-price market below the peg would otherwise report a rounding refusal in place of the
+                // rule's, and a reader could not tell which of the two had spoken. Judged on the SNAPSHOT the
+                // amounts were priced against: the collateral leg above has already debited the record while
+                // the pegged it burned is written only after both legs, so the record here describes a market
+                // that never existed.
+                _requireLeveragedIssuable(underlyingCollateral_, price, peggedTokenBalance_);
                 // slither-disable-next-line incorrect-equality
                 if (leveragedOut == 0) {
                     revert ReturnZeroAmount(LEVERAGED_TOKEN);
@@ -1249,6 +1264,7 @@ contract Minter_v3 is
         _requireRecordsAreCovered($);
         // how much collateral to use
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+        _requireLeveragedIssuable(_recordedBacking($), price, $.peggedTokenBalance);
 
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
@@ -1376,7 +1392,7 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_,
         uint256 underlyingCollateral_,
         uint256 price
-    ) private returns (uint256) {
+    ) internal virtual returns (uint256) {
         return
             _escrowTakenByAMint(
                 $,
@@ -1602,7 +1618,7 @@ contract Minter_v3 is
         uint256 leveragedTokenBalanceBefore,
         uint256 leveragedOut,
         uint256 underlyingCollateralIn
-    ) private returns (uint256) {
+    ) internal virtual returns (uint256) {
         if (leveragedTokenBalanceBefore == 0 && leveragedOut > 0) {
             // The `1 ether` is the RATIO's own scale; the escrow's is not 1e18, and `_escrowAt` holds it.
             $.escrowPerLeveragedToken = Math.mulDiv(
@@ -1631,7 +1647,7 @@ contract Minter_v3 is
         uint256 leveragedTokenBalanceBefore,
         uint256 leveragedIn,
         uint256 underlyingCollateralOut
-    ) private view returns (uint256) {
+    ) internal view virtual returns (uint256) {
         uint256 escrowPerLeveragedToken_ = $.escrowPerLeveragedToken;
         uint256 escrowOut = _escrowAt(escrowPerLeveragedToken_, leveragedTokenBalanceBefore) -
             _escrowAt(escrowPerLeveragedToken_, leveragedTokenBalanceBefore - leveragedIn);
@@ -1649,15 +1665,54 @@ contract Minter_v3 is
     function _escrowAt(
         uint256 escrowPerLeveragedToken_,
         uint256 leveragedTokenBalance_
-    ) private pure returns (uint256) {
+    ) internal pure returns (uint256) {
         return Math.mulDiv(escrowPerLeveragedToken_, leveragedTokenBalance_, MinterValuationLib.ESCROW_PER_TOKEN_SCALE);
     }
+
+    /// @notice May leveraged be issued into the market as it stands? Reverts if not.
+    /// @dev Called at EVERY point leveraged is minted - both retail mints and the conversion - before the
+    /// tokens exist. Does nothing by default: this contract bounds leverage by its escrow, not by refusal. A
+    /// rule that bounds it by refusing instead - declining to sell leverage above a maximum rather than
+    /// selling a capped count - overrides this one function and throws `LeverageAboveCap`.
+    ///
+    /// THE STATE IS PASSED, NOT READ FROM STORAGE, and it is the state the caller priced its amounts against:
+    /// the recorded backing, the price, and the pegged supply as they stood before the trade. A caller may have
+    /// applied part of its trade to the record by the time it reaches the conversion - the redeem settles its
+    /// collateral leg first - and a rule reading storage there would judge a market that never existed. The
+    /// rule sees exactly what the pricing saw, whatever the caller has since written.
+    ///
+    /// It is a hook rather than a check in each caller because the three issuance sites must agree: a floor
+    /// applied to the conversion and not to the retail mint is exactly the unevenness the deployed cap has,
+    /// measured as the pool paid 0.204 where the hand route was paid 1.000. One function, three callers, no
+    /// route left out.
+    ///
+    /// The parameters, in order: the recorded backing the issuance is priced against, the collateral price it
+    /// is priced at, and the pegged supply it is priced against. Unnamed here because the base ignores them.
+    // solhint-disable-next-line no-empty-blocks
+    function _requireLeveragedIssuable(uint256, uint256, uint256) internal view virtual {}
 
     /// @notice The collateral escrowed for the leveraged token: the per-token figure times the supply.
     /// @dev Computed rather than stored, so it cannot drift from the supply it is meant to track. Nothing moves
     /// it: a mint, a redeem and a conversion change the supply and the escrow follows, which is what makes the
     /// collateral escrowed per token a constant of the market rather than an artefact of who traded recently.
-    function _escrow(MinterStorage storage $) private view returns (uint256) {
+    ///
+    /// ESCROW RULE, PART 1 OF 5. Five functions together decide what the escrow is, when collateral moves
+    /// into or out of it, and what the rebalance expects those moves to cost - this one derives the amount,
+    /// `_escrowTakenByAMint`, `_escrowReleasedByARedeem` and `_conversionEscrowMove` decide the movements,
+    /// and `_escrowedPerPegged` tells the rebalance's split what a conversion will drag. They are `virtual`
+    /// so the rule can be stated in one place and varied as a unit: the alternatives differ in exactly these
+    /// five and in nothing else, which is what makes two of them comparable.
+    ///
+    /// **A rule that overrides some and not others is wrong, and both halves of that have been measured.**
+    /// Remove a movement while the derivation still multiplies a per-token figure by the supply, and issuing
+    /// tokens inflates the escrow with nothing behind it - the records came to claim 20.199 against 20.000
+    /// held, which is the condition every updating call is halted for. Remove a movement while
+    /// `_escrowedPerPegged` still promises the drag, and the rebalance solves for a burn the conversion does
+    /// not deliver - it liquidated the entire pool at every collateral ratio below the peg.
+    ///
+    /// Whatever a rule does, it must leave the two records summing to no more than the holding, because that
+    /// is the condition every updating call is checked against.
+    function _escrow(MinterStorage storage $) internal view virtual returns (uint256) {
         return _escrowAt($.escrowPerLeveragedToken, _leveragedTokenBalance());
     }
 

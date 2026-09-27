@@ -32,8 +32,18 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         setUp_config_likely();
     }
 
+    /// @dev Put a candidate escrow rule behind the minter's address before the market is founded, so the rule
+    /// governs the founding mint as well as everything after it. The default installs nothing and the suite
+    /// measures the rule in use; a subclass overriding this measures its candidate against the SAME
+    /// requirements, which is what makes those requirements an acceptance test rather than a description.
+    ///
+    /// Before founding rather than after, because the escrow per leveraged token is written by the first mint
+    /// into an empty supply - a rule installed later would inherit a figure the rule in use chose.
+    function installEscrowRule() internal virtual {} // solhint-disable-line no-empty-blocks
+
     function setUp() public virtual override {
         super.setUp();
+        installEscrowRule();
         setUp_collateral(10 ether, 10 ether, address(this));
         // Enough to buy a sail supply a hundred times the anchor supply, which the sweep asks for.
         deal(address(wrappedCollateralToken), address(this), 100_000 ether);
