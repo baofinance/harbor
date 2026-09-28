@@ -92,7 +92,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         string memory longName = "1234567890123456789012345678901234567890123456789012345678901234";
         assertEq(bytes(longName).length, 64, "sanity");
         vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
-        new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether,longName, "s");
+        new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether, longName, "s");
     }
 
     /// Intent: constructor reverts if symbol exceeds 31 characters (pack32 limit).
@@ -101,19 +101,12 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         string memory longSymbol = "12345678901234567890123456789012";
         assertEq(bytes(longSymbol).length, 32, "sanity");
         vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
-        new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether,"n", longSymbol);
+        new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether, "n", longSymbol);
     }
 
     /// Intent: short strings (<32 chars) round-trip through ERC20MetadataLib_v1 correctly.
     function test_name_shortString() public {
-        StabilityPool_v3 sp_ = new StabilityPool_v3(
-            minterFxUSD,
-            3600,
-            90000,
-            1 ether,
-            "Short",
-            "S"
-        );
+        StabilityPool_v3 sp_ = new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether, "Short", "S");
         assertEq(sp_.name(), "Short", "short name");
         assertEq(sp_.symbol(), "S", "short symbol");
     }
@@ -122,14 +115,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_name_exactly31chars() public {
         string memory name31 = "1234567890123456789012345678901";
         assertEq(bytes(name31).length, 31, "sanity");
-        StabilityPool_v3 sp_ = new StabilityPool_v3(
-            minterFxUSD,
-            3600,
-            90000,
-            1 ether,
-            name31,
-            "S"
-        );
+        StabilityPool_v3 sp_ = new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether, name31, "S");
         assertEq(sp_.name(), name31, "31-char name");
     }
 
@@ -137,14 +123,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_name_between31and63chars() public {
         string memory name40 = "1234567890123456789012345678901234567890";
         assertEq(bytes(name40).length, 40, "sanity");
-        StabilityPool_v3 sp_ = new StabilityPool_v3(
-            minterFxUSD,
-            3600,
-            90000,
-            1 ether,
-            name40,
-            "S"
-        );
+        StabilityPool_v3 sp_ = new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether, name40, "S");
         assertEq(sp_.name(), name40, "40-char name");
     }
 
@@ -152,14 +131,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_name_exactly63chars() public {
         string memory name63 = "123456789012345678901234567890123456789012345678901234567890123";
         assertEq(bytes(name63).length, 63, "sanity");
-        StabilityPool_v3 sp_ = new StabilityPool_v3(
-            minterFxUSD,
-            3600,
-            90000,
-            1 ether,
-            name63,
-            "S"
-        );
+        StabilityPool_v3 sp_ = new StabilityPool_v3(minterFxUSD, 3600, 90000, 1 ether, name63, "S");
         assertEq(sp_.name(), name63, "63-char name");
     }
 

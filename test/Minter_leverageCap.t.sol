@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -73,24 +74,23 @@ contract MinterLeverageCapTest is LocalMarket {
         );
     }
 
-    /// Below the floor the rule refuses the rebalance, reporting the ratio the market is priced at - the figure
-    /// `collateralRatio()` prints - and the floor it wanted; and refusing leaves both pools holding exactly
-    /// what they held.
-    function test_rebalanceBelowTheFloorIsRefused_namingTheRatioTheMarketIsPricedAt() public {
+    /// Below the floor the rule refuses the conversion - the free redeem's leveraged leg, the route a rebalance
+    /// converts by - reporting the ratio the market is priced at, the figure `collateralRatio()` prints, and the
+    /// floor it wanted; and refusing takes nothing from the holder. A rebalance never asks for a conversion there,
+    /// taking the collateral route instead, so this is the minter's own guard, reached directly.
+    function test_conversionBelowTheFloorIsRefused_namingTheRatioTheMarketIsPricedAt() public {
         setMarketCollateralRatio(1.05 ether);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertLt(ratio, floor, "precondition: the market is below the floor");
-        uint256 collateralPoolPegged = IERC20(market.pegged).balanceOf(market.collateralPool);
-        uint256 leveragedPoolPegged = IERC20(market.pegged).balanceOf(market.leveragedPool);
+        uint256 held = IERC20(market.pegged).balanceOf(address(this));
+        assertGt(held, 0, "precondition: there is pegged to convert");
+        IERC20(market.pegged).approve(market.minter, held);
 
-        vm.startPrank(keeper);
         vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
-        IStabilityPoolManager(market.manager).rebalance(keeper, 0);
-        vm.stopPrank();
+        IMinter(market.minter).freeRedeemPeggedToken(0, held, address(this));
 
-        assertEq(IERC20(market.pegged).balanceOf(market.collateralPool), collateralPoolPegged, "collateral pool");
-        assertEq(IERC20(market.pegged).balanceOf(market.leveragedPool), leveragedPoolPegged, "leveraged pool");
+        assertEq(IERC20(market.pegged).balanceOf(address(this)), held, "refusing takes nothing");
     }
 
     /// Below the floor BOTH retail routes are refused, by the same name and with the same figures as the
@@ -145,6 +145,30 @@ contract MinterLeverageCapTest is LocalMarket {
                 IMinter(market.minter).freeMintLeveragedToken(1 ether, address(this));
             }
         }
+    }
+
+    /// The cap bounds the leverage SOLD, not the leverage held. Between the peg and the floor no leverage is sold,
+    /// yet the tokens already issued carry more than the cap, and `leverageRatio()` reports that true figure -
+    /// `CR/(CR-1)`, about 51 at 1.02 - rather than the cap, which would understate the exposure it describes.
+    function test_leverageRatioReportsTheTrueFigureBetweenThePegAndTheFloor() public {
+        setMarketCollateralRatio(1.02 ether);
+        uint256 ratio = IMinter(market.minter).collateralRatio();
+        assertGt(ratio, 1 ether, "precondition: the residual is not gone");
+        assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "precondition: below the floor");
+
+        // `beta = CR/(CR-1)`, from the ratio the market reports. That ratio is floored to its 1e18 scale, short of
+        // the exact one by less than a unit, and `beta` moves by `1e36 / (CR - 1e18)^2` per unit of it - about 2500
+        // here - so that, plus one for the floor on each side, is the most the two can differ by. The cap, 20
+        // against about 51, is far outside it.
+        uint256 expected = Math.mulDiv(ratio, 1 ether, ratio - 1 ether);
+        uint256 tolerance = Math.ceilDiv(1e36, (ratio - 1 ether) * (ratio - 1 ether)) + 1;
+        assertDiscriminates(
+            IMinter(market.minter).leverageRatio(),
+            expected,
+            tolerance,
+            IMinter_v3(market.minter).MAX_LEVERAGE_RATIO(),
+            "the true leverage is reported, not the cap"
+        );
     }
 }
 

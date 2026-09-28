@@ -432,9 +432,9 @@ contract Minter_v3 is
 
     /// @dev The incentive ratio of the band the market sits in now, judged at the middle of the price band as every
     /// measure of the market is. A dry run that uses nothing reports this same figure, from its own reading.
-    // solhint-disable-next-line explicit-types
+
     function _lookupIncentiveRatio(
-        uint action,
+        uint action, // solhint-disable-line explicit-types
         OracleReading memory reading
     ) internal view returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
@@ -462,10 +462,7 @@ contract Minter_v3 is
 
     /// @inheritdoc IMinter_v3
     function mintLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        incentiveRatio = _lookupIncentiveRatio(
-            Config_v2.MINT_LEVERAGED,
-            _readOracle(_getMinterStorage().priceOracle)
-        );
+        incentiveRatio = _lookupIncentiveRatio(Config_v2.MINT_LEVERAGED, _readOracle(_getMinterStorage().priceOracle));
     }
 
     /// @inheritdoc IMinter_v3

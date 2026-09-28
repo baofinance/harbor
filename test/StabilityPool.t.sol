@@ -59,16 +59,7 @@ contract MockStabilityPool is StabilityPool_v3 {
         uint256 minTotalAssetSupply_,
         string memory name_,
         string memory symbol_
-    )
-        StabilityPool_v3(
-            minter_,
-            withdrawalStartDelay_,
-            withdrawalEndWindow_,
-            minTotalAssetSupply_,
-            name_,
-            symbol_
-        )
-    {}
+    ) StabilityPool_v3(minter_, withdrawalStartDelay_, withdrawalEndWindow_, minTotalAssetSupply_, name_, symbol_) {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
@@ -348,28 +339,12 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(
-            new StabilityPool_v3(
-                minter,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether,
-                "Test SP",
-                "tSP"
-            )
-        );
+        address(new StabilityPool_v3(minter, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether, "Test SP", "tSP"));
     }
 
     function test_initEvents() public {
         address sp = address(
-            new StabilityPool_v3(
-                minter,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether,
-                "Test SP",
-                "tSP"
-            )
+            new StabilityPool_v3(minter, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether, "Test SP", "tSP")
         );
         // Hoisted: reading the fee off the config is an external call that emits nothing, and the
         // `expectEmit`s below bind to the NEXT call - which must be the proxy deployment, not this read.
@@ -393,14 +368,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initialize_invalidFee_reverts() public {
         address spImpl = address(
-            new StabilityPool_v3(
-                minter,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether,
-                "Test SP",
-                "tSP"
-            )
+            new StabilityPool_v3(minter, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether, "Test SP", "tSP")
         );
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
         UnsafeUpgrades.deployUUPSProxy(
@@ -411,14 +379,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initialize_invalidFeeAddress_reverts() public {
         address spImpl = address(
-            new StabilityPool_v3(
-                minter,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether,
-                "Test SP",
-                "tSP"
-            )
+            new StabilityPool_v3(minter, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether, "Test SP", "tSP")
         );
         // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be
         // the call the expectation binds to - which succeeds, so the test would fail claiming no revert.

@@ -73,8 +73,7 @@ abstract contract MarketUnderTest {
     ) internal virtual returns (Market memory);
 
     /// @dev The ERC-1967 implementation slot, `keccak256("eip1967.proxy.implementation") - 1`.
-    bytes32 private constant _IMPLEMENTATION_SLOT =
-        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    bytes32 private constant _IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     /// @dev Writes down what is ACTUALLY behind every proxy in this market, so a run states its own
     /// provenance and a reader never has to take the harness's word for it.
@@ -149,7 +148,7 @@ abstract contract MarketUnderTest {
     /// @dev Is there a rebalance to perform? BOTH halves of the question: that the market wants one, and that
     /// a pool holds something to satisfy it with.
     ///
-    /// `rebalanceable()` answers only the first - it is `collateralRatio < rebalanceThreshold` and knows
+    /// `rebalanceable()` answers only the first - the ratio is above the peg and below the threshold - and knows
     /// nothing about the pools' balances. A loop taking it as the whole precondition eventually calls a
     /// rebalance with nothing to convert, which the DEPLOYED manager reports by reverting
     /// `NoTokensToLiquidate`. So the missing half of the predicate arrived as a crash, and the fix is to ask

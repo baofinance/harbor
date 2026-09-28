@@ -49,6 +49,10 @@ interface IStabilityPoolManager_v2 {
     /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
     error CollateralRatioNotBelowRebalanceThreshold(uint256 currentCollateralRatio, uint256 rebalanceThreshold);
 
+    /// @dev Thrown when a rebalance is attempted with the collateral ratio at or below the peg. There a pegged token
+    ///      redeemed for collateral takes its share of the backing with it, so no amount redeemed moves the ratio.
+    error CollateralRatioNotAbovePeg(uint256 collateralRatio);
+
     /// @dev Thrown when the amount requested to be liquidated isn't met
     error NoTokensToLiquidate(address token);
 
@@ -66,6 +70,8 @@ interface IStabilityPoolManager_v2 {
     function stabilityPools() external view returns (address[] memory);
     function hasStabilityPool(address stabilityPool) external view returns (bool);
     function harvestable() external view returns (uint256);
+    /// @notice Whether a rebalance has something to repair: the collateral ratio is above the peg and below the
+    ///         rebalance threshold.
     function rebalanceable() external view returns (bool);
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
@@ -79,6 +85,18 @@ interface IStabilityPoolManager_v2 {
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+    /// @notice Lift the collateral ratio to the rebalance threshold with the stability pools' pegged, in up to two
+    ///         steps, and pay the pools - and `bountyReceiver` its bounty ratio of every payment - for what they give.
+    ///         Where the minter sells leverage, one step by both legs: the collateral pool's pegged redeemed for
+    ///         collateral, the leveraged pool's converted into leveraged tokens. Where it sells none - below its
+    ///         floor, `IMinter_v3.MINIMUM_COLLATERAL_RATIO` - first both pools' pegged by the collateral route, pro
+    ///         rata to their holdings, to the floor or the threshold if that is lower, all paid in collateral; then,
+    ///         from the floor, the step by both legs. Each pool gives up no more than its headroom
+    ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
+    /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold,
+    ///      `CollateralRatioNotAbovePeg` at or below the peg, and `InsufficientLiquidation` when both steps together
+    ///      take less than `minPeggedLiquidated`.
+    /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 
     /// @notice Harvests tokens to stability pools and returns the total amount harvested

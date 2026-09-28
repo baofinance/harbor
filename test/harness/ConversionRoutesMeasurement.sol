@@ -55,11 +55,7 @@ abstract contract ConversionRoutesMeasurement is GraphTestBase, Array, RevertRea
 
     /// @dev The same move by hand, both legs fee-free.
     function retailRoute() external returns (uint256 leveragedOut) {
-        (uint256 collateralOut, ) = IMinter_v3(market.minter).freeRedeemPeggedToken(
-            ROUTE_PEGGED_IN,
-            0,
-            address(this)
-        );
+        (uint256 collateralOut, ) = IMinter_v3(market.minter).freeRedeemPeggedToken(ROUTE_PEGGED_IN, 0, address(this));
         if (collateralOut > 0) {
             leveragedOut = IMinter_v3(market.minter).freeMintLeveragedToken(collateralOut, address(this));
         }

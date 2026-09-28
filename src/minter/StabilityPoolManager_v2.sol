@@ -183,18 +183,12 @@ contract StabilityPoolManager_v2 is
         return IMinter_v3(MINTER).harvestable();
     }
 
-    function _rebalanceable(
-        uint256 collateralRatio,
-        uint256 rebalanceThreshold_
-    ) private pure returns (bool rebalanceable_) {
-        // Check if collateral ratio is below the rebalance threshold
-        rebalanceable_ = collateralRatio < rebalanceThreshold_;
-    }
-
     /// @inheritdoc IStabilityPoolManager_v2
     function rebalanceable() external view returns (bool rebalanceable_) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        rebalanceable_ = _rebalanceable(IMinter_v3(MINTER).collateralRatio(), $.rebalanceThreshold);
+        uint256 collateralRatio_ = IMinter_v3(MINTER).collateralRatio();
+        rebalanceable_ =
+            collateralRatio_ > 1 ether &&
+            collateralRatio_ < _getStabilityPoolManagerStorage().rebalanceThreshold;
     }
 
     /// @inheritdoc IStabilityPoolManager_v2
@@ -351,123 +345,242 @@ contract StabilityPoolManager_v2 is
         if (bountyReceiver == address(0)) {
             revert IERC20Errors.ERC20InvalidReceiver(bountyReceiver);
         }
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 rebalanceThreshold_ = $.rebalanceThreshold;
-        if (!_rebalanceable(IMinter_v3(MINTER).collateralRatio(), rebalanceThreshold_)) {
-            // it's an lower bound for non-rebalance mode
-            revert CollateralRatioNotBelowRebalanceThreshold(IMinter_v3(MINTER).collateralRatio(), rebalanceThreshold_);
-        }
-
-        // sum up the relative sizes of the stability pools - this is the pegged token holdings
-        // note that these holdings are depleted by the liquidation process
-        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
-        // slither-disable-next-line incorrect-equality
-        if (totalPoolHolding == 0) {
-            revert NoTokensToLiquidate(PEGGED_TOKEN);
-        }
-
-        // Ask the minter for the pegged to liquidate on each leg to reach the target collateral ratio, with the split
-        // already FITTED to each pool's solvency headroom (maxAssetLoss - a loss may take a pool only to its MIN floor):
-        // a pool whose proportional share exceeds its headroom is capped there and the shortfall slides along the
-        // target-ratio line into the co-pool's leg, each leg still redeemed for its own token. So one rebalance reaches
-        // the threshold (or, if both headrooms are exhausted, liquidates the pools' combined headroom - a partial that a
-        // later rebalance continues). The split is proportional to the pegged holdings passed in.
-        (uint256 peggedForCollateral, uint256 peggedForLeveraged) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
-            rebalanceThreshold_,
-            IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
-            _leveragedLegHeadroom(),
-            poolHoldingCollateral,
-            poolHoldingLeveraged
-        );
-
-        // Clamp each leg before sweeping so the swept, redeemed and notified pegged all agree. Bound the redeemed
-        // proceeds to what each pool's reward integral can absorb (maxLiquidationReward) and the pegged loss to the
-        // pool's solvency headroom (maxAssetLoss); pegged is burned in the redeem, so this must precede it. Preview the
-        // redeem to turn the proceeds bound into a pegged bound. (The sweep still measures the actual taken, only ever
-        // <= the clamp, so both bounds hold even when a pool hands back less.)
+        uint256 rebalanceThreshold_ = _getStabilityPoolManagerStorage().rebalanceThreshold;
+        uint256 rebalanceBountyRatio_ = _getStabilityPoolManagerStorage().rebalanceBountyRatio;
         {
-            (uint256 previewCollateral, uint256 previewLeveraged) = IMinter_v3(MINTER).freeRedeemDryRun(
-                peggedForCollateral,
-                peggedForLeveraged
+            uint256 collateralRatio_ = IMinter_v3(MINTER).collateralRatio();
+            if (collateralRatio_ >= rebalanceThreshold_) {
+                revert CollateralRatioNotBelowRebalanceThreshold(collateralRatio_, rebalanceThreshold_);
+            }
+            // At or below the peg a pegged token redeemed for collateral takes its share of the backing with it, so no
+            // amount redeemed moves the collateral ratio: there is nothing to repair. The pools keep their pegged for
+            // when the price brings the market back above the peg, where it does.
+            if (collateralRatio_ <= 1 ether) {
+                revert CollateralRatioNotAbovePeg(collateralRatio_);
+            }
+            (uint256 totalPoolHolding, , ) = _poolHoldings();
+            // slither-disable-next-line incorrect-equality
+            if (totalPoolHolding == 0) {
+                revert NoTokensToLiquidate(PEGGED_TOKEN);
+            }
+        }
+        uint256 collateralPaid;
+        uint256 leveragedPaid;
+
+        // Below the minter's floor it sells no leverage, so the leveraged pool cannot convert. Both pools' pegged take
+        // the collateral route to the floor - or to the threshold, if that is lower - each pool its share of what the
+        // two hold, within its headroom, the excess sliding to the other. Both are paid in collateral.
+        if (!IMinter_v3(MINTER).leveragedIssuable()) {
+            uint256 peggedFromCollateralPool;
+            uint256 peggedFromLeveragedPool;
+            {
+                uint256 maxLossCollateral = IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss();
+                uint256 maxLossLeveraged = IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss();
+                (uint256 totalPoolHolding, uint256 poolHoldingCollateral, ) = _poolHoldings();
+                // slither-disable-next-line unused-return the leveraged route is closed, so its leg is zero
+                (uint256 pegged, ) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
+                    Math.min(IMinter_v3(MINTER).MINIMUM_COLLATERAL_RATIO(), rebalanceThreshold_),
+                    maxLossCollateral + maxLossLeveraged,
+                    0,
+                    totalPoolHolding,
+                    0
+                );
+                peggedFromCollateralPool = Math.min(
+                    Math.mulDiv(pegged, poolHoldingCollateral, totalPoolHolding),
+                    maxLossCollateral
+                );
+                peggedFromLeveragedPool = pegged - peggedFromCollateralPool;
+                if (peggedFromLeveragedPool > maxLossLeveraged) {
+                    peggedFromLeveragedPool = maxLossLeveraged;
+                    peggedFromCollateralPool = pegged - maxLossLeveraged;
+                }
+            }
+            (peggedLiquidated, collateralPaid, ) = _liquidate(
+                peggedFromCollateralPool,
+                peggedFromLeveragedPool,
+                true,
+                rebalanceBountyRatio_,
+                bountyReceiver
             );
-            peggedForCollateral = _capLiquidation(peggedForCollateral, previewCollateral, _STABILITY_POOL_COLLATERAL);
-            peggedForLeveraged = _capLiquidation(peggedForLeveraged, previewLeveraged, _STABILITY_POOL_LEVERAGED);
         }
 
-        // Sweep the pegged backing from each pool into this manager. Each pool caps the sweep at its own solvency
-        // headroom above MIN_TOTAL_ASSET_SUPPLY (StabilityPool.sweep), matching the write-down cap in its _notifyLoss,
-        // so a pool may hand back less pegged than requested. Measure the balance delta around each sweep to learn
-        // what was actually taken, and drive the redeem and notifications off those actuals - we must never redeem or
-        // notify more pegged than we hold, or a pool would be left backing supply it no longer has.
-        if (peggedForCollateral > 0) {
-            uint256 peggedBefore = IERC20(PEGGED_TOKEN).balanceOf(address(this));
-            ITokenHolder(_STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
-            peggedForCollateral = IERC20(PEGGED_TOKEN).balanceOf(address(this)) - peggedBefore;
+        // At or above the floor - from the start, or once the step above has reached it - both legs to the threshold:
+        // the collateral pool's pegged redeemed for collateral, the leveraged pool's converted into leveraged tokens.
+        // The minter splits the distance between them by their holdings, each within its pool's headroom, the shortfall
+        // of one sliding into the other's leg.
+        if (IMinter_v3(MINTER).leveragedIssuable() && IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
+            uint256 peggedFromCollateralPool;
+            uint256 peggedFromLeveragedPool;
+            {
+                (, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
+                (peggedFromCollateralPool, peggedFromLeveragedPool) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
+                    rebalanceThreshold_,
+                    IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
+                    IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss(),
+                    poolHoldingCollateral,
+                    poolHoldingLeveraged
+                );
+            }
+            uint256 pegged;
+            uint256 collateral;
+            (pegged, collateral, leveragedPaid) = _liquidate(
+                peggedFromCollateralPool,
+                peggedFromLeveragedPool,
+                false,
+                rebalanceBountyRatio_,
+                bountyReceiver
+            );
+            peggedLiquidated += pegged;
+            collateralPaid += collateral;
         }
-        if (peggedForLeveraged > 0) {
-            uint256 peggedBefore = IERC20(PEGGED_TOKEN).balanceOf(address(this));
-            ITokenHolder(_STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
-            peggedForLeveraged = IERC20(PEGGED_TOKEN).balanceOf(address(this)) - peggedBefore;
-        }
-        peggedLiquidated = peggedForCollateral + peggedForLeveraged;
 
-        // make sure we actually swept at least the minimum
         if (peggedLiquidated < minPeggedLiquidated) {
             revert InsufficientLiquidation(PEGGED_TOKEN, peggedLiquidated, minPeggedLiquidated);
         }
-
-        uint256 rebalanceBountyRatio_ = $.rebalanceBountyRatio;
-
-        // allow the minter to burn the pegged tokens I've just swept up, then liquidate them into the reward token:
-        // * extract the bounty and transfer to the bounty receiver
-        // * transfer the remainder to the stability pool, notifying it of that "reward"
-        IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedLiquidated);
-        (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter_v3(MINTER).freeRedeemPeggedToken(
-            peggedForCollateral,
-            peggedForLeveraged,
-            address(this)
-        );
-
-        if (peggedForCollateral > 0) {
-            // extract the collateral bounty
-            uint256 collateralBounty = (wrappedCollateralReturned * rebalanceBountyRatio_) / 1 ether;
-            wrappedCollateralReturned -= collateralBounty;
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, collateralBounty);
-            // transfer the amounts and update the stability pool accounts
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(_STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
-            IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).notifyLiquidation(
-                WRAPPED_COLLATERAL_TOKEN,
-                peggedForCollateral,
-                wrappedCollateralReturned
-            );
-        }
-        if (peggedForLeveraged > 0) {
-            // extract the leveraged bounty
-            uint256 leveragedBounty = (leveragedReturned * rebalanceBountyRatio_) / 1 ether;
-            leveragedReturned -= leveragedBounty;
-            IERC20(LEVERAGED_TOKEN).safeTransfer(bountyReceiver, leveragedBounty);
-            // transfer the amounts and update the stability pool accounts
-            IERC20(LEVERAGED_TOKEN).safeTransfer(_STABILITY_POOL_LEVERAGED, leveragedReturned);
-            IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).notifyLiquidation(
-                LEVERAGED_TOKEN,
-                peggedForLeveraged,
-                leveragedReturned
-            );
-        }
-
-        emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
+        emit Rebalanced(peggedLiquidated, collateralPaid, leveragedPaid);
         // slither-disable-next-line unused-return
         _compoundRegistered();
     }
 
-    /// @notice The most pegged the leveraged leg may give up in this rebalance.
-    /// @dev The leveraged pool's solvency headroom, `maxAssetLoss`, by default - the same bound the collateral leg is
-    ///      sized against. It is the one input to the split that says whether the leveraged leg is AVAILABLE, so a
-    ///      manager paired with a minter that declines to sell leverage in some market states overrides this to
-    ///      report zero there: the split then slides the whole target along the target-ratio line into the collateral
-    ///      leg, and the rebalance proceeds on that leg alone instead of reverting inside the one the minter refuses.
-    function _leveragedLegHeadroom() internal view virtual returns (uint256) {
-        return IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss();
+    /// @dev One step of a rebalance: take `peggedFromCollateralPool` and `peggedFromLeveragedPool` from the two pools,
+    ///      redeem them, and pay each pool - and the keeper its bounty ratio of each payment. With
+    ///      `leveragedPoolPaidInCollateral` both pools' pegged take the collateral route and the collateral is shared
+    ///      between them in proportion to the pegged each gave up; without it the leveraged pool's pegged is converted
+    ///      and the pool is paid in leveraged tokens.
+    /// @return peggedLiquidated The pegged actually taken from the two pools.
+    /// @return collateralPaid The collateral paid to the pools, after the bounty.
+    /// @return leveragedPaid The leveraged tokens paid to the leveraged pool, after the bounty.
+    function _liquidate(
+        uint256 peggedFromCollateralPool,
+        uint256 peggedFromLeveragedPool,
+        bool leveragedPoolPaidInCollateral,
+        uint256 bountyRatio,
+        address bountyReceiver
+    ) private returns (uint256 peggedLiquidated, uint256 collateralPaid, uint256 leveragedPaid) {
+        // Clamp each pool's share before sweeping, so the swept, redeemed and notified pegged all agree: its proceeds
+        // within what its reward integral can absorb, its loss within its headroom. Pegged is burned in the redeem, so
+        // this must precede it; the dry run turns the proceeds bound into a pegged bound.
+        {
+            uint256 previewForCollateralPool;
+            uint256 previewForLeveragedPool;
+            if (leveragedPoolPaidInCollateral) {
+                uint256 pegged = peggedFromCollateralPool + peggedFromLeveragedPool;
+                // slither-disable-next-line incorrect-equality
+                if (pegged == 0) {
+                    return (0, 0, 0);
+                }
+                // slither-disable-next-line unused-return no pegged is converted, so no leveraged is issued
+                (uint256 collateralOut, ) = IMinter_v3(MINTER).freeRedeemDryRun(pegged, 0);
+                previewForCollateralPool = Math.mulDiv(collateralOut, peggedFromCollateralPool, pegged);
+                previewForLeveragedPool = collateralOut - previewForCollateralPool;
+            } else {
+                (previewForCollateralPool, previewForLeveragedPool) = IMinter_v3(MINTER).freeRedeemDryRun(
+                    peggedFromCollateralPool,
+                    peggedFromLeveragedPool
+                );
+            }
+            peggedFromCollateralPool = _capLiquidation(
+                peggedFromCollateralPool,
+                previewForCollateralPool,
+                _STABILITY_POOL_COLLATERAL
+            );
+            peggedFromLeveragedPool = _capLiquidation(
+                peggedFromLeveragedPool,
+                previewForLeveragedPool,
+                _STABILITY_POOL_LEVERAGED
+            );
+        }
+
+        // The redeem and the payments run on what the sweeps actually took, never more pegged than is held, or a pool
+        // would be left backing supply it no longer has.
+        peggedFromCollateralPool = _sweepPegged(_STABILITY_POOL_COLLATERAL, peggedFromCollateralPool);
+        peggedFromLeveragedPool = _sweepPegged(_STABILITY_POOL_LEVERAGED, peggedFromLeveragedPool);
+        peggedLiquidated = peggedFromCollateralPool + peggedFromLeveragedPool;
+        // slither-disable-next-line incorrect-equality
+        if (peggedLiquidated == 0) {
+            return (0, 0, 0);
+        }
+
+        IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedLiquidated);
+        if (leveragedPoolPaidInCollateral) {
+            // slither-disable-next-line unused-return no pegged is converted, so no leveraged is issued
+            (uint256 collateralOut, ) = IMinter_v3(MINTER).freeRedeemPeggedToken(peggedLiquidated, 0, address(this));
+            uint256 forCollateralPool = Math.mulDiv(collateralOut, peggedFromCollateralPool, peggedLiquidated);
+            collateralPaid = _payPool(
+                _STABILITY_POOL_COLLATERAL,
+                WRAPPED_COLLATERAL_TOKEN,
+                peggedFromCollateralPool,
+                forCollateralPool,
+                bountyRatio,
+                bountyReceiver
+            );
+            collateralPaid += _payPool(
+                _STABILITY_POOL_LEVERAGED,
+                WRAPPED_COLLATERAL_TOKEN,
+                peggedFromLeveragedPool,
+                collateralOut - forCollateralPool,
+                bountyRatio,
+                bountyReceiver
+            );
+        } else {
+            (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(MINTER).freeRedeemPeggedToken(
+                peggedFromCollateralPool,
+                peggedFromLeveragedPool,
+                address(this)
+            );
+            collateralPaid = _payPool(
+                _STABILITY_POOL_COLLATERAL,
+                WRAPPED_COLLATERAL_TOKEN,
+                peggedFromCollateralPool,
+                collateralOut,
+                bountyRatio,
+                bountyReceiver
+            );
+            leveragedPaid = _payPool(
+                _STABILITY_POOL_LEVERAGED,
+                LEVERAGED_TOKEN,
+                peggedFromLeveragedPool,
+                leveragedOut,
+                bountyRatio,
+                bountyReceiver
+            );
+        }
+    }
+
+    /// @dev Sweep up to `pegged` of `pool`'s pegged into this manager, returning what was actually taken: a pool caps
+    ///      the sweep at its headroom above its floor, the same cap its loss write-down applies, so it may hand back
+    ///      less than asked.
+    function _sweepPegged(address pool, uint256 pegged) private returns (uint256 taken) {
+        // slither-disable-next-line incorrect-equality
+        if (pegged == 0) {
+            return 0;
+        }
+        uint256 peggedBefore = IERC20(PEGGED_TOKEN).balanceOf(address(this));
+        ITokenHolder(pool).sweep(PEGGED_TOKEN, pegged, address(this));
+        taken = IERC20(PEGGED_TOKEN).balanceOf(address(this)) - peggedBefore;
+    }
+
+    /// @dev Pay `pool` for the `pegged` it gave up, out of `proceeds` of `token`: the keeper its bounty ratio, the pool
+    ///      the rest - credited to its holders at once by `notifyLiquidation`, which also writes the loss off their
+    ///      deposits.
+    /// @return paid What the pool was paid, after the bounty.
+    function _payPool(
+        address pool,
+        address token,
+        uint256 pegged,
+        uint256 proceeds,
+        uint256 bountyRatio,
+        address bountyReceiver
+    ) private returns (uint256 paid) {
+        // slither-disable-next-line incorrect-equality
+        if (pegged == 0) {
+            return 0;
+        }
+        uint256 bounty = (proceeds * bountyRatio) / 1 ether;
+        paid = proceeds - bounty;
+        IERC20(token).safeTransfer(bountyReceiver, bounty);
+        IERC20(token).safeTransfer(pool, paid);
+        IStabilityPool_v3(pool).notifyLiquidation(token, pegged, paid);
     }
 
     /// @dev Clamp a liquidation leg's pegged amount to what `pool` will honour, given the redeem's previewed `returned`

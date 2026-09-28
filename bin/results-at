@@ -31,6 +31,9 @@
 # when the answer to "what moved?" is all that was wanted.
 
 set -euo pipefail
+# `set -e` stops the script without a word, so say where. -E carries the trap into functions and subshells.
+set -E
+trap 'echo "results-at: stopped at line ${LINENO}, exit $?: ${BASH_COMMAND}" >&2' ERR
 
 open_in_editor=""
 ref=""
@@ -78,8 +81,13 @@ fi
 # The CSV filenames a plot file actually reads. Comment lines are skipped: several .gp files document
 # example command lines naming CSVs they do not draw, and compare.gp - which is generic and takes its
 # filenames on the command line - names three that do not exist in results/ at all.
+#
+# grep exits 1 when it selects nothing, which here means only that the file names no CSV - style.gp, loaded
+# by the others, draws nothing of its own. Any other failure still stops the script.
 gp_references() {
-    grep -v '^[[:space:]]*#' "$1" | grep -oE '[A-Za-z0-9_:.-]+\.csv' | sort -u
+    { grep -v '^[[:space:]]*#' "$1" || [[ $? -eq 1 ]]; } \
+        | { grep -oE '[A-Za-z0-9_:.-]+\.csv' || [[ $? -eq 1 ]]; } \
+        | sort -u
 }
 
 declare -A csv_delta=()    # CSV name -> how many lines differ from the ref

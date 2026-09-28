@@ -62,7 +62,8 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
         Config_MinterMarket marketConfig_,
         address minter_
     ) internal virtual override returns (address impl) {
-        return StabilityPoolDeployer.deployStabilityPoolImplementation(stateData, key, poolType, marketConfig_, minter_);
+        return
+            StabilityPoolDeployer.deployStabilityPoolImplementation(stateData, key, poolType, marketConfig_, minter_);
     }
 
     function marketLabel() internal pure virtual override returns (string memory) {

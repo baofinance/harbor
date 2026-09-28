@@ -75,11 +75,7 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
     /// cover it, because whatever a round did not convert is still held here. No pegged is minted, so the
     /// market's collateral is untouched and the supply shrinks exactly as the rebalances left it.
     function _restorePoolShare() internal {
-        uint256 target = Math.mulDiv(
-            IMinter(market.minter).peggedTokenBalance(),
-            LEVERAGED_POOL_SHARE,
-            1 ether
-        );
+        uint256 target = Math.mulDiv(IMinter(market.minter).peggedTokenBalance(), LEVERAGED_POOL_SHARE, 1 ether);
         uint256 held = IERC20(market.pegged).balanceOf(market.leveragedPool);
         if (target <= held) {
             return;
@@ -100,11 +96,7 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
             return 0;
         }
         return
-            Math.mulDiv(
-                IMinter(market.minter).collateralRatio(),
-                IMinter(market.minter).peggedTokenBalance(),
-                backing
-            );
+            Math.mulDiv(IMinter(market.minter).collateralRatio(), IMinter(market.minter).peggedTokenBalance(), backing);
     }
 
     /// @dev What the leveraged stability pool's WHOLE position is worth, denominated in collateral.

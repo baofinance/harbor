@@ -142,14 +142,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         // Deploy impls and read the gap BEFORE the prank — the constructors and the ledger read make external calls
         // that would otherwise consume it.
         address v3Impl = address(
-            new StabilityPool_v3(
-                minter,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether,
-                "StabilityPool",
-                "SP"
-            )
+            new StabilityPool_v3(minter, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether, "StabilityPool", "SP")
         );
         int256 gap = _ledgerGap();
         address[] memory holders = new address[](2);
@@ -242,14 +235,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // The upgrade the deploy script would queue for a contract that needed no data migration.
         address v3Impl = address(
-            new StabilityPool_v3(
-                minter,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether,
-                "StabilityPool",
-                "SP"
-            )
+            new StabilityPool_v3(minter, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether, "StabilityPool", "SP")
         );
         vm.startPrank(owner());
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");

@@ -22,6 +22,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
@@ -745,8 +746,8 @@ abstract contract StabilityPoolEnvelopeBase is
         uint256 n = e.maxPoolUsers;
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 share = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD) / n; // $10B / 10,000 holders = $1M each
-        _mintPeggedAtLeast(share * n);
         _mintLeveragedBuffer(share * n);
+        _mintPeggedAtLeast(share * n);
 
         uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
         address[] memory crowd = new address[](n);
@@ -1534,18 +1535,24 @@ abstract contract StabilityPoolEnvelopeBase is
     // ─── rebalance walk ───
 
     /// @dev Mint a leveraged buffer so the collateral ratio starts healthy (~1.5x) and can then be dropped below the
-    /// rebalance threshold.
+    /// rebalance threshold. Minted BEFORE the pegged it buffers: the minter sells no leverage below its floor, and the
+    /// pool's pegged, minted first at par against collateral worth exactly that pegged, would bring the market down to
+    /// the peg, where a leveraged mint is refused.
     function _mintLeveragedBuffer(uint256 peggedBacked) internal {
         uint256 collateral = _collateralFor(peggedBacked) / 2;
         genesisMint(minter, 0, collateral, address(this));
     }
 
-    /// @dev Lower the collateral price until the collateral ratio falls below the rebalance threshold.
+    /// @dev Lower the collateral price to put the collateral ratio inside the window a rebalance is offered in, halfway
+    /// across it: from the minter's floor to the rebalance threshold where the threshold is above the floor - the
+    /// one-step rebalance by both legs - and from the peg to the threshold where it is not. Placed by price rather than
+    /// stepped down to, because the window is as narrow as the threshold is low, and fixed steps can jump it; and
+    /// bounded by the minter's own floor, so it moves with the leverage cap that sets it.
     function _dropPriceBelowRebalanceThreshold() internal {
-        for (uint256 i = 0; i < 50 && !IStabilityPoolManager(stabilityPoolManager).rebalanceable(); i++) {
-            currentPrice = (currentPrice * 9) / 10; // -10% collateral price lowers the collateral ratio
-            mockOracle.setLatestAnswer(currentPrice, currentRate);
-        }
+        uint256 threshold = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
+        uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        uint256 bottom = threshold > floor ? floor : 1 ether;
+        currentPrice = setCollateralRatioByPrice(minter, address(mockOracle), bottom + (threshold - bottom) / 2);
         assertTrue(
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
             "could not drive the collateral ratio below the rebalance threshold"
@@ -1572,8 +1579,8 @@ abstract contract StabilityPoolEnvelopeBase is
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), buildEnvelope().pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
-        _growPool(poolPegged, MAX_FUZZ_USERS);
         _mintLeveragedBuffer(poolPegged);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
 
         _dropPriceBelowRebalanceThreshold();
         uint256 injected = _rebalance();
@@ -1584,61 +1591,56 @@ abstract contract StabilityPoolEnvelopeBase is
         _assertSpSolvent(stabilityPool, _allActors(), g);
     }
 
-    /// @notice A pool whose proportional liquidation share exceeds its solvency headroom is capped there by the minter's
-    /// constrained redeem, and the shortfall slides along the target-ratio line into the co-pool's leg WITHIN the same
-    /// rebalance - so a single rebalance restores the collateral ratio to the threshold instead of the co-pool
-    /// recovering it across several later calls. The co-pool must have the headroom to absorb the shortfall.
+    /// @notice A pool whose share of a rebalance exceeds its solvency headroom gives up all it can, and the co-pool takes
+    /// the shortfall WITHIN the same rebalance - so a single rebalance restores the collateral ratio to the threshold
+    /// instead of the co-pool recovering it across several later calls. The co-pool must have the headroom to absorb
+    /// the shortfall. From inside the band the first step takes both pools' pegged by the collateral route, pro rata:
+    /// a small collateral pool beside a large leveraged pool floors there, and the leveraged pool covers its shortfall
+    /// and then carries the step above the floor alone.
     function test_rebalance_flooredPoolShortfallPickedUpInCall() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
 
         // A small collateral pool (floors early) beside a large leveraged pool with ample headroom to absorb the
-        // shortfall.
+        // shortfall; the two together hold nearly all the pegged there is.
         uint256 minSupply = IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
-        _growPool(minSupply * 10, 1); // small collateral pool
         uint256 levHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPoolLeveraged).totalSupply();
         uint256 levHold = _min(minSupply * 1_000_000, levHeadroom / 2);
-        _depositPeggedTo(stabilityPoolLeveraged, background, levHold);
         _mintLeveragedBuffer(levHold); // start the CR healthy so it can be dropped
+        _growPool(minSupply * 10, 1); // small collateral pool, beside the seed's floor deposit
+        _depositPeggedTo(stabilityPoolLeveraged, background, levHold);
 
-        // Drop deep below the threshold so the required liquidation exceeds the small collateral pool's headroom and it
-        // floors on the first rebalance.
-        _dropPriceBelowRebalanceThreshold();
-        for (uint256 i = 0; i < 6; i++) {
-            currentPrice = (currentPrice * 6) / 10;
-            mockOracle.setLatestAnswer(currentPrice, currentRate);
-        }
-        if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
-            return; // the drop over/under-shot for this market's config; the scenario is not set up
-        }
+        // Start where the first step - the collateral route to the floor, or to the threshold if that is lower - takes
+        // 95% of what the pools hold: past the collateral pool's headroom, which is 10/11 of what it holds, and well
+        // inside the leveraged pool's. At par that step takes `a` of the claim and `a` of the value, reaching
+        // `firstTarget` when `a = n·(firstTarget − start)/(firstTarget − 1)`.
+        uint256 firstTarget = Math.min(
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO(),
+            IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold()
+        );
+        uint256 held = IERC20(pegged).balanceOf(stabilityPool) + IERC20(pegged).balanceOf(stabilityPoolLeveraged);
+        uint256 start = firstTarget -
+            Math.mulDiv(firstTarget - 1 ether, 95 * held, 100 * IMinter(minter).peggedTokenBalance());
+        _setEnvelopePointAtCollateralRatio(start, _nominalWrapRate(), e.pegPriceUSD);
+        assertTrue(
+            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            "the market starts between the peg and the first target"
+        );
 
         address keeper = makeAddr("rebalanceKeeper");
-        uint256 calls;
-        bool collateralFlooredFirst;
-        for (uint256 i = 0; i < 20 && IStabilityPoolManager(stabilityPoolManager).rebalanceable(); i++) {
-            vm.startPrank(keeper);
-            IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
-            vm.stopPrank();
-            calls++;
-            if (calls == 1) {
-                collateralFlooredFirst = IERC20(stabilityPool).totalSupply() == minSupply;
-            }
-        }
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
+        vm.stopPrank();
 
-        console2.log("R1 rebalance calls to converge =", calls);
+        assertEq(
+            IERC20(stabilityPool).totalSupply(),
+            minSupply,
+            "the small collateral pool gave up all it could - its share exceeded its headroom"
+        );
         assertFalse(
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
-            "the rebalance restores the collateral ratio to the threshold"
-        );
-        assertTrue(
-            collateralFlooredFirst,
-            "the small collateral pool floored on the first rebalance (its share exceeded its headroom)"
-        );
-        assertEq(
-            calls,
-            1,
-            "the minter's constrained split re-allocates the floored pool's shortfall to the co-pool, in one call"
+            "the leveraged pool took the shortfall, so one rebalance restores the collateral ratio to the threshold"
         );
     }
 
@@ -1653,8 +1655,8 @@ abstract contract StabilityPoolEnvelopeBase is
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
-        _growPool(poolPegged, MAX_FUZZ_USERS);
         _mintLeveragedBuffer(poolPegged);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max returned
         if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
             return; // this market's corner does not drop the CR below the threshold
@@ -1670,23 +1672,18 @@ abstract contract StabilityPoolEnvelopeBase is
 
     // ─── deterministic reward-field corner (the fuzz reaches this < 1/256 runs; never leave it to the fuzzer) ───
 
-    /// @notice The reward-field corner: the full pool ($maxPoolValueUSD) liquidated in one rebalance at the CHEAPEST
-    /// wrapped collateral (minCollateral x minRate) - the point that maximises the reward token count the pool's uint128
-    /// `pending` field must hold, `poolValueUSD / wrappedUSD`. Grown at a healthy nominal price so minting works, then
-    /// moved to the corner (which drops the collateral ratio below the rebalance threshold AND maximises the returned
-    /// collateral). Green = the reward field holds the whole-pool reward at the corner; a SafeCast revert here is the
-    /// documented envelope exceeding the field, to be fixed or narrowed.
     /// @notice An impairment deeper than the sail buffer can absorb, and the recovery out of it. The oracles floor
     ///         the reported rate today, so the market halts before it can get this far and the path has never been
     ///         exercised; the planned widening of those bounds turns it from a halt into a state the protocol has
-    ///         to carry. Sail is wiped, the anchor depegs, and the rebalance still has to conserve - and once the
-    ///         collateral recovers past the rebalance threshold the market has to come back with it.
+    ///         to carry. Sail is wiped and the anchor depegs, and no rebalance can help: below the peg a redemption
+    ///         takes its share of the backing with it, so the rebalance is refused by name and the pool keeps its
+    ///         pegged. Once the collateral recovers past the rebalance threshold the market has to come back with it.
     function test_deepImpairment_wipesSailThenRecovers() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
-        _growPool(poolPegged, MAX_FUZZ_USERS);
         _mintLeveragedBuffer(poolPegged);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
 
         assertGt(IMinter(minter).leveragedTokenPrice(), 0, "sail carries value while the market is covered");
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "and the anchor is at par");
@@ -1704,14 +1701,20 @@ abstract contract StabilityPoolEnvelopeBase is
         (, , , uint256 sailCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
         assertEq(sailCollateralOut, 0, "sail redemption is refused while it stands behind an uncovered anchor");
 
-        // the rebalance is the protocol's answer, and it must still conserve at this depth
-        assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "a wiped-out market is rebalanceable");
-        uint256 injected = _rebalance();
-        assertGt(injected, 0, "the rebalance delivers even with the anchor uncovered");
-
-        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
-        _assertRewardConserved(stabilityPool, _allActors(), g);
-        _assertSpSolvent(stabilityPool, _allActors(), g);
+        // below the peg there is nothing a rebalance can repair: it is refused by name, and the pool keeps its pegged
+        // for when the price brings the market back above the peg
+        uint256 depeggedRatio = IMinter(minter).collateralRatio();
+        uint256 poolPeggedHeld = IERC20(pegged).balanceOf(stabilityPool);
+        address keeper = makeAddr("keeper");
+        assertFalse(
+            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            "a wiped-out market is not offered one"
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
+        );
+        IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
+        assertEq(IERC20(pegged).balanceOf(stabilityPool), poolPeggedHeld, "the pool keeps its pegged");
 
         // the collateral recovers past the rebalance threshold, and the market has to come back with it
         uint256 recovered = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold() + 0.01 ether;
@@ -1738,12 +1741,18 @@ abstract contract StabilityPoolEnvelopeBase is
         assertGt(anchorMintedAfter, 0, "past its own bound, anchor minting is permitted again");
     }
 
+    /// @notice The reward-field corner: the full pool ($maxPoolValueUSD) liquidated in one rebalance at the CHEAPEST
+    /// wrapped collateral (minCollateral x minRate) - the point that maximises the reward token count the pool's uint128
+    /// `pending` field must hold, `poolValueUSD / wrappedUSD`. Grown at a healthy nominal price so minting works, then
+    /// moved to the corner (which drops the collateral ratio below the rebalance threshold AND maximises the returned
+    /// collateral). Green = the reward field holds the whole-pool reward at the corner; a SafeCast revert here is the
+    /// documented envelope exceeding the field, to be fixed or narrowed.
     function test_envelope_corner_rebalance_holds() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
-        _growPool(poolPegged, MAX_FUZZ_USERS);
         _mintLeveragedBuffer(poolPegged);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward
         assertTrue(
@@ -1772,8 +1781,8 @@ abstract contract StabilityPoolEnvelopeBase is
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
-        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
         _mintLeveragedBuffer(poolPegged);
+        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
         assertTrue(
@@ -1812,8 +1821,8 @@ abstract contract StabilityPoolEnvelopeBase is
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
-        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
         _mintLeveragedBuffer(poolPegged);
+        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
         if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
@@ -1911,12 +1920,12 @@ abstract contract StabilityPoolEnvelopeBase is
         }
     }
 
-    /// @dev External so a pool that exceeds the supply field reverts as one attributable unit. Grows the whole pool
-    /// into a single whale (users[0]) at the current healthy price - concentrating the later reward in ONE pending
-    /// field - and mints the leveraged buffer so the pool can be driven below the rebalance threshold.
+    /// @dev External so a pool that exceeds the supply field reverts as one attributable unit. Mints the leveraged
+    /// buffer so the pool can be driven below the rebalance threshold, then grows the whole pool into a single whale
+    /// (users[0]) at the current healthy price - concentrating the later reward in ONE pending field.
     function growProbe(uint256 poolPegged) external {
-        _growPool(poolPegged, 1);
         _mintLeveragedBuffer(poolPegged);
+        _growPool(poolPegged, 1);
     }
 
     /// @dev External so the try/catch treats the rebalance as one located-limit unit (it reverts only if a STEP

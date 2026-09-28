@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -16,6 +17,7 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
 contract TestLiquidate is TestStabilityPool2SetUp {
@@ -89,8 +91,8 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         uint256 supplyBefore;
 
-        // set up - no leveraged tokens
-        setUp_collateral(8 ether, 0 ether); // 8:0 CR = 1
+        // set up above the peg - a leveraged tranche behind the pegged - and below the 1.3 threshold
+        setUp_collateral(8 ether, 0.8 ether); // 8.8:8 CR = 1.1
 
         // liquidate with 0 deposited
         vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager.NoTokensToLiquidate.selector, peggedToken));
@@ -98,7 +100,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // (1) ----------------------------------------------------------------------------------------
 
         // a full liquidation removes the pool's balance down to the floor, never below it
-        setUp_collateral(1 ether, 0 ether, user1); // 9:0 CR = 1
+        setUp_collateral(1 ether, 0 ether, user1); // 9.8:9 CR = 1.09
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
@@ -106,21 +108,27 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // (2) ----------------------------------------------------------------------------------------
         assertEq(liquidated, supplyBefore - floor, "liquidation removes everything above the floor");
 
-        // the drain-to-floor invariant holds even when the collateral is depegged
-        setUp_collateral(1 ether, 0 ether, user1); // CR = 1
+        // at or below the peg there is nothing a rebalance can repair: it is refused by name, and the pool keeps
+        // its pegged for when the price brings the market back above the peg
+        setUp_collateral(1 ether, 0 ether, user1); // CR = 1.09
         price /= 2;
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // depeg: CR = 0.5
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // depeg: CR = 0.54
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
-        liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
+        uint256 depeggedRatio = IMinter_v3(minter).collateralRatio();
+        assertFalse(IStabilityPoolManager(stabilityPoolManagerCollateral).rebalanceable(), "no rebalance is offered");
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
+        );
+        IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (3) ----------------------------------------------------------------------------------------
-        assertEq(liquidated, supplyBefore - floor, "liquidation removes everything above the floor");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore, "the pool keeps its pegged");
 
         price *= 2;
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // CR = 1 again
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // back above the peg
         // minLiquidated above the available headroom (supply - floor) reverts, reporting that headroom
-        setUp_collateral(1 ether, 0 ether, user1); // CR = 1
+        setUp_collateral(1 ether, 0 ether, user1); // CR = 1.08
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
@@ -136,8 +144,8 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // (4) --------------------------------------------------------------------------------------------------
 
         // 130% = 13/10
-        setUp_collateral(0 ether, 4 ether); // cr=12/9 = 133%
-        uint256 startCR = IMinter_v3(minter).collateralRatio(); // 1421052631578947368
+        setUp_collateral(0 ether, 4 ether); // 14.8:10 CR = 1.48
+        uint256 startCR = IMinter_v3(minter).collateralRatio();
 
         // not in rebalance mode
         vm.expectRevert(
@@ -151,12 +159,19 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // (5) ------------------------------------------------------------------------------------------
         assertEq(IMinter_v3(minter).collateralRatio(), startCR);
 
-        // mint more pegged to move CR
-        setUp_collateral(5 ether, 0 ether); // cr =18/14 = 129%
+        // mint more pegged to move CR below the threshold, within what the pool's headroom can repair
+        setUp_collateral(7 ether, 0 ether); // 21.8:17 CR = 1.28
+        // the pegged the collateral route redeems to reach 1.3: `(1.3·n − c·p)/(1.3 − 1)`, which the sizing rounds up
+        // and extends by the pegged one wei of backing is worth there, `p/(1.3 − 1)`, so the trade reaches it however
+        // the backing's valuation rounds
+        uint256 needed = (1.3 ether * IMinter_v3(minter).peggedTokenBalance() -
+            IMinter_v3(minter).collateralTokenBalance() * price) / 0.3 ether;
 
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (6) ------------------------------------------------------------------------------------------
-        assertEq(liquidated, price, "should have liquidated 2");
+        assertGe(liquidated, needed, "the rebalance redeems what reaches the threshold");
+        assertLe(liquidated, needed + Math.ceilDiv(price, 0.3 ether) + 1, "and no more than the sizing allows");
+        assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "the market is at the threshold");
     }
 
     function test_liquidateCollateral() public {
@@ -178,32 +193,33 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolCollateral);
         assertEq(IMinter_v3(minter).collateralRatio(), uint256(14 ether) / 11, "start CR");
 
+        // One price's worth of pegged redeemed at par takes 14/11 exactly to 13/10. The sizing adds the pegged one wei
+        // of backing is worth at 1.3, `price/(1.3 − 1)` rounded up, so the trade reaches the target however the
+        // backing's valuation rounds.
+        uint256 taken = 1 * price + Math.ceilDiv(price, 0.3 ether);
+
         uint256 liquidated;
         vm.expectRevert(
             abi.encodeWithSelector(
                 IStabilityPoolManager.InsufficientLiquidation.selector,
                 peggedToken,
-                1 * price,
-                1 * price + 1
+                taken,
+                taken + 1
             )
         );
-        liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 1 * price + 1);
+        liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, taken + 1);
         // (1) --------------------------------------------------------------------------------------------------
 
         // liquidate it
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (2) --------------------------------------------------------------------------------------------------
         assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130");
-        assertEq(liquidated, 1 * price, "wrong amount of pegged 1");
-        assertEq(
-            poolPegged - IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
-            1 * price,
-            "wrong amount of pegged"
-        );
+        assertEq(liquidated, taken, "wrong amount of pegged 1");
+        assertEq(poolPegged - IERC20(peggedToken).balanceOf(stabilityPoolCollateral), taken, "wrong amount of pegged");
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - poolCollateral,
-            1 ether,
-            "wrong amount of collateral"
+            Math.mulDiv(taken, 1 ether, price),
+            "the pool is paid the collateral its pegged is worth at par"
         );
         assertEq(
             poolLeveraged,
