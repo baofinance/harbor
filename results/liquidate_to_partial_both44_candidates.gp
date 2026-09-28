@@ -37,7 +37,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #   - The TREE rule and the LEVERAGE CAP sit on the unliquidated line `y = x` below the peg, and for opposite
 #     reasons. The tree CONVERTS there - it pays the pool fairly, in the bottom panel it hands over 7.6 million
 #     tokens - but its conversion moves backing into escrow and takes nothing out from under the pegged, so
-#     the ratio does not move: a rebalance that rebalances nothing. The cap issues NOTHING there: its floor is
+#     the ratio does not move: a rebalance that rebalances nothing. The cap mints NOTHING there: its floor is
 #     1.0526, its manager gives the leveraged leg no headroom below it and routes the target to the collateral
 #     leg, and below the peg that leg redeems each pegged for its share of the backing, which is the average
 #     and leaves the ratio exactly where it was. Between the peg and the floor the collateral leg redeems at
@@ -47,7 +47,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #
 # THE MIDDLE PANEL IS WHY THE COUNT CAP EXISTED. Two lines per rule, and the distinction matters: the price
 # BEFORE the liquidation is what a converter is paid at, and the deployed one is ZERO below a collateral ratio
-# of one - the residual has gone and nothing else backs the token, so a conversion into it issues without
+# of one - the residual has gone and nothing else backs the token, so a conversion into it mints without
 # bound. That is the pole `K = 20` was bolted on to contain. The two escrow rules' before-price never reaches
 # zero, because the escrow is a claim the residual's absence cannot touch. The leverage cap's before-price IS
 # the deployed price - no escrow, the same residual - and is drawn only from its floor up, because below it

@@ -11,13 +11,13 @@ import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol"
 /// @notice Graphs the conversion rate the anchor-to-sail conversion actually applies against the
 /// conversion rate that would be fair, across the collateral ratio.
 ///
-/// A conversion rate here is sail issued per unit of anchor value, and the fair one is the reciprocal of
+/// A conversion rate here is sail minted per unit of anchor value, and the fair one is the reciprocal of
 /// the sail price. The bound is a ceiling on that conversion rate, so it should engage where the fair
 /// conversion rate crosses it. It engages on the reported LEVERAGE ratio instead - the same comparison
 /// taken against the collateral value rather than against the sail supply. The two agree only if those
 /// two quantities are equal, which nothing maintains, so between the collateral ratio where the bound
 /// engages and the collateral ratio where it starts costing the pool value, the conversion is active but
-/// issues MORE sail than fairness requires - diluting existing sail holders in the pool's favour. This
+/// mints MORE sail than fairness requires - diluting existing sail holders in the pool's favour. This
 /// graph is that band, measured.
 ///
 /// The applied conversion rate is measured by putting anchor through the conversion itself and dividing

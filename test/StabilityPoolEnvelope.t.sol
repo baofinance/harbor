@@ -466,7 +466,7 @@ abstract contract StabilityPoolEnvelopeBase is
         genesisMint(minter, tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
         genesisMint(minter, tranche, 0, address(this)); // the anchor tranche that takes it to 1.5
 
-        // Each mint floors the collateral credited and the tokens issued by at most a wei, so the ratio - collateral
+        // Each mint floors the collateral credited and the tokens minted by at most a wei, so the ratio - collateral
         // value over anchor claim, scaled by 1e18 - carries at most (3 + 3 x 1.5) x 1e18 / claim of that flooring.
         uint256 anchorClaim = IMinter(minter).peggedTokenBalance();
         assertApproxEqAbs(
@@ -478,7 +478,7 @@ abstract contract StabilityPoolEnvelopeBase is
     }
 
     function _seedPool() internal {
-        // The anchor to deposit was already issued by `_seedMarket`; this establishes only the pool's own floor.
+        // The anchor to deposit was already minted by `_seedMarket`; this establishes only the pool's own floor.
         uint256 minDeposit = IStabilityPool(stabilityPool).MIN_DEPOSIT();
         IERC20(pegged).approve(stabilityPool, type(uint256).max);
         IStabilityPool(stabilityPool).deposit(minDeposit, address(this), 0);
@@ -1728,7 +1728,7 @@ abstract contract StabilityPoolEnvelopeBase is
         assertGt(IMinter(minter).leveragedTokenPrice(), 0, "and sail carries the recovery, being the residual");
 
         // Anchor minting has its OWN bound, the terminal disallow band of the fee schedule, and it sits above the
-        // rebalance threshold - a market can be past rebalancing and still too thinly covered to issue more anchor.
+        // rebalance threshold - a market can be past rebalancing and still too thinly covered to mint more anchor.
         // Read the bound rather than assume the two coincide: a market may set them independently, and one here does.
         uint256 mintBound = IMinter_v3(minter).config().mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[0];
         if (recovered <= mintBound) {

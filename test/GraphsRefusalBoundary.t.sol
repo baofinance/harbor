@@ -13,7 +13,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// @notice Where a conversion would start refusing, under the two rules that could make it refuse, as the
 /// sail supply varies.
 ///
-/// A conversion issues `anchor / sailPrice`, so something has to stop it before the sail price reaches
+/// A conversion mints `anchor / sailPrice`, so something has to stop it before the sail price reaches
 /// zero. Two rules can: a FLOOR ON THE SAIL PRICE, which is the mirror of the rule the anchor already has
 /// in `MIN_REPORTABLE_ANCHOR_PRICE_E36`, or a CAP ON THE LEVERAGE RATIO, which is what the contract
 /// already tests for and then declines to act on. They are not the same rule and the difference is the
@@ -22,7 +22,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// The sail price is the residual divided by the sail SUPPLY, while the leverage ratio is the collateral
 /// value divided by the same residual and so depends on no supply at all. A market with more sail in it
 /// therefore has a lower sail price at the same collateral ratio, and a price floor refuses higher and
-/// higher up as the supply grows, while a leverage cap stays where it is. Since every conversion issues
+/// higher up as the supply grows, while a leverage cap stays where it is. Since every conversion mints
 /// sail, a price floor's refusal boundary is pushed up by the very operation it governs.
 ///
 /// The candidates are paired so that each price floor refuses at the same collateral ratio as its

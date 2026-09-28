@@ -9,7 +9,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// @notice Evaluate a candidate rule about the SAIL'S CLAIM by measuring the market once and rescaling,
 /// instead of implementing the rule in a contract and installing it.
 ///
-/// The conversion issues `anchorIn x anchorPrice x sailSupply / sailClaim`. The only term a claim rule
+/// The conversion mints `anchorIn x anchorPrice x sailSupply / sailClaim`. The only term a claim rule
 /// touches is the divisor, so a result measured at one claim can be converted to the result at another
 /// by multiplying by the ratio of the claims. One transaction then yields a whole family of candidate
 /// answers, at any number of parameter values, with no mock minter for any of them.

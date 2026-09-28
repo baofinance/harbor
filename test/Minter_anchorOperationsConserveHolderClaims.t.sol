@@ -12,7 +12,7 @@ import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
 
 /// @notice An anchor mint or redeem must not move value between the person doing it and everyone else,
 /// at any collateral ratio and whether or not the backing is impaired. Exact equality is not the claim:
-/// the record credits a floored amount, the held backing is floored on every read, and the tokens issued
+/// the record credits a floored amount, the held backing is floored on every read, and the tokens minted
 /// or the collateral returned are floored too, so each operation may shift a price by a few wei in
 /// either direction. Each test below bounds that shift by counting those roundings, and pairs it with a
 /// collateral price move that must exceed the bound - so a bound loose enough to hide a real move fails.
@@ -33,7 +33,7 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
 
     function setUp() public virtual override {
         super.setUp();
-        setUp_collateral(1 ether, 1 ether); // both tokens issued, so both prices are live
+        setUp_collateral(1 ether, 1 ether); // both tokens minted, so both prices are live
         (, , startingRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
@@ -77,7 +77,7 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
     /// @dev A mint credits the record with a floored collateral amount while the held figure's own floor
     ///      may carry, so the backing moves by the collateral paid in plus an error strictly inside one
     ///      collateral wei either way; `min(record, held)` always moves between its two branches, so it
-    ///      inherits that. The anchor issued is short of exact by under one anchor wei. Valuing those:
+    ///      inherits that. The anchor minted is short of exact by under one anchor wei. Valuing those:
     ///      one collateral wei is `price`, one anchor wei is 1e18.
     function _mintResidualBounds() private view returns (uint256 upward, uint256 downward) {
         upward = _price() + 1 ether;
@@ -155,7 +155,7 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
     }
 
     /// @dev A fee-paying mint is the free one less the fee, which is taken from the collateral coming in
-    ///      and sent to the fee receiver, so the market is credited with - and issues anchor against -
+    ///      and sent to the fee receiver, so the market is credited with - and mints anchor against -
     ///      what is left. One more wrapped amount is floored than on the free path.
     function _feeMintResidualBounds() private view returns (uint256 upward, uint256 downward) {
         (uint256 freeUpward, uint256 freeDownward) = _mintResidualBounds();
@@ -252,7 +252,7 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
 
     // ─── at or below a ratio of 1: the anchor price ───
 
-    /// While the market is depegged the anchor token is issued at its depressed price, so an existing
+    /// While the market is depegged the anchor token is minted at its depressed price, so an existing
     /// anchor holder's claim on the collateral is no smaller after someone else mints than before.
     function testFuzz_depegged_freeMintPeggedToken_conservesTheAnchorPrice(
         uint256 ratioSeed,

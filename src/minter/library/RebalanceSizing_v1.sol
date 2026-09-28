@@ -25,7 +25,7 @@ library RebalanceSizing_v1 {
     /// @param maxLeveragedPegged The most pegged the leveraged pool may give up.
     /// @param holdingCollateral The collateral pool's pegged holdings, which weight its share.
     /// @param holdingLeveraged The leveraged pool's pegged holdings, which weight its share.
-    /// @param peggedTokenBalance The pegged the Minter has issued and not redeemed.
+    /// @param peggedTokenBalance The pegged the Minter has minted and not redeemed.
     /// @param collateralTokenBalance The collateral backing it, as recognised by the Minter.
     /// @param price The collateral price used to value the backing.
     function split(

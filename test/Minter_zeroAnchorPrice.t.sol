@@ -171,10 +171,10 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    /// Neither anchor mint may issue against a price the protocol cannot report. Both refuse on the
+    /// Neither anchor mint may mint against a price the protocol cannot report. Both refuse on the
     /// same threshold, so which one is called — and whether the band table happens to disallow
     /// minting at this ratio — makes no difference to the answer.
-    function test_zeroAnchorPrice_neitherAnchorMintWillIssue() public {
+    function test_zeroAnchorPrice_neitherAnchorMintWillMint() public {
         _setUpMarketHolding(_LAST_ZERO_HOLDING);
 
         address anchorMinter = makeAddr("anchorMinter");
@@ -206,6 +206,6 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         uint256 anchorOut = IMinter(minter).freeMintPeggedToken(1 ether, makeAddr("freeMintReceiver"));
         vm.stopPrank();
 
-        assertGt(anchorOut, 0, "and the mint issues against it");
+        assertGt(anchorOut, 0, "and anchor is minted against it");
     }
 }

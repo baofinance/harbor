@@ -699,7 +699,7 @@ contract TestMinterMintPegged is TestMinterMint {
     /// Neutrality is claimed for the free path; a fee is the one thing that legitimately dilutes, and
     /// then only the payer.
     function test_freeMintPeggedToken_leavesLeveragedPriceUnchanged() public {
-        setUp_collateral(1 ether, 1 ether); // both tokens issued, so the sail has a price to move
+        setUp_collateral(1 ether, 1 ether); // both tokens minted, so the sail has a price to move
 
         uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
         assertGt(leveragedPriceBefore, 0, "the sail needs a price for this to assert anything");
@@ -726,14 +726,14 @@ contract TestMinterMintPegged is TestMinterMint {
     }
 
     /// Paying a mint fee does not move the sail price either, so a fee dilutes only the payer. The fee
-    /// is taken out of the input, so the collateral entering and the anchor issued both correspond to
+    /// is taken out of the input, so the collateral entering and the anchor minted both correspond to
     /// the post-fee amount and stay in the proportion that leaves the residual untouched; the payer
     /// simply buys less anchor.
     ///
     /// The fee is asserted non-zero, because a configuration with no fee would make this the free-path
     /// test again under a name claiming otherwise.
     function test_mintPeggedToken_leavesLeveragedPriceUnchanged_whenFeePaid() public {
-        setUp_collateral(1 ether, 1 ether); // both tokens issued, so the sail has a price to move
+        setUp_collateral(1 ether, 1 ether); // both tokens minted, so the sail has a price to move
 
         deal(address(Deployed.wstETH), sender, 1 ether);
         vm.startPrank(sender);

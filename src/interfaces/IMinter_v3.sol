@@ -159,7 +159,7 @@ interface IMinter_v3 is IToken {
     /// @dev Thrown when recognising an impairment would change nothing, the record not exceeding the holding.
     error NothingToRecognise(uint256 backing);
 
-    /// @dev Thrown where a leveraged issuance is refused because the market's collateral ratio is below the
+    /// @dev Thrown where a leveraged mint is refused because the market's collateral ratio is below the
     /// floor at which the leverage sold would exceed the cap: `beta = CR/(CR-1)`, so a cap `K` is the floor
     /// `K/(K-1)`. Reports the ratio the sale was priced at and the floor it needed, so a caller turned away
     /// knows by how much. Thrown on every route alike - both retail mints and the conversion.
@@ -240,13 +240,13 @@ interface IMinter_v3 is IToken {
     function leverageRatio() external view returns (uint256);
 
     /// @notice The most leverage this market will sell, 1e18-scaled. A cap on the leverage of every leveraged
-    ///         token at the moment it is issued, applied by refusing to issue below `MINIMUM_COLLATERAL_RATIO`
+    ///         token at the moment it is minted, applied by refusing to mint below `MINIMUM_COLLATERAL_RATIO`
     ///         on every route alike - the retail mints and the conversion a rebalance performs.
     function MAX_LEVERAGE_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice `K / (K - 1)` for `K = MAX_LEVERAGE_RATIO`: the collateral ratio at which the residual's
     ///         sensitivity to the collateral price is exactly the cap. Since that sensitivity is `CR / (CR - 1)`,
-    ///         `beta <= K` if and only if `CR >= K / (K - 1)`, so refusing every issuance below this ratio bounds
+    ///         `beta <= K` if and only if `CR >= K / (K - 1)`, so refusing every mint below this ratio bounds
     ///         the leverage of every token ever sold without capping a count or moving any collateral.
     function MINIMUM_COLLATERAL_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
@@ -255,7 +255,7 @@ interface IMinter_v3 is IToken {
     ///         leveraged supply, where the first token has nothing to dilute and creates the residual it buys.
     ///         The refusal itself reverts `LeverageAboveCap`; this is the same judgement as a view, for a
     ///         caller that would rather not ask by trying.
-    function leveragedIssuable() external view returns (bool);
+    function leveragedMintable() external view returns (bool);
 
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying (18 decimals).
     /// The leveraged token holds the residual: the collateral value left once every pegged token is covered.

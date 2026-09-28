@@ -30,7 +30,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 800 background rgb
 #
 # The LOWER panel is what a larger cap costs, and it is the reason not to simply pick a very large one.
 # The sail supply growth admitted by one anchor token converted at the boundary rises in proportion to
-# the cap - the boundary creeps towards the peg and the quantity issued there rises with it.
+# the cap - the boundary creeps towards the peg and the quantity minted there rises with it.
 
 set grid xtics ytics
 set colorsequence default

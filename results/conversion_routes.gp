@@ -43,7 +43,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #   - The TREE and the ESCROW CANDIDATE sit on 1.0000 at every collateral ratio, on both routes, above and below
 #     the peg, and the two routes agree to the last digit - there is no arbitrage between them.
 #   - The LEVERAGE CAP sits on 1.0000 on both routes at every one of the 55 ratios above its floor of 1.0526,
-#     and is ABSENT - not zero - below it: nothing is issued there on any route, so nothing is paid and nothing
+#     and is ABSENT - not zero - below it: nothing is minted there on any route, so nothing is paid and nothing
 #     is taken. A gap in a line is a refusal; a line at zero would be a payment of nothing, which is the
 #     deployed rule's failure and a different thing.
 #   - The DEPLOYED rule pays ZERO below the peg. Not a little, not most of it - the leveraged price there is
@@ -59,13 +59,13 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #   - THE CAP ON COUNT. The conversion returns a flat 20 tokens everywhere below 1.05, because `K = 20` is what
 #     bounds it, and 20 tokens at a price of zero is a payment of zero.
 #   - THE POLE. At a ratio of exactly 1.000 the retail route returns 2.2e21 tokens for ONE pegged token. That
-#     is `freeMintLeveragedToken` dividing by a price that has reached zero - unbounded issuance, which is the
+#     is `freeMintLeveragedToken` dividing by a price that has reached zero - unbounded minting, which is the
 #     thing the count cap was bolted on to contain, still reachable by the route the cap does not cover.
 #
 # The escrow rules have neither: their count is a smooth curve because their price is never zero. Below the
 # peg the tree's count is a CONSTANT 18.83 tokens per pegged, because its price there is a constant - the
 # escrow per token is held - which is the other face of the same rule: what it does not do is repair the
-# market. The leverage cap has neither failure either, by the opposite means: it stops issuing before the
+# market. The leverage cap has neither failure either, by the opposite means: it stops minting before the
 # price can get near zero. Same `K = 20` as the deployed rule; the deployed rule caps the COUNT and hands over
 # tokens worth nothing, the cap REFUSES and hands over nothing. Its real rebalance (dotted) returns the same
 # count as its one-token conversion.

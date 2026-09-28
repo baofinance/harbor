@@ -16,7 +16,7 @@ import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol"
 /// collateral ratio falls, and what that does to the anchor supply.
 ///
 /// The anchor is priced at `min(1, collateral ratio)` and the mint divides by that price, so anchor
-/// issued per unit of collateral value is `1 / collateral ratio` and grows without bound as the
+/// minted per unit of collateral value is `1 / collateral ratio` and grows without bound as the
 /// collateral ratio falls. That is the same shape as the sail conversion's `1 / (collateral ratio - 1)`,
 /// at the other singularity, and the two are graphed in the same units so a single bound can be chosen
 /// for both.
@@ -60,7 +60,7 @@ abstract contract TestGraphsAnchorMintDivergenceBase is GraphTestBase, TestColla
             sa(
                 "collateral ratio",
                 "anchor price",
-                "anchor issued per unit of collateral value",
+                "anchor minted per unit of collateral value",
                 "anchor supply multiplier"
             )
         );
@@ -94,7 +94,7 @@ abstract contract TestGraphsAnchorMintDivergenceBase is GraphTestBase, TestColla
         // minter's own valuation: a wrapped token is worth `wrappedRate` of the underlying and each of
         // those is worth `collateralPrice`. Taking it from the minter instead would make the answer
         // circular - minting anchor holds the collateral ratio still, so the minter's valuation of the
-        // deposit is that collateral ratio times the anchor issued, and dividing one by the other could
+        // deposit is that collateral ratio times the anchor minted, and dividing one by the other could
         // only ever return 1 over the collateral ratio.
         (uint256 collateralPrice, , uint256 wrappedRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         uint256 valueIn = (COLLATERAL_IN * collateralPrice * wrappedRate) / (1 ether * 1 ether);

@@ -32,7 +32,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 620 background rgb
 # above two at a collateral ratio of 1.00009. A holder is not underpaid at any point on this graph - the
 # conversion is fair throughout - they are simply diluted out of existence by the next conversion.
 #
-# The vertical line is where the REPORTED sail price stops being zero. Below it the protocol issues sail
+# The vertical line is where the REPORTED sail price stops being zero. Below it the protocol mints sail
 # against a price that rounds to zero in every external report, which is the exact condition
 # MIN_REPORTABLE_ANCHOR_PRICE_E36 refuses to mint the anchor in. The sail has no such rule, and the band
 # is nine doublings wide.
@@ -50,16 +50,16 @@ set ylabel "tokens"
 set key bottom left
 
 # The smallest price the protocol can report is one wei of an 18-decimal number, and the first sample at
-# or above it is the 1024-wei offset; everything left of this line is issued at a reported price of zero.
+# or above it is the 1024-wei offset; everything left of this line is minted at a reported price of zero.
 set arrow 1 from 1024, graph 0 to 1024, graph 1 nohead dashtype 2 linewidth 2 linecolor rgb "red"
 set label 1 "reported sail price is 0 left of here" at 700, 2e10 right rotate by 90 textcolor "red"
 
 # A conversion that leaves the sail supply where it found it.
 set arrow 2 from graph 0, first 1 to graph 1, first 1 nohead dashtype 3 linecolor rgb "gray30"
 
-# $1 = price offset in wei, $5 = sail issued for one anchor token, $6 = sail supply multiple
+# $1 = price offset in wei, $5 = sail minted for one anchor token, $6 = sail supply multiple
 plot \
      datafile using 1:5 with linespoints linewidth 2 linetype 1 pointtype 7 \
-         title "sail issued for one anchor token", \
+         title "sail minted for one anchor token", \
      datafile using 1:6 with linespoints linewidth 2 linetype 7 pointtype 9 \
          title "sail supply multiple after that one conversion"

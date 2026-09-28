@@ -133,7 +133,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         _fillPools(3_000, 6_000);
         start = bound(start, 1.02 ether, _floor() - 1);
         setCollateralRatioByPrice(minter, priceOracle, start);
-        assertFalse(IMinter_v3(minter).leveragedIssuable(), "the market starts where it sells no leverage");
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "the market starts where it sells no leverage");
         uint256 holdingCollateral = _poolPegged(stabilityPoolCollateral);
         uint256 holdingLeveraged = _poolPegged(stabilityPoolLeveraged);
         uint256 toTheFloor = _collateralRouteTo(_floor());
@@ -200,7 +200,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     }
 
     /// Where the threshold sits at or below the floor, the whole distance is below the floor, so the collateral route
-    /// covers it: both pools paid in collateral, no leveraged token issued, and the market left at the threshold,
+    /// covers it: both pools paid in collateral, no leveraged token minted, and the market left at the threshold,
     /// still selling no leverage.
     function test_aThresholdBelowTheFloor_isReachedByTheCollateralRouteAlone() public {
         uint256 threshold = 1.04 ether;
@@ -217,10 +217,10 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         assertEq(paid.length, 2, "both pools, by the collateral route only");
         _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
         _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
-        assertEq(IERC20(leveragedToken).totalSupply(), leveragedSupply, "no leveraged token is issued");
+        assertEq(IERC20(leveragedToken).totalSupply(), leveragedSupply, "no leveraged token is minted");
         assertGe(IMinter(minter).collateralRatio(), threshold, "the threshold is reached");
         assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "and there is nothing left to do");
-        assertFalse(IMinter_v3(minter).leveragedIssuable(), "the market still sells no leverage");
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "the market still sells no leverage");
     }
 
     /// The oracle quotes a band, and the market is judged at its middle. The rebalance sizes the first step at that
@@ -270,7 +270,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         assertEq(
             keeperLeveraged,
             Math.mulDiv(keeperLeveraged + paid[3].returned, bountyRatio, 1 ether),
-            "the conversion's bounty is its ratio of the leveraged tokens issued"
+            "the conversion's bounty is its ratio of the leveraged tokens minted"
         );
     }
 
@@ -310,7 +310,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     function test_aboveTheFloor_oneStepByBothLegs() public {
         _fillPools(3_000, 6_000);
         setCollateralRatioByPrice(minter, priceOracle, 1.1 ether);
-        assertTrue(IMinter_v3(minter).leveragedIssuable(), "the market sells leverage");
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "the market sells leverage");
 
         Liquidation[] memory paid = _rebalance(0);
 

@@ -243,7 +243,7 @@ interface IStabilityPool_v3 {
     /// @notice Record a liquidation: `liquidated` of the asset has left the pool and `returned` of `rewardToken`,
     ///         already transferred in, is distributed at once against the balances before the loss, so it lands on
     ///         the holders who bear it. The rebalancer names the token per liquidation: a pool's own token where the
-    ///         market sells leverage, collateral where it does not (`IMinter_v3.leveragedIssuable`).
+    ///         market sells leverage, collateral where it does not (`IMinter_v3.leveragedMintable`).
     /// @dev `rewardToken` must be one of the pool's active reward tokens, else the call reverts
     ///      `NotActiveRewardToken`: a reward accrued in a token no claim walks would be stranded. Callable by the
     ///      `REBALANCER_ROLE`.

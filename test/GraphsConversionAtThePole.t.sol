@@ -13,7 +13,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// @notice What the anchor-to-sail conversion does in the last few wei of collateral price above the peg,
 /// where the residual the sail is a claim on is about to vanish.
 ///
-/// The conversion issues `anchor x sailSupply / residual`, so as the residual falls the quantity issued
+/// The conversion mints `anchor x sailSupply / residual`, so as the residual falls the quantity minted
 /// rises without limit. What actually stops it is not a rule but a granularity: the residual is
 /// `collateral x price - anchorClaim`, and the price is an integer, so one wei of price moves the
 /// residual by the whole collateral balance. The smallest residual a market can be in is therefore one
@@ -23,7 +23,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 ///
 /// The second question is where the REPORTED sail price goes to zero. Operations divide by the residual
 /// at its full precision, while `leveragedTokenPrice()` reports it scaled to eighteen decimals, so there
-/// is a band where the protocol issues sail against a price that every external reader sees as zero. The
+/// is a band where the protocol mints sail against a price that every external reader sees as zero. The
 /// anchor has a rule for exactly this - `MIN_REPORTABLE_ANCHOR_PRICE_E36`, which refuses to mint below
 /// the smallest price it can report - and the sail has no counterpart. This measures how wide the band
 /// that rule would cover is.
@@ -43,7 +43,7 @@ contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundRele
                 "collateral ratio",
                 "residual backing the sail (e36)",
                 "reported sail price",
-                "sail issued for one anchor token",
+                "sail minted for one anchor token",
                 "sail supply multiple after the conversion"
             )
         );

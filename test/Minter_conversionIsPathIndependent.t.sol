@@ -108,7 +108,7 @@ contract TestMinterConversionIsPathIndependent is TestConversionBoundReleaseSetU
     /// @notice A conversion leaves the sail price exactly where it found it.
     ///
     /// This is why the totals above agree, and it is worth stating on its own: the conversion moves the
-    /// collateral ratio - that is what it is for - but the price of the token it issues does not move,
+    /// collateral ratio - that is what it is for - but the price of the token it mints does not move,
     /// because the residual and the supply grow in the same proportion. Nobody holding sail is better or
     /// worse off for a conversion having happened.
     function test_aConversionDoesNotMoveTheSailPrice() public {
@@ -119,7 +119,7 @@ contract TestMinterConversionIsPathIndependent is TestConversionBoundReleaseSetU
         _sailFrom(TOTAL_ANCHOR);
 
         assertGt(IMinter(minter).collateralRatio(), ratioBefore, "the conversion must move the collateral ratio");
-        // The supply is issued by a floored division, so the price can round up by the smallest amount it
+        // The supply is minted by a floored division, so the price can round up by the smallest amount it
         // is expressed in, and no more.
         assertApproxEqAbs(
             IMinter_v3(minter).leveragedTokenPrice(),

@@ -11,7 +11,7 @@ import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol"
 /// @title MinterAdjustments_v1
 /// @author rootminus0x1
 /// @notice Prices an order across the Minter's fee bands: given the state and a schedule, how much is taken, how
-///         much is issued or returned, and what fee or discount applies.
+///         much is minted or returned, and what fee or discount applies.
 /// @dev Deployed and reached by `DELEGATECALL`, which keeps the band-walking loops - the bulk of the Minter's
 ///      code - out of its bytecode. Every mint, redeem and dry run enters here exactly once per transaction, so
 ///      the single extra call is noise beside the transfers and oracle reads around it; nothing here is reached
@@ -46,7 +46,7 @@ library MinterAdjustments_v1 {
     /// @param cr contains:
     ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
-    ///    peggedTokenBalance The amount of pegged tokens issued. This is used to calculate collateral ratios.
+    ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
     /// @return wrappedFee The pro-rated fee, in wrapped collateral terms.
     /// @return peggedMinted the amount of pegged tokens minted after fees are taken into account
     /// @return maxWrappedCollateralIn the amount of wrapped collateral that is allowed, according to the config
@@ -83,7 +83,7 @@ library MinterAdjustments_v1 {
         );
         // Below the reportable floor the pegged price rounds to zero everywhere outside this contract, and the
         // band walk below divides by it for every band it enters - at zero backing that division panics, and
-        // just above it the mint issues against a price no consumer can see. Refuse by name, the same name the
+        // just above it the mint is priced at a price no consumer can see. Refuse by name, the same name the
         // zero-fee mint uses. A band table that disallows minting at this ratio would break out of the walk
         // first and hide it, which is exactly why this cannot be left to the config: it is the arithmetic that
         // fails, not the policy that forbids.
@@ -215,7 +215,7 @@ library MinterAdjustments_v1 {
     /// @param cr contains:
     ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
-    ///    peggedTokenBalance The amount of pegged tokens issued. This is used to calculate collateral ratios.
+    ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
     /// @param reserveWrappedCapacity The current balance of the reserve pool (scaled to 1e36).
     /// @return wrappedFee the fee charged in wrapped collateral tokens.
     /// @return wrappedDiscount the discount given in wrapped collateral tokens.
@@ -363,7 +363,7 @@ library MinterAdjustments_v1 {
     /// @param cr contains:
     ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
-    ///    peggedTokenBalance The amount of pegged tokens issued. This is used to calculate collateral ratios.
+    ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
     /// @param reserveWrappedCapacity The current balance of the reserve pool.
     /// @return wrappedFee The pro-rated fee, in wrapped collateral terms.
     /// @return wrappedDiscount the discount given in wrapped collateral tokens.
@@ -501,8 +501,8 @@ library MinterAdjustments_v1 {
             maxWrappedCollateralIn + wrappedDiscount - wrappedFee,
             cr.rate
         );
-        // The tokens are issued against the collateral the record actually gained, not against the unrounded
-        // figure the band walk accumulated. Issuing against more than was credited buys the holder a share of a
+        // The tokens are minted against the collateral the record actually gained, not against the unrounded
+        // figure the band walk accumulated. Minting against more than was credited buys the holder a share of a
         // residual that never arrived, which shows up as the leveraged price moving on a mint that should not move it.
         uint256 addedE36 = underlyingCollateralAdded * 1 ether;
         if (w.leveragedTokenBalance > 0) {
@@ -517,7 +517,7 @@ library MinterAdjustments_v1 {
         } else {
             leveragedMinted = 0;
         }
-        // Floored: a mint never issues more than the exact formula gives.
+        // Floored: a mint never mints more than the exact formula gives.
         leveragedMinted = leveragedMinted / 1e18;
     }
 
@@ -539,7 +539,7 @@ library MinterAdjustments_v1 {
     /// @param cr contains:
     ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
-    ///    peggedTokenBalance The amount of pegged tokens issued. This is used to calculate collateral ratios.
+    ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
     /// @dev cr.leveragedTokenBalance is the current supply of leveraged tokens, assumed to be > 0.
     /// @return wrappedFee the fee charged in collateral tokens.
     /// @return leveragedRedeemed the leveraged tokens to be burned.
@@ -674,7 +674,7 @@ library MinterAdjustments_v1 {
                 // multiplied by the whole leveraged supply before `mulDiv` can widen anything, and that
                 // product leaves 256 bits at supplies a market can really hold.
                 //
-                // Where the residual is gone the claim is nothing and nothing is issued. The minter refuses
+                // Where the residual is gone the claim is nothing and nothing is minted. The minter refuses
                 // the conversion by name before the amounts are asked for; a dry run reports the zero.
                 (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                     peggedTokenBalance_,

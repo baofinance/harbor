@@ -793,7 +793,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     /// Neutrality is claimed for the free path; a fee is the one thing that legitimately dilutes, and
     /// then only the payer.
     function test_freeRedeemPeggedToken_leavesLeveragedPriceUnchanged() public {
-        setUp_collateral(1 ether, 1 ether); // both tokens issued, so the sail has a price to move
+        setUp_collateral(1 ether, 1 ether); // both tokens minted, so the sail has a price to move
 
         uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
         assertGt(leveragedPriceBefore, 0, "the sail needs a price for this to assert anything");
@@ -831,7 +831,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     /// discount drawn from it would add collateral from outside the market and move the price for a
     /// reason that has nothing to do with the redeem's own proportions.
     function test_redeemPeggedToken_leavesLeveragedPriceUnchanged_whenFeePaid() public {
-        setUp_collateral(1 ether, 1 ether); // both tokens issued, so the sail has a price to move
+        setUp_collateral(1 ether, 1 ether); // both tokens minted, so the sail has a price to move
 
         uint256 anchorToRedeem = IERC20(peggedToken).balanceOf(zeroFee) / 2;
         assertGt(anchorToRedeem, 0, "nothing to redeem");

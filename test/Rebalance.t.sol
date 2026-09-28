@@ -254,7 +254,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
     }
 
     /// A rebalance that converts the leveraged pool's anchor into sail leaves the sail price alone,
-    /// so long as the conversion is fair. Issuing `anchorValue / sailPrice` sail lifts the residual
+    /// so long as the conversion is fair. Minting `anchorValue / sailPrice` sail lifts the residual
     /// and the supply by the same factor, so the price divides out - which is why an unbounded
     /// conversion moves no value between the pool and existing sail holders.
     ///
@@ -277,7 +277,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // The market sells leverage only at or above its floor, so a market that sells is what "unbounded"
         // means here: the conversion is priced on the residual, not refused.
         assertTrue(
-            IMinter_v3(minter).leveragedIssuable(),
+            IMinter_v3(minter).leveragedMintable(),
             "the market must be selling leverage for fairness to be the claim under test"
         );
 

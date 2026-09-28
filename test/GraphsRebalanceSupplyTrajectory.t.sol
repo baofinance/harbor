@@ -15,20 +15,17 @@ import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
-/// @notice Graphs what repeated bounded rebalances do to a market over time: the sail supply, the sail
-/// price, and how unfair each successive conversion is.
+/// @notice Graphs what repeated rebalances do to a market over time: the sail supply, the sail price, and
+/// the rate each successive conversion is given against the fair one.
 ///
 /// This is the only graph here whose points are not independent. Every other one measures a market at a
 /// collateral ratio and puts it back; this one lets the consequences accumulate, because the question is
-/// whether they do. Each cycle drops the collateral ratio into the band where the conversion bound is
-/// engaged and rebalances out of it again, which is the loop a market in a falling collateral market
-/// actually runs.
+/// whether they do. Each cycle drops the collateral ratio below the rebalance threshold and rebalances out
+/// of it again, which is the loop a market in a falling collateral market actually runs.
 ///
-/// The question comes from two earlier findings. A bounded rebalance issues sail at the ceiling, which
-/// grows the sail supply; and the size of the bound's error goes as one over the sail supply. So each
-/// bounded rebalance should make the next one less unfair. Whether that self-correction is fast enough to
-/// matter, or so slow that a market spends its life being mispriced, is what the trajectory shows and
-/// neither of the other graphs can.
+/// Where the dip lands relative to the minter's `MINIMUM_COLLATERAL_RATIO` decides the rebalance's route:
+/// at or above it the rebalance converts anchor into sail, growing the sail supply; below it no sail can be
+/// minted, the rebalance is to collateral, and the conversion rate is graphed as zero.
 abstract contract TestGraphsRebalanceSupplyTrajectoryBase is
     GraphTestBase,
     TestStabilityPoolManagerSetUp,
@@ -40,8 +37,8 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is
     uint256 private constant CYCLES = 40;
 
     /// @notice How far each cycle lets the collateral ratio fall before the rebalance fires. This is the
-    ///         whole experiment: whether the dip reaches the band where the bound is engaged decides
-    ///         whether the conversions are fair, and the two cases are graphed against each other.
+    ///         whole experiment: whether the dip reaches below the floor decides whether the rebalance
+    ///         converts into sail or into collateral, and the two cases are graphed against each other.
     function distressedCollateralRatio() internal pure virtual returns (uint256);
 
     function graphName() internal pure virtual returns (string memory);
@@ -115,8 +112,12 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is
     }
 
     /// @dev What the conversion is being given at the market's current state, measured by putting one
-    ///      anchor token through it and undoing that - the same measurement the trigger graph makes.
+    ///      anchor token through it and undoing that - the same measurement the trigger graph makes. Zero
+    ///      where the minter refuses to mint sail, since no conversion is given anything there.
     function _appliedOverFair() private returns (uint256 appliedOverFair) {
+        if (!IMinter_v3(minter).leveragedMintable()) {
+            return 0;
+        }
         uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
         if (sailPrice == 0) {
             return 0;
@@ -160,11 +161,11 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is
     }
 }
 
-/// @notice The dip stops short of the band, so every conversion is made at a fair rate. This is the
-/// control: whatever the market does here, it does for reasons that have nothing to do with the bound.
+/// @notice The dip stops above the floor, so every rebalance converts anchor into sail. This is the
+/// control: whatever the market does here, it does for reasons that have nothing to do with the floor.
 contract TestGraphsRebalanceSupplyTrajectory is TestGraphsRebalanceSupplyTrajectoryBase {
-    /// @dev Below the rebalance threshold so a rebalance fires, and far above the band - the leverage
-    ///      ratio at 1.2 is six, against a cap of twenty - so the bound never engages.
+    /// @dev Below the rebalance threshold so a rebalance fires, and far above the floor - the leverage
+    ///      ratio at 1.2 is six, against a cap of twenty - so sail can always be minted.
     function distressedCollateralRatio() internal pure override returns (uint256) {
         return 1.2 ether;
     }
@@ -174,11 +175,11 @@ contract TestGraphsRebalanceSupplyTrajectory is TestGraphsRebalanceSupplyTraject
     }
 }
 
-/// @notice The dip reaches inside the band, so every conversion is made at the bound. Same market, same
-/// threshold, same number of cycles - the only difference is how far the collateral ratio was let fall
-/// before the keeper fired.
+/// @notice The dip reaches below the floor, so no sail can be minted and every rebalance is to collateral.
+/// Same market, same threshold, same number of cycles - the only difference is how far the collateral
+/// ratio was let fall before the keeper fired.
 contract TestGraphsRebalanceSupplyTrajectoryBounded is TestGraphsRebalanceSupplyTrajectoryBase {
-    /// @dev The leverage ratio here is about fifty, well past the cap.
+    /// @dev The leverage ratio here is about fifty, well past the cap of twenty.
     function distressedCollateralRatio() internal pure override returns (uint256) {
         return 1.02 ether;
     }

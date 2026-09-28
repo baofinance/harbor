@@ -201,7 +201,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
     }
 
     /// Minting leveraged reads the high price and the low rate. The leveraged token is the residual claim, so a higher
-    /// price raises its value faster than the deposit's and issues fewer tokens; the low rate credits less collateral.
+    /// price raises its value faster than the deposit's and mints fewer tokens; the low rate credits less collateral.
     function testFuzz_mintLeveraged_paysAtTheHighPriceAndLowRate(
         uint256 amount,
         uint256 priceBps,
@@ -279,7 +279,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
         );
     }
 
-    /// The rebalance's leveraged leg values the leveraged token it issues to the stability pool at the middle of the
+    /// The rebalance's leveraged leg values the leveraged token it mints to the stability pool at the middle of the
     /// price band, as the collateral leg does.
     function testFuzz_freeRedeemPeggedForLeveraged_paysAtTheMidPrice(
         uint256 amount,
@@ -392,7 +392,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
 
     // Dry runs read what their calls read ---------------------------------------------------------------------------
 
-    /// The pegged mint's dry run predicts exactly what the mint issues, and reports the edges it priced at.
+    /// The pegged mint's dry run predicts exactly what the call mints, and reports the edges it priced at.
     function testFuzz_mintPeggedDryRun_matchesTheCall_acrossAnOracleSpread(
         uint256 amount,
         uint256 priceBps,
@@ -428,7 +428,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
         assertEq(rate, band.maxRate, "the dry run reports the rate it converted at");
     }
 
-    /// The leveraged mint's dry run predicts exactly what the mint issues, and reports the edges it priced at.
+    /// The leveraged mint's dry run predicts exactly what the call mints, and reports the edges it priced at.
     function testFuzz_mintLeveragedDryRun_matchesTheCall_acrossAnOracleSpread(
         uint256 amount,
         uint256 priceBps,
@@ -489,7 +489,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
         vm.stopPrank();
 
         assertEq(collateralOut, predictedCollateral, "the dry run predicts the collateral returned");
-        assertEq(leveragedOut, predictedLeveraged, "the dry run predicts the leveraged issued");
+        assertEq(leveragedOut, predictedLeveraged, "the dry run predicts the leveraged minted");
     }
 
     // The leverage cap is judged at the middle of the price band on every route --------------------------------------
@@ -509,10 +509,10 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price - halfSpread, price + halfSpread, rate, rate);
         ratioAtMiddle = IMinter_v3(minter).collateralRatio();
         assertLt(ratioAtMiddle, floor, "at the middle the market is below the floor");
-        assertFalse(IMinter_v3(minter).leveragedIssuable(), "the view refuses leverage at the middle");
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "the view refuses leverage at the middle");
     }
 
-    /// The free redeem's leveraged leg - the rebalance's conversion - is refused wherever `leveragedIssuable()` refuses
+    /// The free redeem's leveraged leg - the rebalance's conversion - is refused wherever `leveragedMintable()` refuses
     /// it: judged at the middle of the band, not at the high edge its amounts are priced at.
     function test_leverageCap_freeRedeemJudgesAtTheMidPrice() public {
         uint256 ratioAtMiddle = _belowTheFloorOnlyAtTheMiddle();
@@ -581,8 +581,8 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
             name = "leverageRatio";
             m.leverageRatio();
         } else if (entryPoint == 2) {
-            name = "leveragedIssuable";
-            m.leveragedIssuable();
+            name = "leveragedMintable";
+            m.leveragedMintable();
         } else if (entryPoint == 3) {
             name = "leveragedTokenPrice";
             m.leveragedTokenPrice();

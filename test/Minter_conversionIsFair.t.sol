@@ -65,7 +65,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 anchorIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
         vm.assume(anchorIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= anchorIn);
 
-        if (!IMinter_v3(minter).leveragedIssuable()) {
+        if (!IMinter_v3(minter).leveragedMintable()) {
             uint256 anchorSupply = IMinter(minter).peggedTokenBalance();
             vm.expectRevert(
                 abi.encodeWithSelector(
@@ -84,7 +84,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 valueIn = Math.mulDiv(done.anchorTaken, done.anchorPrice, 1 ether);
         uint256 valueOut = Math.mulDiv(done.sailGiven, done.sailPrice, 1 ether);
 
-        // Sail is issued as a whole number of tokens, so the exchange can be out by less than one of
+        // Sail is minted as a whole number of tokens, so the exchange can be out by less than one of
         // them; the anchor's own valuation floors once more.
         assertApproxEqAbs(valueOut, valueIn, done.sailPrice + 1, "the conversion must return what it took");
     }
@@ -105,7 +105,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this));
 
         (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
-        assertEq(bounded, 0, "below the floor nothing is issued");
+        assertEq(bounded, 0, "below the floor nothing is minted");
 
         setCollateralRatio(release + nudge);
         // The fair rate is one pegged at par over the sail price. The count is floored to a token, and the
@@ -125,7 +125,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
 
         setCollateralRatio(collateralRatio);
 
-        if (!IMinter_v3(minter).leveragedIssuable()) {
+        if (!IMinter_v3(minter).leveragedMintable()) {
             // Below the floor BOTH routes are refused, by the same name: neither is paid, so neither is paid
             // less. The retail route's redeem goes through and lifts the ratio a hair, so the mint is judged
             // at the ratio it finds.
@@ -162,12 +162,12 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         );
     }
 
-    /// R4. ISSUANCE PER CONVERSION STAYS WITHIN A BOUND. Whatever else changes, one conversion may not issue
+    /// R4. MINTING PER CONVERSION STAYS WITHIN A BOUND. Whatever else changes, one conversion may not mint
     /// without limit - which is the reason a bound exists at all. The refusal bounds the LEVERAGE sold, and
     /// that bounds the count: at any ratio the market sells at, the residual is at least `n/(K-1)` for a
     /// pegged supply `n`, so a unit of pegged value buys at most `(K-1) x S/n` sail, `S` the sail supply
-    /// before the conversion. Below the floor nothing is issued at all.
-    function testFuzz_issuanceStaysWithinTheBound(uint256 ratioSeed, uint256 shareSeed) public {
+    /// before the conversion. Below the floor nothing is minted at all.
+    function testFuzz_mintingStaysWithinTheBound(uint256 ratioSeed, uint256 shareSeed) public {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
         uint256 share = bound(shareSeed, 0.0001 ether, 0.5 ether);
         setCollateralRatio(collateralRatio);
@@ -176,7 +176,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 sailBefore = IMinter(minter).leveragedTokenBalance();
         uint256 anchorSupply = IMinter(minter).peggedTokenBalance();
 
-        if (!IMinter_v3(minter).leveragedIssuable()) {
+        if (!IMinter_v3(minter).leveragedMintable()) {
             vm.expectRevert(
                 abi.encodeWithSelector(
                     IMinter_v3.LeverageAboveCap.selector,
@@ -185,7 +185,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
                 )
             );
             IMinter_v3(minter).freeRedeemPeggedToken(0, anchorIn, address(this));
-            assertEq(IMinter(minter).leveragedTokenBalance(), sailBefore, "nothing is issued below the floor");
+            assertEq(IMinter(minter).leveragedTokenBalance(), sailBefore, "nothing is minted below the floor");
             return;
         }
 
@@ -197,7 +197,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         assertLe(
             done.sailGiven,
             Math.mulDiv(valueIn, mostPerValue, 1 ether) + 1,
-            "one conversion must not issue without limit"
+            "one conversion must not mint without limit"
         );
         assertGe(IMinter(minter).leveragedTokenBalance(), sailBefore, "and the supply cannot go backwards");
     }
@@ -206,7 +206,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     /// sail is worth nothing the fair rate is unbounded, and no finite count is a fair one. The market does
     /// not pretend otherwise: at every ratio below its floor the conversion is refused by name, the anchor
     /// offered stays with its holder, and the sail supply is untouched. A rebalance in that condition is the
-    /// manager's to route around, not the minter's to settle by issuing.
+    /// manager's to route around, not the minter's to settle by minting.
     function test_theConversionIsRefusedWhereTheResidualVanishes() public {
         uint256[4] memory ratios = [uint256(1.02 ether), 1.002 ether, 1 ether, 0.5 ether];
         uint256 release = releaseCollateralRatio();
@@ -223,7 +223,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
             IMinter_v3(minter).freeRedeemPeggedToken(0, 1 ether, address(this));
 
             assertEq(IMinter(minter).peggedTokenBalance(), anchorSupply, "the anchor stays with its holder");
-            assertEq(IMinter(minter).leveragedTokenBalance(), sailSupply, "and nothing is issued");
+            assertEq(IMinter(minter).leveragedTokenBalance(), sailSupply, "and nothing is minted");
             vm.revertToStateAndDelete(snapshot);
         }
     }

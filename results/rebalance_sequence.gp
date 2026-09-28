@@ -42,7 +42,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background r
 #
 # THE SECOND PANEL IS THE LEVERAGE RATIO EACH RULE REPORTS BEFORE IT REBALANCES. Below a collateral ratio of
 # one the deployed figure pins at exactly 20 - a CAP, engaged because the leveraged claim has gone to zero and
-# something has to bound what a conversion issues. Capping what is issued is capping what the converter is
+# something has to bound what a conversion mints. Capping what is minted is capping what the converter is
 # PAID. The escrow rules report a flat 19 there, an escrow in place of a cap. The leverage cap reports
 # `CR/(CR-1)` - the true figure, measured identical in `leverage_sensitivity.gp` - and only from its floor up,
 # where it is at most 20 by construction.

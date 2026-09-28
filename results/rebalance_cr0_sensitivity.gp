@@ -26,8 +26,8 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb
 # not fair, and the further from 2.05 it opened the wider that band is.
 #
 # The lower panel is what that band costs: the applied conversion rate over the fair one at the moment
-# the bound lets go. Above one a bound engaged too early and over-issues sail, taking value from existing
-# sail holders; below one it engaged too late and under-issues, taking value from the pool instead - the
+# the bound lets go. Above one a bound engaged too early and over-mints sail, taking value from existing
+# sail holders; below one it engaged too late and under-mints, taking value from the pool instead - the
 # same constant in opposite directions, with nothing in between but a single opening ratio that no
 # protocol rule holds a market at. With no bound in force the line sits on one across every market drawn.
 #
@@ -68,7 +68,7 @@ set key top left reverse Left noenhanced
 set arrow 1 from first crossing, graph 0 to first crossing, graph 1 nohead dashtype 2 linecolor rgb "gray40"
 set label 1 "the one market\nthis bound suits" at graph 0.74, graph 0.30 left textcolor rgb "gray30"
 
-# $1 = opening collateral ratio, $2 = where it engages, $3 = where it should, $4 = worst over-issue
+# $1 = opening collateral ratio, $2 = where it engages, $3 = where it should, $4 = worst over-mint
 plot \
      datafile using ($1-1):($2-1) with lines linewidth 2 linetype 7 \
          title "where the bound engages (the reported leverage ratio reaches the cap)", \
@@ -88,8 +88,8 @@ set key at screen 0.5, screen 0.185 center top horizontal maxcols 2 reverse Left
 unset label 1
 
 set arrow 2 from graph 0, first 1 to graph 1, first 1 nohead dashtype 2 linecolor rgb "red"
-set label 2 "over-issues: value taken from sail holders" at graph 0.04, first 20 left textcolor rgb "gray20"
-set label 3 "under-issues: value taken from the pool" at graph 0.40, first 0.25 left textcolor rgb "gray20"
+set label 2 "over-mints: value taken from sail holders" at graph 0.04, first 20 left textcolor rgb "gray20"
+set label 3 "under-mints: value taken from the pool" at graph 0.40, first 0.25 left textcolor rgb "gray20"
 
 plot \
      datafile using ($1-1):($4) with lines linewidth 2 linetype 4 \

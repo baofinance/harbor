@@ -14,7 +14,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb
 # The conversion is bounded at 20 sail per unit of anchor value, so it should engage where the fair
 # rate - the reciprocal of the sail price - crosses 20. It engages on the reported leverage ratio
 # instead. Both are plotted against the collateral ratio, with the ratio of applied to fair on the
-# right axis: 1 means the conversion is fair, below 1 the bound costs the pool, above 1 it over-issues.
+# right axis: 1 means the conversion is fair, below 1 the bound costs the pool, above 1 it over-mints.
 #
 # THE X AXIS IS THE DISTANCE ABOVE THE PEG, ON A LOG SCALE, because that is the variable this data is
 # actually a function of: the fair conversion rate is exactly 1/(collateral ratio - 1) across the whole

@@ -15,7 +15,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// @notice A market whose sail supply can be set, and the measurement of what the anchor-to-sail
 /// conversion rate does at the collateral ratio where the market starts selling leverage.
 ///
-/// A conversion rate is sail issued per unit of anchor value. The market sells no leverage below its floor,
+/// A conversion rate is sail minted per unit of anchor value. The market sells no leverage below its floor,
 /// `K/(K-1)` for a cap `K` on the leverage sold - a refusal, by name, on the conversion and the retail routes
 /// alike - and above it prices every conversion on the residual, which is the fair rate: sail supply over
 /// residual. So the release is a door, not a step: nothing below, the fair rate above.
@@ -97,7 +97,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
     }
 
     /// @notice What the conversion rate does across the release, as a multiple. One would be a continuous
-    ///         join; above one the bound over-issues right up to the release, below one it under-issues.
+    ///         join; above one the bound over-mints right up to the release, below one it under-mints.
     function stepAcrossTheRelease() internal returns (uint256 stepAsMultiple) {
         (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
         stepAsMultiple = Math.mulDiv(bounded, 1 ether, released);
@@ -139,7 +139,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         for (uint256 round = 0; round < 40; round++) {
             uint256 middle = (low + high) / 2;
             setCollateralRatio(middle);
-            if (!IMinter_v3(minter).leveragedIssuable()) {
+            if (!IMinter_v3(minter).leveragedMintable()) {
                 low = middle;
             } else {
                 high = middle;

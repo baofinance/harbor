@@ -27,7 +27,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # is `CR/(CR-1)` exactly, and that is what the formula prints. The report includes figures ABOVE 20 between
 # the peg and the floor - 101 at 1.01, 51 at 1.02, 21 at 1.05 - and those are true too: they are the leverage
 # a token ALREADY SOLD carries after the collateral has fallen, which is what a leveraged token is for. What
-# the cap bounds is the leverage SOLD: at 1.05, where the figure is 21, no token is issued on any route; at
+# the cap bounds is the leverage SOLD: at 1.05, where the figure is 21, no token is minted on any route; at
 # 1.06, where it is 17.67, they are. Below the peg the price is zero, there is no response to measure, and the
 # formula's division by zero is not drawn.
 #

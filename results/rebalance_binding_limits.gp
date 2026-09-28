@@ -27,7 +27,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb
 # anything.
 #
 # The lower panel is what that means, and it is why this graph exists. It is about a DIFFERENT bound: the
-# conversion bound over-issues while the leverage ratio is at its cap, which is at and below a collateral
+# conversion bound over-mints while the leverage ratio is at its cap, which is at and below a collateral
 # ratio of 20/19. A rebalance that reaches the threshold lifts the market far clear of that. A rebalance
 # that runs out of pool does not - and the shaded region is where the market is left still inside the
 # band, so the next rebalance converts at the bound as well, and the one after that.

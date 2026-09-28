@@ -12,7 +12,7 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 /// The floor under the anchor price, and what the anchor operations do at it.
 ///
-/// While the anchor is fully backed its price is exactly 1, so a mint issues face value and a
+/// While the anchor is fully backed its price is exactly 1, so it mints at face value and a
 /// redeem returns it. Below that the cap engages and the price falls with the collateral ratio,
 /// at which point every operation that divides by it grows without bound and every operation that
 /// multiplies by it collapses to nothing. These tests pin both edges.
@@ -83,15 +83,15 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
     }
 
     /// The sail leg burns anchor too, so it is held to the same rule: nothing may be burned unless
-    /// sail is issued against it.
-    function test_underBacked_freeRedeemForSailRefusesWhenNoSailIsIssued() public {
+    /// sail is minted against it.
+    function test_underBacked_freeRedeemForSailRefusesWhenNoSailIsMinted() public {
         _setUpMarketHolding(LAST_ZERO_HOLDING);
         uint256 supplyBefore = IMinter(minter).peggedTokenBalance();
 
         vm.startPrank(zeroFee);
         IERC20(peggedToken).approve(minter, 1);
-        // one wei of anchor against a capped leverage ratio still issues sail, so the leg that must
-        // refuse is the one that issues none: a zero request for sail alongside a zero collateral leg
+        // one wei of anchor against a capped leverage ratio still mints sail, so the leg that must
+        // refuse is the one that mints none: a zero request for sail alongside a zero collateral leg
         vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
         IMinter(minter).freeRedeemPeggedToken(1, 0, zeroFee);
         vm.stopPrank();

@@ -22,7 +22,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 820 background rgb
 # market was really minted into.
 #
 # WHAT THE ESCROW IS. The sail's claim is the residual - what the collateral is worth once the anchor is
-# paid - so at the peg it is nothing and the conversion issues without limit. The escrow holds a fixed
+# paid - so at the peg it is nothing and the conversion mints without limit. The escrow holds a fixed
 # amount of COLLATERAL per sail token, making the claim `residual + escrow x supply x price`, which
 # cannot reach zero. The anchor is untouched: its price is still the smaller of one and the collateral
 # ratio, read from the main account alone.

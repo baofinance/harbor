@@ -20,7 +20,7 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// @notice Whether the leveraged pool could absorb a rebalance if the conversion were not capped.
 ///
 /// The conversion used to hand over the leverage ratio cap as though it were a rate, so a rebalance near
-/// the peg issued twenty sail per anchor however far the residual had fallen. Removing that was the first
+/// the peg minted twenty sail per anchor however far the residual had fallen. Removing that was the first
 /// step of the reserve work, and it raised a question that had to be answered BEFORE the removal rather
 /// than after - so this graph is the answer that let the removal go ahead, and it stays as the standing
 /// measurement of the headroom: the sail a rebalance hands the leveraged pool is accrued into that pool's
@@ -29,17 +29,17 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// the field width, scaled by the pool's share - and `StabilityPoolManager._capLiquidation` scales the
 /// whole leg down in proportion to any overshoot.
 ///
-/// So if the uncapped issuance exceeds the ceiling, removing the cap SHRINKS the rebalance rather than
+/// So if the uncapped minting exceeds the ceiling, removing the cap SHRINKS the rebalance rather than
 /// freeing it, and does so worst where the market is most distressed.
 ///
 /// Three quantities at each collateral ratio, against the anchor a rebalance asks the leveraged leg for:
 ///
-/// - what the market issues TODAY, measured through the dry run the manager itself uses;
-/// - what it would issue with no cap, computed from the contract's own uncapped expression, because with
+/// - what the market mints TODAY, measured through the dry run the manager itself uses;
+/// - what it would mint with no cap, computed from the contract's own uncapped expression, because with
 ///   the cap in place there is nothing to measure below a collateral ratio of about 1.053;
 /// - the pool's reward ceiling.
 ///
-/// The last column is the ratio of ceiling to uncapped issuance. Above one the pool absorbs it; below
+/// The last column is the ratio of ceiling to uncapped minting. Above one the pool absorbs it; below
 /// one, `_capLiquidation` bites and the leg is scaled down.
 ///
 /// Measured at a SMALL pool share on purpose. The ceiling scales linearly with the pool's share of the
@@ -49,7 +49,7 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
     ///      `which_limit_binds_first` used, which is the stress case for a ceiling that scales with size.
     uint256 private constant POOL_SHARE = 0.002 ether;
 
-    /// @dev From a hair above the peg - where an uncapped conversion issues most - up towards the
+    /// @dev From a hair above the peg - where an uncapped conversion mints most - up towards the
     ///      rebalance threshold, beyond which there is nothing to rebalance.
     uint256 private constant FIRST_ABOVE_PEG = 1; // one wei of collateral ratio above the peg
     uint256 private constant LAST_ABOVE_PEG = 0.25 ether;
@@ -80,10 +80,10 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
             sa(
                 "collateral ratio",
                 "anchor the rebalance asks of the leveraged leg",
-                "sail issued as the market answers today",
-                "sail issued with no conversion cap",
+                "sail minted as the market answers today",
+                "sail minted with no conversion cap",
                 "the leveraged pool reward ceiling",
-                "ceiling over uncapped issuance"
+                "ceiling over uncapped minting"
             )
         );
     }
@@ -91,8 +91,8 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
     /// @notice There is an escrow below which the reward ceiling can be exceeded and above which it
     /// cannot, and it is vanishingly small - about nine wei of the sail's opening price.
     ///
-    /// An escrow of `f` per sail, valued in pegged terms, bounds what a conversion can issue at
-    /// `anchorSurrendered x anchorPrice / f`, because the sail cannot be issued below its floor. The
+    /// An escrow of `f` per sail, valued in pegged terms, bounds what a conversion can mint at
+    /// `anchorSurrendered x anchorPrice / f`, because the sail cannot be minted below its floor. The
     /// pool's ceiling is `uint256.max x poolShare / (REWARD_PRECISION x MAGNITUDE_PRECISION x
     /// INTEGRAL_HEADROOM)`. A rebalance can take at most the anchor the pool holds, so the anchor
     /// surrendered and the pool's share are the same quantity and CANCEL - leaving
@@ -120,7 +120,7 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
         assertLe(
             Math.mulDiv(poolAnchor, anchorPrice, threshold + 1),
             ceiling,
-            "an escrow above the threshold must keep the issuance inside the reward ceiling"
+            "an escrow above the threshold must keep the minting inside the reward ceiling"
         );
 
         // Well below it, it cannot - so the threshold is a real boundary and not merely a safe number.
@@ -164,8 +164,8 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
             row[5] = NaN;
 
             if (askLeveraged > 0) {
-                try IMinter_v3(minter).freeRedeemDryRun(0, askLeveraged) returns (uint256, uint256 issued) {
-                    row[2] = int256(issued);
+                try IMinter_v3(minter).freeRedeemDryRun(0, askLeveraged) returns (uint256, uint256 minted) {
+                    row[2] = int256(minted);
                 } catch {
                     // the market will not price it, which is itself worth seeing as a gap
                 }

@@ -1088,7 +1088,7 @@ contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
 
                     // A leveraged deposit dwarfed by the pegged one leaves the ratio at the peg, below the
                     // floor at which leverage is sold: refused by name, and nothing to redeem back.
-                    if (IMinter_v3(minter).leveragedIssuable()) {
+                    if (IMinter_v3(minter).leveragedMintable()) {
                         minted = IMinter(minter).mintLeveragedToken(d, address(this), 0);
                         IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
                     } else {

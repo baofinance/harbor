@@ -25,7 +25,7 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// the pools' anchor holdings over a four-hundredfold range and records, at each size, what was asked
 /// for, what the pools could lose, what was actually taken, and where the collateral ratio ended up.
 ///
-/// It exists to answer a question about a DIFFERENT bound. The conversion bound over-issues only while
+/// It exists to answer a question about a DIFFERENT bound. The conversion bound over-mints only while
 /// the leverage ratio is at its cap, which is at and below a collateral ratio of `K/(K-1)` - about
 /// 1.0526. A rebalance that succeeds lifts the market to the threshold, far above that, so the bound is
 /// binding in practice only when a rebalance CANNOT lift the market out. That makes "is this bound ever

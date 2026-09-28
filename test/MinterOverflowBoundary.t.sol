@@ -43,9 +43,9 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 ///
 /// The sail supply is set by writing the token's supply directly rather than by minting it. The two are
 /// different questions: how much sail the minter's own arithmetic can carry, and how much sail a market
-/// can be made to issue. Minting to reach a supply would conflate them and stop the search at whichever
-/// came first - and the answer would be the mint's, because sail is issued against a residual that a
-/// large supply has already thinned. The conversion this whole investigation is about issues sail with no
+/// can be made to mint. Minting to reach a supply would conflate them and stop the search at whichever
+/// came first - and the answer would be the mint's, because sail is minted against a residual that a
+/// large supply has already thinned. The conversion this whole investigation is about mints sail with no
 /// collateral behind it at all, so a supply reached without minting is not a hypothetical.
 contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, HarborTestActions, RevertReason {
     /// @dev The declared envelope's largest pool, in dollars, 1e18-scaled - the same figure the stability
@@ -190,7 +190,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, H
 
     /// @dev Give the market backing until it reports `targetRatio`, taking nothing in return. Permissionless
     ///      and, unlike a sail mint, possible at any collateral ratio: sail is a claim on the residual, so
-    ///      a market with none to sell cannot issue any, which is exactly the market that needs raising.
+    ///      a market with none to sell cannot mint any, which is exactly the market that needs raising.
     ///
     ///      The wrapped-to-underlying rate is held at one throughout, so the wrapped collateral this gives
     ///      and the underlying the record counts are the same number.
@@ -208,10 +208,10 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, H
     ///      fixed dollar value is more tokens when each is worth less, and a collateral token is worth more
     ///      of them.
     ///
-    ///      The price is moved before the market is grown, which leaves the tranche the deployment issued
+    ///      The price is moved before the market is grown, which leaves the tranche the deployment minted
     ///      either far over- or far under-collateralised - eighteen orders of magnitude of price have to go
-    ///      somewhere. So the backing is restored by donation first, which an anchor mint needs (it issues
-    ///      at `min(1, collateral ratio)`, so minting into an insolvent market issues a multiple of what was
+    ///      somewhere. So the backing is restored by donation first, which an anchor mint needs (it mints
+    ///      at `min(1, collateral ratio)`, so minting into an insolvent market mints a multiple of what was
     ///      asked for), and again afterwards, because minting anchor against its own backing pulls the
     ///      collateral ratio towards one.
     function _buildMarketAtPeg(uint256 pegPriceUSD) private returns (uint256 anchorSupply) {
@@ -223,7 +223,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, H
         uint256 target = Math.mulDiv(MAX_POOL_VALUE_USD, 1 ether, pegPriceUSD);
         uint256 held = IMinter(minter).peggedTokenBalance();
         if (target > held) {
-            // The collateral that issues the shortfall, where one wrapped token is worth `oraclePrice`
+            // The collateral that mints the shortfall, where one wrapped token is worth `oraclePrice`
             // times the rate in pegged, and the anchor it buys is priced at one.
             IMinter_v3(minter).freeMintPeggedToken(
                 Math.mulDiv(target - held, 1 ether * 1 ether, oraclePrice * WRAP_RATE),

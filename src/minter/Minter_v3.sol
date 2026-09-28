@@ -135,7 +135,7 @@ contract Minter_v3 is
     /// @inheritdoc IMinter_v3
     /// @dev `K = 20` puts the floor at `K/(K-1)` = 1.0526, which is where the count cap of `Minter_v2` was
     /// measured to let go: the same number, seen from the other side. That cap bounded the COUNT a conversion
-    /// issued and left the retail route unbounded; this one refuses, on every route, so no token is ever sold
+    /// minted and left the retail route unbounded; this one refuses, on every route, so no token is ever sold
     /// carrying more than `K`.
     uint256 public constant override MAX_LEVERAGE_RATIO = 20 ether;
 
@@ -305,10 +305,10 @@ contract Minter_v3 is
     }
 
     /// @inheritdoc IMinter_v3
-    function leveragedIssuable() external view override returns (bool issuable) {
+    function leveragedMintable() external view override returns (bool mintable) {
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
-        (issuable, ) = _leveragedIssuable(
+        (mintable, ) = _leveragedMintable(
             _effectiveBacking($.underlyingCollateral, reading.minRate),
             reading,
             $.peggedTokenBalance
@@ -321,32 +321,32 @@ contract Minter_v3 is
     /// which any is sold. Judged against the snapshot the caller priced its amounts from - never storage the
     /// caller may have part-updated - and always at the middle of the price band, whatever edge the caller's
     /// amounts are priced at: the ratio is computed exactly as `collateralRatio()` computes it, so a caller that
-    /// `leveragedIssuable()` let through is not turned away here.
+    /// `leveragedMintable()` let through is not turned away here.
     ///
     /// NOT APPLIED TO THE FIRST LEVERAGED TOKEN. A market is founded by minting pegged, which puts the ratio at
     /// exactly one, and then leveraged; judged against that state the founding mint is always refused. On an
     /// empty supply there is nothing the cap protects - no existing price to diverge, no existing holder to
-    /// dilute - and the deposit creates the residual it buys. Every later issuance is judged against a state
+    /// dilute - and the deposit creates the residual it buys. Every later mint is judged against a state
     /// that includes it.
-    function _leveragedIssuable(
+    function _leveragedMintable(
         uint256 backing,
         OracleReading memory reading,
         uint256 peggedTokenBalance_
-    ) private view returns (bool issuable, uint256 collateralRatio_) {
+    ) private view returns (bool mintable, uint256 collateralRatio_) {
         collateralRatio_ = MinterValuationLib.collateralRatio(backing, _midPrice(reading), peggedTokenBalance_);
-        issuable = _leveragedTokenBalance() == 0 || collateralRatio_ >= MINIMUM_COLLATERAL_RATIO;
+        mintable = _leveragedTokenBalance() == 0 || collateralRatio_ >= MINIMUM_COLLATERAL_RATIO;
     }
 
-    /// @dev The refusal, at every point leveraged is issued - both retail mints and the conversion - before the
+    /// @dev The refusal, at every point leveraged is minted - both retail mints and the conversion - before the
     /// amounts are computed, so a zero-price market reports the rule's own reason rather than a rounding one.
     /// Reverts with the ratio it judged and the floor it wanted, so a caller turned away knows by how much.
-    function _requireLeveragedIssuable(
+    function _requireLeveragedMintable(
         uint256 backing,
         OracleReading memory reading,
         uint256 peggedTokenBalance_
     ) private view {
-        (bool issuable, uint256 collateralRatio_) = _leveragedIssuable(backing, reading, peggedTokenBalance_);
-        if (!issuable) {
+        (bool mintable, uint256 collateralRatio_) = _leveragedMintable(backing, reading, peggedTokenBalance_);
+        if (!mintable) {
             revert LeverageAboveCap(collateralRatio_, MINIMUM_COLLATERAL_RATIO);
         }
     }
@@ -405,7 +405,7 @@ contract Minter_v3 is
         // Resolve this contract's own state and oracle here, and leave the arithmetic to the library: it holds no
         // storage of its own, so there is nothing to keep in step between the two.
         //
-        // Priced at the MIDDLE of the band, the price `collateralRatio()` and `leveragedIssuable()` report at: the
+        // Priced at the MIDDLE of the band, the price `collateralRatio()` and `leveragedMintable()` report at: the
         // target is a ratio as those measure it, and a trade sized at any other price lands somewhere else by that
         // measure. The redemption it sizes, `freeRedeemPeggedToken`, pays out at that same middle, so the trade
         // lands on the target rather than short of it or past it.
@@ -972,7 +972,7 @@ contract Minter_v3 is
         {
             OracleReading memory reading = _readOracle($.priceOracle);
             uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
-            _requireLeveragedIssuable(backing, reading, $.peggedTokenBalance);
+            _requireLeveragedMintable(backing, reading, $.peggedTokenBalance);
             // Minting leveraged reads the high price, which values the residual claim it buys highest, and the low
             // rate, which credits the collateral offered with the least value.
             crData = MinterValuationLib.CollateralRatioData(
@@ -1097,9 +1097,9 @@ contract Minter_v3 is
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = _effectiveBacking($.underlyingCollateral, reading.minRate);
-        // A depegged pegged is issued at its depressed price, which yields more tokens per unit of collateral -
+        // A depegged pegged is minted at its depressed price, which yields more tokens per unit of collateral -
         // but only while that price is one the protocol can report. Below the reportable floor it rounds to zero
-        // everywhere outside this contract, so the mint would issue against a figure no consumer can see, in
+        // everywhere outside this contract, so the mint would be priced at a figure no consumer can see, in
         // unbounded quantity. Say so, rather than dividing by it. The fee-paying mint refuses on the same
         // threshold, taken from the same constant, so the two cannot drift apart.
         uint256 peggedPriceE36 = MinterValuationLib.peggedTokenPriceE36(
@@ -1153,7 +1153,7 @@ contract Minter_v3 is
             // below its floor the market sells no leverage on any route, and that is the reason to give
             // whether or not the amount would also round to nothing.
             if (peggedForLeveraged > 0) {
-                _requireLeveragedIssuable(underlyingCollateral_, reading, peggedTokenBalance_);
+                _requireLeveragedMintable(underlyingCollateral_, reading, peggedTokenBalance_);
             }
 
             uint256 underlyingCollateralOutE36;
@@ -1268,7 +1268,7 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
         uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
-        _requireLeveragedIssuable(backing, reading, $.peggedTokenBalance);
+        _requireLeveragedMintable(backing, reading, $.peggedTokenBalance);
 
         // The fee-paying mint's edges: the high price and the low rate.
         uint256 price = reading.maxPrice;
@@ -1283,7 +1283,7 @@ contract Minter_v3 is
         // `_mintLeveragedToken` turns the caller away by name - matching the fee-paying path, whose adjustments
         // return zero in the same state.
         if (leveragedTokenBalance_ > 0) {
-            // An issued leveraged token with no residual behind it is worth nothing, and nothing is not a price.
+            // A minted leveraged token with no residual behind it is worth nothing, and nothing is not a price.
             uint256 leveragedPriceE36 = _leveragedTokenPriceE36(
                 collateralValueE36,
                 peggedValueE36,
@@ -1293,7 +1293,7 @@ contract Minter_v3 is
                 leveragedOut = (underlyingCollateralInE36 * price) / leveragedPriceE36;
             }
         } else {
-            // The first leveraged issued takes the residual this deposit itself creates, so it is the balance AFTER the
+            // The first leveraged minted takes the residual this deposit itself creates, so it is the balance AFTER the
             // deposit that must cover the pegged claim - which is why the test is not the one above. The claim is
             // taken unclamped: `tokenValuesE36` caps it at the collateral value, and the shortfall is the point here.
             uint256 postDepositValueE36 = collateralValueE36 + Math.mulDiv(underlyingCollateralInE36, price, 1e18);

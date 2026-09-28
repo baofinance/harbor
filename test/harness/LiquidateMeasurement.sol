@@ -109,7 +109,7 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
         try this.rebalanceProbe() {
             return;
         } catch (bytes memory err) {
-            // The second selector is a rule REFUSING to issue leveraged below its floor - its designed
+            // The second selector is a rule REFUSING to mint leveraged below its floor - its designed
             // behaviour, recorded as a point where nothing moved, exactly as `ReturnZeroAmount` is.
             if (
                 bytes4(err) != IMinter_v3.ReturnZeroAmount.selector &&

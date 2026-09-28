@@ -12,7 +12,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// @notice Graphs what successive cohorts end up with, having converted the same anchor into sail at
 /// different points on one market's way down.
 ///
-/// This is the only graph here whose points share a market. Each cohort's conversion issues sail, which
+/// This is the only graph here whose points share a market. Each cohort's conversion mints sail, which
 /// dilutes every cohort before it, so the points are not independent samples of a state - they are one
 /// history, and each is measured in the market the earlier ones left behind.
 ///
@@ -23,7 +23,10 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// every conversion were fair - that is market exposure, not unfairness, and it is what the fair
 /// counterfactual line accounts for. A cohort that gave up `A` of anchor value at a sail price of `p`
 /// should hold `A/p` sail, worth `A x final price / p` at the end. The gap between that and what it
-/// actually holds is what the bound did to it, and nothing else.
+/// actually holds is what the conversion's pricing did to it, and nothing else.
+///
+/// The cohorts stay at or above the minter's `MINIMUM_COLLATERAL_RATIO`, the lowest collateral ratio at
+/// which it converts anchor into sail at all; below it the conversion is refused.
 contract TestGraphsRebalanceConversionCohorts is GraphTestBase, TestConversionBoundReleaseSetUp {
     /// @dev Each cohort gives up this share of the anchor outstanding at the time - large enough that its
     ///      conversion moves the market for the cohorts after it, which is the effect being graphed.
@@ -59,12 +62,13 @@ contract TestGraphsRebalanceConversionCohorts is GraphTestBase, TestConversionBo
     function test_whatEachCohortEndsUpWith() public {
         Cohort[COHORTS] memory cohorts;
 
-        // Down from the starting collateral ratio towards the peg, the distance above it halving each
-        // time, so the cohorts crowd into the region where the bound is engaged.
-        uint256 aboveThePeg = START_AND_FINISH - 1 ether;
+        // Down from the starting collateral ratio towards the floor, the distance above it halving each
+        // time, so the cohorts crowd into the region just above where conversion stops.
+        uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        uint256 aboveTheFloor = START_AND_FINISH - floor;
         for (uint256 i = 0; i < COHORTS; i++) {
-            setCollateralRatio(1 ether + aboveThePeg);
-            aboveThePeg = aboveThePeg / 2;
+            setCollateralRatio(floor + aboveTheFloor);
+            aboveTheFloor = aboveTheFloor / 2;
 
             uint256 anchorIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), COHORT_SHARE_OF_ANCHOR, 1 ether);
             uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();

@@ -52,7 +52,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # THE BOTTOM PANEL IS WHY. The share of a mint that lands in the escrow rather than the backing is
 # `E/(R+E)` with `R = B(CR-1)/CR` - derived, and matched by the measurement to four decimals. At the peg the
 # residual is zero, so ALL of a mint is escrowed; by a ratio of two it is a tenth. The escrow is unlevered
-# collateral, so every unit added there dilutes the leverage of everything already issued.
+# collateral, so every unit added there dilutes the leverage of everything already minted.
 #
 # AND THE PROFIT ITSELF ERODES IT FURTHER. Over a full round trip the escrow returns exactly to where it
 # started - the mint's contribution is released by the redemption - but the payout also takes the holder's

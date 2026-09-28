@@ -52,7 +52,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #
 # THE TOP PANEL, FOR THE TWO THAT DO RECAPITALISE, IS NOT THE ANSWER THIS GRAPH USED TO GIVE. Read the
 # POSITION, in collateral units, both legs, before and after - not the conversion increment. The increment is
-# real but answers a different question: it counts only the tokens a round issued, while the pool's RETAINED
+# real but answers a different question: it counts only the tokens a round minted, while the pool's RETAINED
 # pegged marks up from 0.6 to par as the burn lifts the ratio, and that retained leg is the larger one. A
 # stability pool socialises, so a partial rebalance leaves every depositor part-converted rather than some
 # depositors fully converted - the whole position is what a depositor experiences.
@@ -64,7 +64,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # BUT THE CANDIDATE STOPS WORKING AT ROUND 13, and the sequence runs to 16 to show it rather than stopping
 # just before. The leveraged price falls about 24x a round while the supply grows about 11x, and a price
 # quoted in wei runs out: 433 wei at round 11, 17 at round 12, and at round 13 it floors to ZERO. From there
-# the candidate IS the deployed rule - issuing 5.7e18 tokens a round worth nothing at all - and its escrow
+# the candidate IS the deployed rule - minting 5.7e18 tokens a round worth nothing at all - and its escrow
 # floor, the whole reason it has no pole, is gone.
 #
 # READ THE SHADED ROUNDS WITH CARE, BECAUSE THE POSITION LINE LIES THERE. It climbs to 0.94, then 0.99, and
@@ -99,7 +99,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # is a change of UNITS, arithmetically a stock split.
 #
 # THE DEPLOYED RULE'S TWO LINES GO THE SAME WAY. Its count falls 2.165x per round against a market shrinking
-# 2.167x - the count is strictly PROPORTIONAL to the pegged taken, because with `K = 20` binding, issuance is
+# 2.167x - the count is strictly PROPORTIONAL to the pegged taken, because with `K = 20` binding, minting is
 # linear in the input and cannot respond to anything else. Its price falls 3.08x on the first step and settles
 # at 2.17x, the market's own rate (its price BEFORE each round is zero, so the price AFTER is the one drawn).
 # Price and count both tracking the market means their PRODUCT falls faster than the market does, which is
@@ -109,7 +109,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # sixteen as in round one, and its count falls only with the market. Fair every round - and useless every
 # round, since the ratio never moves.
 #
-# A cap on issuance is a cap on payment, and a capped payment against a falling price decays to nothing. The
+# A cap on minting is a cap on payment, and a capped payment against a falling price decays to nothing. The
 # candidate has no cap, so the falling price is the MECHANISM of fair payment here rather than the cost of it.
 # The leverage cap's answer to all of this is not to be here.
 

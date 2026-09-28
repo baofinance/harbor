@@ -31,7 +31,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 760 background rgb
 # The LOWER panel is the band where the bound OVERPAYS. It is four thousandths of a collateral ratio wide - under
 # one percent of the upper panel's axis, where it is a spike - and never exceeds five percent of value,
 # which is a rounding error on the upper panel's scale. It gets its own linear axes at its own scale,
-# and is the graph's real subject: the bound's over-issue is what dilutes existing sail holders.
+# and is the graph's real subject: the bound's over-mint is what dilutes existing sail holders.
 # Compressing one axis to fit both would change each line's visual gradient by the compression factor,
 # making a bend in the data indistinguishable from a bend in the axis - two honest panels instead.
 

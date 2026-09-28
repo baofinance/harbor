@@ -27,7 +27,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 640 background rgb
 # is one line over the other. It passes through 1 - a continuous join, the behaviour the specification
 # assumes - at exactly ONE sail supply, 20/19 of the anchor supply, where the two lines above cross.
 # Every other market gets a jump, and the jump goes as one over the sail supply, so it is unbounded in
-# both directions: a thousandfold over-issue at a thousandth of that supply, a hundredfold under-issue at
+# both directions: a thousandfold over-mint at a thousandth of that supply, a hundredfold under-mint at
 # a hundred times it.
 #
 # Nothing holds a market at the crossing. Sail supply here is swept by buying and selling sail, both
@@ -88,8 +88,8 @@ unset label 1
 # it, and nothing jumps.
 set arrow 2 from graph 0, first 1 to graph 1, first 1 nohead dashtype 2 linecolor rgb "red"
 set label 2 "continuous" at graph 0.02, first 1.6 left textcolor rgb "red"
-set label 3 "bound OVER-issues" at graph 0.03, first 200 left textcolor rgb "gray20"
-set label 4 "bound UNDER-issues" at graph 0.55, first 0.02 left textcolor rgb "gray20"
+set label 3 "bound OVER-mints" at graph 0.03, first 200 left textcolor rgb "gray20"
+set label 4 "bound UNDER-mints" at graph 0.55, first 0.02 left textcolor rgb "gray20"
 
 plot \
      datafile using ($1):($4) with lines linewidth 2 linetype 4 \

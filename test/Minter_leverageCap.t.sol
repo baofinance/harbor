@@ -126,9 +126,9 @@ contract MinterLeverageCapTest is LocalMarket {
         assertGt(leveragedOut, 0, "the mint is served");
     }
 
-    /// `leveragedIssuable()` is the refusal as a view: true exactly where a mint is served, false exactly where
+    /// `leveragedMintable()` is the refusal as a view: true exactly where a mint is served, false exactly where
     /// it is refused, on either side of the floor and at the ratio the churn sweep bracketed it to.
-    function test_leveragedIssuableAgreesWithTheRefusal() public {
+    function test_leveragedMintableAgreesWithTheRefusal() public {
         uint256[6] memory ratios = [uint256(0.9 ether), 1 ether, 1.0525 ether, 1.0529 ether, 1.1 ether, 1.5 ether];
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         deal(market.wrappedCollateral, address(this), 6 ether);
@@ -136,9 +136,9 @@ contract MinterLeverageCapTest is LocalMarket {
         for (uint256 i = 0; i < ratios.length; i++) {
             setMarketCollateralRatio(ratios[i]);
             uint256 ratio = IMinter(market.minter).collateralRatio();
-            bool issuable = IMinter_v3(market.minter).leveragedIssuable();
-            assertEq(issuable, ratio >= floor, "the view is the comparison with the floor");
-            if (issuable) {
+            bool mintable = IMinter_v3(market.minter).leveragedMintable();
+            assertEq(mintable, ratio >= floor, "the view is the comparison with the floor");
+            if (mintable) {
                 assertGt(IMinter(market.minter).freeMintLeveragedToken(1 ether, address(this)), 0, "served");
             } else {
                 vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
@@ -148,7 +148,7 @@ contract MinterLeverageCapTest is LocalMarket {
     }
 
     /// The cap bounds the leverage SOLD, not the leverage held. Between the peg and the floor no leverage is sold,
-    /// yet the tokens already issued carry more than the cap, and `leverageRatio()` reports that true figure -
+    /// yet the tokens already minted carry more than the cap, and `leverageRatio()` reports that true figure -
     /// `CR/(CR-1)`, about 51 at 1.02 - rather than the cap, which would understate the exposure it describes.
     function test_leverageRatioReportsTheTrueFigureBetweenThePegAndTheFloor() public {
         setMarketCollateralRatio(1.02 ether);
@@ -195,8 +195,8 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
         assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
         assertEq(IMinter(market.minter).collateralRatio(), 1 ether, "precondition: pegged alone, at exactly one");
         assertTrue(
-            IMinter_v3(market.minter).leveragedIssuable(),
-            "a ratio of one is below the floor, and the empty supply is issuable regardless"
+            IMinter_v3(market.minter).leveragedMintable(),
+            "a ratio of one is below the floor, and the empty supply is mintable regardless"
         );
 
         uint256 founded = IMinter(market.minter).freeMintLeveragedToken(FOUNDING_TRANCHE / 2, address(this));
@@ -208,7 +208,7 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
         setMarketCollateralRatio(1 ether);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "back below the floor");
-        assertFalse(IMinter_v3(market.minter).leveragedIssuable(), "and now there is a holder to protect");
+        assertFalse(IMinter_v3(market.minter).leveragedMintable(), "and now there is a holder to protect");
         vm.expectRevert(
             abi.encodeWithSelector(
                 IMinter_v3.LeverageAboveCap.selector,

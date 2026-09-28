@@ -24,7 +24,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 820 background rgb
 # supply at all. At forty-six sail per anchor the 1/4 floor refuses everything below a collateral ratio
 # of TWELVE, which is to say it refuses everything.
 #
-# That drift is also self-feeding, which no static reading of the panel shows: every conversion issues
+# That drift is also self-feeding, which no static reading of the panel shows: every conversion mints
 # sail, so every conversion moves a price-floor market to the right along this axis and pushes its own
 # boundary up. A leverage cap has no such term.
 #

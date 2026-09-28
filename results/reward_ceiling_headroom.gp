@@ -14,21 +14,21 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 620 background rgb
 # Can the leveraged pool absorb a rebalance once the conversion cap is removed?
 #
 # The conversion currently hands over the leverage ratio cap as though it were a rate, so a rebalance
-# near the peg issues twenty sail per anchor however far the residual has fallen. Removing that is the
+# near the peg mints twenty sail per anchor however far the residual has fallen. Removing that is the
 # first step of the reserve work - and the sail a rebalance hands the pool is accrued into that pool's
-# reward integral, which has a ceiling. If the uncapped issuance exceeded it, `_capLiquidation` would
+# reward integral, which has a ceiling. If the uncapped minting exceeded it, `_capLiquidation` would
 # scale the whole leg down, so removing the cap would SHRINK the rebalance rather than free it, worst
 # where the market is most distressed. Hence the question, asked before the removal rather than after.
 #
 # THE ANSWER IS NO, by a wide margin. The ceiling sits between 1.4e9 and 1.8e15 times the uncapped
-# issuance across this sweep, at a pool holding two thousandths of the anchor outstanding - and the
+# minting across this sweep, at a pool holding two thousandths of the anchor outstanding - and the
 # ceiling scales linearly with the pool's share, so a larger pool only has more room.
 #
-# The gap between the two issuance lines is the size of the change being made: at the peg a rebalance
+# The gap between the two minting lines is the size of the change being made: at the peg a rebalance
 # would hand over fifty thousand times what it hands over today. That is the stability pool depositor
 # being paid twenty where the fair answer is a million.
 #
-# Uncapped issuance is COMPUTED, from the contract's own uncapped expression, because with the cap in
+# Uncapped minting is COMPUTED, from the contract's own uncapped expression, because with the cap in
 # place there is nothing to measure below a collateral ratio of about 1.053 - which is most of the sweep.
 # Everything else is read from the market, and the anchor asked of the leveraged leg comes from the same
 # call the stability pool manager itself makes.
@@ -52,6 +52,6 @@ plot \
      datafile using ($1 - 1):5 with lines linewidth 3 linetype 1 \
          title "the leveraged pool reward ceiling", \
      datafile using ($1 - 1):4 with linespoints linewidth 3 linetype 7 pointtype 7 \
-         title "sail issued with no conversion cap", \
+         title "sail minted with no conversion cap", \
      datafile using ($1 - 1):3 with linespoints linewidth 2 linetype 2 pointtype 5 \
-         title "sail issued as the market answers today"
+         title "sail minted as the market answers today"

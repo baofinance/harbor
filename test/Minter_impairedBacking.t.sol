@@ -528,7 +528,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// else and must not be exempt from recognising an impairment.
     ///
     /// Once the collateral no longer covers the anchor claim there is no residual to sell, so no sail
-    /// can be issued. It must refuse by the same named error as the fee-paying path - the leverage cap's
+    /// can be minted. It must refuse by the same named error as the fee-paying path - the leverage cap's
     /// refusal, judged on the recognised backing, before any pricing that could divide by the zero
     /// residual - not by an arithmetic panic, which would take the collateral's measure of the failure
     /// away from the caller.
@@ -629,9 +629,9 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     //////////////////////////////////////////////////////////////*/
 
     /// Genesis opens a market through this path, and it consults no fee schedule — so nothing forbids
-    /// it under an impairment. What must be right is the price: a depegged anchor is issued at its
+    /// it under an impairment. What must be right is the price: a depegged anchor is minted at its
     /// depressed value, which yields more tokens per unit of collateral, not fewer.
-    function test_impairedBacking_freeAnchorMintIssuesAtTheDepressedPrice() public {
+    function test_impairedBacking_freeAnchorMintPricesAtTheDepressedPrice() public {
         setUp_collateral(100 ether, 40 ether);
         uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
 
@@ -647,7 +647,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
         vm.stopPrank();
 
-        assertApproxEqAbs(minted, expected, 1, "a depegged anchor is issued at its depressed price");
+        assertApproxEqAbs(minted, expected, 1, "a depegged anchor is minted at its depressed price");
     }
 
     /// The zero-fee sail redemption returns what the residual is worth. Once cover is gone that is

@@ -143,7 +143,7 @@ abstract contract HarborTestActions {
         uint256 backing = IMinter(minter).collateralTokenBalance();
         uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
         require(backing > 0, "a market with no recognised backing has no collateral ratio to target");
-        require(peggedBalance > 0, "a market with no anchor issued has no collateral ratio to target");
+        require(peggedBalance > 0, "a market with no anchor minted has no collateral ratio to target");
 
         // The rate is read back and written again unchanged: this helper's whole point is that it does not move it.
         (, , uint256 wrappedRate, ) = IWrappedPriceOracle(oracle).latestAnswer();
@@ -196,7 +196,7 @@ abstract contract HarborTestActions {
         uint256 backing = IMinter(minter).collateralTokenBalance(); // recognised: min(record, held x rate)
         uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
         require(backing > 0, "a market with no recognised backing has no collateral ratio to target");
-        require(peggedBalance > 0, "a market with no anchor issued has no collateral ratio to target");
+        require(peggedBalance > 0, "a market with no anchor minted has no collateral ratio to target");
 
         // collateralRatio is backing x price / peggedBalance, so the price that lands on the target inverts it
         collateralPrice = Math.mulDiv(targetCollateralRatio, peggedBalance, backing);

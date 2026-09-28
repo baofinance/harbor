@@ -12,9 +12,9 @@ import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol"
 /// @notice Graphs what an anchor-to-sail conversion returns per unit of anchor given up, against the
 /// collateral ratio and against the size of the conversion.
 ///
-/// The bound fixes the CONVERSION RATE a conversion is given - sail issued per unit of anchor value -
+/// The bound fixes the CONVERSION RATE a conversion is given - sail minted per unit of anchor value -
 /// but what that conversion rate is worth is settled by the sail price the conversion itself leaves
-/// behind: issuing sail dilutes the sail already outstanding, so a large enough conversion dilutes
+/// behind: minting sail dilutes the sail already outstanding, so a large enough conversion dilutes
 /// itself. The same bound that hands a small conversion five percent more value than it gave up hands a
 /// large one almost exactly what it gave up. Conversion size is therefore a dimension of the bound's
 /// unfairness rather than a detail of it, which is why it is swept.

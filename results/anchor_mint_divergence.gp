@@ -60,7 +60,7 @@ set colorsequence default
 # $1 = collateral ratio, $2 = anchor price, $3 = anchor per unit of collateral value, $4 = multiplier
 plot \
      byprice using ($1):($3) with lines linewidth 2 linetype 2 \
-         title "anchor issued per unit of collateral value (all three sweeps)", \
+         title "anchor minted per unit of collateral value (all three sweeps)", \
      bybacking using ($1):($4) with lines linewidth 2 linetype 7 \
          title "supply multiplier - collateral no longer held", \
      byrate using ($1):($4) with lines linewidth 2 linetype 4 \

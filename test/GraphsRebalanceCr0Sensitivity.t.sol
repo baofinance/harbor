@@ -14,7 +14,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// at.
 ///
 /// A market's opening collateral ratio fixes how many sail tokens it carries per anchor token: opening at
-/// `r` funds the residual `r - 1` against an anchor supply of 1, and the first sail is issued at a price
+/// `r` funds the residual `r - 1` against an anchor supply of 1, and the first sail is minted at a price
 /// of one, so the market carries `r - 1` sail per anchor. Nothing afterwards changes that except minting
 /// or redeeming sail, and both are price-neutral - so the sail supply per anchor IS the opening ratio,
 /// carried forward. That is what makes this a property of the market's birth rather than of its history,
@@ -38,7 +38,7 @@ contract TestGraphsRebalanceCr0Sensitivity is GraphTestBase, TestConversionBound
                 "collateral ratio the market opened at",
                 "collateral ratio where the bound engages",
                 "collateral ratio where the fair conversion rate meets the bound",
-                "worst over-issue in the band"
+                "worst over-mint in the band"
             )
         );
     }

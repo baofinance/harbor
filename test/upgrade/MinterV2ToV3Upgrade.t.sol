@@ -71,12 +71,13 @@ contract MinterV2ToV3UpgradeTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    /// @dev Everything the minter exposes that the upgrade must not disturb.
+    /// @dev Everything the minter exposes that the upgrade must not disturb. `leverageRatio` is left out: v3
+    ///      redefines it (uncapped, and `type(uint256).max` where no residual remains), and it is derived
+    ///      from the balances and price compared here.
     struct MinterState {
         uint256 peggedTokenBalance;
         uint256 collateralTokenBalance;
         uint256 collateralRatio;
-        uint256 leverageRatio;
         uint256 peggedTokenPrice;
         uint256 leveragedTokenPrice;
         address feeReceiver;
@@ -88,7 +89,6 @@ contract MinterV2ToV3UpgradeTest is TestMinterSetUp {
         state.peggedTokenBalance = IMinter(minter).peggedTokenBalance();
         state.collateralTokenBalance = IMinter(minter).collateralTokenBalance();
         state.collateralRatio = IMinter(minter).collateralRatio();
-        state.leverageRatio = IMinter(minter).leverageRatio();
         state.peggedTokenPrice = IMinter(minter).peggedTokenPrice();
         state.leveragedTokenPrice = IMinter(minter).leveragedTokenPrice();
         state.feeReceiver = IMinter(minter).feeReceiver();
@@ -108,7 +108,6 @@ contract MinterV2ToV3UpgradeTest is TestMinterSetUp {
             string.concat(what, ": collateral")
         );
         assertEq(afterUpgrade.collateralRatio, before.collateralRatio, string.concat(what, ": collateral ratio"));
-        assertEq(afterUpgrade.leverageRatio, before.leverageRatio, string.concat(what, ": leverage ratio"));
         assertEq(afterUpgrade.peggedTokenPrice, before.peggedTokenPrice, string.concat(what, ": pegged price"));
         assertEq(
             afterUpgrade.leveragedTokenPrice,

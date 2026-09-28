@@ -168,7 +168,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         // A leveraged deposit small beside the pegged one founds the market at the peg, below the floor at
         // which leverage is sold. There is no fee to range over where the mint is refused, and the refusal
         // is `Minter_leverageCap`'s to assert; the fee arithmetic is measured where a mint exists.
-        vm.assume(IMinter_v3(minter).leveragedIssuable());
+        vm.assume(IMinter_v3(minter).leveragedMintable());
         _mintLeveraged(w);
     }
 
@@ -276,7 +276,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
             // No fee range exists where the market sells no leverage: a starting band below the floor at
             // which leverage is sold has nothing to measure, and the refusal is `Minter_leverageCap`'s to
             // assert. The bands above the floor still span, so this is a skip and not a stop.
-            if (!IMinter_v3(minter).leveragedIssuable()) {
+            if (!IMinter_v3(minter).leveragedMintable()) {
                 continue;
             }
 

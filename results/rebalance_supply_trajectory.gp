@@ -23,7 +23,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb
 # cycle, forty times over - the flat line at one, which is also what says this measurement is sound.
 # Where the bound engages, the conversion pays four tenths of fair on the first cycle, a fifteenth on the
 # second, and a hundredth by the fifth: the error does not settle down, it COMPOUNDS. Each bounded
-# conversion issues sail, which raises the fair rate, which leaves the fixed ceiling a smaller fraction
+# conversion mints sail, which raises the fair rate, which leaves the fixed ceiling a smaller fraction
 # of it, which makes the next conversion worse. There is no level it converges to short of zero.
 #
 # The lower panel is the market being restructured underneath that - anchor converted into sail, cycle

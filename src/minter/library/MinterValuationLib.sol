@@ -22,7 +22,7 @@ library MinterValuationLib {
     /// below this floors to zero in every external report while the operations still divide by it happily. Two
     /// things follow, and both are why minting stops here rather than at zero. A mint below it is priced against
     /// a figure nothing outside the contract can see, so no consumer can tell that it happened at all. And the
-    /// tokens issued per unit of collateral value are `1e36 / price`, which grows without bound as the price
+    /// tokens minted per unit of collateral value are `1e36 / price`, which grows without bound as the price
     /// falls - at the floor it is already 1e18, and below it there is no limit at all.
     ///
     /// This is a floor on REPORTABILITY, not on solvency: a depegged pegged well above it is still minted at its
@@ -175,7 +175,7 @@ library MinterValuationLib {
         } else {
             // The true sensitivity of the residual to the collateral price, uncapped: a holder's leverage
             // rises as the collateral falls, and that is what the token is. What is bounded is the leverage
-            // SOLD, by the minter's refusal to issue below its floor.
+            // SOLD, by the minter's refusal to mint below its floor.
             ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
         }
     }

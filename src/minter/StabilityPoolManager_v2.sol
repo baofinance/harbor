@@ -370,7 +370,7 @@ contract StabilityPoolManager_v2 is
         // Below the minter's floor it sells no leverage, so the leveraged pool cannot convert. Both pools' pegged take
         // the collateral route to the floor - or to the threshold, if that is lower - each pool its share of what the
         // two hold, within its headroom, the excess sliding to the other. Both are paid in collateral.
-        if (!IMinter_v3(MINTER).leveragedIssuable()) {
+        if (!IMinter_v3(MINTER).leveragedMintable()) {
             uint256 peggedFromCollateralPool;
             uint256 peggedFromLeveragedPool;
             {
@@ -408,7 +408,7 @@ contract StabilityPoolManager_v2 is
         // the collateral pool's pegged redeemed for collateral, the leveraged pool's converted into leveraged tokens.
         // The minter splits the distance between them by their holdings, each within its pool's headroom, the shortfall
         // of one sliding into the other's leg.
-        if (IMinter_v3(MINTER).leveragedIssuable() && IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
+        if (IMinter_v3(MINTER).leveragedMintable() &&IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
             uint256 peggedFromCollateralPool;
             uint256 peggedFromLeveragedPool;
             {
@@ -469,7 +469,7 @@ contract StabilityPoolManager_v2 is
                 if (pegged == 0) {
                     return (0, 0, 0);
                 }
-                // slither-disable-next-line unused-return no pegged is converted, so no leveraged is issued
+                // slither-disable-next-line unused-return no pegged is converted, so no leveraged is minted
                 (uint256 collateralOut, ) = IMinter_v3(MINTER).freeRedeemDryRun(pegged, 0);
                 previewForCollateralPool = Math.mulDiv(collateralOut, peggedFromCollateralPool, pegged);
                 previewForLeveragedPool = collateralOut - previewForCollateralPool;
@@ -503,7 +503,7 @@ contract StabilityPoolManager_v2 is
 
         IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedLiquidated);
         if (leveragedPoolPaidInCollateral) {
-            // slither-disable-next-line unused-return no pegged is converted, so no leveraged is issued
+            // slither-disable-next-line unused-return no pegged is converted, so no leveraged is minted
             (uint256 collateralOut, ) = IMinter_v3(MINTER).freeRedeemPeggedToken(peggedLiquidated, 0, address(this));
             uint256 forCollateralPool = Math.mulDiv(collateralOut, peggedFromCollateralPool, peggedLiquidated);
             collateralPaid = _payPool(

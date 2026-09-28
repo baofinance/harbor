@@ -126,7 +126,7 @@ abstract contract MarketUnderTest {
     /// This is not the tolerance that was rejected earlier and must not be read as it. That one caught
     /// `NoTokensToLiquidate`, which is an EMPTY POOL - a defect in how the market was set up, and rightly
     /// fixed by setting it up properly rather than by catching the symptom. This catches exactly one thing,
-    /// `LeverageAboveCap`, which a rule throws BY DESIGN where it declines to issue leveraged. That refusal
+    /// `LeverageAboveCap`, which a rule throws BY DESIGN where it declines to mint leveraged. That refusal
     /// is not a failure of the measurement; it is the single behaviour the rule exists to exhibit, and a
     /// measurement that crashed on it could not report the one thing it was run to see. Anything else
     /// propagates unchanged.
