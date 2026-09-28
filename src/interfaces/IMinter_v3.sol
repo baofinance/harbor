@@ -142,11 +142,6 @@ interface IMinter_v3 is IToken {
 
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
-    /// @dev Thrown when the oracle price is zero.
-    error ZeroOraclePrice();
-    /// @dev Thrown when the oracle wrapped-to-underlying rate is zero. A rate of zero is a units conversion, not an
-    /// economic state, so it can only mean the oracle is faulty.
-    error ZeroOracleRate();
 
     error RequestedBonusNotGiven(uint256 requested, uint256 available);
 
@@ -229,9 +224,8 @@ interface IMinter_v3 is IToken {
     /// Special cases:
     /// - If both collateral and pegged tokens are zero: Returns 1 ether (to avoid discontinuity when first minting)
     /// - If pegged tokens are zero but collateral exists: Returns 1 ether * 1 ether, encoding +infinity
-    /// - A zero collateral price reverts with ZeroOraclePrice rather than being reported as a ratio. A ratio of zero
-    ///   says the system is wholly undercollateralised, which is a call to act; a dead feed must not be able to say
-    ///   it.
+    /// - A zero collateral price gives a ratio of zero. A conforming oracle reverts rather than answer when it
+    ///   cannot price, so a zero it returns is the price, and the ratio reports it as such.
     ///
     /// This value is used for critical system operations like rebalancing, especially in depegged scenarios.
     /// For the real market value of the pegged token, see peggedTokenPrice() instead.
@@ -273,9 +267,8 @@ interface IMinter_v3 is IToken {
     ///
     /// Unavailability arrives out of band, as a revert, and that guarantee belongs to the price oracle rather than
     /// to the Minter: `latestAnswer()` hands over four numbers and no metadata, so the Minter cannot tell a stale
-    /// reading from a fresh one, and a conforming oracle reverts rather than answer when it cannot price. What the
-    /// Minter adds is a backstop for the one in-band value that would be a lie - a zero price or rate on a reading
-    /// it consumes reverts with ZeroOraclePrice or ZeroOracleRate.
+    /// reading from a fresh one, and a conforming oracle reverts rather than answer when it cannot price. The Minter
+    /// passes on what the oracle returns, a zero price included, without judging it.
     ///
     /// So a zero here means "worth nothing", never "cannot tell", and the two must not be conflated by anything
     /// reading it.
@@ -294,7 +287,7 @@ interface IMinter_v3 is IToken {
     /// zero as a halt condition rather than a valuation.
     ///
     /// The same split holds as for leveragedTokenPrice(): a conforming oracle reverts rather than answer when it
-    /// cannot price, and the Minter backstops a zero reading with ZeroOraclePrice or ZeroOracleRate.
+    /// cannot price, and the Minter passes on whatever it returns.
     ///
     /// With no pegged tokens outstanding the price is 1 ether by definition, without reading the oracle at all.
     function peggedTokenPrice() external view returns (uint256);

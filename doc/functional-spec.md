@@ -260,17 +260,17 @@ price to floor to zero. No price crash reaches that; it is annihilation, not a d
    `test/Minter_impairedBacking.t.sol`.
 2. **A wound-down market left holding dust on both sides** — a handful of wei of wrapped collateral
    against leftover anchor dust. The rounding is the same; the economic stake is negligible.
-3. **A dust-but-non-zero collateral price with the backing fully intact.** The Minter rejects a
-   price of *exactly* zero (`ZeroOraclePrice`, §6.8) but admits 1 wei. With the 140-collateral
-   market untouched, a reported price at or below 1428 wei — against a nominal $2 \times 10^{21}$ —
-   makes $B \times p < Q$ and the anchor price reads zero while every token is still fully backed.
-   Whether a feed can actually deliver such a reading is governed by the aggregator's deviation and
-   staleness checks (§6.8), which sit outside the Minter; the Minter's own guard does not stop it.
+3. **A dust collateral price with the backing fully intact.** The Minter takes the price the oracle
+   reports without judging it (§2.5), so a reading of a few wei is priced like any other. With the
+   140-collateral market untouched, a reported price at or below 1428 wei — against a nominal
+   $2 \times 10^{21}$ — makes $B \times p < Q$ and the anchor price reads zero while every token is
+   still fully backed. Whether a feed can actually deliver such a reading is governed by the
+   aggregator's deviation and staleness checks (§6.8), which sit outside the Minter.
 
-**A faulty oracle cannot produce a zero silently.** A zero price or a zero rate both revert
-(`ZeroOraclePrice` / `ZeroOracleRate`), because `peggedTokenPrice()` sources the price through the
-mid-price fetch and the backing through the min-rate fetch, and both validate. The zero above is a
-*floor*, not a passed-through oracle fault.
+**The Minter does not judge the oracle's readings.** A conforming oracle reverts when it cannot
+price (§6.8), so a zero it returns is the price, and `peggedTokenPrice()` reports what that price
+makes the holding worth. The zero above is a *floor* of the Minter's own arithmetic, not an oracle
+fault.
 
 **Impairment recognition does not move this threshold.** `recogniseImpairment()` writes the record
 down to the recognised backing, which every valuation already used, so it is exactly price-neutral —
@@ -356,10 +356,9 @@ one of them:
 | how often | annihilation only | whenever the market is undercollateralised |
 | what it means | the senior claim has lost its cover | the junior claim has no residual, as designed |
 
-Both are real answers rather than reverts. Neither can be produced by an oracle *reading* of zero:
-the Minter backstops that with `ZeroOraclePrice` / `ZeroOracleRate` on both getters. The wider
-guarantee — that an oracle which cannot price reverts rather than answers — is the oracle's to keep,
-since `latestAnswer()` returns four numbers and no staleness metadata for the Minter to check.
+Both are real answers rather than reverts. The guarantee that an oracle which cannot price reverts
+rather than answers is the oracle's to keep, since `latestAnswer()` returns four numbers and no
+staleness metadata for the Minter to check; the Minter passes on what it is given.
 **Zero is worth nothing; unavailable is a revert** — a consumer can rely on the two being
 distinguishable, provided the oracle conforms.
 
@@ -369,13 +368,17 @@ the collateral, the same convention the anchor uses.
 ### 2.5 Price and rate
 
 A price read returns **four** numbers: a minimum and maximum price for the collateral token, and a
-minimum and maximum wrapped-to-collateral rate. Each operation selects the end that is least
-favourable to the caller and most favourable to solvency — minting values incoming collateral at the
-low end, while a rebalance exchanges the pool's anchor tokens at the maximum price, the end that
-favours the depositors.
+minimum and maximum wrapped-to-collateral rate. The Minter reads them once per operation. Whoever
+chooses to trade pays the width of the bands, so every mint and redeem uses the ends that pay its
+caller less — minting values incoming collateral at the low end, redeeming anchor pays out at the
+high end. The rebalance is the exception: the stability pool trades there as the backstop, not by
+choice, so it is paid at the middle of both bands — the same middle the market's own measures (the
+collateral ratio, the token prices, the leverage cap and the rebalance sizing) are read at. The
+backing is always valued at the minimum rate.
 
-Pricing is protected by **validation**: a reading that is zero, negative, stale, or too far from the
-previous round reverts the operation rather than pricing it (§6.8).
+Pricing is protected by the oracle's **validation**: a reading that is negative, stale or too far
+from the previous round — or a zero that cannot be the price — reverts in the oracle rather than
+being priced (§6.8). The Minter takes the reading as given.
 
 **Rate** and **price** are separate because they convert between different things: the rate turns
 wrapped collateral into collateral tokens, the price values a collateral token in the anchor's
@@ -1235,7 +1238,7 @@ sequenceDiagram
     SPM->>PL: sweep anchor tokens
     note over SPM: measure what was actually handed over —<br/>a pool may give less than asked
 
-    SPM->>M: freeRedeemPeggedToken(both legs) — zero fee, max price
+    SPM->>M: freeRedeemPeggedToken(both legs) — zero fee, middle price
     M-->>SPM: wrapped collateral + sail tokens
 
     SPM->>K: bounty (a share of each leg's proceeds)
@@ -1627,12 +1630,12 @@ cost of waiting: suspended harvesting, visible in `harvestable` reading zero whi
 | **Who may call** | Nobody within Harbor |
 | **Cadence** | Per feed |
 
-Every price read is validated (§2.5), and every failure mode **reverts** rather than returning a
-substitute:
+Every price read is validated by the oracle (§2.5), and every failure mode **reverts** rather than
+returning a substitute:
 
 | Condition | Response |
 |---|---|
-| Price zero or negative | Revert |
+| Price negative, or zero where zero cannot be the price | Revert |
 | Price older than the staleness threshold | Revert |
 | Abnormal deviation between rounds | Revert |
 | Feed call fails | Revert |
@@ -1947,10 +1950,10 @@ reach this market's collateral.
 | # | Invariant | Assurance |
 |---|---|---|
 | **P1** | Every priced operation reads a **validated** price; nothing is priced from an unvalidated source. | By construction |
-| **P2** | An invalid, zero, stale or abnormally-deviant reading **reverts**. No operation proceeds on a substitute, a cached, or a default price. | By check |
-| **P3** | A zero wrapped-to-collateral rate reverts — a rate of zero is a unit conversion, not an economic state, so it can only mean a faulty oracle. | By check |
-| **P4** | Where a minimum and maximum differ, the end used is always the one conservative for solvency, chosen per operation and direction. | By construction |
-| **P5** | Liquidation prices at the band's **maximum** — the end most favourable to the depositors absorbing the loss. | By construction |
+| **P2** | An invalid, stale or abnormally-deviant reading, or a zero that cannot be the price, **reverts**. No operation proceeds on a substitute, a cached, or a default price. | By the oracle's check |
+| **P3** | A zero wrapped-to-collateral rate reverts — a rate of zero is a unit conversion, not an economic state, so it can only mean a faulty oracle. | By the oracle's check |
+| **P4** | Where a minimum and maximum differ, every mint and redeem uses the end that pays its caller less, chosen per operation and direction; the market's measures read the middle. Each operation reads the oracle once. | By construction |
+| **P5** | The rebalance prices at the band's **middle** — the stability pool is the backstop, not charged the spread, and the sizing and the payout read the same price. | By construction |
 
 ### 8.3 Stability pool
 
@@ -2125,11 +2128,12 @@ Two mirror-image attempts, and they have different answers.
 #### 9.4a Depositing just before, to capture the liquidation terms
 
 **The attempt.** Deposit into a stability pool immediately before a rebalance to capture the
-favourable liquidation terms — maximum price, zero fee — then leave.
+favourable liquidation terms — the middle price, zero fee — then leave.
 
 **How far it gets.** This partly works, and is bounded rather than blocked. Liquidation *is*
-favourable relative to redeeming directly whenever the redeem fee is positive, so near the rebalance
-threshold there is a real edge. Four things bound it:
+favourable relative to redeeming directly whenever the redeem fee is positive or the price band has
+any width, since a direct redeem pays out at the band's high end, so near the rebalance threshold
+there is a real edge. Four things bound it:
 
 - The depositor is liquidated only **pro-rata**, so a late entrant dilutes their own capture.
 - Exiting afterwards costs the **early-withdrawal fee** unless a window was opened in advance —
@@ -2585,7 +2589,7 @@ document, the section is given.
 | **Depeg** | Collateral ratio below 1 — anchor tokens no longer fully covered (§10.6) |
 | **Rebalance threshold** | The collateral ratio below which rebalancing becomes available. Set per market by its volatility class (§7.3) |
 | **Disallow floor** | The collateral ratio below which anchor minting is refused. Sits one point *above* the rebalance threshold in every deployed class (§7.3) |
-| **Price band** | The minimum and maximum the price source reports. The protocol picks the end conservative for solvency, per operation (§2.5) |
+| **Price band** | The minimum and maximum the price source reports. Each mint and redeem picks the end that pays its caller less; the market's measures and the rebalance use the middle (§2.5) |
 | **Rate** | The wrapped-to-collateral conversion. Its growth over time is the source of harvestable yield (§2.5) |
 
 ### Value flows

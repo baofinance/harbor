@@ -130,7 +130,8 @@ library RebalanceSizing_v1 {
             //     collateral paid out. Sized against one wei less backing - `c·p − p` - the trade reaches the target
             //     however that wei falls.
             // Every other rounding in the redemption favours the market: the record is debited a rounded-down amount,
-            // and the payout is priced at the band's high edge.
+            // and the payout, priced at the same middle of the band, converts into wrapped tokens at a rate no lower
+            // than the one the backing is valued at.
             // targetCR > currentCR >= 1 ether so the numerator and denominator subtractions are both safe
             unchecked {
                 fullCollateral = Math.ceilDiv(

@@ -20,10 +20,10 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// market sells no leverage: the rebalance cannot take its second step, and every later call sized from the state it
 /// left finds nothing, or too little, to do.
 ///
-/// Three things could each leave the redemption short, and each test isolates one: the price the sizing reads against
-/// the price the ratio is reported at, the rounding of the amount itself, and the rounding of the backing where the
-/// held collateral is what decides it. Each sizes the collateral route alone - the leg whose redemption moves the
-/// backing - and redeems exactly what it was told.
+/// Three things could each leave the redemption off its target, and each test isolates one: the prices the sizing and
+/// the payout read against the price the ratio is reported at, the rounding of the amount itself, and the rounding of
+/// the backing where the held collateral is what decides it. Each sizes the collateral route alone - the leg whose
+/// redemption moves the backing - and redeems exactly what it was told.
 contract MinterRebalanceSizingTest is TestMinterSetUp, HarborTestActions {
     /// @dev The highest target the sweeps ask for. Well inside what the supply can reach by the collateral route
     ///      from the ratios they start at, so no sized amount exceeds the pegged outstanding.
@@ -44,11 +44,17 @@ contract MinterRebalanceSizingTest is TestMinterSetUp, HarborTestActions {
         vm.stopPrank();
     }
 
-    /// The sizing reads the price the ratio is reported at. The oracle quotes a band and the ratio is reported at its
-    /// middle; a redemption pays out at the band's high edge, which leaves more collateral behind than the middle
-    /// would. Sized at the middle, the trade therefore lands at or above the target; sized at the high edge it would
-    /// land short by the band's width.
-    function testFuzz_reachesItsTarget_acrossAnOracleSpread(uint256 halfSpreadBps, uint256 target) public {
+    /// The sizing and the redemption read the same price, the one the ratio is reported at. The oracle quotes a band
+    /// and the ratio is reported at its middle; the redemption pays the stability pool at that middle too. So the
+    /// trade lands ON the target: at or above it, and above it only by the sizing's own roundings, not by the band's
+    /// width - sized at one edge and paid at another, it would land short of the target or redeem past it.
+    ///
+    /// The roundings, bounded: the amount is rounded up (less than one pegged wei) and sized against one wei less
+    /// backing (`price / (T − 1)` pegged wei), and the payout floors away less than one collateral wei. Each extra
+    /// pegged wei redeemed lifts the ratio by `(T − 1) / left` and each collateral wei kept by `price / left`, where
+    /// `left` is the pegged outstanding afterwards - so the ratio lands at most `(2·price + T − 1) / left` above the
+    /// target, before its own division floors it.
+    function testFuzz_landsOnItsTarget_acrossAnOracleSpread(uint256 halfSpreadBps, uint256 target) public {
         setUp_collateral(100 ether, 3 ether); // a ratio of 1.03 at the mock's price
         (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         halfSpreadBps = bound(halfSpreadBps, 1, 500);
@@ -58,7 +64,10 @@ contract MinterRebalanceSizingTest is TestMinterSetUp, HarborTestActions {
 
         _redeemForCollateral(_collateralRouteTo(target));
 
-        assertGe(IMinter(minter).collateralRatio(), target, "the collateral route reaches its target");
+        uint256 landed = IMinter(minter).collateralRatio();
+        uint256 roundingBound = Math.ceilDiv(2 * price + target - 1 ether, IMinter(minter).peggedTokenBalance());
+        assertGe(landed, target, "the collateral route reaches its target");
+        assertLe(landed, target + roundingBound, "the collateral route redeems no more than reaching it takes");
     }
 
     /// Where every conversion is exact - collateral priced at one pegged, a wrapped token worth one unit of it - the

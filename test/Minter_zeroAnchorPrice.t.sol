@@ -99,10 +99,10 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenPrice(), 0, "the anchor price is zero");
     }
 
-    /// The backing never moves, but the reported collateral price does. The oracle guard rejects a
-    /// price of exactly zero and admits one wei, so a dust reading floors the anchor price to zero
-    /// while every token is still fully backed. Against this market the threshold is 1428 wei,
-    /// against a nominal 2000e18: backing * price < anchor supply.
+    /// The backing never moves, but the reported collateral price does. The Minter takes the price as
+    /// the oracle reports it, so a dust reading floors the anchor price to zero while every token is
+    /// still fully backed. Against this market the threshold is 1428 wei, against a nominal 2000e18:
+    /// backing * price < anchor supply.
     function test_anchorPriceIsZeroFromADustPriceWhileTheBackingIsIntact() public {
         setUp_collateral(100 ether, 40 ether);
         uint256 intactBacking = IMinter(minter).collateralTokenBalance();
@@ -112,21 +112,6 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
 
         assertEq(IMinter(minter).collateralTokenBalance(), intactBacking, "and is never touched");
         assertEq(IMinter(minter).peggedTokenPrice(), 0, "yet the anchor price reads zero");
-    }
-
-    /// A faulty oracle cannot produce the zero silently. The price is read through the mid-price
-    /// fetch and the backing through the min-rate fetch, and each validates the reading it consumes,
-    /// so a zero on either side reverts by name instead of floating through the arithmetic.
-    function test_anchorPriceRevertsRatherThanReportingZeroOnAFaultyOracle() public {
-        setUp_collateral(100 ether, 40 ether);
-
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, _rate());
-        vm.expectRevert(IMinter_v3.ZeroOraclePrice.selector);
-        IMinter(minter).peggedTokenPrice();
-
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 0);
-        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
-        IMinter(minter).peggedTokenPrice();
     }
 
     /// Recognising an impairment writes the record down to the backing every valuation already

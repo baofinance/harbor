@@ -23,9 +23,11 @@ contract EverythingTest is TestStabilityPoolManagerSetUp {
         assertEq(collateralRatio, isDepegged ? 0.7 ether : 1.4 ether, "collateralRatio wrong");
     }
 
+    /// The leverage reported is the residual's true sensitivity, `CR/(CR-1)`. Depegged, the residual is gone and
+    /// the leveraged token is a claim of nothing, which has no finite leverage: that is reported as the maximum.
     function test_leverageRatio() public view {
         uint256 leverageRatio = IMinter(minter).leverageRatio();
-        assertEq(leverageRatio, isDepegged ? 20 ether /* the cap */ : 3.5 ether, "leverageRatio wrong");
+        assertEq(leverageRatio, isDepegged ? type(uint256).max : 3.5 ether, "leverageRatio wrong");
     }
 
     /*
