@@ -23,7 +23,7 @@ given in dollars; dollar figures depend on the swept peg / collateral price. Ran
 ### 1.1 What it can do now
 
 Four operations — **mint pegged, redeem pegged, mint leveraged, redeem leveraged** — each driven
-across the full envelope:
+across the full envelope, leveraged mints where the market mints them (§1.3):
 
 | Driven across | Range |
 |---|---|
@@ -55,64 +55,20 @@ Minter has **no field-width limit of its own** — it is the *source* of the amo
 must store (a cheap peg or collateral makes it emit huge counts), setting the context for the pool's
 widths, not a limit itself.
 
-There is one quantity it does **not** carry at 1e18, and the reason is worth reading before changing it: §1.3.
+### 1.3 Where leveraged mints are driven
 
-### 1.3 The leveraged escrow's scale — how the peg range is held open
+Leveraged tokens are minted only at or above the **leverage floor**, `MINIMUM_COLLATERAL_RATIO` =
+`K/(K−1)` for the leverage cap `K = MAX_LEVERAGE_RATIO` (functional specification §2.3). Below it every
+route that mints leveraged refuses with `LeverageAboveCap`, so there is no mint to measure there.
 
-The escrow is what stops the leveraged price falling to nothing: a slice of collateral held outside the
-backing, so the leveraged claim is `residual + escrow` rather than the residual alone. It is stored as
-**collateral escrowed per leveraged token** — a per-token figure so that the escrow follows the supply
-instead of being moved alongside it — and that per-token figure is a fixed-point number whose resolution
-sets how far the product's peg range can stretch.
+`test/Minter_feeRange.t.sol` therefore drives leveraged mints across the bands at or above the floor: the
+fuzz assumes a market that mints leverage (`leveragedMintable()`), and the band sweep skips a starting band
+that lies below the floor while the bands above it still span. The refusal itself is asserted, route by
+route, in `test/Minter_leverageCap.t.sol`. Leveraged **redemption** is not capped and is driven across
+every band down to a collateral ratio of 1.
 
-The founding mint issues leveraged tokens at **par with the pegged residual**
-(`Minter_v3.freeMintLeveragedToken`, the empty-supply branch — the fee-paying path issues nothing into an
-empty supply, so founding is always this one). So for a founding deposit of `C` collateral at a price `P`
-of collateral-in-pegged, the mint issues `C × P / 1e18` tokens while escrowing `C × RATIO / 1e18` collateral.
-**The deposit size cancels**, and what is stored is:
-
-```
-escrowPerLeveragedToken = RATIO × SCALE / P
-```
-
-Two things follow, and the second is the design.
-
-**It is the product `RATIO × SCALE` that carries the precision**, not either alone — every decade off the
-ratio is a decade that must go back on the scale. At `SCALE = 1e18` and `RATIO = 0.01e18` the figure reaches
-zero once collateral is worth more than 1e16 pegged, which is four decades inside the peg range the envelope
-declares. **Nothing restores it**: the figure is written only by a mint into an *empty* leveraged supply, and
-moved afterwards only downwards, by a recognised impairment. A market founded past the threshold has **no
-leveraged floor for the life of its supply**, however large it later grows.
-
-**So the scale is derived, not chosen.** `MinterValuationLib` states the capability and works back to the
-storage format that delivers it:
-
-| constant | value | what it is |
-|---|---|---|
-| `MAX_COLLATERAL_PRICE` | 1e36 | the dearest collateral the escrow is carried for — a unit worth 1e18 pegged |
-| `ESCROW_STEPS` | 100 | how finely, there: the escrow held to a percent of itself |
-| `LEVERAGED_ESCROW_RATIO` | 0.01e18 | **the one free choice** — how much of a deposit is held back |
-| `ESCROW_PER_TOKEN_SCALE` | `ESCROW_STEPS × MAX_COLLATERAL_PRICE / RATIO` | derived, = 1e22 today |
-
-Pinning the scale as a literal instead would make the next change to the ratio silently narrow what the
-protocol supports, with nothing failing to say so. Derived, the ratio is the only decision, and the declared
-capability holds at whatever it is set to. The division ceils, so the guarantee may be exceeded but never
-rounded below — which matters if a ratio is ever picked that is not a power of ten.
-
-This also fixes the widths independently of that pending choice: the stored figure is bounded by
-`RATIO × SCALE` = `ESCROW_STEPS × MAX_COLLATERAL_PRICE` = 1e38 **whatever the ratio is**, so nothing about
-the storage depends on a number nobody has settled.
-
-The envelope test reads `MAX_COLLATERAL_PRICE` and derives the peg floor it sweeps from it
-(`maxCollateralUSD × 1e18 / MAX_COLLATERAL_PRICE` = $1e-12 today), so `src/` declares the capability and the
-test measures exactly that — neither restating the other.
-
-The result is that the collateral's worth in pegged is bounded at **both** ends, for unrelated reasons:
-
-| end of the axis | bound | what fails past it |
-|---|---|---|
-| collateral too cheap | `P < 1` | the market cannot back a mint at all — the price floors to zero (§2.3) |
-| collateral too dear | `P > MAX_COLLATERAL_PRICE` | the escrow loses resolution and the leveraged floor thins |
+The floor moves with the cap — about 1.0526 for a cap of 20, 1.0101 for 100 — so a higher cap widens
+the range leveraged mints are driven across, with nothing in the sweep to change.
 
 ---
 
