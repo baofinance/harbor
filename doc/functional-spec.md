@@ -607,6 +607,9 @@ Acceptance criteria:
    it reports the amount that would actually transact, not the amount requested.
 4. The dry-run reports the **available** discount, reduced if the reserve pool cannot fund the
    configured one.
+5. Where the operation would be **refused** outright — a sail mint below the leverage floor (§2.3) —
+   the dry-run reports that nothing would transact: every amount zero, with the incentive ratio of
+   the band the market is in.
 
 *Note: the dry-run binds only to the state at the time of the call. Another user's transaction
 landing first can move the collateral ratio into a different fee band. Criterion US-1.3's minimum-out
@@ -679,7 +682,8 @@ Acceptance criteria:
 4. Minting attracts a **discount** when the system is unhealthy, because minting sail tokens adds
    collateral without adding anchor claims and so raises the ratio.
 5. Minting is **refused below the leverage floor** (§2.3), with `LeverageAboveCap`, so nobody buys in
-   at a leverage above the cap. `leveragedMintable()` reports whether a mint would be served.
+   at a leverage above the cap. `leveragedMintable()` reports whether a mint would be served, and
+   the mint's dry run reports nothing minted wherever it would not (US-2.5).
 
 ---
 

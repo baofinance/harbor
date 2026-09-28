@@ -9,6 +9,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @notice The leverage cap: the minter refuses to sell leverage below `K/(K-1)`, on every route alike, judged
 ///         on the state the sale is priced at; above the floor it sells at the residual's price, uncapped.
@@ -170,6 +171,135 @@ contract MinterLeverageCapTest is LocalMarket {
             "the true leverage is reported, not the cap"
         );
     }
+
+    /// @dev Puts the middle of the oracle's price band where the market reports `ratio`, and opens the band 1% either
+    ///      side of it. Returns the collateral ratio each edge of the band would price the market at, so that a test
+    ///      can put the middle on one side of the floor and an edge on the other.
+    function _openASpreadAround(uint256 ratio) internal returns (uint256 lowEdgeRatio, uint256 highEdgeRatio) {
+        setMarketCollateralRatio(ratio);
+        (uint256 middle, , uint256 minRate, uint256 maxRate) = MockWrappedPriceOracle(market.oracle).latestAnswer();
+        uint256 halfSpread = middle / 100;
+        MockWrappedPriceOracle(market.oracle).setLatestAnswer(
+            middle - halfSpread,
+            middle + halfSpread,
+            minRate,
+            maxRate
+        );
+        uint256 reported = IMinter(market.minter).collateralRatio();
+        lowEdgeRatio = Math.mulDiv(reported, middle - halfSpread, middle);
+        highEdgeRatio = Math.mulDiv(reported, middle + halfSpread, middle);
+    }
+
+    /// Below the floor the leveraged mint's dry run reports that nothing would be minted, as the call refuses: every
+    /// amount zero, and the incentive ratio of the band the market sits in, which is what any dry run that uses
+    /// nothing reports. The middle price is below the floor while the high edge - the price the mint is priced at -
+    /// is above it, so a dry run judging at the price it prices at would report a mint here.
+    function test_mintDryRunBelowTheFloor_reportsNothingMinted_asTheCallRefuses() public {
+        (, uint256 highEdgeRatio) = _openASpreadAround(1.05 ether);
+        uint256 ratio = IMinter(market.minter).collateralRatio();
+        uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        assertLt(ratio, floor, "precondition: the middle price is below the floor");
+        assertGt(highEdgeRatio, floor, "precondition: the high edge is above it");
+        deal(market.wrappedCollateral, address(this), 1 ether);
+
+        (
+            int256 incentiveRatio,
+            uint256 fee,
+            uint256 discount,
+            uint256 collateralUsed,
+            uint256 leveragedMinted,
+            ,
+
+        ) = IMinter_v3(market.minter).mintLeveragedTokenDryRun(1 ether);
+
+        assertEq(leveragedMinted, 0, "nothing minted");
+        assertEq(collateralUsed, 0, "no collateral used");
+        assertEq(fee, 0, "no fee");
+        assertEq(discount, 0, "no discount");
+        assertEq(
+            incentiveRatio,
+            IMinter_v3(market.minter).mintLeveragedTokenIncentiveRatio(),
+            "the incentive ratio of the band the market sits in"
+        );
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        IMinter_v3(market.minter).mintLeveragedToken(1 ether, address(this), 0);
+    }
+
+    /// Just above the floor the leveraged mint's dry run reports what the call mints. The middle price is above the
+    /// floor while the low edge is below it, so a dry run judging at the low edge would refuse here.
+    function test_mintDryRunJustAboveTheFloor_reportsWhatTheCallMints() public {
+        (uint256 lowEdgeRatio, ) = _openASpreadAround(1.055 ether);
+        uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        assertGe(IMinter(market.minter).collateralRatio(), floor, "precondition: the middle price is above the floor");
+        assertLt(lowEdgeRatio, floor, "precondition: the low edge is below it");
+        deal(market.wrappedCollateral, address(this), 1 ether);
+
+        (, , , , uint256 forecast, , ) = IMinter_v3(market.minter).mintLeveragedTokenDryRun(1 ether);
+        uint256 minted = IMinter_v3(market.minter).mintLeveragedToken(1 ether, address(this), 0);
+
+        assertGt(minted, 0, "the call mints");
+        assertEq(forecast, minted, "the dry run reports what the call mints");
+    }
+
+    /// Below the floor a free redeem's dry run that asks for a conversion reports nothing on EITHER leg, because the
+    /// call refuses the whole trade: a collateral figure beside the refused conversion would forecast a payout that
+    /// never comes. Asked for alone or beside a collateral leg, the answer is the same. The high edge is above the
+    /// floor, so a dry run judging at an edge rather than the middle would report a conversion here.
+    function test_conversionDryRunBelowTheFloor_reportsNothingOnEitherLeg_asTheCallRefuses() public {
+        (, uint256 highEdgeRatio) = _openASpreadAround(1.05 ether);
+        uint256 ratio = IMinter(market.minter).collateralRatio();
+        uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        assertLt(ratio, floor, "precondition: the middle price is below the floor");
+        assertGt(highEdgeRatio, floor, "precondition: the high edge is above it");
+        uint256 half = IERC20(market.pegged).balanceOf(address(this)) / 2;
+        IERC20(market.pegged).approve(market.minter, 2 * half);
+
+        (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(market.minter).freeRedeemDryRun(0, half);
+        assertEq(leveragedOut, 0, "a conversion alone: nothing converted");
+        assertEq(collateralOut, 0, "a conversion alone: nothing redeemed");
+        (collateralOut, leveragedOut) = IMinter_v3(market.minter).freeRedeemDryRun(half, half);
+        assertEq(leveragedOut, 0, "beside a collateral leg: nothing converted");
+        assertEq(collateralOut, 0, "beside a collateral leg: nothing redeemed either");
+
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        IMinter_v3(market.minter).freeRedeemPeggedToken(half, half, address(this));
+    }
+
+    /// Below the floor a free redeem's dry run with no conversion leg is not judged, as the call is not: it reports
+    /// the collateral the call pays. It is the preview a rebalance's first step sizes its payments with.
+    function test_collateralRouteDryRunBelowTheFloor_reportsWhatTheCallPays() public {
+        setMarketCollateralRatio(1.05 ether);
+        assertLt(
+            IMinter(market.minter).collateralRatio(),
+            IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(),
+            "precondition: the market is below the floor"
+        );
+        uint256 held = IERC20(market.pegged).balanceOf(address(this));
+        IERC20(market.pegged).approve(market.minter, held);
+
+        (uint256 forecast, ) = IMinter_v3(market.minter).freeRedeemDryRun(held, 0);
+        (uint256 paid, ) = IMinter_v3(market.minter).freeRedeemPeggedToken(held, 0, address(this));
+
+        assertGt(paid, 0, "the call pays collateral");
+        assertEq(forecast, paid, "the dry run reports what the call pays");
+    }
+
+    /// Just above the floor a free redeem's dry run reports the conversion the call makes. The middle price is above
+    /// the floor while the low edge is below it, so a dry run judging at the low edge would refuse here.
+    function test_conversionDryRunJustAboveTheFloor_reportsWhatTheCallConverts() public {
+        (uint256 lowEdgeRatio, ) = _openASpreadAround(1.055 ether);
+        uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        assertGe(IMinter(market.minter).collateralRatio(), floor, "precondition: the middle price is above the floor");
+        assertLt(lowEdgeRatio, floor, "precondition: the low edge is below it");
+        uint256 held = IERC20(market.pegged).balanceOf(address(this));
+        IERC20(market.pegged).approve(market.minter, held);
+
+        (, uint256 forecast) = IMinter_v3(market.minter).freeRedeemDryRun(0, held);
+        (, uint256 converted) = IMinter_v3(market.minter).freeRedeemPeggedToken(0, held, address(this));
+
+        assertGt(converted, 0, "the call converts");
+        assertEq(forecast, converted, "the dry run reports what the call converts");
+    }
 }
 
 /// @notice The founding exception: the FIRST leveraged token is not judged, every later one is.
@@ -217,5 +347,22 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
             )
         );
         IMinter(market.minter).freeMintLeveragedToken(FOUNDING_TRANCHE / 2, address(this));
+    }
+
+    /// On an empty leveraged supply the leveraged mint's dry run reports the founding mint the call serves, below the
+    /// floor as it would above it: the founding exemption holds for the forecast as it does for the call. Between the
+    /// peg and the floor, because at exactly one there is no residual for the fee-paying mint to price.
+    function test_theFoundingMintsDryRun_reportsTheMintTheCallServes() public {
+        setMarketCollateralRatio(1.03 ether);
+        assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
+        uint256 ratio = IMinter(market.minter).collateralRatio();
+        assertGt(ratio, 1 ether, "precondition: there is a residual to buy");
+        assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "precondition: below the floor");
+
+        (, , , , uint256 forecast, , ) = IMinter_v3(market.minter).mintLeveragedTokenDryRun(FOUNDING_TRANCHE / 2);
+        uint256 founded = IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
+
+        assertGt(founded, 0, "the founding mint is served");
+        assertEq(forecast, founded, "the dry run reports it");
     }
 }

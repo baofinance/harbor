@@ -68,6 +68,11 @@ the state before the trade. `leveragedMintable()` answers the same question in a
 read it rather than compare `leverageRatio()` against the cap itself: the floor is `K/(K-1)` rounded down, so
 the two comparisons can differ by a wei.
 
+The dry runs agree with the calls. Below the floor `mintLeveragedTokenDryRun` reports nothing minted: every
+amount zero, with the incentive ratio of the band the market is in. `freeRedeemDryRun`, asked for a conversion
+there, reports zero on both legs, because the call refuses the whole redeem; asked only for collateral, it is not
+judged, and neither is the call. So no forecast shows a trade that will revert.
+
 The first sail token of a market with no sail supply is not judged. That is how a market is founded.
 
 Minting reopens by itself once the ratio is back above the floor: through a price rise, through anchor

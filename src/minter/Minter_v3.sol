@@ -321,7 +321,8 @@ contract Minter_v3 is
     /// which any is sold. Judged against the snapshot the caller priced its amounts from - never storage the
     /// caller may have part-updated - and always at the middle of the price band, whatever edge the caller's
     /// amounts are priced at: the ratio is computed exactly as `collateralRatio()` computes it, so a caller that
-    /// `leveragedMintable()` let through is not turned away here.
+    /// `leveragedMintable()` let through is not turned away here. The dry runs judge by it too, so no forecast shows
+    /// a mint its call refuses.
     ///
     /// NOT APPLIED TO THE FIRST LEVERAGED TOKEN. A market is founded by minting pegged, which puts the ratio at
     /// exactly one, and then leveraged; judged against that state the founding mint is always refused. On an
@@ -621,20 +622,28 @@ contract Minter_v3 is
         OracleReading memory reading = _readOracle($.priceOracle);
         (price, rate) = (reading.maxPrice, reading.minRate); // the edges the mint reads
 
-        // slither-disable-next-line unused-return a dry run does not touch the backing record
-        (wrappedFee, wrappedDiscount, leveragedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1
-            .mintLeveragedAdjustments(
-                $.incentiveConfig[Config_v2.MINT_LEVERAGED],
-                wrappedCollateralIn,
-                MinterValuationLib.CollateralRatioData(
-                    _effectiveBacking($.underlyingCollateral, reading.minRate),
-                    price,
-                    rate,
-                    $.peggedTokenBalance,
-                    _leveragedTokenBalance()
-                ),
-                IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
-            );
+        {
+            uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
+            // Below the floor the call refuses, so nothing would be minted: the amounts stay zero, and the incentive
+            // ratio below falls back to the band's, as it does wherever nothing is used.
+            (bool mintable, ) = _leveragedMintable(backing, reading, $.peggedTokenBalance);
+            if (mintable) {
+                // slither-disable-next-line unused-return a dry run does not touch the backing record
+                (wrappedFee, wrappedDiscount, leveragedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1
+                    .mintLeveragedAdjustments(
+                        $.incentiveConfig[Config_v2.MINT_LEVERAGED],
+                        wrappedCollateralIn,
+                        MinterValuationLib.CollateralRatioData(
+                            backing,
+                            price,
+                            rate,
+                            $.peggedTokenBalance,
+                            _leveragedTokenBalance()
+                        ),
+                        IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
+                    );
+            }
+        }
         // slither-disable-next-line incorrect-equality
         if (wrappedCollateralUsed == 0) {
             incentiveRatio = _lookupIncentiveRatio(Config_v2.MINT_LEVERAGED, reading);
@@ -1212,14 +1221,24 @@ contract Minter_v3 is
     ) external view override returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
-        // slither-disable-next-line unused-return a dry run does not touch the backing record
-        (wrappedCollateralOut, leveragedOut, ) = _freeRedeemAmounts(
-            peggedForCollateral,
-            peggedForLeveraged,
-            $.peggedTokenBalance,
-            _effectiveBacking($.underlyingCollateral, reading.minRate),
-            reading
-        );
+        uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        // The call refuses a conversion below the floor, and the whole redeem with it, so neither leg is reported.
+        // A redeem without a conversion is not judged, by the call or here.
+        bool refused;
+        if (peggedForLeveraged > 0) {
+            (bool mintable, ) = _leveragedMintable(backing, reading, $.peggedTokenBalance);
+            refused = !mintable;
+        }
+        if (!refused) {
+            // slither-disable-next-line unused-return a dry run does not touch the backing record
+            (wrappedCollateralOut, leveragedOut, ) = _freeRedeemAmounts(
+                peggedForCollateral,
+                peggedForLeveraged,
+                $.peggedTokenBalance,
+                backing,
+                reading
+            );
+        }
     }
 
     /// @notice What a free redeem hands back for a given pre-burn state: collateral for the leg redeemed

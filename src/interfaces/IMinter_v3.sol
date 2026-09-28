@@ -420,6 +420,9 @@ interface IMinter_v3 is IToken {
         );
 
     /// @notice Returns values that will be used if an actual `mintLeveragedToken` function call is made.
+    /// Where the call would be refused with `LeverageAboveCap` - below `MINIMUM_COLLATERAL_RATIO`, see
+    /// `leveragedMintable` - it reports that nothing would be minted: every amount zero, and the incentive ratio of
+    /// the band the market sits in, as it reports wherever nothing would be used.
     /// @param collateralIn The amount of collateral to be exchanged for leveraged tokens.
     /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
     /// a fee ratio; a negative number indicates a discount.
@@ -651,6 +654,9 @@ interface IMinter_v3 is IToken {
     ///         tokens or writing state. Intended for contract-to-contract callers (the StabilityPoolManager's
     ///         rebalance) that must know the redeemed proceeds before acting, e.g. to bound a pool's liquidation
     ///         reward to what its reward accounting can absorb.
+    ///         Where the call would be refused - a conversion asked for below `MINIMUM_COLLATERAL_RATIO`, which the
+    ///         call refuses with `LeverageAboveCap` together with any collateral leg beside it - both legs report
+    ///         zero. A redeem with no conversion is not judged.
     /// @param peggedForCollateral The pegged amount redeemed for wrapped collateral.
     /// @param peggedForLeveraged The pegged amount redeemed for leveraged tokens.
     /// @return wrappedCollateralOut The wrapped collateral that `peggedForCollateral` would return.
