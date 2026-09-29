@@ -296,22 +296,14 @@ contract Minter_v3 is
     function leverageRatio() external view override returns (uint256 ratio) {
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
-        ratio = MinterValuationLib.leverageRatio(
-            $.peggedTokenBalance,
-            _recordedBacking($),
-            _midPrice(reading)
-        );
+        ratio = MinterValuationLib.leverageRatio($.peggedTokenBalance, _recordedBacking($), _midPrice(reading));
     }
 
     /// @inheritdoc IMinter_v3
     function leveragedMintable() external view override returns (bool mintable) {
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
-        (mintable, ) = _leveragedMintable(
-            _recordedBacking($),
-            reading,
-            $.peggedTokenBalance
-        );
+        (mintable, ) = _leveragedMintable(_recordedBacking($), reading, $.peggedTokenBalance);
     }
 
     /// @notice Whether leverage may be sold against a pre-trade state, and the collateral ratio it was judged at.
@@ -1519,7 +1511,10 @@ contract Minter_v3 is
     /// `impairment()`, so the three cannot disagree about whether the record is covered.
     /// @param minRate The min wrapped-to-collateral rate.
     function _heldAsCollateral(uint256 minRate) private view returns (uint256 held) {
-        held = MinterValuationLib.wrappedAsCollateral(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)), minRate);
+        held = MinterValuationLib.wrappedAsCollateral(
+            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)),
+            minRate
+        );
     }
 
     /// @notice Refuses to act while the collateral record claims more collateral than the holding stands up.

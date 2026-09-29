@@ -324,7 +324,9 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // sizing converts that less one wei of backing, rounded up - `(T·n − c·p + p)/T` - so that no rounding in a
         // trade's debit of the record can leave it short of the target.
         uint256 expected = Math.ceilDiv(
-            1.3 ether * IMinter_v3(minter).peggedTokenBalance() - IMinter_v3(minter).collateralTokenBalance() * price + price,
+            1.3 ether * IMinter_v3(minter).peggedTokenBalance() -
+                IMinter_v3(minter).collateralTokenBalance() * price +
+                price,
             1.3 ether
         );
         uint256 liquidated;

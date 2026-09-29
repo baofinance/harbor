@@ -6,7 +6,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 import {RatioSweepMeasurement} from "@harbor-test/harness/RatioSweepMeasurement.sol";
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";

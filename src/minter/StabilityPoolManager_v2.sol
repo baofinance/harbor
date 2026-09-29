@@ -410,7 +410,7 @@ contract StabilityPoolManager_v2 is
         // the collateral pool's pegged redeemed for collateral, the leveraged pool's converted into leveraged tokens.
         // The minter splits the distance between them by their holdings, each within its pool's headroom, the shortfall
         // of one sliding into the other's leg.
-        if (IMinter_v3(MINTER).leveragedMintable() &&IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
+        if (IMinter_v3(MINTER).leveragedMintable() && IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
             uint256 peggedFromCollateralPool;
             uint256 peggedFromLeveragedPool;
             {

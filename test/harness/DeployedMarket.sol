@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -21,7 +20,6 @@ import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {MarketReaderV2Lineage, MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
-import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";

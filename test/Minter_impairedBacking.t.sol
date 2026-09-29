@@ -938,9 +938,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         (, , , uint256 leveragedMintTaken, , , ) = IMinter_v3(minter).mintLeveragedTokenDryRun(1 ether);
         assertGt(leveragedMintTaken, 0, "the leveraged mint still forecasts");
 
-        (, , , uint256 leveragedRedeemOut, , ) = IMinter_v3(minter).redeemLeveragedTokenDryRun(
-            leveragedTokens / 10
-        );
+        (, , , uint256 leveragedRedeemOut, , ) = IMinter_v3(minter).redeemLeveragedTokenDryRun(leveragedTokens / 10);
         assertGt(leveragedRedeemOut, 0, "the leveraged redeem still forecasts");
 
         (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(
