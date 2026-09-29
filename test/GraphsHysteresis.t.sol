@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {DeployedMarket} from "@harbor-test/harness/DeployedMarket.sol";
 import {HysteresisMeasurement} from "@harbor-test/harness/HysteresisMeasurement.sol";
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
+import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 
 /// @notice Repeated rebalances from the same collateral ratio, against each contract set. Both markets are
 ///         founded with the same collateral, so every column compares directly and nothing is normalised.
@@ -13,6 +14,13 @@ import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
 
 /// @notice The DEPLOYED contracts.
 contract GraphsHysteresisDeployed is HysteresisMeasurement, DeployedMarket {}
+
+/// @notice THE PENDING UPGRADE: this tree's minter, manager and pools behind the deployed proxies. Files carry `_v3`.
+contract GraphsHysteresisDeployedV3 is HysteresisMeasurement, DeployedMarket {
+    constructor() {
+        useRule(new V3Rule());
+    }
+}
 
 /// @notice The rule as it stands in this tree.
 contract GraphsHysteresisLocal is HysteresisMeasurement, LocalMarket {}
@@ -32,5 +40,11 @@ abstract contract HysteresisAboveTheFloor is HysteresisMeasurement {
 }
 
 contract GraphsHysteresisFrom110Deployed is HysteresisAboveTheFloor, DeployedMarket {}
+
+contract GraphsHysteresisFrom110DeployedV3 is HysteresisAboveTheFloor, DeployedMarket {
+    constructor() {
+        useRule(new V3Rule());
+    }
+}
 
 contract GraphsHysteresisFrom110Local is HysteresisAboveTheFloor, LocalMarket {}

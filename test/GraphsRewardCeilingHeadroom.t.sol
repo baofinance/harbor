@@ -45,8 +45,8 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// Measured at a SMALL pool share on purpose. The ceiling scales linearly with the pool's share of the
 /// supply, so a small pool is the stress case and the answer at a larger one follows by scaling.
 contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolManagerSetUp, HarborTestActions {
-    /// @dev Each pool holds this share of the anchor outstanding. The smallest the sibling sweep in
-    ///      `which_limit_binds_first` used, which is the stress case for a ceiling that scales with size.
+    /// @dev Each pool holds this share of the anchor outstanding: a fifth of a percent, the stress case for a
+    ///      ceiling that scales with the pool's size.
     uint256 private constant POOL_SHARE = 0.002 ether;
 
     /// @dev From a hair above the peg - where an uncapped conversion mints most - up towards the

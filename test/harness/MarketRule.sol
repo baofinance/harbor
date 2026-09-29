@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
 /// @notice A rule under test, as ONE object: what goes behind the minter, which manager the market gets, and the
@@ -49,5 +50,24 @@ contract TreeRule is MarketRule {
 
     function buildMinter(address, address, address) public pure override returns (address) {
         return address(0);
+    }
+}
+
+/// @notice This tree's `Minter_v3` put behind a market's minter proxy, with this tree's manager. On the DEPLOYED
+///         market that is the pending v2 to v3 upgrade, measured on production state: the label is what keys the
+///         deployed market's whole upgrade - minter, both pools and manager together - so a run naming this rule
+///         measures the upgrade and nothing less. Files carry `_v3`. On a local market it reinstalls the minter the
+///         market already has; `TreeRule` is the one to name there.
+contract V3Rule is MarketRule {
+    function label() public pure override returns (string memory) {
+        return "_v3";
+    }
+
+    function buildMinter(
+        address wrappedCollateralToken,
+        address peggedToken,
+        address leveragedToken
+    ) public override returns (address) {
+        return address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken));
     }
 }

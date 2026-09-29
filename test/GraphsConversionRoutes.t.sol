@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {ConversionRoutesMeasurement} from "@harbor-test/harness/ConversionRoutesMeasurement.sol";
 import {DeployedMarket} from "@harbor-test/harness/DeployedMarket.sol";
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
+import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 
 /// @notice The route comparison, run against each contract set. Replaces `GraphsConversionVsRetail`, which
 ///         hand-rolled its own setup and so had no manager and could not carry the rebalance series.
@@ -26,3 +27,11 @@ contract GraphsConversionRoutesLocal is ConversionRoutesLocal {}
 
 /// @notice The deployed contracts - the run that found the cap underpaying the pool by up to ninety percent.
 contract GraphsConversionRoutesDeployed is ConversionRoutesMeasurement, DeployedMarket {}
+
+/// @notice THE PENDING UPGRADE: this tree's minter, manager and pools behind the deployed proxies, carrying the
+///         deployed market's own config as the deployed run does. Files carry `_v3`.
+contract GraphsConversionRoutesDeployedV3 is ConversionRoutesMeasurement, DeployedMarket {
+    constructor() {
+        useRule(new V3Rule());
+    }
+}

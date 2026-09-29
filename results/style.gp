@@ -6,13 +6,14 @@
 # and the mapping is the same in every graph, so a reader who has learned one legend has learned them all:
 #
 #   COLOUR       = WHICH RULE.       black: the DEPLOYED contracts (Minter_v2, on chain).
-#                                    blue:  the TREE - Minter_v3 as it stands in this repository.
-#                                    red:   the ESCROW CANDIDATE - MinterEscrowFollowsCollateral.
-#                                    green: the LEVERAGE CAP - MinterLeverageCap with its manager, K = 20.
+#                                    blue:  the TREE - Minter_v3 as it stands in this repository, whether measured
+#                                           on a local deploy or behind the deployed proxies (the v3 upgrade); the
+#                                           marker says which.
 #   DASH PATTERN = WHICH QUANTITY    within a panel: the headline quantity solid, the second dashed, the third
 #                                    dotted, a fourth dash-dot. A panel says in its key which is which.
 #   POINT SHAPE  = WHICH MARKET      the line was measured on: a circle for the deployed proxies on a pinned
-#                                    fork, a triangle for a local deploy of this tree's chain. Drawn sparsely
+#                                    fork (files `_main`, and `_main_v3` for the tree upgraded onto them), a
+#                                    triangle for a local deploy of this tree's chain (`_local`). Drawn sparsely
 #                                    along the line - a marker every `pi_marks` samples - so it labels the line
 #                                    without hiding it. Both markets are founded with the same collateral, so
 #                                    their columns compare directly; the shape says only where the row came from.
@@ -30,16 +31,13 @@ set macros
 # ─── colour: the rule ───
 c_deployed = "black"
 c_tree     = "#1f77b4"
-c_escrow   = "#d62728"
-c_cap      = "#2ca02c"
 
 # The names the keys use, so every graph calls a rule the same thing. SHORT, because a key entry is the rule
 # and the quantity and nothing else - "deployed, conversion" - so that the key lays out in rows beneath its
 # panel; what a line shows belongs in the graph's header comment, not in its legend.
 n_deployed = "deployed"
 n_tree     = "tree (Minter\\_v3)"
-n_escrow   = "escrow candidate"
-n_cap      = "leverage cap"
+n_v3       = "v3 upgrade"
 
 # ─── the key: BELOW each panel, outside the plot, in rows ───
 # Every panel's key sits beneath it, under its x axis, never over a line. Vertical with a row limit, so
@@ -66,20 +64,12 @@ ps_marks = 0.7
 deployed_main = "linecolor rgb c_deployed pointtype pt_main  pointinterval pi_marks pointsize ps_marks"
 tree_main     = "linecolor rgb c_tree     pointtype pt_main  pointinterval pi_marks pointsize ps_marks"
 tree_local    = "linecolor rgb c_tree     pointtype pt_local pointinterval pi_marks pointsize ps_marks"
-escrow_main   = "linecolor rgb c_escrow   pointtype pt_main  pointinterval pi_marks pointsize ps_marks"
-escrow_local  = "linecolor rgb c_escrow   pointtype pt_local pointinterval pi_marks pointsize ps_marks"
-cap_main      = "linecolor rgb c_cap      pointtype pt_main  pointinterval pi_marks pointsize ps_marks"
-cap_local     = "linecolor rgb c_cap      pointtype pt_local pointinterval pi_marks pointsize ps_marks"
 
 # For graphs whose x axis is discrete (a round number), every sample is a marker: the same clauses without the
 # interval, for `with linespoints`.
 deployed_main_every = "linecolor rgb c_deployed pointtype pt_main  pointsize ps_marks"
 tree_main_every     = "linecolor rgb c_tree     pointtype pt_main  pointsize ps_marks"
 tree_local_every    = "linecolor rgb c_tree     pointtype pt_local pointsize ps_marks"
-escrow_main_every   = "linecolor rgb c_escrow   pointtype pt_main  pointsize ps_marks"
-escrow_local_every  = "linecolor rgb c_escrow   pointtype pt_local pointsize ps_marks"
-cap_main_every      = "linecolor rgb c_cap      pointtype pt_main  pointsize ps_marks"
-cap_local_every     = "linecolor rgb c_cap      pointtype pt_local pointsize ps_marks"
 
 # NO APOSTROPHES IN A TITLE ON A LINE THAT USES THESE. Gnuplot expands `@name` only outside quoted strings and
 # tracks both quote characters as it scans, so a `'` inside a double-quoted title reads as an opening quote and
@@ -87,11 +77,8 @@ cap_local_every     = "linecolor rgb c_cap      pointtype pt_local pointsize ps_
 
 # For graphs drawn as scattered points (one per swept ratio, no line between them).
 deployed_main_points = "linecolor rgb c_deployed pointtype pt_main  pointsize 0.45"
+tree_main_points     = "linecolor rgb c_tree     pointtype pt_main  pointsize 0.45"
 tree_local_points    = "linecolor rgb c_tree     pointtype pt_local pointsize 0.45"
-escrow_main_points   = "linecolor rgb c_escrow   pointtype pt_main  pointsize 0.45"
-escrow_local_points  = "linecolor rgb c_escrow   pointtype pt_local pointsize 0.45"
-cap_main_points      = "linecolor rgb c_cap      pointtype pt_main  pointsize 0.45"
-cap_local_points     = "linecolor rgb c_cap      pointtype pt_local pointsize 0.45"
 
 # ─── reference lines: never a rule's colour ───
 # `set arrow N from ... to ... @peg_line`
