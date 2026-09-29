@@ -34,20 +34,8 @@ import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
-
-// New version for testing upgrades
-contract StabilityPool_vN is StabilityPool_v3 {
-    // Keep the same constructor signature
-    constructor(address minter_) StabilityPool_v3(minter_, 3600, 90000, 1 ether, "Mock SP", "mSP") {}
-
-    // Add a new function to verify the upgrade worked
-    function version() external pure returns (string memory) {
-        return "v3";
-    }
-}
-
-// serves no other purpose than making the foundry traces more informative
-contract MockSTEAM is MintableBurnableERC20_v1 {}
+import {MockSTEAM} from "@harbor-test/mocks/MockSTEAM.sol";
+import {StabilityPool_vN} from "@harbor-test/mocks/StabilityPool_vN.sol";
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     uint256 internal constant WITHDRAWAL_START_DELAY = 3600;

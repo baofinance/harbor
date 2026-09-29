@@ -9,6 +9,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -404,6 +405,22 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         setUpContract();
     }
 
+    /// @dev A caught revert must be the minter's leverage-cap refusal of the market as it stands: below
+    ///      `MINIMUM_COLLATERAL_RATIO` no route sells leverage. Asserted whole - the ratio the minter judged is the one
+    ///      `collateralRatio()` reports, since both price at the mid and a refused call leaves the market as it was -
+    ///      so a graph draws a gap for exactly that refusal, and any other revert fails the test instead.
+    function _requireLeverageCapRefusal(bytes memory reason) internal view {
+        assertEq(
+            reason,
+            abi.encodeWithSelector(
+                IMinter_v3.LeverageAboveCap.selector,
+                IMinter_v3(minter).collateralRatio(),
+                IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+            ),
+            "the only refusal drawn as a gap is the leverage cap's"
+        );
+    }
+
     function setUp_collateral(
         uint256 collateralForPegged,
         uint256 collateralForLeveraged
@@ -568,11 +585,11 @@ contract TestMinterBasics is TestMinterSetUp {
 
     function test_introspection() public view {
         assertTrue(
-            Minter_v3(minter).supportsInterface(type(IMinter).interfaceId) ||
-                Minter_v3(minter).supportsInterface(type(IMinter_v3).interfaceId),
+            IERC165(minter).supportsInterface(type(IMinter).interfaceId) ||
+                IERC165(minter).supportsInterface(type(IMinter_v3).interfaceId),
             "should support IMinter"
         );
-        assertFalse(Minter_v3(minter).supportsInterface(bytes4(0)), "doesn't support 0");
+        assertFalse(IERC165(minter).supportsInterface(bytes4(0)), "doesn't support 0");
     }
 
     function _checkConfig(

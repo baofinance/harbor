@@ -103,8 +103,9 @@ contract TestGraphsRebalanceTrigger is GraphTestBase, TestCollateralRatioRangeSe
         appliedRate = NaN;
         try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 sailOut) {
             appliedRate = int256((sailOut * 1 ether) / ANCHOR_IN);
-        } catch {
-            // the conversion is refused here; a gap says so
+        } catch (bytes memory reason) {
+            // the conversion is refused here by the leverage cap; a gap says so
+            _requireLeverageCapRefusal(reason);
         }
         vm.revertToState(snapshot);
     }

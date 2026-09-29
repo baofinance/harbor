@@ -21,13 +21,14 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IYieldVaultManager} from "@harbor/interfaces/IYieldVaultManager.sol";
-import {IYieldVault} from "@harbor/interfaces/IYieldVault.sol";
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
+import {MockStabilityPoolManagerUpgraded} from "@harbor-test/mocks/MockStabilityPoolManagerUpgraded.sol";
+import {MockYieldVault} from "@harbor-test/mocks/MockYieldVault.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 
@@ -621,27 +622,6 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
     //         // Verify the full pool balance was used for collateral
     //         assertEq(liquidated, 10 ether, "Should have used total pool balance for collateral");
     //     }
-}
-
-contract MockStabilityPoolManagerUpgraded is StabilityPoolManager_v2 {
-    bool public upgradeSuccessful;
-
-    // Keep the same constructor signature
-    constructor(
-        address minter_,
-        address stabilityPoolCollateral,
-        address stabilityPoolLeveraged
-    ) StabilityPoolManager_v2(minter_, stabilityPoolCollateral, stabilityPoolLeveraged) {}
-
-    // Add a new function that would only be available in the upgraded version
-    function newFunctionOnlyInUpgrade() external pure returns (bool) {
-        return true;
-    }
-
-    // Override a function to demonstrate it was upgraded
-    function isUpgraded() external pure returns (bool) {
-        return true;
-    }
 }
 
 contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
@@ -1837,25 +1817,6 @@ contract Gist_2 is TestStabilityPoolManagerSetUp {
         //                                          ---------
         // we hit the rebalance collateral ratio exactly
         assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");
-    }
-}
-
-/// @dev Minimal yield vault for the YieldVaultManager tests: counts successful compound() calls, and can be built to
-/// revert so the non-fatal CompoundFailed path is exercised.
-contract MockYieldVault is IYieldVault {
-    uint256 public compoundCount;
-    bool public immutable reverts;
-
-    constructor(bool reverts_) {
-        reverts = reverts_;
-    }
-
-    function compound() external override returns (uint256 peggedCompounded) {
-        if (reverts) {
-            revert("MockYieldVault: compound reverted");
-        }
-        compoundCount++;
-        peggedCompounded = 1 ether; // dummy non-zero; the tests assert on compoundCount, not the return
     }
 }
 

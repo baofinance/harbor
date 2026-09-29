@@ -137,8 +137,9 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
         try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 out) {
             sailOut = int256(out);
             supplyMultiple = int256(Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, supplyBefore));
-        } catch {
-            // refused at its own boundary, and a gap says so
+        } catch (bytes memory reason) {
+            // refused by the minter's own leverage cap, whose floor lies above this boundary, and a gap says so
+            _requireLeverageCapRefusal(reason);
         }
         vm.revertToState(snapshot);
     }

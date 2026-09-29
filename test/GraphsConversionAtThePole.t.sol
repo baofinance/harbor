@@ -83,8 +83,9 @@ contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundRele
                 supplyMultiple = int256(
                     Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, sailSupplyBefore)
                 );
-            } catch {
-                // refused here, and a gap says so
+            } catch (bytes memory reason) {
+                // refused here by the leverage cap, and a gap says so
+                _requireLeverageCapRefusal(reason);
             }
             writeLine(
                 file,

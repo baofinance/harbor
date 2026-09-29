@@ -41,7 +41,6 @@
     "lint:bash": "./lib/bao-base/run lint-bash --lint",
     "lint:python": "./lib/bao-base/run lint-python",
     "regression": "yarn sizes; yarn gas; yarn coverage",
-    "wtf": "grep -rn NaN results/*.csv | awk -F: '!a[$1]++'",
     "mermaid": "mmdc"
   },
   "prettier": "./lib/bao-base/prettier.config.js",

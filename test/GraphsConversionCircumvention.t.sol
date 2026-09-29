@@ -65,8 +65,9 @@ contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatio
         sailPerAnchor = NaN;
         try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 sailOut) {
             sailPerAnchor = int256((sailOut * 1 ether) / ANCHOR_IN);
-        } catch {
-            // refused here; a gap says so
+        } catch (bytes memory reason) {
+            // refused here by the leverage cap; a gap says so
+            _requireLeverageCapRefusal(reason);
         }
         vm.revertToState(snapshot);
     }
@@ -81,16 +82,16 @@ contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatio
         uint256 snapshot = vm.snapshotState();
         sailPerAnchor = NaN;
 
-        try IMinter_v3(minter).redeemPeggedToken(ANCHOR_IN, address(this), 0) returns (uint256 collateralOut) {
-            if (collateralOut > 0) {
-                try IMinter_v3(minter).mintLeveragedToken(collateralOut, address(this), 0) returns (uint256 sailOut) {
-                    sailPerAnchor = int256((sailOut * 1 ether) / ANCHOR_IN);
-                } catch {
-                    // the second leg is refused - the route is closed here, which is itself the answer
-                }
+        // The first leg is never refused under this incentive config - it has no disallowed band for redeeming -
+        // so it is not caught: a revert here is a failure, not a closed route.
+        uint256 collateralOut = IMinter_v3(minter).redeemPeggedToken(ANCHOR_IN, address(this), 0);
+        if (collateralOut > 0) {
+            try IMinter_v3(minter).mintLeveragedToken(collateralOut, address(this), 0) returns (uint256 sailOut) {
+                sailPerAnchor = int256((sailOut * 1 ether) / ANCHOR_IN);
+            } catch (bytes memory reason) {
+                // the second leg is refused by the leverage cap - the route is closed here, which is itself the answer
+                _requireLeverageCapRefusal(reason);
             }
-        } catch {
-            // the first leg is refused
         }
         vm.revertToState(snapshot);
     }

@@ -55,7 +55,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | supportsInterface                                |    943 | 9.430e+02 |
 | sweep                                            |  40212 | 4.021e+04 |
 | transferOwnership                                |  12045 | 1.204e+04 |
-| updateConfig                                     | 294930 | 2.949e+05 |
+| updateConfig                                     | 273542 | 2.735e+05 |
 | updateFeeReceiver                                |  26323 | 2.632e+04 |
 | updatePriceOracle                                |  26352 | 2.635e+04 |
 | updateReservePool                                |  26346 | 2.635e+04 |

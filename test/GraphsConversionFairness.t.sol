@@ -125,8 +125,9 @@ contract TestGraphsConversionFairness is GraphTestBase, TestCollateralRatioRange
             uint256 valueOut = (sailOut * IMinter_v3(minter).leveragedTokenPrice()) / 1 ether;
             uint256 valueIn = (anchorIn * anchorPrice) / 1 ether;
             valuePerAnchor = int256((valueOut * 1 ether) / valueIn);
-        } catch {
-            // the conversion is refused at this size; a gap says so
+        } catch (bytes memory reason) {
+            // the conversion is refused here by the leverage cap; a gap says so
+            _requireLeverageCapRefusal(reason);
         }
         vm.revertToState(snapshot);
     }
