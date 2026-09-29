@@ -27,14 +27,14 @@
 | script/config/volatility/ConfigPriceVolatility_130.sol             | X   0% (0/65)      | X   0% (0/71)      | -  N/A (0/0)     | X   0% (0/2)     |
 | script/config/volatility/ConfigPriceVolatility_130_may_26.sol      | ✓ 100% (65/65)     | ✓ 100% (71/71)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/volatility/ConfigPriceVolatility_130_stable.sol      | X   0% (0/65)      | X   0% (0/71)      | -  N/A (0/0)     | X   0% (0/2)     |
-| script/src/Deploy_BTC_Minter.sol                                   | X   0% (0/5)       | X   0% (0/4)       | -  N/A (0/0)     | X   0% (0/1)     |
-| script/src/Deploy_ETH_Minter.sol                                   | ✓ 100% (4/4)       | ✓ 100% (3/3)       | -  N/A (0/0)     | ✓ 100% (1/1)     |
-| script/src/Deploy_EUR_Minter.sol                                   | ✓ 100% (5/5)       | ✓ 100% (4/4)       | -  N/A (0/0)     | ✓ 100% (1/1)     |
-| script/src/Deploy_GOLD_Minter.sol                                  | X   0% (0/5)       | X   0% (0/4)       | -  N/A (0/0)     | X   0% (0/1)     |
-| script/src/Deploy_MCAP_Minter.sol                                  | ✓ 100% (5/5)       | ✓ 100% (4/4)       | -  N/A (0/0)     | ✓ 100% (1/1)     |
-| script/src/Deploy_SILVER_Minter.sol                                | X   0% (0/5)       | X   0% (0/4)       | -  N/A (0/0)     | X   0% (0/1)     |
+| script/src/Deploy_BTC_Minter.sol                                   | X   0% (0/7)       | X   0% (0/6)       | -  N/A (0/0)     | X   0% (0/2)     |
+| script/src/Deploy_ETH_Minter.sol                                   | ✓ 100% (6/6)       | ✓ 100% (5/5)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
+| script/src/Deploy_EUR_Minter.sol                                   | X  71% (5/7)       | X  67% (4/6)       | -  N/A (0/0)     | X  50% (1/2)     |
+| script/src/Deploy_GOLD_Minter.sol                                  | X   0% (0/7)       | X   0% (0/6)       | -  N/A (0/0)     | X   0% (0/2)     |
+| script/src/Deploy_MCAP_Minter.sol                                  | X  71% (5/7)       | X  67% (4/6)       | -  N/A (0/0)     | X  50% (1/2)     |
+| script/src/Deploy_SILVER_Minter.sol                                | X   0% (0/7)       | X   0% (0/6)       | -  N/A (0/0)     | X   0% (0/2)     |
 | script/src/HarborDeployStack.sol                                   | X  69% (31/45)     | X  62% (29/47)     | X  25% (1/4)     | X  71% (5/7)     |
-| script/src/HarborDeployer.sol                                      | X  57% (45/79)     | X  95% (70/74)     | -  N/A (0/0)     | X  14% (5/37)    |
+| script/src/HarborDeployer.sol                                      | X  62% (49/79)     | X  95% (70/74)     | -  N/A (0/0)     | X  24% (9/37)    |
 | script/src/HarborReporting.sol                                     | X  75% (18/24)     | X  74% (14/19)     | X  80% (4/5)     | X  80% (4/5)     |
 | script/src/contracts/Genesis.sol                                   | ✓ 100% (10/10)     | ✓ 100% (11/11)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/src/contracts/LeveragedToken.sol                            | ✓ 100% (16/16)     | ✓ 100% (23/23)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
@@ -65,7 +65,7 @@
 | src/minter/library/RebalanceSizing_v1.sol                          | X  90% (35/39)     | X  91% (42/46)     | X  73% (11/15)   | ✓ 100% (2/2)     |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol    | X   0% (0/137)     | X   0% (0/171)     | X   0% (0/16)    | X   0% (0/22)    |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol | X  75% (111/148)   | X  77% (142/184)   | X  61% (11/18)   | X  70% (16/23)   |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol | X  98% (129/132)   | X  98% (166/169)   | X  82% (14/17)   | ✓ 100% (20/20)   |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol | X  98% (130/132)   | X  99% (167/169)   | X  88% (15/17)   | ✓ 100% (20/20)   |
 | src/reward/distributor/LinearMultipleRewardDistributor.sol         | X   0% (0/77)      | X   0% (0/86)      | X   0% (0/12)    | X   0% (0/14)    |
 | src/reward/distributor/LinearMultipleRewardDistributor_v2.sol      | X  58% (45/77)     | X  63% (54/86)     | X  25% (3/12)    | X  50% (7/14)    |
 | src/reward/distributor/LinearMultipleRewardDistributor_v3.sol      | X  99% (87/88)     | X  99% (98/99)     | X  93% (13/14)   | ✓ 100% (16/16)   |
@@ -74,4 +74,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                   | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
 | src/util/FmtLib.sol                                                | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)     |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
-| Total                                                              | X  53% (2923/5466) | X  54% (3236/5956) | X  49% (348/715) | X  57% (410/718) |
+| Total                                                              | X  53% (2930/5478) | X  54% (3239/5968) | X  49% (349/715) | X  57% (415/724) |

@@ -29,17 +29,41 @@ import {LibString} from "@solady/utils/LibString.sol";
 import {Array} from "@bao-test/utils/Array.sol";
 
 import {ConfigFile} from "@harbor-test/Config.sol";
-import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
-import {ConfigPeg, ConfigPeg_BTC} from "@harbor-script/config/pegs/ConfigPeg_BTC.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
-contract TestMinterSetUp is BaoTest, Array, ConfigFile, HarborDeployRun {
-    constructor() HarborDeployRun(makeAddr("owner"), makeAddr("feeReceiver"), "minter_test", "mainnet") {}
+/// @dev The deploy framework is HELD, not inherited: `deployRun` is the one contract that carries it, compiled
+///      once, and each test contract built on this base carries only its tests. See `MinterDeployRun`.
+contract TestMinterSetUp is BaoTest, Array, ConfigFile {
+    /// @dev Who owns every proxy the run deploys, and where its fees go: this test's identities, handed to the
+    ///      run so the test can prank as them. Two addresses, so a balance measures one thing.
+    address private immutable _owner;
+    address private immutable _treasury;
+
+    constructor() {
+        _owner = makeAddr("owner");
+        _treasury = makeAddr("feeReceiver");
+    }
+
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    function treasury() public view returns (address) {
+        return _treasury;
+    }
+
+    /// @dev The deploy run this suite drives. Created once the fork is selected, which would otherwise discard it.
+    MarketDeployRun internal deployRun;
+
+    /// @dev The run a suite wants: the minter alone here. A setup that needs more of the market, or a mock behind
+    ///      its pools, returns another run - one choice, made once, in place of overriding the deploy's steps.
+    function newDeployRun() internal virtual returns (MarketDeployRun) {
+        return new MarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Minter);
+    }
 
     address minter;
     IMinter.Config config;
@@ -310,29 +334,15 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile, HarborDeployRun {
         writeConfig(config, "default-int");
     }
 
-    /// @dev Phase 2 of the deploy run, stopping after the minter. The stability pools, manager and genesis
-    ///      above it are neither deployed nor paid for, because nothing in this suite touches them.
-    ///      `deployPeg` is ignored: the minter cannot be built without its peg's token.
-    function _deployAndConfigure(
-        DeploymentTypes.State memory state,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory allMarkets,
-        bool,
-        Config_MinterMarket[] memory marketsToDeploy
-    ) internal virtual override {
-        deployPeggedTokenWithRoles(state, peg, allMarkets);
-
-        _deployLeveragedTokenWithRoles(state, marketsToDeploy[0]);
-        deployReservePool(state, marketsToDeploy[0]);
-        deployMinter(state, marketsToDeploy[0]);
-    }
-
     function setUpFork() internal virtual {
         forkMainnet();
 
         feeReceiver = treasury();
 
-        marketConfig = new TestMinterMarketConfig();
+        // After the fork is selected: a fork selected afterwards would discard the run, as it would the factory
+        // operator registration the run makes when it deploys.
+        deployRun = newDeployRun();
+        marketConfig = deployRun.marketConfig();
         wrappedCollateralToken = marketConfig.wrappedCollateralToken();
         collateralToken = marketConfig.collateralToken();
     }
@@ -345,24 +355,17 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile, HarborDeployRun {
             marketConfig.setMinterConfig(config);
         }
 
-        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
-        markets[0] = marketConfig;
+        deployRun.deployMinterMarket();
 
-        // Runs after setUpFork, which is the order that works: `ensureFactory` registers this test as the
-        // factory operator, and a fork selected afterwards would discard that.
-        ensureFactory();
-
-        deploy(new ConfigPeg_BTC(), markets, true, markets);
-
-        minter = minterAddress(marketConfig);
-        peggedToken = peggedTokenAddress(marketConfig);
-        leveragedToken = leveragedTokenAddress(marketConfig);
-        reservePool = reservePoolAddress(marketConfig);
+        minter = deployRun.minterAddress(marketConfig);
+        peggedToken = deployRun.peggedTokenAddress(marketConfig);
+        leveragedToken = deployRun.leveragedTokenAddress(marketConfig);
+        reservePool = deployRun.reservePoolAddress(marketConfig);
 
         // The price oracle is a separate deployment the minter only knows by predicted address. Etch the mock
         // AFTER the deploy, so the deploy is exercised against a codeless reference exactly as in production,
         // then restore the state `vm.etch` does not copy.
-        priceOracle = wrappedPriceOracleAddress(marketConfig);
+        priceOracle = deployRun.wrappedPriceOracleAddress(marketConfig);
         MockWrappedPriceOracle template = new MockWrappedPriceOracle();
         vm.etch(priceOracle, address(template).code);
         // `vm.etch` copies code but not storage, so the etched oracle arrives with every field zeroed and its

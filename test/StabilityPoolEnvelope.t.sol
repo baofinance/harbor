@@ -10,7 +10,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
@@ -127,13 +128,10 @@ contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_ma
 ///
 /// The suite drives deposit, withdraw, harvest, and rebalance against the arranged state — each a fuzz walk plus a
 /// deterministic corner, including the reward-field corner that the harvest and rebalance rewards reach.
-abstract contract StabilityPoolEnvelopeBase is
-    BaoTest,
-    Deploy_ETH_Minter,
-    StabilityPoolConservation,
-    HarborTestActions,
-    RevertReason
-{
+abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservation, HarborTestActions, RevertReason {
+    /// @dev The deploy run that stands the market up, held rather than inherited (see `HarborDeployRun`).
+    HarborDeployRun internal deployRun;
+
     // capped so the fuzz stays feasible; the many-holder case is the deterministic crowd test below rather than
     // every fuzz run.
     uint256 internal constant MAX_FUZZ_USERS = 8;
@@ -177,12 +175,7 @@ abstract contract StabilityPoolEnvelopeBase is
     /// pool mechanics are measured without the StabilityPoolManager's harvest cut or bounties skimming value from
     /// depositors. Overriding this (rather than editing the production config) keeps the whole config test-owned; a
     /// derived market that sweeps a config axis (Batch 2) overrides it to build its own config.
-    function createETHMintersConfig()
-        internal
-        virtual
-        override
-        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
-    {
+    function createETHMintersConfig() internal virtual returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
@@ -190,9 +183,11 @@ abstract contract StabilityPoolEnvelopeBase is
 
     function setUp() public virtual {
         // ── stand up the real protocol via the production deploy scripts (RebalanceFairness model) ──
-        // _ensureBaoFactory gives the full deploy capability in-EVM and registers this test as the factory operator;
-        // the only mainnet state the deploy needs is the collateral pair, so mock those two tokens and run with no fork.
-        _ensureBaoFactory();
+        // The run registers itself as the factory operator and deploys on its own account, as the production
+        // multisig; the only mainnet state the deploy needs is the collateral pair, so mock those two tokens and run
+        // with no fork.
+        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "envelope_test", "mainnet");
+        deployRun.ensureFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
         // mock the collateral pair at the config's own addresses so the deploy wires to local mocks, not mainnet
@@ -202,14 +197,17 @@ abstract contract StabilityPoolEnvelopeBase is
         vm.etch(wrappedToken, address(new MockERC20("fxSAVE", "fxSAVE", 18)).code);
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0]; // the fxUSD market
-        deployHarborForPeg("envelope_test", peg, mktConfigs, "mainnet", true, toDeploy);
+        deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        minter = minterAddress(mktConfigs[0]);
-        stabilityPool = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Leveraged);
-        stabilityPoolManager = stabilityPoolManagerAddress(mktConfigs[0]);
-        pegged = peggedTokenAddress(mktConfigs[0]);
-        leveraged = leveragedTokenAddress(mktConfigs[0]);
+        minter = deployRun.minterAddress(mktConfigs[0]);
+        stabilityPool = deployRun.stabilityPoolAddress(mktConfigs[0], HarborDeployer.StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = deployRun.stabilityPoolAddress(
+            mktConfigs[0],
+            HarborDeployer.StabilityPoolType.Leveraged
+        );
+        stabilityPoolManager = deployRun.stabilityPoolManagerAddress(mktConfigs[0]);
+        pegged = deployRun.peggedTokenAddress(mktConfigs[0]);
+        leveraged = deployRun.leveragedTokenAddress(mktConfigs[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // The price oracle is a separately-deployed dependency (harbor-price-aggregators): the deploy wires the minter
@@ -217,7 +215,7 @@ abstract contract StabilityPoolEnvelopeBase is
         // settable mock AFTER the deploy - at the same _wrappedPriceOracleAddress the deploy used - which exercises the
         // deploy's codeless reference and puts the mock in place before the first read (the seed mint). etch copies code
         // not storage, so the answer is set per envelope point via mockOracle.setLatestAnswer.
-        address priceOracle = wrappedPriceOracleAddress(mktConfigs[0]);
+        address priceOracle = deployRun.wrappedPriceOracleAddress(mktConfigs[0]);
         vm.etch(priceOracle, address(new MockWrappedPriceOracle()).code);
         mockOracle = MockWrappedPriceOracle(priceOracle);
 

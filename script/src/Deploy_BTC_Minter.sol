@@ -8,13 +8,20 @@ import {ConfigMarket_BTC_fxUSD_mainnet} from "@harbor-script/config/markets/Conf
 import {ConfigMarket_BTC_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
+/// @notice The BTC peg and its markets as production configures them: fresh config contracts on each call.
+/// @dev A free function, so the list can be built without inheriting the deploy stack: the single statement of
+///      which markets the peg has, for the deploy scripts and for the tests that hold a `HarborDeployRun` alike.
+function btcMintersConfig() returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
+    peg = new ConfigPeg_BTC();
+    markets = new Config_MinterMarket[](2);
+    markets[0] = new ConfigMarket_BTC_fxUSD_mainnet();
+    markets[1] = new ConfigMarket_BTC_stETH_mainnet();
+}
+
 /// @notice BTC-specific minter deployment functionality.
 abstract contract Deploy_BTC_Minter is HarborDeployStack {
     /// @notice Create BTC-specific config objects.
     function createBTCMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
-        peg = new ConfigPeg_BTC();
-        markets = new Config_MinterMarket[](2);
-        markets[0] = new ConfigMarket_BTC_fxUSD_mainnet();
-        markets[1] = new ConfigMarket_BTC_stETH_mainnet();
+        return btcMintersConfig();
     }
 }

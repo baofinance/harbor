@@ -14,7 +14,8 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
-import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice Stateful fuzz handler for the StabilityPool. Each external function is one bounded

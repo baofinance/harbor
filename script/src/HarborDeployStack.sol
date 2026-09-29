@@ -16,8 +16,8 @@ import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/
 /// @notice The shared Harbor deploy stack: aggregates the per-contract deployers and exposes
 ///         `deployHarborForPeg`, which stands up a peg's full minter market (pegged/leveraged
 ///         tokens, minter, stability pools, SPM, genesis).
-/// @dev Inherited by both the production `Deploy_<PEG>_mainnet` scripts and the `test/` setups
-///      (via `Deploy_<PEG>_Minter`), so the real deploy code is exercised throughout the suite,
+/// @dev Inherited by the production `Deploy_<PEG>_mainnet` scripts (via `Deploy_<PEG>_Minter`) and held by
+///      the `test/` setups as a `HarborDeployRun`, so the real deploy code is exercised throughout the suite,
 ///      not only in a dedicated deploy test.
 abstract contract HarborDeployStack is
     PeggedToken,

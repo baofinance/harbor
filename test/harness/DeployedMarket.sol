@@ -20,7 +20,9 @@ import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {MarketReaderV2Lineage, MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
-import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -31,12 +33,13 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 /// This one answers "what does the system people are holding today actually do?", which is the only question
 /// a claim about a production regression can be settled against.
 ///
-/// ADDRESSES COME FROM SALT STRINGS, never from a state file. It inherits the deploy scripts and calls the
-/// same `minterAddress(config)` / `stabilityPoolAddress(config, type)` / `stabilityPoolManagerAddress(config)`
-/// getters the deploy itself uses, so a deployed address cannot drift from the deploy that produced it and
-/// there is no second source of truth to keep in step. `deployments/mainnet/*.state.json` is a RECORD to
-/// check against by hand; `script/verify/deployment-state/StateFileAddressConsistency.t.sol` already proves
-/// the salts and the file agree, which is what makes the salts trustworthy as the driver.
+/// ADDRESSES COME FROM SALT STRINGS, never from a state file. It holds the production run - its salt prefix
+/// and its market configs - and asks it the same `minterAddress(config)` / `stabilityPoolAddress(config, type)`
+/// / `stabilityPoolManagerAddress(config)` getters the deploy itself uses, so a deployed address cannot drift
+/// from the deploy that produced it and there is no second source of truth to keep in step.
+/// `deployments/mainnet/*.state.json` is a RECORD to check against by hand;
+/// `script/verify/deployment-state/StateFileAddressConsistency.t.sol` already proves the salts and the file
+/// agree, which is what makes the salts trustworthy as the driver.
 ///
 /// WHY MCAP::fxUSD. A measurement needs a market with CLEAN STATE, and this one was deployed and never used:
 /// zero pegged, zero collateral, and an oracle address carrying no code at all. That is not the only way to
@@ -56,7 +59,11 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 ///     market as the fixed deploy builds it, rather than one whose rebalance is disabled by an ordering
 ///     accident. It would be needed at ANY block, including the deployment block: the grant was missing from
 ///     the deploy itself.
-abstract contract DeployedMarket is Test, Deploy_MCAP_Minter, MarketUnderTest {
+abstract contract DeployedMarket is Test, MarketUnderTest {
+    /// @dev The production run, re-created for its identity alone: the salt prefix that makes its address
+    ///      predictions the deployed addresses. It never deploys here, so it has no owner or treasury of its own.
+    HarborDeployRun internal productionRun;
+
     uint256 internal constant FORK_BLOCK = 25272609;
     string internal constant SALT_PREFIX = "harbor_v1";
 
@@ -92,18 +99,19 @@ abstract contract DeployedMarket is Test, Deploy_MCAP_Minter, MarketUnderTest {
     ) internal virtual override returns (Market memory) {
         _requireHoldersOutsidePools(collateralPoolShare, leveragedPoolShare);
         vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
-        _setSaltPrefix(SALT_PREFIX);
+        // After the fork is selected, which would otherwise discard it.
+        productionRun = new HarborDeployRun(address(0), address(0), SALT_PREFIX, "mainnet");
 
-        (, Config_MinterMarket[] memory markets) = createMCAPMintersConfig();
+        (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
         Config_MinterMarket config = markets[0]; // MCAP::fxUSD
 
         // What is behind these proxies TODAY, until and unless the upgrade below moves them.
         reader = new MarketReaderV2Lineage(ConfigTokenNames(address(config)));
 
-        market.minter = minterAddress(config);
-        market.collateralPool = stabilityPoolAddress(config, StabilityPoolType.Collateral);
-        market.leveragedPool = stabilityPoolAddress(config, StabilityPoolType.Leveraged);
-        market.manager = stabilityPoolManagerAddress(config);
+        market.minter = productionRun.minterAddress(config);
+        market.collateralPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Collateral);
+        market.leveragedPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Leveraged);
+        market.manager = productionRun.stabilityPoolManagerAddress(config);
         market.pegged = IMinter(market.minter).PEGGED_TOKEN();
         market.leveraged = IMinter(market.minter).LEVERAGED_TOKEN();
         market.wrappedCollateral = IMinter(market.minter).WRAPPED_COLLATERAL_TOKEN();

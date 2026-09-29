@@ -14,7 +14,8 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
 abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
     address user3;

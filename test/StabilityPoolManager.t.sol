@@ -27,36 +27,28 @@ import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.so
 
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {TestStabilityPool2SetUp} from "@harbor-test/Rebalance.t.sol";
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
+import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 
 contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
     address stabilityPoolManager;
     address bountyReceiver;
     address user;
 
-    /// @dev Adds the manager that coordinates the market's two pools. Every role it needs is already granted:
-    ///      each pool grants REBALANCER and REWARD_DEPOSITOR to the manager's predicted address as part of
-    ///      being deployed, and the minter grants HARVESTER and ZERO_FEE the same way. Its fee receiver is
-    ///      `treasury()`, set by `deployStabilityPoolManager` - a test wanting it elsewhere moves it itself.
-    function _deployAndConfigure(
-        DeploymentTypes.State memory state,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory allMarkets,
-        bool deployPeg,
-        Config_MinterMarket[] memory marketsToDeploy
-    ) internal virtual override {
-        super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
-
-        deployStabilityPoolManager(state, marketsToDeploy[0]);
+    /// @dev The whole market: the manager that coordinates the two pools as well. Every role it needs is
+    ///      already granted: each pool grants REBALANCER and REWARD_DEPOSITOR to the manager's predicted address
+    ///      as part of being deployed, and the minter grants HARVESTER and ZERO_FEE the same way. Its fee
+    ///      receiver is `treasury()`, set by `deployStabilityPoolManager` - a test wanting it elsewhere moves it
+    ///      itself.
+    function newDeployRun() internal virtual override returns (MarketDeployRun) {
+        return new MockStabilityPoolMarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Market);
     }
 
     function setUp() public virtual override(TestStabilityPool2SetUp) {
         super.setUp();
 
-        stabilityPoolManager = stabilityPoolManagerAddress(marketConfig);
+        stabilityPoolManager = deployRun.stabilityPoolManagerAddress(marketConfig);
         vm.label(stabilityPoolManager, "stabilityPoolManager");
 
         bountyReceiver = makeAddr("bountyReceiver");

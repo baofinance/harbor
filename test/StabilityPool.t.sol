@@ -28,12 +28,12 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+
 import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
-import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
-import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
+import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
 // New version for testing upgrades
 contract StabilityPool_vN is StabilityPool_v3 {
@@ -43,65 +43,6 @@ contract StabilityPool_vN is StabilityPool_v3 {
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
         return "v3";
-    }
-}
-
-// used to expose internal functions
-/// @dev Identical to `StabilityPool_v3` bar the `__`-prefixed accessors that expose internals for testing, so
-///      it takes the SAME constructor arguments and passes every one through. Baking values in here instead
-///      would make a pool deployed through the seam differ from the one the deploy script produces, and the
-///      mock would then be testing itself rather than the configuration.
-contract MockStabilityPool is StabilityPool_v3 {
-    constructor(
-        address minter_,
-        uint256 withdrawalStartDelay_,
-        uint256 withdrawalEndWindow_,
-        uint256 minTotalAssetSupply_,
-        string memory name_,
-        string memory symbol_
-    ) StabilityPool_v3(minter_, withdrawalStartDelay_, withdrawalEndWindow_, minTotalAssetSupply_, name_, symbol_) {}
-
-    /// @notice Exposes the product value for testing purposes
-    function __totalSupply() external view returns (TokenBalance memory) {
-        return _getStabilityPoolStorage().totalAssetSupply;
-    }
-
-    /// @notice Exposes the reward divisor (`_getTotalPoolShare().totalShare`) — the denominator every
-    /// reward accumulate divides by. Reward conservation requires it be >= Sum(balanceOf).
-    function __rewardDivisor() external view returns (uint256 totalShare) {
-        (, totalShare) = _getTotalPoolShare();
-    }
-
-    /// @notice Exposes the reward-divisor gap, where `rewardDivisor == totalAssetSupply.amount - rewardDivisorGap`.
-    function __rewardDivisorGap() external view returns (int256 gap) {
-        gap = _getStabilityPoolStorage().rewardDivisorGap;
-    }
-
-    /// @notice Exposes the notifyReward function for testing purposes
-    function __notifyReward(address rewardToken, uint256 rewardAmount) external {
-        return _notifyReward(rewardToken, rewardAmount);
-    }
-
-    /// @notice Exposes the notifyReward function for testing purposes
-    function __notifyLoss(uint256 lossAmount) external {
-        _notifyLoss(lossAmount);
-    }
-
-    function __distributePendingReward() external {
-        _distributePendingReward();
-    }
-
-    /// @notice Exposes reward accumulation for testing the narrow-field cast on the totalShare==0 queue path.
-    function __accumulateReward(address token, uint256 amount) external {
-        _accumulateReward(token, amount);
-    }
-
-    function __getCompoundedBalance(
-        uint256 initialBalance,
-        uint128 initialProduct,
-        uint128 currentProduct
-    ) external pure returns (uint256) {
-        return _getCompoundedBalance(initialBalance, initialProduct, currentProduct);
     }
 }
 
@@ -119,8 +60,8 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address rebalancer;
     address rewardManager;
 
-    /// @dev The suite's own actors and reward token, created BEFORE the deploy so `_deployAndConfigure` can
-    ///      grant and register them as part of standing each pool up.
+    /// @dev The suite's own actors and reward token. Each pool the run deploys has them granted and registered
+    ///      afterwards (`_grantPoolTestRoles`).
     function setUpFork() internal virtual override {
         super.setUpFork();
 
@@ -135,60 +76,19 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         rewardManager = makeAddr("rewardManager");
     }
 
-    /// @dev Adds the market's collateral stability pool to the minter chain above it.
-    function _deployAndConfigure(
-        DeploymentTypes.State memory state,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory allMarkets,
-        bool deployPeg,
-        Config_MinterMarket[] memory marketsToDeploy
-    ) internal virtual override {
-        super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
-
-        _grantPoolTestRoles(deployStabilityPool(StabilityPoolType.Collateral, state, marketsToDeploy[0]));
-    }
-
-    /// @dev Substitutes `MockStabilityPool`, which is `StabilityPool_v3` plus accessors that expose internals.
-    ///      Everything the constructor needs still comes from the market config, so a pool deployed here is the
-    ///      one the deploy script would produce.
-    function deployStabilityPoolImplementation(
-        DeploymentTypes.State memory stateData,
-        string memory key,
-        StabilityPoolType poolType,
-        Config_MinterMarket marketConfig_,
-        address minter_
-    ) internal virtual override returns (address impl) {
-        ConfigTokenNames names = ConfigTokenNames(address(marketConfig_));
-        bool isCollateral = poolType == StabilityPoolType.Collateral;
-        string memory tokenName = isCollateral
-            ? names.stabilityPoolCollateralName()
-            : names.stabilityPoolLeveragedName();
-        string memory tokenSymbol = isCollateral
-            ? names.stabilityPoolCollateralSymbol()
-            : names.stabilityPoolLeveragedSymbol();
-
-        IHarborConfig cfg = IHarborConfig(address(marketConfig_));
-
-        impl = address(
-            new MockStabilityPool(
-                minter_,
-                cfg.stabilityPoolWithdrawalDelay(),
-                cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.minTotalSupply(),
-                tokenName,
-                tokenSymbol
-            )
-        );
-
-        _recordImplementation(stateData, key, "@harbor-test/StabilityPool.t.sol", "MockStabilityPool", impl);
+    /// @dev The pool suites read pool internals, so the run puts `MockStabilityPool` behind each pool it
+    ///      deploys; this level of the suites uses the collateral pool alone.
+    function newDeployRun() internal virtual override returns (MarketDeployRun) {
+        return new MockStabilityPoolMarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.CollateralPool);
     }
 
     /// @dev The roles and reward token this SUITE needs, which the deploy has no reason to know about: it
     ///      grants the pool's roles to the predicted manager, not to test actors, and `steam` is a reward
     ///      token that exists only here. Shared because every pool the suites stand up needs the same.
-    /// @dev Called from inside `_deployAndConfigure`, where this contract is still the pool's owner, so it
-    ///      needs no prank — the same window in which the deploy does its own granting.
+    /// @dev Granted after the deploy, as the owner the run handed the pool to - test-actor glue, kept out of
+    ///      the deploy so the run's sequence stays production's.
     function _grantPoolTestRoles(address stabilityPool) internal {
+        vm.startPrank(owner());
         IBaoRoles(stabilityPool).grantRoles(
             rewardManager,
             IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE()
@@ -199,6 +99,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         );
         IBaoRoles(stabilityPool).grantRoles(rebalancer, IStabilityPool(stabilityPool).REBALANCER_ROLE());
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam);
+        vm.stopPrank();
     }
 
     function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
@@ -263,10 +164,14 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     function setUp() public virtual override {
         super.setUp();
 
-        // Deployed by `_deployAndConfigure` above, already carrying its config, its reward token and the
-        // roles the deploy grants. Only what is test-specific is added below.
-        stabilityPoolCollateral = stabilityPoolAddress(marketConfig, StabilityPoolType.Collateral);
+        // Deployed by the run, already carrying its config, its reward tokens and the roles the deploy grants.
+        // Only what is test-specific is added below.
+        stabilityPoolCollateral = deployRun.stabilityPoolAddress(
+            marketConfig,
+            HarborDeployer.StabilityPoolType.Collateral
+        );
         vm.label(stabilityPoolCollateral, "stabilityPoolCollateral");
+        _grantPoolTestRoles(stabilityPoolCollateral);
 
         user1 = makeAddr("user1");
         vm.startPrank(user1);

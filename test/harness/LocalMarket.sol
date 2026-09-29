@@ -13,10 +13,7 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
-import {StabilityPool as StabilityPoolDeployer} from "@harbor-script/src/contracts/StabilityPool.sol";
-
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
@@ -45,25 +42,12 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
     uint256 internal startCollateralRatio;
     uint256 internal startPriceLocal;
 
-    /// @dev THE REAL `StabilityPool_v3`, not the `MockStabilityPool` this setup chain otherwise installs.
-    ///
-    /// The chain above reaches these measurements through the StabilityPool UNIT TESTS, which substitute a
-    /// mock so they can reach `__totalSupply`, `__notifyLoss` and the rest. No measurement here touches any
-    /// of them - they read balances, prices and ratios, every one of them public - so the mock was inherited
-    /// rather than wanted, and it means these graphs were not produced by the bytecode a deploy installs.
-    ///
-    /// The deploy script's own function is called by name rather than reimplemented, so the constructor
-    /// arguments cannot drift from what the deploy marshals. Solidity has no `super.super`, and the mock
-    /// override sits between, so naming the base is the only way back to it.
-    function deployStabilityPoolImplementation(
-        DeploymentTypes.State memory stateData,
-        string memory key,
-        StabilityPoolType poolType,
-        Config_MinterMarket marketConfig_,
-        address minter_
-    ) internal virtual override returns (address impl) {
-        return
-            StabilityPoolDeployer.deployStabilityPoolImplementation(stateData, key, poolType, marketConfig_, minter_);
+    /// @dev THE REAL `StabilityPool_v3` behind both pools, not the `MockStabilityPool` the pool unit tests' run
+    /// installs. Those tests substitute the mock to reach `__totalSupply`, `__notifyLoss` and the rest; no
+    /// measurement here touches any of them - they read balances, prices and ratios, every one of them public -
+    /// so these graphs are produced by the bytecode a deploy installs.
+    function newDeployRun() internal virtual override returns (MarketDeployRun) {
+        return new MarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.BothPools);
     }
 
     function marketLabel() internal pure virtual override returns (string memory) {

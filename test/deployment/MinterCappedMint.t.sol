@@ -2,7 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
@@ -15,7 +16,10 @@ import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 /// @title MinterCappedMintTest
 /// @notice Tests for Minter_v3 fee-capped minting, deployed via production deployment scripts.
-contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter, HarborTestActions {
+contract MinterCappedMintSetUp is BaoTest, HarborTestActions {
+    /// @dev The deploy run that stands the market up, held rather than inherited (see `HarborDeployRun`).
+    HarborDeployRun internal deployRun;
+
     address minter;
     address pegged;
     address wrappedCollateral;
@@ -23,21 +27,23 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter, HarborTestActions 
     MockWrappedPriceOracle mockOracle;
 
     function setUp() public virtual {
-        forkMainnetWithBaoFactory();
+        forkMainnet();
+        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "capped_test", "mainnet");
+        deployRun.ensureFactory();
 
         // Deploy the ETH::fxUSD market (one collateral) via the production deploy scripts (Minter_v3).
-        (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createETHMintersConfig();
+        (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = ethMintersConfig();
         Config_MinterMarket[] memory marketsToDeploy = new Config_MinterMarket[](1);
         marketsToDeploy[0] = allMarkets[0];
-        deployHarborForPeg("capped_test", peg, allMarkets, "mainnet", true, marketsToDeploy);
+        deployRun.deploy(peg, allMarkets, true, marketsToDeploy);
 
-        minter = minterAddress(allMarkets[0]);
-        pegged = peggedTokenAddress(allMarkets[0]);
+        minter = deployRun.minterAddress(allMarkets[0]);
+        pegged = deployRun.peggedTokenAddress(allMarkets[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Install the mock oracle (price=1, rate=1) where the deploy wired the minter, then grant the
         // zero-fee role for bootstrap minting.
-        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(allMarkets[0])));
+        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(deployRun.wrappedPriceOracleAddress(allMarkets[0])));
         mockOracle.setLatestAnswer(1 ether, 1 ether);
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         vm.startPrank(HARBOR_MULTISIG);

@@ -2,7 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 
@@ -25,8 +27,11 @@ import {Array} from "@bao-test/utils/Array.sol";
 /// @notice Worked example from doc/ideas/rebalance-fairness.md using real contract code
 /// deployed via the production deployment scripts. Simulates all actors through
 /// rebalance scenarios to measure the exact income redistribution.
-contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array, HarborTestActions {
+contract RebalanceFairnessSetUp is BaoTest, Array, HarborTestActions {
     using MinterMarketConfigLib for Config_MinterMarket;
+
+    /// @dev The deploy run that stands the market up, held rather than inherited (see `HarborDeployRun`).
+    HarborDeployRun internal deployRun;
 
     // Deployed contract addresses
     address minter;
@@ -52,28 +57,36 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array, HarborTest
     address eve; // Holds only leveraged tokens (the market maker / leveraged-side liquidity)
 
     function setUp() public virtual {
-        // Fork mainnet so real token contracts (fxSAVE, fxUSD, etc.) exist, and stand the factory up on it
-        forkMainnetWithBaoFactory();
+        // Fork mainnet so real token contracts (fxSAVE, fxUSD, etc.) exist; the run stands the factory up on it
+        forkMainnet();
+        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "fairness_test", "mainnet");
+        deployRun.ensureFactory();
 
         // Deploy a fresh ETH::fxUSD market via the production deployment scripts
-        (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
+        (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = ethMintersConfig();
         // Deploy only the fxUSD market (index 0)
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0];
-        deployHarborForPeg("fairness_test", peg, mktConfigs, "mainnet", true, toDeploy);
+        deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
         // Resolve deployed addresses
-        minter = minterAddress(mktConfigs[0]);
-        stabilityPoolCollateral = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Leveraged);
-        stabilityPoolManager = stabilityPoolManagerAddress(mktConfigs[0]);
-        pegged = peggedTokenAddress(mktConfigs[0]);
-        leveraged = leveragedTokenAddress(mktConfigs[0]);
+        minter = deployRun.minterAddress(mktConfigs[0]);
+        stabilityPoolCollateral = deployRun.stabilityPoolAddress(
+            mktConfigs[0],
+            HarborDeployer.StabilityPoolType.Collateral
+        );
+        stabilityPoolLeveraged = deployRun.stabilityPoolAddress(
+            mktConfigs[0],
+            HarborDeployer.StabilityPoolType.Leveraged
+        );
+        stabilityPoolManager = deployRun.stabilityPoolManagerAddress(mktConfigs[0]);
+        pegged = deployRun.peggedTokenAddress(mktConfigs[0]);
+        leveraged = deployRun.leveragedTokenAddress(mktConfigs[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Install the mock oracle at the predicted address the deploy already wired the minter to, so we
         // control price/rate without a second source of truth for where the oracle lives.
-        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(mktConfigs[0])));
+        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(deployRun.wrappedPriceOracleAddress(mktConfigs[0])));
         // Price = 1/4000 ETH per fxUSD (i.e. 4000 fxUSD per ETH, ETH ≈ $4000).
         // Rate = 1 means 1 fxSAVE = 1 fxUSD (no yield accrued yet).
         oraclePrice = 1 ether / 4000;

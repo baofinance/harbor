@@ -7,25 +7,27 @@ import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice One Harbor deployment run: who owns it, where its fees go, its salt namespace and its network.
-/// @dev An INSTANCE is a run. That is the whole idea, and it is what makes both use sites work without a
-///      special case:
+/// @dev An INSTANCE is a run, and a test HOLDS one — `new HarborDeployRun(owner, treasury, "prefix", "mainnet")`,
+///      or a subclass that fixes the identity and states what it deploys (`MarketDeployRun`) — and drives it
+///      from outside: construct it, then tell it to deploy. Two things follow from the run being an object
+///      rather than a base of the test contract:
 ///
-///      **Composition** — `new HarborDeployRun(owner, treasury, "prefix", "mainnet")` — for a test needing
-///      MORE THAN ONE independent deployment: two pegs, or two minter markets whose salt namespaces must not
-///      collide. Each instance carries its own `FactoryDeployer` state, so each is a separate run, exactly as
-///      they are in production.
+///      **Independent deployments.** A test needing MORE THAN ONE — two pegs, or two minter markets whose salt
+///      namespaces must not collide — holds two. Each carries its own `FactoryDeployer` state, so each is a
+///      separate run, exactly as they are in production.
 ///
-///      **Inheritance** — `contract SomeSetUp is BaoTest, HarborDeployRun` — for a test needing one.
+///      **Compiled once.** The deploy framework is a large body of code. Inherited, it is compiled into every
+///      test contract that inherits it and the optimizer processes each copy; held, it is compiled into the
+///      run alone, and a test contract carries only its tests and the run's creation code.
 ///
-///      This is deliberately NOT a `BaoTest`, and nothing here is test-specific. Composition is why: `new` on
-///      a `BaoTest` would instantiate a whole test contract per run, and it would constrain linearisation for
-///      setups that already inherit other test bases. `HarborDeployStack` itself must never inherit test code
-///      at all — it is production deploy logic.
+///      This is deliberately NOT a `BaoTest`, and nothing here is test-specific: `new` on a `BaoTest` would
+///      instantiate a whole test contract per run. `HarborDeployStack` itself must never inherit test code at
+///      all — it is production deploy logic.
 ///
 ///      The four constructor values are IDENTITY: what this run IS, fixed before it starts and constant
 ///      throughout. None of them is a per-call choice, so none of them belongs in a deploy signature.
-///      Because they are inputs rather than invented here, two composed runs cannot accidentally share an
-///      owner, a fee receiver, or a salt namespace — which is precisely what a multi-run test must avoid.
+///      Because they are inputs rather than invented here, two runs cannot accidentally share an owner, a fee
+///      receiver, or a salt namespace — which is precisely what a multi-run test must avoid.
 contract HarborDeployRun is HarborDeployStack {
     /// @dev Who owns every proxy this run deploys, and who its `onlyOwner` calls must come from once the run
     ///      has handed ownership over. Production returns the Harbor multisig; a test names its own so it can
@@ -70,10 +72,9 @@ contract HarborDeployRun is HarborDeployStack {
     }
 
     /// @notice Run this deployment: the peg's pegged token if asked for, then each market named.
-    /// @dev The public face of `deployHarborForPeg`, which is `internal`. A COMPOSED run is driven from
-    ///      OUTSIDE — construct it, then tell it to deploy — and an internal function cannot be reached that
-    ///      way, so without this a composed instance could be built but never used. Under inheritance the
-    ///      internal function is reachable directly and this is simply the same call by another name.
+    /// @dev The public face of `deployHarborForPeg`, which is `internal`. A run is driven from OUTSIDE —
+    ///      construct it, then tell it to deploy — and an internal function cannot be reached that way, so
+    ///      without this an instance could be built but never used.
     ///
     ///      Identity is not a parameter here: the salt prefix and network came from the constructor, so the
     ///      only inputs are what this particular run deploys.
@@ -86,11 +87,9 @@ contract HarborDeployRun is HarborDeployStack {
         deployHarborForPeg(saltPrefix(), peg, allMarkets, network(), deployPeg, marketsToDeploy);
     }
 
-    /// @notice Deploy the singleton BaoFactory if needed and register THIS contract as a factory operator.
-    /// @dev Idempotent, and must be called by whoever will run the deploy: `BaoFactoryTestLib.ensureBaoFactory`
-    ///      is `internal`, so it inlines and `address(this)` is this run under composition, or the test itself
-    ///      under inheritance. Each registers itself, which is why a composed run can call `factory.deploy` on
-    ///      its own account.
+    /// @notice Deploy the singleton BaoFactory if needed and register THIS run as a factory operator.
+    /// @dev Idempotent, and called by the run itself, which is what will call `factory.deploy`:
+    ///      `BaoFactoryTestLib.ensureBaoFactory` is `internal`, so it inlines and `address(this)` is this run.
     ///
     ///      Call it AFTER selecting a fork: a fork switch resets the operator registration.
     function ensureFactory() public returns (address factory) {

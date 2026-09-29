@@ -13,7 +13,8 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
-import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice Sizes the gap between the StabilityPool's two ledgers — the exact supply counter
