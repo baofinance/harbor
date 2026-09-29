@@ -132,11 +132,11 @@ contract TestGraphsAnchorMintDivergence is TestGraphsAnchorMintDivergenceBase {
 }
 
 /// @notice The collateral ratio falls because the WRAPPED-TO-UNDERLYING RATE falls - the wrapper is
-/// worth fewer of the underlying than it was, so the recognised backing shrinks while the underlying's
-/// own price is untouched and every token is still held.
+/// worth fewer of the underlying than it was, so the record is written down to what the holding is now
+/// worth while the underlying's own price is untouched and every token is still held.
 ///
 /// This is the same sweep over the same collateral ratios and it is not the same measurement: the anchor
-/// price is set by the recognised backing, while what a deposit is worth is set by the underlying price
+/// price is set by the written-down backing, while what a deposit is worth is set by the underlying price
 /// AND that same wrapped-to-underlying rate. So this route moves both of them and a repricing moves both
 /// of them, which is why neither changes what a deposit buys.
 contract TestGraphsAnchorMintDivergenceByRate is TestGraphsAnchorMintDivergenceBase, HarborTestActions {
@@ -160,8 +160,8 @@ contract TestGraphsAnchorMintDivergenceByRate is TestGraphsAnchorMintDivergenceB
 }
 
 /// @notice The collateral ratio falls because the collateral is GONE - neither repriced nor rewrapped at
-/// a worse rate, but no longer held. The record still says it was received, so the recognised backing
-/// falls to what is actually there.
+/// a worse rate, but no longer held. The record still says it was received, which halts the market until
+/// the owner recognises the loss and writes the record down to what is actually there.
 ///
 /// This is the third way to reach a collateral ratio and the only one under which the anchor supply
 /// diverges, because it is the only one that does not also reduce what a depositor's own tokens are
@@ -175,6 +175,11 @@ contract TestGraphsAnchorMintDivergenceByBacking is TestGraphsAnchorMintDivergen
     /// @inheritdoc TestCollateralRatioRangeSetUp
     function _setCollateralRatio(uint256 requested) internal override {
         deal(address(wrappedCollateralToken), minter, (startHeld * requested) / START_COLLATERAL_RATIO);
+        // The record now claims collateral that is gone, and the views report the record: recognising the loss is
+        // what moves the ratio. Below the starting ratio there is always something to recognise.
+        vm.startPrank(owner());
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
         currentCollateralRatio = IMinter(minter).collateralRatio();
         assertApproxEqAbs(
             currentCollateralRatio,

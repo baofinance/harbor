@@ -320,7 +320,13 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged); // 0
         assertEq(IMinter_v3(minter).collateralRatio(), uint256(14 ether) / 11, "start CR"); // 127%
 
-        uint256 expected = 461538461538461538462; // taken from a previous run
+        // Converting `b` into leveraged lands the ratio at `c·p/(n − b)`, so 1.3 exactly takes `b = n − c·p/T`. The
+        // sizing converts that less one wei of backing, rounded up - `(T·n − c·p + p)/T` - so that no rounding in a
+        // trade's debit of the record can leave it short of the target.
+        uint256 expected = Math.ceilDiv(
+            1.3 ether * IMinter_v3(minter).peggedTokenBalance() - IMinter_v3(minter).collateralTokenBalance() * price + price,
+            1.3 ether
+        );
         uint256 liquidated;
         vm.expectRevert(
             abi.encodeWithSelector(

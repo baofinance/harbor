@@ -125,7 +125,8 @@ abstract contract HarborTestActions {
     /// wrapped-to-underlying rate exactly where it was. Returns the price it derived.
     ///
     /// @dev The counterpart of `setCollateralRatioByRate` below, and not interchangeable with it. That one moves the
-    /// recognised backing; this one moves only what the collateral is worth. The two reach the same collateral ratio
+    /// backing itself, recognising the impairment a lower rate leaves; this one moves only what the collateral is
+    /// worth. The two reach the same collateral ratio
     /// by different routes, and quantities priced off the backing - what a deposit buys, above all - come out
     /// differently depending on which route was taken.
     ///
@@ -164,9 +165,10 @@ abstract contract HarborTestActions {
     /// absorb the difference. Returns the price it derived.
     ///
     /// @dev The rate is the independent variable, and the price the derived one, for a reason that decides what this
-    /// helper can reach at all: the recognised backing is `min(record, held x rate)`, and the price does not appear in
-    /// that comparison. So only the rate selects which branch the market is on, and a price-driven move is
-    /// structurally incapable of reaching the impaired branch — at any collateral ratio, however wide the sweep.
+    /// helper can reach at all: whether the record is covered compares it with `held x rate`, and the price does not
+    /// appear in that comparison. So only the rate selects which branch the market is on, and a price-driven move is
+    /// structurally incapable of reaching the impaired branch — at any collateral ratio, however wide the sweep. On
+    /// that branch the helper recognises the impairment, so the backing becomes `min(record, held x rate)`.
     ///
     /// Setting the rate first is what makes the derivation closed-form: the backing settles before the price is
     /// computed from it, so there is nothing to iterate towards. The reverse direction is closed-form too
@@ -189,11 +191,21 @@ abstract contract HarborTestActions {
         uint256 targetCollateralRatio,
         uint256 wrapRate
     ) internal returns (uint256 collateralPrice) {
-        // The rate first: the recognised backing depends on it, and not on the price it is read at.
+        // The rate first: whether the record is covered depends on it, and not on the price it is read at.
         (uint256 priceBefore, , , ) = IWrappedPriceOracle(oracle).latestAnswer();
         MockWrappedPriceOracle(oracle).setLatestAnswer(priceBefore, wrapRate);
 
-        uint256 backing = IMinter(minter).collateralTokenBalance(); // recognised: min(record, held x rate)
+        // A rate that leaves the record above the holding halts the market until the loss is recognised, so the
+        // impaired branch is reached in the one state in which it can trade: recognised, the record written down to
+        // what the holding stands up at this rate.
+        (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+        if (recorded > held) {
+            _vm.startPrank(IBaoOwnable(minter).owner());
+            IMinter_v3(minter).recogniseImpairment();
+            _vm.stopPrank();
+        }
+
+        uint256 backing = IMinter(minter).collateralTokenBalance(); // recognised above, so min(record, held x rate)
         uint256 peggedBalance = IMinter(minter).peggedTokenBalance();
         require(backing > 0, "a market with no recognised backing has no collateral ratio to target");
         require(peggedBalance > 0, "a market with no anchor minted has no collateral ratio to target");

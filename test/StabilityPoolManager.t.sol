@@ -1009,8 +1009,8 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     }
 
     /// An impaired collateral suspends harvesting entirely, and only an impairment does. The surplus is the excess of
-    /// the holding over the RECOGNISED backing, so once the rate falls below the level the record was credited at
-    /// there is no surplus by construction. The harvest must then REFUSE rather than distribute a zero - and the
+    /// the holding over the RECORDED backing, so once the rate falls below the level the record was credited at the
+    /// holding is under the record and there is no surplus by construction. The harvest must then REFUSE rather than distribute a zero - and the
     /// refusal must cost nothing, which is what the recovery leg establishes: the same surplus is still there to
     /// distribute afterwards, so nothing was consumed or stranded by the attempt.
     function test_harvest_revertsWhenBackingOverstated() public {

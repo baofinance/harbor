@@ -186,9 +186,11 @@ contract StabilityPoolManager_v2 is
     /// @inheritdoc IStabilityPoolManager_v2
     function rebalanceable() external view returns (bool rebalanceable_) {
         uint256 collateralRatio_ = IMinter_v3(MINTER).collateralRatio();
+        (uint256 recorded, uint256 held) = IMinter_v3(MINTER).impairment();
         rebalanceable_ =
             collateralRatio_ > 1 ether &&
-            collateralRatio_ < _getStabilityPoolManagerStorage().rebalanceThreshold;
+            collateralRatio_ < _getStabilityPoolManagerStorage().rebalanceThreshold &&
+            recorded <= held;
     }
 
     /// @inheritdoc IStabilityPoolManager_v2

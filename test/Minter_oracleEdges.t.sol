@@ -590,8 +590,8 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
             name = "peggedTokenPrice";
             m.peggedTokenPrice();
         } else if (entryPoint == 5) {
-            name = "collateralTokenBalance";
-            m.collateralTokenBalance();
+            name = "impairment";
+            m.impairment();
         } else if (entryPoint == 6) {
             name = "mintPeggedTokenIncentiveRatio";
             m.mintPeggedTokenIncentiveRatio();

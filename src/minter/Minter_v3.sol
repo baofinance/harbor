@@ -272,8 +272,7 @@ contract Minter_v3 is
 
     /// @inheritdoc IMinter_v3
     function collateralTokenBalance() external view override returns (uint256) {
-        MinterStorage storage $ = _getMinterStorage();
-        return _effectiveBacking($.underlyingCollateral, _readOracle($.priceOracle).minRate);
+        return _recordedBacking(_getMinterStorage());
     }
 
     /// @inheritdoc IMinter_v3
@@ -287,7 +286,7 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
         collateralRatio_ = MinterValuationLib.collateralRatio(
-            _effectiveBacking($.underlyingCollateral, reading.minRate),
+            _recordedBacking($),
             _midPrice(reading),
             $.peggedTokenBalance
         );
@@ -299,7 +298,7 @@ contract Minter_v3 is
         OracleReading memory reading = _readOracle($.priceOracle);
         ratio = MinterValuationLib.leverageRatio(
             $.peggedTokenBalance,
-            _effectiveBacking($.underlyingCollateral, reading.minRate),
+            _recordedBacking($),
             _midPrice(reading)
         );
     }
@@ -309,7 +308,7 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
         (mintable, ) = _leveragedMintable(
-            _effectiveBacking($.underlyingCollateral, reading.minRate),
+            _recordedBacking($),
             reading,
             $.peggedTokenBalance
         );
@@ -358,7 +357,7 @@ contract Minter_v3 is
         OracleReading memory reading = _readOracle($.priceOracle);
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
-            _effectiveBacking($.underlyingCollateral, reading.minRate),
+            _recordedBacking($),
             _midPrice(reading)
         );
         nav = _leveragedTokenPriceE36(collateralValueE36, peggedValueE36, _leveragedTokenBalance()) / 1 ether;
@@ -388,7 +387,7 @@ contract Minter_v3 is
             // slither-disable-next-line unused-return only the pegged value is needed here
             (, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                 peggedTokenBalance_,
-                _effectiveBacking($.underlyingCollateral, reading.minRate),
+                _recordedBacking($),
                 _midPrice(reading)
             );
             nav = peggedValueE36 / peggedTokenBalance_;
@@ -414,7 +413,7 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         OracleReading memory reading = _readOracle($.priceOracle);
         uint256 price = _midPrice(reading);
-        uint256 collateralTokenBalance_ = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        uint256 collateralTokenBalance_ = _recordedBacking($);
         (peggedForCollateral, peggedForLeveraged) = RebalanceSizing_v1.split(
             targetCollateralRatio,
             MinterValuationLib.collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_),
@@ -443,7 +442,7 @@ contract Minter_v3 is
         // solhint-disable-next-line explicit-types
         uint band = MinterValuationLib.findBand(
             config_,
-            _effectiveBacking($.underlyingCollateral, reading.minRate),
+            _recordedBacking($),
             _midPrice(reading),
             $.peggedTokenBalance,
             false
@@ -531,7 +530,7 @@ contract Minter_v3 is
                 $.incentiveConfig[Config_v2.MINT_PEGGED],
                 wrappedCollateralIn,
                 MinterValuationLib.CollateralRatioData(
-                    _effectiveBacking($.underlyingCollateral, reading.minRate),
+                    _recordedBacking($),
                     price,
                     rate,
                     $.peggedTokenBalance,
@@ -575,7 +574,7 @@ contract Minter_v3 is
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
                 MinterValuationLib.CollateralRatioData(
-                    _effectiveBacking($.underlyingCollateral, reading.minRate),
+                    _recordedBacking($),
                     price,
                     rate,
                     peggedTokenBalance_,
@@ -623,7 +622,7 @@ contract Minter_v3 is
         (price, rate) = (reading.maxPrice, reading.minRate); // the edges the mint reads
 
         {
-            uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
+            uint256 backing = _recordedBacking($);
             // Below the floor the call refuses, so nothing would be minted: the amounts stay zero, and the incentive
             // ratio below falls back to the band's, as it does wherever nothing is used.
             (bool mintable, ) = _leveragedMintable(backing, reading, $.peggedTokenBalance);
@@ -688,7 +687,7 @@ contract Minter_v3 is
             $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
             leveragedIn,
             MinterValuationLib.CollateralRatioData(
-                _effectiveBacking($.underlyingCollateral, reading.minRate),
+                _recordedBacking($),
                 price,
                 rate,
                 $.peggedTokenBalance,
@@ -706,8 +705,15 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         uint256 rate = _readOracle($.priceOracle).minRate;
         uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
-        uint256 value = Math.mulDiv(_effectiveBacking($.underlyingCollateral, rate), 1 ether, rate);
+        uint256 value = Math.mulDiv(_recordedBacking($), 1 ether, rate);
         wrappedAmount = (balance > value) ? balance - value : 0;
+    }
+
+    /// @inheritdoc IMinter_v3
+    function impairment() external view returns (uint256 recorded, uint256 held) {
+        MinterStorage storage $ = _getMinterStorage();
+        recorded = _recordedBacking($);
+        held = _heldAsCollateral(_readOracle($.priceOracle).minRate);
     }
 
     //////////////////////////////
@@ -739,13 +745,13 @@ contract Minter_v3 is
     function recogniseImpairment() external onlyOwner {
         MinterStorage storage $ = _getMinterStorage();
         uint256 backing = $.underlyingCollateral;
-        uint256 recognised = _effectiveBacking(backing, _readOracle($.priceOracle).minRate);
-        if (recognised >= backing) {
+        uint256 held = _heldAsCollateral(_readOracle($.priceOracle).minRate);
+        if (held >= backing) {
             revert NothingToRecognise(backing);
         }
-        $.underlyingCollateral = recognised;
+        $.underlyingCollateral = held;
 
-        emit RecogniseImpairment(backing, recognised);
+        emit RecogniseImpairment(backing, held);
     }
 
     /// @inheritdoc IMinter_v3
@@ -833,7 +839,8 @@ contract Minter_v3 is
         wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 underlyingCollateral_ = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        uint256 underlyingCollateral_ = _recordedBacking($);
+        _requireRecordIsCovered(underlyingCollateral_, reading.minRate);
 
         uint256 wrappedFee;
         uint256 underlyingCollateralAdded;
@@ -910,7 +917,8 @@ contract Minter_v3 is
         peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
         OracleReading memory reading = _readOracle($.priceOracle);
 
-        uint256 underlyingCollateral_ = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        uint256 underlyingCollateral_ = _recordedBacking($);
+        _requireRecordIsCovered(underlyingCollateral_, reading.minRate);
         address reservePool_ = $.reservePool;
 
         uint256 wrappedFee;
@@ -980,7 +988,8 @@ contract Minter_v3 is
         MinterValuationLib.CollateralRatioData memory crData;
         {
             OracleReading memory reading = _readOracle($.priceOracle);
-            uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
+            uint256 backing = _recordedBacking($);
+            _requireRecordIsCovered(backing, reading.minRate);
             _requireLeveragedMintable(backing, reading, $.peggedTokenBalance);
             // Minting leveraged reads the high price, which values the residual claim it buys highest, and the low
             // rate, which credits the collateral offered with the least value.
@@ -1049,7 +1058,8 @@ contract Minter_v3 is
         leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
         OracleReading memory reading = _readOracle($.priceOracle);
 
-        uint256 underlyingCollateral_ = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        uint256 underlyingCollateral_ = _recordedBacking($);
+        _requireRecordIsCovered(underlyingCollateral_, reading.minRate);
 
         uint256 wrappedFee;
         uint256 underlyingCollateralOut;
@@ -1105,7 +1115,8 @@ contract Minter_v3 is
         uint256 underlyingCollateralInE36 = wrappedCollateralIn * reading.minRate;
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 underlyingCollateral_ = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        uint256 underlyingCollateral_ = _recordedBacking($);
+        _requireRecordIsCovered(underlyingCollateral_, reading.minRate);
         // A depegged pegged is minted at its depressed price, which yields more tokens per unit of collateral -
         // but only while that price is one the protocol can report. Below the reportable floor it rounds to zero
         // everywhere outside this contract, so the mint would be priced at a figure no consumer can see, in
@@ -1156,7 +1167,8 @@ contract Minter_v3 is
 
             // Snapshot original state so both paths price against the same pre-burn balances,
             // consistent with how redeemPeggedForCollateralRatio computed the amounts.
-            uint256 underlyingCollateral_ = _effectiveBacking($.underlyingCollateral, reading.minRate);
+            uint256 underlyingCollateral_ = _recordedBacking($);
+            _requireRecordIsCovered(underlyingCollateral_, reading.minRate);
 
             // The rule's own refusal FIRST, judged on that snapshot before either leg has moved anything:
             // below its floor the market sells no leverage on any route, and that is the reason to give
@@ -1186,7 +1198,10 @@ contract Minter_v3 is
                 }
                 // return the collateral
                 IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
-                $.underlyingCollateral -= underlyingCollateralOutE36 / 1 ether;
+                // Ceiled, as the fee-paying redeems' debits are: the wrapped leaving is a floored conversion of
+                // the same figure, so the record gives up at least what the holding did. A floored debit would
+                // leave it claiming the difference, and the guard would halt the market on that wei.
+                $.underlyingCollateral -= Math.ceilDiv(underlyingCollateralOutE36, 1 ether);
             }
 
             if (peggedForLeveraged > 0) {
@@ -1221,7 +1236,7 @@ contract Minter_v3 is
     ) external view override returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
-        uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        uint256 backing = _recordedBacking($);
         // The call refuses a conversion below the floor, and the whole redeem with it, so neither leg is reported.
         // A redeem without a conversion is not judged, by the call or here.
         bool refused;
@@ -1286,7 +1301,8 @@ contract Minter_v3 is
     ) external override onlyOwnerOrRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
-        uint256 backing = _effectiveBacking($.underlyingCollateral, reading.minRate);
+        uint256 backing = _recordedBacking($);
+        _requireRecordIsCovered(backing, reading.minRate);
         _requireLeveragedMintable(backing, reading, $.peggedTokenBalance);
 
         // The fee-paying mint's edges: the high price and the low rate.
@@ -1342,10 +1358,12 @@ contract Minter_v3 is
         // The fee-paying redeem's edges: the low price and the high rate.
         OracleReading memory reading = _readOracle($.priceOracle);
         uint256 price = reading.minPrice;
+        uint256 backing = _recordedBacking($);
+        _requireRecordIsCovered(backing, reading.minRate);
 
         (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
             $.peggedTokenBalance,
-            _effectiveBacking($.underlyingCollateral, reading.minRate),
+            backing,
             price
         );
         if (collateralValueE36 <= peggedValueE36) {
@@ -1365,8 +1383,8 @@ contract Minter_v3 is
 
             _redeemLeveragedToken(leveragedIn, collateralOut, receiver);
 
-            // update our records
-            $.underlyingCollateral -= underlyingCollateralOutE36 / 1 ether;
+            // update our records - ceiled, so the record gives up at least what the holding did
+            $.underlyingCollateral -= Math.ceilDiv(underlyingCollateralOutE36, 1 ether);
         }
     }
 
@@ -1481,28 +1499,51 @@ contract Minter_v3 is
     // and fairly, where, say a large deposit is made in the face of a relatively small collateral balance or when fee boundaries
     // are placed closely together to create the correct incentives for investors.
 
-    /// @notice The recorded backing, recognised against the collateral actually standing behind it.
-    /// @dev The record is a collateral-token quantity, but what the contract holds is the wrapped token. An
-    /// impairment of the collateral lowers the wrapped-to-collateral rate, so the record comes to claim more
-    /// collateral than the holding converts to, and everything priced from it favours whoever leaves first: the
-    /// junior claim escapes the band that stops it being paid out of the senior claim's backing, the senior claim
-    /// redeems at face value on short cover, and the rebalance that would resolve it reads a ratio too high to
-    /// fire. Taking the lower of the two can never overstate.
+    /// @notice The recorded backing, as recorded.
+    /// @dev It is NOT compared against the wrapped collateral the contract holds. Doing so would decide, on
+    /// every read, that a fall in the wrapped-to-collateral rate is a real loss - and that is a judgement, not a
+    /// reading. A market may be collateralised by an asset whose value falls and recovers as a matter of course,
+    /// and only `recogniseImpairment` is entitled to say which has happened. Making the same judgement silently
+    /// here as well would put it in two places with two different permanences.
     ///
-    /// The min rate is the one that decides, whichever edge the operation itself prices at: the conservative
-    /// edge writes the record down hardest, so the band's width is never spent claiming cover that may not be
-    /// there. An operation must not substitute its own rate for it — valuing the backing at the max rate during a
-    /// pegged redemption would report more cover than is held and pay out against it.
-    /// @param underlyingCollateral_ The recorded backing.
+    /// What makes reporting an overstated record safe is `_requireRecordIsCovered`: nothing can act on it.
+    function _recordedBacking(MinterStorage storage $) private view returns (uint256 backing) {
+        backing = $.underlyingCollateral;
+    }
+
+    /// @notice The wrapped collateral held, converted to collateral tokens at the min rate.
+    /// @dev The one statement of what the holding stands up, read by the guard, by `recogniseImpairment` and by
+    /// `impairment()`, so the three cannot disagree about whether the record is covered.
     /// @param minRate The min wrapped-to-collateral rate.
-    function _effectiveBacking(uint256 underlyingCollateral_, uint256 minRate) private view returns (uint256 backing) {
-        backing = underlyingCollateral_;
-        uint256 held = MinterValuationLib.wrappedAsCollateral(
-            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)),
-            minRate
-        );
-        if (held < backing) {
-            backing = held;
+    function _heldAsCollateral(uint256 minRate) private view returns (uint256 held) {
+        held = MinterValuationLib.wrappedAsCollateral(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)), minRate);
+    }
+
+    /// @notice Refuses to act while the collateral record claims more collateral than the holding stands up.
+    /// @dev Every path that CHANGES the record passes through here; nothing that only reports does. A view that
+    /// marked itself down would be deciding, on every read, that a fallen rate is a real loss - the judgement
+    /// `recogniseImpairment` exists to make and the reason `_recordedBacking` reports what is recorded. So the
+    /// prices and ratios keep answering from the record, deliberately, and what protects the protocol is that
+    /// nothing can act on them until the holding covers the record again: because the rate recovers, or because
+    /// someone has said the shortfall is real.
+    ///
+    /// The MIN rate is not merely the conservative edge here, it is forced. `recogniseImpairment` measures at
+    /// the min rate and refuses when the record is not overstated, so reading the same edge makes this
+    /// condition and that one the SAME condition: this reverts exactly when recognition would succeed, and
+    /// never when recognition would refuse. Any other edge admits a market that is halted and cannot be
+    /// unhalted, or one that is recognisable while it goes on trading against a record nobody has stood behind.
+    /// The rate is the caller's own reading's, so the guard costs the entry point no second oracle read.
+    ///
+    /// A harvest needs no call to this: it pays out only what the holding exceeds the record by, so an
+    /// overstatement leaves it reporting nothing. A donation needs none either, though for a different reason -
+    /// it credits the record with exactly what the holding gains, so it can neither widen the shortfall nor
+    /// close it, and a halted market stays halted however much is donated to it.
+    /// @param backing The recorded backing.
+    /// @param minRate The min wrapped-to-collateral rate, from the caller's reading.
+    function _requireRecordIsCovered(uint256 backing, uint256 minRate) private view {
+        uint256 held = _heldAsCollateral(minRate);
+        if (backing > held) {
+            revert UnrecognisedImpairment(backing, held);
         }
     }
 
@@ -1538,7 +1579,8 @@ contract Minter_v3 is
     /// is the rebalance: the stability pool redeems there as the market's backstop, not by choice, so
     /// `_freeRedeemAmounts` pays it at the middle of both bands. The market's own measures - the collateral ratio,
     /// the token prices, the incentive bands, the leverage cap and the rebalance sizing - read the middle of the
-    /// price band, and the backing is always valued at the min rate (`_effectiveBacking`).
+    /// price band, and the backing is the record, compared against the holding at the min rate
+    /// (`_requireRecordIsCovered`).
     ///
     /// The readings are taken as the oracle gives them. It reverts when it cannot answer, and a zero it returns is
     /// data, passed on like any other value.

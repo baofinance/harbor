@@ -31,17 +31,25 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
-    /// Scale the reported rate down, which lowers the recognised backing without touching the
-    /// record — the impairment path, as distinct from starving the holding outright.
+    /// Scale the reported rate down and recognise the loss - the impairment path, as distinct from
+    /// starving the holding outright. Until it is recognised the market is halted.
     function _impair(uint256 dropBps) internal {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), (_rate() * (10_000 - dropBps)) / 10_000);
+        _recogniseImpairment();
     }
 
-    /// Open the standard market, then reduce what the Minter holds to `held` wei.
+    /// Open the standard market, then reduce what the Minter holds to `held` wei and recognise the loss.
     function _setUpMarketHolding(uint256 held) internal {
         setUp_collateral(100 ether, 40 ether);
         assertGt(IMinter(minter).peggedTokenBalance(), 0, "anchor must be outstanding for any of this to bite");
         deal(wrappedCollateralToken, minter, held);
+        _recogniseImpairment();
+    }
+
+    function _recogniseImpairment() internal {
+        vm.startPrank(owner());
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////

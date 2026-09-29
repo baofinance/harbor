@@ -70,8 +70,9 @@ interface IStabilityPoolManager_v2 {
     function stabilityPools() external view returns (address[] memory);
     function hasStabilityPool(address stabilityPool) external view returns (bool);
     function harvestable() external view returns (uint256);
-    /// @notice Whether a rebalance has something to repair: the collateral ratio is above the peg and below the
-    ///         rebalance threshold.
+    /// @notice Whether a rebalance would run and have something to repair: the collateral ratio is above the peg and
+    ///         below the rebalance threshold, and the minter is not halted by an unrecognised impairment
+    ///         (`IMinter_v3.impairment`), during which `rebalance` reverts.
     function rebalanceable() external view returns (bool);
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
@@ -95,7 +96,9 @@ interface IStabilityPoolManager_v2 {
     ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
     /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold,
     ///      `CollateralRatioNotAbovePeg` at or below the peg, and `InsufficientLiquidation` when both steps together
-    ///      take less than `minPeggedLiquidated`.
+    ///      take less than `minPeggedLiquidated`. While the minter's record of its backing overstates what it holds,
+    ///      the minter's own `IMinter_v3.UnrecognisedImpairment` is passed up unchanged: every redemption a rebalance
+    ///      makes is an update the minter refuses until the rate recovers or the impairment is recognised.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 

@@ -194,11 +194,11 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     ///      more.
     ///
     ///      Pricing the collateral is one of several ways to reach a collateral ratio, and a sweep that
-    ///      needs another - the recognised backing falling while the collateral's own price holds still -
+    ///      needs another - the backing written down while the collateral's own price holds still -
     ///      overrides this. They are not interchangeable: what a deposit is worth depends on the
-    ///      underlying price and on the wrapped-to-underlying rate, and the recognised backing depends on
-    ///      those AND on how much is still held, so the same collateral ratio reached different ways
-    ///      prices a deposit differently.
+    ///      underlying price and on the wrapped-to-underlying rate, and a backing written down to what
+    ///      is held depends on those AND on how much is still held, so the same collateral ratio
+    ///      reached different ways prices a deposit differently.
     function _setCollateralRatio(uint256 requested) internal virtual {
         currentPrice = (startPrice * requested) / START_COLLATERAL_RATIO;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);

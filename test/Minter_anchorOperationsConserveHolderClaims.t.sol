@@ -40,17 +40,18 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
     /// @dev Set what the reserve pool holds. The bonus a redeem asks for is capped to this balance
     ///      before it is requested, so the balance decides which case a run exercises: nothing at all
     ///      gives a bonus of zero, a little caps the bonus part way, and plenty leaves it uncapped.
-    ///      The pool sits outside the recognised backing, so its balance moves no price by itself.
+    ///      The pool sits outside the backing, so its balance moves no price by itself.
     function _fundReservePool(uint256 balance) private {
         deal(wrappedCollateralToken, reservePool, balance);
     }
 
     /// @dev Put the market at `targetRatio` with the rate scaled to `rateBps` of its starting level.
-    ///      The rate decides which figure the recognised backing comes from, so the range spans both:
-    ///      below its starting level the record is overstated and the held collateral binds, which is
-    ///      the impairment a price move cannot reach at any ratio; above it the collateral has accrued
-    ///      and the record binds instead. A range that stopped at the starting level would leave every
-    ///      run on the held branch and never price off the record at all.
+    ///      The rate decides which figure the backing comes from, so the range spans both: below its
+    ///      starting level the record overstates the holding, the helper recognises the impairment, and
+    ///      the held collateral is what the record is written down to - the impairment a price move
+    ///      cannot reach at any ratio; above it the collateral has accrued and the record stands as
+    ///      credited. A range that stopped at the starting level would leave every run on the held
+    ///      branch and never price off an unimpaired record at all.
     function _moveTo(uint256 targetRatio, uint256 rateBps) private {
         setCollateralRatioByRate(minter, priceOracle, targetRatio, (startingRate * rateBps) / 10_000);
     }
@@ -74,10 +75,9 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
         return backingValue - anchorValue;
     }
 
-    /// @dev A mint credits the record with a floored collateral amount while the held figure's own floor
-    ///      may carry, so the backing moves by the collateral paid in plus an error strictly inside one
-    ///      collateral wei either way; `min(record, held)` always moves between its two branches, so it
-    ///      inherits that. The anchor minted is short of exact by under one anchor wei. Valuing those:
+    /// @dev A mint credits the record with a floored collateral amount, so the backing moves by the
+    ///      collateral paid in less an error strictly inside one collateral wei; the bound allows the
+    ///      wei either way. The anchor minted is short of exact by under one anchor wei. Valuing those:
     ///      one collateral wei is `price`, one anchor wei is 1e18.
     function _mintResidualBounds() private view returns (uint256 upward, uint256 downward) {
         upward = _price() + 1 ether;

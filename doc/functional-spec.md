@@ -115,19 +115,26 @@ fixed wrapped holding is worth steadily more collateral token. The difference is
 surplus**: real, held, and belonging to no claim until harvested.
 
 The holding can also be worth *less* than the record, when the collateral itself is impaired and the
-conversion rate falls. Valuation therefore uses the **recognised backing** — the lower of the record
-and what the holding currently converts to — so the protocol can never price against cover it does
-not have. In normal operation the record is the lower of the two and recognition changes nothing; it
-binds only once the collateral is impaired, and it applies to views as much as to transactions.
+conversion rate falls. Harbor does not decide by itself that such a fall is a loss — a rate can dip
+and recover — so every price, ratio and fee band goes on reporting the **record**, and every
+operation that would update it is **refused** while the record exceeds what the holding converts to
+at the low edge of the oracle's rate band. That covers every mint and redeem, fee-paying and free,
+and so the rebalance; each reverts `UnrecognisedImpairment(recorded, held)`. The market is **halted,
+not repriced**, so nothing can act on cover it does not have. The halt lifts by itself if the rate
+recovers, or when the owner calls `recogniseImpairment()`, which writes the record down to the
+holding (§6.7, US-16). `impairment()` reports the two figures, so anyone can tell a halted market
+before sending a transaction. In normal operation the record is the lower of the two and none of
+this binds.
 
 The unit of account is doing deliberate work here. Were the backing measured in wrapped tokens, the
 collateral's yield would inflate it automatically; the anchor claim being fixed, all of that growth
 would fall to the sail token. Recording it in collateral tokens quarantines the yield instead, so
 harvesting can direct it to the stability-pool depositors backstopping the system (§5.7).
 
-Hence: the collateral ratio understates health by the unharvested surplus and can never overstate it
-(§6.3); a harvest is ratio-neutral; and correcting the backing after the collateral is impaired is a
-deliberate act, not an automatic one (§6.7, §9.12).
+Hence: while the record is covered the collateral ratio understates health by the unharvested
+surplus; while it is not, the ratio reports the record and nothing can act on it (§6.3); a harvest is
+ratio-neutral; and correcting the backing after the collateral is impaired is a deliberate act, not
+an automatic one (§6.7, §9.12).
 
 ### 2.2 The accounting identity
 
@@ -237,7 +244,7 @@ The reported price is, exactly:
 
 $$\text{anchor price} = \min\left(1,\ \text{collateral ratio}\right)$$
 
-Both getters read the same three inputs (the recognised backing, the mid price, the anchor supply)
+Both getters read the same three inputs (the recorded backing, the mid price, the anchor supply)
 and floor the same way, so this is an identity, not an approximation. **The anchor price is zero
 precisely when the reported collateral ratio is zero** — when the ratio underflows 18 decimal
 places. In contract units, with backing $B$ and anchor supply $Q$ both in wei and price $p$ scaled
@@ -253,7 +260,7 @@ nothing at all* against the outstanding claim, not merely less than it.
 For a representative market — 200,000 anchor tokens outstanding, collateral price 2000, rate 1.0,
 backed by 140 wrapped collateral tokens — the boundary is at **99 wei of wrapped collateral**:
 
-| Wrapped collateral held | Recognised backing | Collateral ratio | Anchor price |
+| Wrapped collateral held | Backing, once recognised | Collateral ratio | Anchor price |
 |---|---|---|---|
 | 140 × 10<sup>18</sup> (healthy) | 140 × 10<sup>18</sup> | 1.4 | 1.0 |
 | 100 wei | 100 wei | 1 wei (10<sup>-18</sup>) | 1 wei (10<sup>-18</sup>) |
@@ -265,10 +272,10 @@ price to floor to zero. No price crash reaches that; it is annihilation, not a d
 
 **Three routes reach it.** Only the third does not require the collateral to be genuinely gone:
 
-1. **The Minter's wrapped balance is zero or dust while anchor tokens are outstanding.** Because
-   the recognised backing is $\min(\text{record},\ \text{held} \times \text{rate})$, a zero *holding*
-   forces the backing to zero however healthy the *record* is. This is the state
-   `test_noBacking_freeAnchorMintIsRefusedByName` already builds in
+1. **The Minter's wrapped balance is zero or dust while anchor tokens are outstanding.** Until the
+   loss is recognised the market is halted and reports the record; recognised, the record is
+   written down to what is held, so a zero *holding* forces the backing to zero however healthy the
+   *record* was. This is the state `test_noBacking_freeAnchorMintIsRefusedByName` builds in
    `test/Minter_impairedBacking.t.sol`.
 2. **A wound-down market left holding dust on both sides** — a handful of wei of wrapped collateral
    against leftover anchor dust. The rounding is the same; the economic stake is negligible.
@@ -284,14 +291,12 @@ price (§6.8), so a zero it returns is the price, and `peggedTokenPrice()` repor
 makes the holding worth. The zero above is a *floor* of the Minter's own arithmetic, not an oracle
 fault.
 
-**Impairment recognition does not move this threshold.** `recogniseImpairment()` writes the record
-down to the recognised backing, which every valuation already used, so it is exactly price-neutral —
-verified at a 70% rate cut, where the anchor price is 0.42 both before and after the call. What did
-move the threshold is v2 → v3: `Minter_v2` valued the raw record, `Minter_v3` values
-$\min(\text{record},\ \text{held} \times \text{rate})$. Under an impairment that scales the rate to a
-fraction $f$, v3's reported price is $f$ times v2's, so v3 reaches zero at a record $1/f$ larger.
-The direction is deliberate and correct — the depressed price should engage sooner — but it means a
-market that reads non-zero under v2 can read zero under v3 with no change in state.
+**Recognising an impairment moves the price; a fall in the rate alone does not.** Until
+`recogniseImpairment()` is called the anchor price reports the record — at a 70% rate cut on the
+140-collateral market it still reads 1.0 — and the market is halted. Recognition writes the record
+down to what is held, and the price moves with it, to 0.42 in the same case. So `Minter_v3` reports
+what `Minter_v2` would until the owner recognises the loss; where it differs is in refusing to trade
+against the overstated record in the meantime.
 
 **Two resolutions, one floor.** The price the operations work from,
 `MinterValuationLib.peggedTokenPriceE36`, carries 18 more decimal places than the public getter. Where the
@@ -863,18 +868,26 @@ Acceptance criteria:
 **US-16 — Recognise a collateral impairment as permanent**
 
 > *As the owner, I want to write the protocol's record of its own backing down to what is actually
-> held, so that the collateral's yield resumes reaching the stability pools.*
+> held, so that a market halted by an impairment trades again, priced on what it holds.*
 
 Acceptance criteria:
-1. An owner-only operation lowers the recorded backing to the recognised backing (§2.1). It can only
-   ever **lower** it; no path raises the record without collateral arriving to justify it (US-21).
-2. Valuation does not wait for it. Prices, ratios, fee bands and the rebalance threshold already read
-   the recognised backing, so the call moves no price and unblocks no operation (§9.12).
-3. What it changes is the harvest. While the record is overstated `harvestable` is zero, so the
-   collateral's yield rebuilds the backing instead of reaching depositors; afterwards it is
+1. While the recorded backing exceeds what the holding converts to at the low edge of the oracle's
+   rate band, the market is **halted**: every mint and redeem, fee-paying and free, and so every
+   rebalance, reverts `UnrecognisedImpairment(recorded, held)`. Views and dry runs keep answering
+   from the record. `impairment()` reports the two figures (§2.1).
+2. The halt lifts by itself if the rate recovers, with nothing written down and no loss taken.
+3. An owner-only operation lowers the recorded backing to what is held (§2.1), and the halt lifts.
+   It can only ever **lower** the record; no path raises it without collateral arriving to justify
+   it (US-21). It succeeds exactly when the market is halted, and reverts `NothingToRecognise`
+   otherwise.
+4. Recognition moves the prices: from then on every price, ratio and fee band reads the written-down
+   record. It also resumes the harvest. While the record is overstated `harvestable` is zero, so the
+   collateral's yield rebuilds the holding instead of reaching depositors; afterwards it is
    distributable again (§6.3).
-4. Calling it is a judgement that the loss is **permanent**. No reading distinguishes a permanent loss
+5. Calling it is a judgement that the loss is **permanent**. No reading distinguishes a permanent loss
    from a fall that will reverse, so the protocol never makes that judgement for itself (§6.7).
+6. A donation (US-21) does not lift the halt: it raises the record and the holding alike, leaving the
+   shortfall where it was.
 
 ---
 
@@ -1577,12 +1590,12 @@ Two consequences are worth stating precisely, because they are counter-intuitive
 2. **A backlog drains slowly, by design.** Each call streams at most one reward period's capacity per
    pool; the rest stays owed. Recovery from a large backlog is by **waiting** across periods, not by
    harvesting more often. Calling repeatedly within a period achieves nothing.
-3. **An impaired collateral suspends harvesting entirely — and nothing else does.** The surplus is
-   the excess of the holding over the *recognised* backing, and once the collateral is impaired
-   recognition has already floored that figure to the holding, so `harvestable` is zero by
-   construction. Yield accruing meanwhile closes the gap back up to the record, restoring the sail
-   claim rather than paying depositors. Harvesting resumes when the owner writes the record down
-   (§6.7, US-16).
+3. **An impaired collateral suspends harvesting entirely.** The surplus is the excess of the holding
+   over the record, and once the collateral is impaired the holding is below the record, so
+   `harvestable` is zero by construction — the mirror of `impairment()`, and never non-zero at the
+   same time. Yield accruing meanwhile closes the gap back up to the record, lifting the market's
+   halt rather than paying depositors. Harvesting resumes when the holding exceeds the record again:
+   through that recovery, or once the owner writes the record down (§6.7, US-16).
 
    Only an impairment can do this. The record moves by the collateral that actually moved (A6), so
    trading — however much of it, and however finely divided — leaves no shortfall of its own for
@@ -1672,13 +1685,15 @@ harvesting distributes.
 because the collateral is itself a volatile claim. Three mechanisms respond, and they are deliberately
 separated:
 
-- **Valuation corrects itself immediately.** Every price, ratio and fee band reads the recognised
-  backing (§2.1), so a fallen rate is reflected on the next call with nothing done and nobody called.
-  The rebalance becomes available at the same instant, its threshold being read from that same figure,
-  unless the fall has taken the ratio to or below the peg.
+- **The market halts immediately.** Once the holding no longer covers the record, every update —
+  every mint and redeem, and so the rebalance — reverts `UnrecognisedImpairment` on the next call, with
+  nothing done and nobody called (§2.1). Prices, ratios and fee bands go on reporting the record, and
+  `impairment()` and the manager's `rebalanceable()` say the market is halted. The halt lifts by itself
+  if the rate recovers.
 - The harvest's owed ledger is **written down proportionally** if the surplus shrinks below what is
   already owed, so it never claims more than the protocol holds.
-- **The record itself is corrected only by the owner** (US-16), and only downwards.
+- **The record itself is corrected only by the owner** (US-16), and only downwards. That ends the halt,
+  and from then on the market is priced on what it holds.
 
 The last is deliberate, and the reason is that a falling rate does not mean the same thing for every
 collateral. A vault share price that only rises makes a fall strong evidence of a real loss; but a
@@ -1686,7 +1701,13 @@ market may equally be collateralised by another market's sail token, whose price
 with leverage as ordinary behaviour. Writing the record down automatically would make every such fall
 permanent, transferring value from sail holders to depositors on movements that reverse. Since no
 reading distinguishes the two cases, the judgement is left to the owner and the protocol carries the
-cost of waiting: suspended harvesting, visible in `harvestable` reading zero while collateral is held.
+cost of waiting: a halted market, visible in `impairment()`, with harvesting suspended alongside.
+
+The halt is the price of not guessing. Letting the market trade on the overstated record would pay
+departing users out of cover that is not there, and the stability pools, which cannot decline a
+rebalance, would absorb an impairment nobody had recognised. Marking the record down on every read
+would make the owner's judgement silently, and permanently for anyone who traded in between. Halting
+decides nothing, and fails visibly until either the rate or the owner settles it.
 
 ### 6.8 Price feed maintenance (external)
 
@@ -2005,7 +2026,7 @@ very different assurance.
 | **A4** | Sail token supply equals exactly what the protocol minted. | By construction — the protocol is the only minter and burner |
 | **A5** | Rounding always favours the protocol: a mint never mints more than the exact formula, a redeem never returns more. | By check — verified per band slice, not merely in aggregate |
 | **A7** | No sail token is minted below the leverage floor `MINIMUM_COLLATERAL_RATIO`, on any route, except the first of a market with no sail supply. | By check — every route refuses with `LeverageAboveCap`, judged at the middle price on the state before the trade |
-| **A6** | The **recorded** backing never exceeds the collateral actually held, converted at the current rate — and neither does the recognised figure everything is priced from. | By check — every mint credits the record with the collateral that arrived, and every redeem debits it with the collateral that left, through the same conversion the holding is valued by |
+| **A6** | No operation **creates** a shortfall of the holding under the **recorded** backing, and none **acts** on one. Trading never takes the record above the collateral held; a fall in the rate can, and while it does every updating operation reverts `UnrecognisedImpairment`, until the rate recovers or the owner recognises the loss. | By check — every mint credits the record with the collateral that arrived, and every redeem debits it with the collateral that left, through the same conversion the holding is valued by; and every updater compares the record with the holding at the low edge of the rate band before acting |
 
 **A2 is the strongest claim in the document** and deserves emphasis: this is exact conservation, not
 conservation within a tolerance. Every unit of wrapped collateral that leaves one party arrives at
@@ -2356,7 +2377,7 @@ the validation lives in the code being replaced. Three specific powers are worth
 | Power | Effect |
 |---|---|
 | Replace any implementation | Unbounded — supersedes every guarantee in this document |
-| `recogniseImpairment()` the recorded backing | One-directional — it can only write backing **down**, to what is held, and no owner path writes it up. What the owner controls is the *timing*: the call moves no price, but it switches the collateral's future yield from restoring the sail claim to paying depositors. That is a transfer between two groups of users, bounded by the shortfall and visible in `harvestable` |
+| `recogniseImpairment()` the recorded backing | One-directional — it can only write backing **down**, to what is held, and no owner path writes it up. What the owner controls is the *timing*: until the call the market is halted, and the collateral's yield closes the shortfall; after it, the market trades at prices that include the loss and later yield pays depositors. Delay costs availability, not value, and is visible in `impairment()` |
 | Register a yield vault | Adds a contract that is called after every rebalance and harvest |
 
 **Residual risk. This is the system's root trust assumption, and it is not reducible by design** —
@@ -2381,29 +2402,35 @@ forwarded gas can still make the enclosing call expensive. The primary defence i
 **The attempt.** Transact in the window between the collateral being impaired and the protocol
 recognising it, while the recorded backing still overstates what is held.
 
-**Why there is no window.** The recorded backing is never what the protocol prices against. Every
-price, ratio and fee band reads the **recognised backing** — the lower of the record and what the
-holding converts to at the current rate (§2.1, A6) — so a fallen rate corrects the anchor price, the
-sail price, the collateral ratio, all four fee schedules and the rebalance threshold on the very next
-call. No transaction, keeper or governance action stands between the impairment and the correction.
+**Why there is no window.** The window exists — the prices overstate throughout it — but nothing can
+trade in it. From the first call after the rate falls, every operation that would act on the
+overstated record reverts `UnrecognisedImpairment(recorded, held)`: every anchor and sail mint and
+redeem, fee-paying and free, and so every rebalance (§2.1, A6). No transaction, keeper or governance
+action has to stand between the impairment and the halt. An anchor redemption cannot be paid par on
+short backing, a sail redemption cannot escape the disallow band the true ratio would put it in, and
+the stability pools cannot be made to rebalance at the wrong price.
 
-Recognition reaching **views** is what closes the last of it. The rebalance threshold is read by the
-StabilityPoolManager from `collateralRatio()`, so the rebalance becomes available at the same instant
-rather than staying dormant behind a stale figure. In particular: sail redemption meets its disallow
-band at the true ratio, anchor redemption prices against what remains rather than paying par on short
-backing, and anchor minting is priced from the band the true ratio selects.
+The comparison uses the **low edge** of the oracle's rate band, the same edge recognition uses. So the
+market is halted exactly when recognition would succeed, and a wide band alone never halts a covered
+market.
+
+**What the views say meanwhile.** Prices, ratios and fee bands report the record, deliberately: marking
+them down would decide that the fall is a loss, which is the owner's judgement. They cannot be traded
+against, and `impairment()` reports the recorded and held figures, so a front end, an aggregator or a
+keeper can see that the market is halted. The manager's `rebalanceable()` reads it and reports false.
+
+**How it ends.** Either the rate recovers, and the halt lifts with nothing written down and no loss
+taken; or the owner calls `recogniseImpairment()` (§6.7, US-16), the record is written down to what is
+held, and the market trades again at prices that now include the loss.
 
 **What is not affected.** The wrapped-to-collateral conversion stays correct — a fallen rate means a
-redeemer receives more wrapped tokens per unit of value, which is right. The error recognition removes
-was confined to valuing the backing, never to converting it.
+redeemer receives more wrapped tokens per unit of value, which is right.
 
-**Residual risk — income, not extraction.** Recognition does not alter the record, and the record is
-written down only by `recogniseImpairment()` (§6.7, US-16). Until that is called `harvestable` is
-zero, so the collateral's yield rebuilds the backing instead of reaching the stability pools —
-restoring the sail claim at depositors' expense (§6.3). What is at stake in that window is the
-*timing of a transfer between two groups of users*, bounded by the shortfall; nothing can be
-extracted, because every price is honest throughout. The condition is externally observable:
-`harvestable` reads zero while wrapped collateral is held.
+**Residual risk — availability, not extraction.** While halted, nobody can mint, redeem or rebalance,
+and `harvestable` is zero, so the collateral's yield closes the shortfall instead of reaching the
+stability pools. What is at stake is how long the owner takes to judge; nothing can be extracted,
+because nothing can trade against the overstated figures. The condition is externally observable in
+`impairment()`.
 
 All of this assumes the impairment shows up in the reported wrapped-to-collateral rate. A collateral
 that socialised a loss without moving that rate would not be detectable on-chain at all.
@@ -2450,7 +2477,7 @@ in-protocol mechanism addresses.
 | Reward-integral overflow | Capped and deferred, floor bounds the divisor | Deferral latency only |
 | Hostile governance | Config validation; **upgrade unbounded** | **Root trust assumption** |
 | Vault griefing | Failures isolated; registration owner-gated | Gas exhaustion; folds into governance trust |
-| Collateral slashing | Recognition on read — every price, band and threshold values the lower of the record and the holding; plus proportional owed write-down | Harvesting suspended until the owner writes the record down: depositors' income, not extractable value |
+| Collateral slashing | Halt — every mint, redeem and rebalance reverts `UnrecognisedImpairment` while the record exceeds the holding; plus proportional owed write-down | **Availability** — the market is halted, and harvesting suspended, until the rate recovers or the owner writes the record down; not extractable value |
 | Rebase vs allowance | Documented semantics | Integrator error |
 | Keeper absence | Bounties denominated in released assets | Inability to transact at all |
 
@@ -2458,10 +2485,10 @@ The single row in bold type is the one carried operationally rather than by the 
 authority** cannot be engineered away; every other defence here is conditional on it.
 
 One residual is worth distinguishing from the rest, because it reads like an open vector and is not.
-After a collateral impairment, harvesting is suspended until the owner recognises the loss. That
-withholds income from stability-pool depositors and hands the collateral's yield to sail holders for
-as long as it lasts — but it is a transfer between users, visible in `harvestable`, and no party can
-trade against it, because recognition has already corrected every price. It is deliberately not
+After a collateral impairment, the market is halted and harvesting suspended until the rate recovers
+or the owner recognises the loss. That withholds income from stability-pool depositors and stops
+every user trading for as long as it lasts — but it is visible in `impairment()`, and no party can
+trade against the overstated figures, because nothing trades at all. Recognition is deliberately not
 automated: no on-chain reading distinguishes a permanent loss from a fall that will reverse, and a
 market may be collateralised by an asset whose price does exactly that as a matter of course (§6.7).
 
@@ -2476,7 +2503,8 @@ commonest way to misread the system, so they are kept apart here:
   axis moves continuously with the collateral price and with user activity, and nobody controls it
   directly.
 - **Availability** — whether the market can transact at all. This axis moves in discrete steps, and
-  is driven by the price feed or by governance, not by the collateral ratio.
+  is driven by the price feed, by an unrecognised impairment of the collateral, or by governance, not
+  by the collateral ratio.
 
 A market is always in exactly one health state and, independently, either available, halted or
 paused. "Depegged **and** halted" is a real and particularly awkward combination (§10.8).
@@ -2612,6 +2640,23 @@ Depositors therefore keep access to their positions throughout. Solvency is unto
 transact at an unknown price is what preserves it — but liveness is lost, and the loss includes
 rebalancing.
 
+#### Halted by an unrecognised impairment
+
+The Minter halts itself for a second reason: the wrapped-to-collateral rate has fallen far enough
+that the holding, valued at the low edge of the rate band, no longer covers the recorded backing
+(§2.1, §9.12). Every operation that would update the record reverts `UnrecognisedImpairment(recorded,
+held)`.
+
+| | |
+|---|---|
+| **Unavailable** | Minting and redeeming either token, fee-paying or free; rebalancing; harvesting yields nothing |
+| **Still available** | Every view and dry run, answering from the record; donation; stability-pool deposit, withdrawal, reward claim |
+| **Seen in** | `impairment()` reports `recorded > held`; the manager's `rebalanceable()` reports false |
+| **Clears** | By itself if the rate recovers; or when the owner calls `recogniseImpairment()`, writing the record down to the holding |
+
+It overlaps with the health axis the way a failed feed does: the collateral ratio goes on reporting
+the record, so a market can read Rebalanceable while no rebalance can run.
+
 ### 10.8 The dangerous overlap
 
 **Halted while the collateral ratio is falling** is the combination that deserves naming. Rebalancing
@@ -2667,7 +2712,7 @@ document, the section is given.
 | Term | Meaning |
 |---|---|
 | **Collateral ratio** | Collateral value ÷ anchor token value. The system's health metric, computed from the *recognised* backing rather than the balance held (§2.3, §6.3) |
-| **Recognised backing** | The lower of the recorded backing and what the wrapped holding currently converts to. Every price, ratio and fee band is computed from it, so the protocol never prices against cover it does not hold (§2.1, A6) |
+| **Unrecognised impairment** | The recorded backing exceeding what the wrapped holding converts to at the low edge of the rate band, after the rate has fallen. Every price, ratio and fee band goes on reporting the record, and every updating operation reverts `UnrecognisedImpairment` until the rate recovers or the owner recognises the loss. Reported by `impairment()` (§2.1, A6, §10.7) |
 | **Leverage ratio** | Collateral value ÷ sail token value. Rises without bound as the collateral ratio approaches 1, and is reported uncapped (§2.3) |
 | **Leverage cap** | `MAX_LEVERAGE_RATIO`: the most leverage the protocol will mint sail at. Caps minting only — never redeeming, never the reported ratio (§2.3) |
 | **Leverage floor** | `MINIMUM_COLLATERAL_RATIO`, `K/(K−1)` for a cap `K`: the collateral ratio below which no sail is minted and a rebalance pays both pools in collateral (§2.3, §5.6) |
@@ -2701,7 +2746,7 @@ document, the section is given.
 | **Liquidation** | The pool's side of a rebalance: anchor tokens are exchanged for the payout asset the manager names, at the middle of the price band and zero fee, and the proceeds credited immediately. Not a seizure — see §2.6 (§2.7) |
 | **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
 | **Genesis** | The bootstrap phase before a market opens (§5.1, §10.2) |
-| **Recognise an impairment** | Writing the recorded backing down to what is held, after a collateral impairment. Owner-only, one-directional, and deliberately not automated. It moves no price — only who receives the collateral's future yield (§6.7, US-16) |
+| **Recognise an impairment** | Writing the recorded backing down to what is held, after a collateral impairment. Owner-only, one-directional, and deliberately not automated. It ends the halt, moves every price to what is held, and resumes the harvest (§6.7, US-16) |
 | **Dry run** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount (US-2) |
 
 ### Structural

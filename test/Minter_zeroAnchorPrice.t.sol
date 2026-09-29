@@ -43,13 +43,25 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
-    /// Open the standard market, then reduce what the Minter actually holds to `held` wei. The
-    /// recognised backing is the lower of the record and the holding, so this drives the backing
-    /// without touching the record.
+    /// Open the standard market, then reduce what the Minter actually holds to `held` wei and recognise
+    /// the loss, so the record says so too. Until it is recognised the market is halted and reports the
+    /// record; recognised, the backing is the holding and the market trades against it.
     function _setUpMarketHolding(uint256 held) private {
         setUp_collateral(100 ether, 40 ether);
         assertGt(IMinter(minter).peggedTokenBalance(), 0, "anchor must be outstanding for any of this to bite");
         deal(wrappedCollateralToken, minter, held);
+        _recogniseImpairmentIfThereIsAny();
+    }
+
+    /// Recognise where the holding has fallen below the record; a holding at or above it leaves
+    /// nothing to recognise.
+    function _recogniseImpairmentIfThereIsAny() private {
+        (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+        if (recorded > held) {
+            vm.startPrank(owner());
+            IMinter_v3(minter).recogniseImpairment();
+            vm.stopPrank();
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -63,6 +75,7 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         setUp_collateral(100 ether, 40 ether);
         held = bound(held, 0, 1_000 ether);
         deal(wrappedCollateralToken, minter, held);
+        _recogniseImpairmentIfThereIsAny();
 
         assertEq(
             IMinter(minter).peggedTokenPrice(),
@@ -82,17 +95,20 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
     /// The boundary is a single wei of holding. Below it the ratio underflows 18 decimal places and
     /// both the ratio and the price floor to zero; at it, both report their smallest non-zero value.
     function test_anchorPriceIsZeroBelowOneWeiOfCollateralRatio() public {
+        uint256 snapshot = vm.snapshotState();
         _setUpMarketHolding(_LAST_ZERO_HOLDING);
         assertEq(IMinter(minter).collateralRatio(), 0, "the ratio underflows to zero");
         assertEq(IMinter(minter).peggedTokenPrice(), 0, "so the anchor price is zero");
+        // a recognised record does not rise with the holding, so the other side is a market of its own
+        vm.revertToStateAndDelete(snapshot);
 
-        deal(wrappedCollateralToken, minter, _FIRST_NON_ZERO_HOLDING);
+        _setUpMarketHolding(_FIRST_NON_ZERO_HOLDING);
         assertEq(IMinter(minter).collateralRatio(), 1, "one wei more and the ratio is representable");
         assertEq(IMinter(minter).peggedTokenPrice(), 1, "and so is the price");
     }
 
-    /// The recognised backing is the lower of the record and what is held, so a holding of nothing
-    /// forces the backing to nothing however healthy the record is — and the price with it.
+    /// Recognised, a holding of nothing writes the backing to nothing however healthy the record was —
+    /// and the price with it.
     function test_anchorPriceIsZeroWhenNothingIsHeld() public {
         _setUpMarketHolding(0);
         assertEq(IMinter(minter).collateralTokenBalance(), 0, "no collateral stands behind the claim");
@@ -114,21 +130,31 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenPrice(), 0, "yet the anchor price reads zero");
     }
 
-    /// Recognising an impairment writes the record down to the backing every valuation already
-    /// used, so it is exactly price-neutral. What moved this threshold was v2 to v3 adopting the
-    /// recognised backing in the getters, not the act of recognising one.
-    function test_recognisingImpairmentDoesNotMoveTheAnchorPrice() public {
+    /// The anchor price reports the record until an impairment is recognised, and recognising it is
+    /// what moves the price - to the holding's share. A fall in the rate alone moves nothing: deciding
+    /// it is a real loss is the owner's judgement, and until then the market is halted rather than
+    /// repriced.
+    function test_recognisingImpairmentMovesTheAnchorPriceToWhatIsHeld() public {
         setUp_collateral(100 ether, 40 ether);
+        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), (_rate() * 3_000) / 10_000);
 
-        uint256 priceBefore = IMinter(minter).peggedTokenPrice();
-        assertGt(priceBefore, 0, "the market is impaired but still worth something");
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "the record still covers the anchor at par");
 
         vm.startPrank(owner());
         IMinter_v3(minter).recogniseImpairment();
         vm.stopPrank();
 
-        assertEq(IMinter(minter).peggedTokenPrice(), priceBefore, "recognising it moves no price");
+        uint256 heldValue = Math.mulDiv(
+            Math.mulDiv(IERC20(wrappedCollateralToken).balanceOf(minter), _rate(), 1 ether),
+            _price(),
+            1 ether
+        );
+        assertEq(
+            IMinter(minter).peggedTokenPrice(),
+            Math.mulDiv(heldValue, 1 ether, anchorClaims),
+            "recognised, the anchor is priced at its share of what is held"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////

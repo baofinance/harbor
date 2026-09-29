@@ -21,8 +21,10 @@ contract MinterSlashTest is TestMinterSetUp {
     }
 
     /// A rate rise is yield: it becomes harvestable, and moves neither the backing nor any price.
-    /// A rate fall past that surplus is a loss: it is recognised immediately, without anyone acting.
-    function test_slash_isRecognisedWithoutIntervention() public {
+    /// A rate fall past that surplus takes effect at once, without anyone acting: the market halts. The views
+    /// go on reporting the record, because deciding the fall is a real loss is the owner's call, and every
+    /// update refuses until that call is made - which is when the ratio falls to what is held.
+    function test_slash_haltsTheMarketWithoutIntervention() public {
         (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         setUp_collateral(100 ether, 40 ether); // CR = 140%
@@ -38,20 +40,41 @@ contract MinterSlashTest is TestMinterSetUp {
         assertEq(IMinter(minter).leverageRatio(), 3.5 ether, "yield does not move leverage");
         assertEq(IMinter(minter).harvestable(), 1386138613861386139, "yield is harvestable");
 
-        // a 10% fall, far past the 1% surplus: a real loss
+        // a 10% fall, far past the 1% surplus
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, (rate * 9) / 10);
 
-        assertEq(IMinter(minter).collateralRatio(), 1.26 ether, "the loss is recognised at once");
-        assertEq(IMinter(minter).leverageRatio(), 4846153846153846153, "leverage rises as cover falls");
+        assertEq(IMinter(minter).collateralRatio(), 1.4 ether, "the ratio reports the record");
         assertEq(IMinter(minter).harvestable(), 0, "a shortfall is not a surplus");
+        (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+        assertEq(held, 126 ether, "the holding is worth 126 at the fallen rate");
+        assertEq(recorded, 140 ether, "against a record of 140");
+
+        deal(wrappedCollateralToken, zeroFee, 1 ether);
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.UnrecognisedImpairment.selector, recorded, held));
+        IMinter(minter).mintPeggedToken(1 ether, zeroFee, 0);
+        vm.stopPrank();
+
+        // the owner judges it a real loss
+        vm.startPrank(owner());
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
+
+        assertEq(IMinter(minter).collateralRatio(), 1.26 ether, "recognised, the ratio falls to what is held");
+        assertEq(IMinter(minter).leverageRatio(), 4846153846153846153, "leverage rises as cover falls");
     }
 
-    /// Collateral given as backing raises the ratio, and is credited at exactly what it is worth.
+    /// Collateral given as backing raises the ratio, and is credited at exactly what it is worth. Given after a
+    /// loss has been recognised, it makes the ratio whole again.
     function test_donateWrappedCollateral_restoresTheRatio() public {
         (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(100 ether, 40 ether);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, (rate * 9) / 10);
+        vm.startPrank(owner());
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
         assertEq(IMinter(minter).collateralRatio(), 1.26 ether, "loss recognised");
 
         // the shortfall is 14 collateral tokens; at the reduced rate that is 14/0.9 wrapped

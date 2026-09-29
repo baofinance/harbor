@@ -159,6 +159,13 @@ interface IMinter_v3 is IToken {
     /// @dev Thrown when recognising an impairment would change nothing, the record not exceeding the holding.
     error NothingToRecognise(uint256 backing);
 
+    /// @dev Thrown when an operation would act on a collateral record that claims more than the holding stands up,
+    /// the difference not having been recognised. Reports what is recorded and what is held, both in collateral
+    /// tokens at the conservative rate, and says nothing about why they differ - whether the shortfall is a
+    /// permanent loss or a dip that will reverse is the judgement `recogniseImpairment` exists to make, and that
+    /// call, or the rate recovering, is what clears this.
+    error UnrecognisedImpairment(uint256 recorded, uint256 held);
+
     /// @dev Thrown where a leveraged mint is refused because the market's collateral ratio is below the
     /// floor at which the leverage sold would exceed the cap: `beta = CR/(CR-1)`, so a cap `K` is the floor
     /// `K/(K-1)`. Reports the ratio the sale was priced at and the floor it needed, so a caller turned away
@@ -475,6 +482,19 @@ interface IMinter_v3 is IToken {
     /// @return wrappedAmount the amount of wrapped collateral that can be distributed as rewards.
     function harvestable() external view returns (uint256 wrappedAmount);
 
+    /// @notice The recorded backing and what the holding converts to, the two figures every updating call compares.
+    /// @dev The market is impaired, and every updating call reverts `UnrecognisedImpairment`, exactly when
+    /// `recorded > held`; that lasts until the rate recovers or `recogniseImpairment` writes the record down.
+    /// The holding is valued at the min rate, the one recognition uses, so this reports an impairment exactly
+    /// when recognition would succeed.
+    ///
+    /// The mirror of `harvestable`: that is the holding's surplus over the record, in wrapped tokens; this exposes
+    /// its shortfall under it, in collateral tokens. The two are never both non-zero, and both are zero when the
+    /// holding exactly covers the record.
+    /// @return recorded The recorded backing, in collateral tokens.
+    /// @return held The wrapped collateral held, converted to collateral tokens at the min rate.
+    function impairment() external view returns (uint256 recorded, uint256 held);
+
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -566,11 +586,11 @@ interface IMinter_v3 is IToken {
     /// @dev One-directional: it can only lower the record. Raising it requires collateral to arrive, which is
     /// `donateWrappedCollateral`.
     ///
-    /// This moves no price and unblocks no operation. Every price, ratio and fee band already values the backing
-    /// at the lower of the record and what the holding converts to, so an impairment is priced correctly from the
-    /// moment the rate falls, with no call needed. What this changes is the harvest: while the record stands above
-    /// the holding there is no surplus, so `harvestable` is zero and the collateral's yield closes the gap —
-    /// restoring the leveraged claim instead of reaching the stability pools. Writing the record down ends that.
+    /// While the record stands above the holding the market is halted: every price, ratio and fee band reports the
+    /// record, and every updating call reverts `UnrecognisedImpairment`. This ends the halt by making the record
+    /// true, and from then on everything is priced from what is held. It also ends the harvest's suspension: with
+    /// the record above the holding there is no surplus, so `harvestable` is zero; written down, later yield is a
+    /// surplus again and reaches the stability pools.
     ///
     /// Owner-gated because it is a judgement, not a reading. A fall in the rate does not say whether the loss is
     /// permanent: a market may be collateralised by an asset whose value falls and recovers as a matter of course,

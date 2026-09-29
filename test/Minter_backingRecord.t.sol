@@ -39,9 +39,8 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
-    /// The record itself, read from storage. The getters all report the RECOGNISED backing — the lower
-    /// of the record and the holding — which by construction can never exceed the holding, so it
-    /// cannot show whether the record has drifted above it.
+    /// The record itself, read from storage rather than through a getter, so that what the getters report
+    /// can be checked against it instead of being taken as it.
     function _recordedBacking() private view returns (uint256) {
         return uint256(vm.load(minter, bytes32(uint256(_MINTER_STORAGE) + 1)));
     }

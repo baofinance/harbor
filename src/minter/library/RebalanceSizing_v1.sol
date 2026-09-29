@@ -115,38 +115,39 @@ library RebalanceSizing_v1 {
         if (targetCollateralRatio <= currentCollateralRatio) {
             return (0, 0);
         }
+        // Redeeming `a` for collateral at par takes `a` of the pegged claim and `a / price` of the backing, landing the
+        // ratio at `(c·p − a)/(n − a)`; converting `b` into leveraged takes `b` of the claim and none of the backing,
+        // landing it at `c·p/(n − b)`. Solved for the target: `a = (T·n − c·p)/(T − 1)` and `b = (T·n − c·p)/T`. The
+        // redemption must REACH the target as `collateralRatio()` reports it afterwards, not stop a fraction short,
+        // because a caller acts on that report - a rebalance whose target is the floor below which no leverage is sold
+        // cannot take its next step from a hair beneath it. Two roundings could leave it short, and each is allowed
+        // for:
+        //   - the amount's own: each quotient is rounded UP;
+        //   - the backing's: the record is debited the collateral paid out rounded UP, so that it never claims
+        //     collateral the holding no longer has, and that can take it one wei further than the collateral paid.
+        //     BOTH intercepts are sized against one wei less backing - `c·p − p` - so every point on the line between
+        //     them carries the whole allowance: a trade that splits between the legs debits the record as a
+        //     collateral-only one does, and a line whose leveraged end lacked the allowance would give it only its
+        //     collateral share of it.
+        // targetCR > currentCR, so T·n > c·p and the subtraction is safe
+        uint256 numerator;
+        unchecked {
+            numerator = targetCollateralRatio * peggedTokenBalance - collateralTokenBalance * price + price;
+        }
         if (currentCollateralRatio < 1 ether) {
             // we're depegged, so all we can do is redeem them all
             fullCollateral = peggedTokenBalance;
         } else {
-            // Redeeming `a` at par takes `a` of the pegged claim and `a / price` of the backing, landing the ratio at
-            // `(c·p − a)/(n − a)`; solved for the target, `a = (T·n − c·p)/(T − 1)`. The redemption must REACH the
-            // target as `collateralRatio()` reports it afterwards, not stop a fraction short, because a caller acts on
-            // that report - a rebalance whose target is the floor below which no leverage is sold cannot take its
-            // next step from a hair beneath it. Two roundings could leave it short, and each is allowed for:
-            //   - the amount's own: the quotient is rounded UP;
-            //   - the backing's: where the held collateral decides the backing, it is a wrapped balance valued at a
-            //     rounded-down rate, and debiting whole wrapped tokens can take its valuation one wei further than the
-            //     collateral paid out. Sized against one wei less backing - `c·p − p` - the trade reaches the target
-            //     however that wei falls.
-            // Every other rounding in the redemption favours the market: the record is debited a rounded-down amount,
-            // and the payout, priced at the same middle of the band, converts into wrapped tokens at a rate no lower
-            // than the one the backing is valued at.
-            // targetCR > currentCR >= 1 ether so the numerator and denominator subtractions are both safe
-            unchecked {
-                fullCollateral = Math.ceilDiv(
-                    targetCollateralRatio * peggedTokenBalance - collateralTokenBalance * price + price,
-                    targetCollateralRatio - 1 ether
-                );
-            }
-            // No more pegged can be redeemed than is outstanding; redeeming all of it empties the market.
-            if (fullCollateral > peggedTokenBalance) {
-                fullCollateral = peggedTokenBalance;
-            }
+            // targetCR > currentCR >= 1 ether, so the denominator is positive
+            fullCollateral = Math.ceilDiv(numerator, targetCollateralRatio - 1 ether);
         }
-        // targetCR > currentCR so peggedBalance > collateral * price / targetCR (subtraction safe)
-        unchecked {
-            fullLeveraged = peggedTokenBalance - Math.mulDiv(collateralTokenBalance, price, targetCollateralRatio);
+        fullLeveraged = Math.ceilDiv(numerator, targetCollateralRatio);
+        // No more pegged can be redeemed than is outstanding; redeeming all of it empties the market.
+        if (fullCollateral > peggedTokenBalance) {
+            fullCollateral = peggedTokenBalance;
+        }
+        if (fullLeveraged > peggedTokenBalance) {
+            fullLeveraged = peggedTokenBalance;
         }
     }
 }
