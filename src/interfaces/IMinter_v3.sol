@@ -479,6 +479,9 @@ interface IMinter_v3 is IToken {
         );
 
     /// @notice Returns value accrued, and thus harvestable, by holding wrapped collateral tokens as opposed to underlying
+    /// @dev The holding's surplus over the recorded backing, valued at the min rate. The wrapped the record needs is
+    /// rounded up, so sweeping all of this leaves the holding still covering the record: a harvest can never leave the
+    /// market halted by `UnrecognisedImpairment`.
     /// @return wrappedAmount the amount of wrapped collateral that can be distributed as rewards.
     function harvestable() external view returns (uint256 wrappedAmount);
 

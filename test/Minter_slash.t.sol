@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Token} from "@bao/Token.sol";
 
@@ -38,7 +39,13 @@ contract MinterSlashTest is TestMinterSetUp {
 
         assertEq(IMinter(minter).collateralRatio(), 1.4 ether, "yield does not move the ratio");
         assertEq(IMinter(minter).leverageRatio(), 3.5 ether, "yield does not move leverage");
-        assertEq(IMinter(minter).harvestable(), 1386138613861386139, "yield is harvestable");
+        // The 140 wrapped held, less what the record of 140 collateral needs at the risen rate - that need rounded up,
+        // so a harvest of all of it leaves the record covered.
+        assertEq(
+            IMinter(minter).harvestable(),
+            140 ether - Math.ceilDiv(140 ether * 1 ether, (rate * 101) / 100),
+            "yield is harvestable"
+        );
 
         // a 10% fall, far past the 1% surplus
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, (rate * 9) / 10);

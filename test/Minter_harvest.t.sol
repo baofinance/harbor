@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 //import { Test } from "forge-std/Test.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
@@ -106,11 +107,13 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         // the sweep starts at the smallest non-zero rate: a zero rate is an oracle fault, which the Minter rejects
         for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
+            // The surplus over the wrapped the record needs, that need rounded UP: what a harvest leaves behind must
+            // still cover the record once converted back at the rate, and that conversion rounds down.
             uint256 expectedHarvestable = 0;
             if (r > startRate) {
                 uint256 heldValue = wrappedCollateral;
-                uint256 accountingValue = (collateral * 1e18) / r;
-                expectedHarvestable = heldValue - accountingValue;
+                uint256 accountingValue = Math.ceilDiv(collateral * 1e18, r);
+                expectedHarvestable = heldValue > accountingValue ? heldValue - accountingValue : 0;
             }
             assertEq(
                 IMinter(minter).harvestable(), // 0.699482885940368019
@@ -139,9 +142,10 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
             uint256 wrappedCollateral = IERC20(wrappedCollateralToken).balanceOf(minter);
 
+            // The surplus over the wrapped the record needs, that need rounded UP, as above.
             uint256 expectedHarvestable = 0;
             if (r > 0) {
-                uint256 accountingValue = (collateral * 1e18) / r;
+                uint256 accountingValue = Math.ceilDiv(collateral * 1e18, r);
                 if (wrappedCollateral > accountingValue) {
                     expectedHarvestable = wrappedCollateral - accountingValue;
                 }

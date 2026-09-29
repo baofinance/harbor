@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
@@ -1091,6 +1092,27 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
 
         assertFalse(_recordOverstatesTheHolding(), "the redeem left the record above the holding");
+    }
+
+    /// A harvest takes only what the holding exceeds the record by, so sweeping ALL of `harvestable()` - which the
+    /// manager does whenever every share is streamed - leaves the holding still covering the record. Were the wrapped
+    /// the record needs rounded down, the harvest itself would leave it a wei uncovered and halt the market until
+    /// the owner recognised a loss nobody suffered. The market is founded at one fuzzed rate and the yield raises
+    /// it by a fuzzed step, so the record's need in wrapped tokens is rarely a whole number.
+    function testFuzz_aFullHarvestLeavesTheRecordCovered(uint256 rate, uint256 yieldBps) public {
+        uint256 foundingRate = bound(rate, 0.5 ether, 2 ether);
+        _setRate(foundingRate);
+        setUp_collateral(100 ether, 40 ether);
+        assertFalse(_recordOverstatesTheHolding(), "precondition: founded covered");
+        _setRate(foundingRate + Math.mulDiv(foundingRate, bound(yieldBps, 1, 2_000), 10_000));
+        uint256 surplus = IMinter(minter).harvestable();
+        assertGt(surplus, 0, "precondition: the yield left something to harvest");
+
+        vm.startPrank(owner());
+        ITokenHolder(minter).sweep(wrappedCollateralToken, surplus, owner());
+        vm.stopPrank();
+
+        assertFalse(_recordOverstatesTheHolding(), "the harvest left the record above the holding");
     }
 
     /*//////////////////////////////////////////////////////////////

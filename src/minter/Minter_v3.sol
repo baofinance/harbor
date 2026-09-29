@@ -705,7 +705,10 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         uint256 rate = _readOracle($.priceOracle).minRate;
         uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
-        uint256 value = Math.mulDiv(_recordedBacking($), 1 ether, rate);
+        // The wrapped the record needs, rounded UP: what a harvest leaves behind must still cover the record at this
+        // rate once converted back, and that conversion rounds down. Rounded down here, a full harvest would leave the
+        // record a wei above the holding and the guard would halt the market on it.
+        uint256 value = Math.mulDiv(_recordedBacking($), 1 ether, rate, Math.Rounding.Ceil);
         wrappedAmount = (balance > value) ? balance - value : 0;
     }
 
