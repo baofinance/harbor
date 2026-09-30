@@ -29,6 +29,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {MockStabilityPoolManagerUpgraded} from "@harbor-test/mocks/MockStabilityPoolManagerUpgraded.sol";
 import {MockYieldVault} from "@harbor-test/mocks/MockYieldVault.sol";
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 
@@ -43,7 +44,13 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
     ///      receiver is `treasury()`, set by `deployStabilityPoolManager` - a test wanting it elsewhere moves it
     ///      itself.
     function newDeployRun() internal virtual override returns (MarketDeployRun) {
-        return new MockStabilityPoolMarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Market);
+        return
+            new MockStabilityPoolMarketDeployRun(
+                owner(),
+                treasury(),
+                MarketDeployRun.Scope.Market,
+                new TestMinterMarketConfig()
+            );
     }
 
     function setUp() public virtual override(TestStabilityPool2SetUp) {

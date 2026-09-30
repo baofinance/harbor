@@ -205,9 +205,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
         address oracle = deployRun.installMockPriceOracle(config);
 
         assertEq(oracle, IMinter(minter).priceOracle(), "where the minter reads its price");
-        (uint256 minPriceNow, uint256 maxPriceNow, uint256 minRateNow, uint256 maxRateNow) = IWrappedPriceOracle(
-            oracle
-        ).latestAnswer();
+        (uint256 minPriceNow, uint256 maxPriceNow, uint256 minRateNow, uint256 maxRateNow) = IWrappedPriceOracle(oracle)
+            .latestAnswer();
         assertEq(minPriceNow, minPrice, "the low end of the price band a new mock answers");
         assertEq(maxPriceNow, maxPrice, "the high end");
         assertEq(minRateNow, minRate, "the low end of the wrapped-to-underlying rate band");

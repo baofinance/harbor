@@ -10,13 +10,13 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title Common deployment setup for EUR market tests.
-/// @dev Deploys EUR peg with two collaterals (fxUSD, stETH), each with collateral + leveraged SPs and ACs.
+/// @dev Deploys the EUR peg with two collaterals (fxUSD, stETH), each market with its collateral and leveraged
+///      stability pools and their manager.
 ///      Forks mainnet at a pinned block, deploys all market infrastructure via production scripts,
 ///      grants test contract free-mint and reward-depositor roles, sets mock oracles to price=rate=1.
 abstract contract DeployEURSetUp is BaoTest {
@@ -71,51 +71,20 @@ abstract contract DeployEURSetUp is BaoTest {
         address to,
         uint256 collateralAmount
     ) internal returns (uint256 peggedMinted) {
-        address wCol = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
-        deal(wCol, address(this), collateralAmount);
-        IERC20(wCol).approve(minter_, collateralAmount);
+        address wrappedCollateral = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        deal(wrappedCollateral, address(this), collateralAmount);
+        IERC20(wrappedCollateral).approve(minter_, collateralAmount);
         peggedMinted = IMinter(minter_).freeMintPeggedToken(collateralAmount, to);
     }
 
-    function _mintLeveraged(
-        address minter_,
-        address to,
-        uint256 collateralAmount
-    ) internal returns (uint256 leveragedMinted) {
-        address wCol = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
-        deal(wCol, address(this), collateralAmount);
-        IERC20(wCol).approve(minter_, collateralAmount);
-        leveragedMinted = IMinter(minter_).freeMintLeveragedToken(collateralAmount, to);
-    }
-
-    /// @dev Set up a market with a healthy collateral ratio.
-    ///      Mints pegged tokens (into SP) and leveraged tokens to achieve target CR.
-    ///      CR = total_collateral_value / pegged_supply. Leveraged adds collateral without adding pegged.
-    ///      With price=1, rate=1: CR = (peggedCollateral + leveragedCollateral) / peggedSupply
-    function _setupHealthyMarket(
-        address minter_,
-        address sp,
-        address user,
-        uint256 peggedCollateral,
-        uint256 leveragedCollateral
+    function _depositReward(
+        address stabilityPool,
+        address wrappedCollateral,
+        address rewardAlias,
+        uint256 amount
     ) internal {
-        _mintAndDepositToSP(minter_, sp, user, peggedCollateral);
-        if (leveragedCollateral > 0) {
-            _mintLeveraged(minter_, user, leveragedCollateral);
-        }
-    }
-
-    function _mintAndDepositToSP(address minter_, address sp, address user, uint256 amount) internal {
-        uint256 peggedMinted = _mintPegged(minter_, user, amount);
-        vm.startPrank(user);
-        IERC20(pegged).approve(sp, peggedMinted);
-        IStabilityPool(sp).deposit(peggedMinted, user, 0);
-        vm.stopPrank();
-    }
-
-    function _depositReward(address sp, address wCol, address rewardAlias, uint256 amount) internal {
-        deal(wCol, address(this), amount);
-        IERC20(wCol).approve(sp, amount);
-        IMultipleRewardDistributor(sp).depositReward(rewardAlias, amount);
+        deal(wrappedCollateral, address(this), amount);
+        IERC20(wrappedCollateral).approve(stabilityPool, amount);
+        IMultipleRewardDistributor(stabilityPool).depositReward(rewardAlias, amount);
     }
 }

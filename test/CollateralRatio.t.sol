@@ -355,11 +355,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             vm.revertToState(snap);
         } else {
             vm.expectRevert(
-                abi.encodeWithSelector(
-                    IMinter_v3.LeverageAboveCap.selector,
-                    collateralRatio,
-                    minimumCollateralRatio
-                )
+                abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, collateralRatio, minimumCollateralRatio)
             );
             IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
         }

@@ -6,6 +6,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
@@ -15,7 +16,12 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///      tokens, the roles - is the deploy's own. Everything the constructor needs still comes from the market
 ///      config, so a pool deployed here is the one the deploy script would produce, bar the accessors.
 contract MockStabilityPoolMarketDeployRun is MarketDeployRun {
-    constructor(address owner_, address treasury_, Scope scope_) MarketDeployRun(owner_, treasury_, scope_) {}
+    constructor(
+        address owner_,
+        address treasury_,
+        Scope scope_,
+        TestMinterMarketConfig marketConfig_
+    ) MarketDeployRun(owner_, treasury_, scope_, marketConfig_) {}
 
     function deployStabilityPoolImplementation(
         DeploymentTypes.State memory stateData,

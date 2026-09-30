@@ -25,7 +25,8 @@ contract MarketDeployRun is HarborDeployRun {
     }
 
     /// @dev The market this run deploys: a production configuration with only the incentive config made
-    ///      settable, so a suite's choice reaches the minter by the deploy's own path.
+    ///      settable, so a suite's choice reaches the minter by the deploy's own path. Identity, like the scope:
+    ///      a suite whose market differs in configuration names the config that says how.
     TestMinterMarketConfig public immutable marketConfig;
 
     Scope public immutable scope;
@@ -33,9 +34,10 @@ contract MarketDeployRun is HarborDeployRun {
     constructor(
         address owner_,
         address treasury_,
-        Scope scope_
+        Scope scope_,
+        TestMinterMarketConfig marketConfig_
     ) HarborDeployRun(owner_, treasury_, "minter_test", "mainnet") {
-        marketConfig = new TestMinterMarketConfig();
+        marketConfig = marketConfig_;
         scope = scope_;
     }
 

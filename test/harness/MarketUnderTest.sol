@@ -2,11 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
@@ -221,9 +219,6 @@ abstract contract MarketUnderTest {
     /// @dev Names this market in every file it writes, via `context()`.
     function marketLabel() internal pure virtual returns (string memory);
 
-    /// @dev Who may upgrade the minter and grant its roles.
-    function marketOwner() internal view virtual returns (address);
-
     // ─── the rule under test ───
 
     /// @dev WHICH RULE this market runs: what goes behind the minter, which manager the market gets, and the
@@ -256,28 +251,4 @@ abstract contract MarketUnderTest {
     function overrideLabel() internal view returns (string memory) {
         return ruleUnderTest.label();
     }
-
-    /// @dev Put the rule's minter behind the minter's address, reading the immutables off the proxy first so
-    /// the replacement is constructed with what the market is already living with. The ADDRESS does not
-    /// change, so pools, manager and every granted role stay exactly as they were - which is what makes two
-    /// runs a comparison of rules rather than of deployments.
-    function installMinterOverride() internal virtual {
-        address implementation = ruleUnderTest.buildMinter(
-            IMinter(market.minter).WRAPPED_COLLATERAL_TOKEN(),
-            IMinter(market.minter).PEGGED_TOKEN(),
-            IMinter(market.minter).LEVERAGED_TOKEN()
-        );
-        if (implementation == address(0)) {
-            return;
-        }
-        _asOwner();
-        UUPSUpgradeable(market.minter).upgradeToAndCall(implementation, "");
-        _stopAsOwner();
-    }
-
-    /// @dev Act as the market's owner. Separate from `marketOwner()` because a forked market pranks an
-    /// address it does not control while a local one may simply be it.
-    function _asOwner() internal virtual;
-
-    function _stopAsOwner() internal virtual;
 }

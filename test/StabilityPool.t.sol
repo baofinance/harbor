@@ -31,6 +31,7 @@ import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -67,7 +68,13 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     /// @dev The pool suites read pool internals, so the run puts `MockStabilityPool` behind each pool it
     ///      deploys; this level of the suites uses the collateral pool alone.
     function newDeployRun() internal virtual override returns (MarketDeployRun) {
-        return new MockStabilityPoolMarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.CollateralPool);
+        return
+            new MockStabilityPoolMarketDeployRun(
+                owner(),
+                treasury(),
+                MarketDeployRun.Scope.CollateralPool,
+                new TestMinterMarketConfig()
+            );
     }
 
     /// @dev The roles and reward token this SUITE needs, which the deploy has no reason to know about: it

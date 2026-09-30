@@ -64,7 +64,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
     /// @dev The run a suite wants: the minter alone here. A setup that needs more of the market, or a mock behind
     ///      its pools, returns another run - one choice, made once, in place of overriding the deploy's steps.
     function newDeployRun() internal virtual returns (MarketDeployRun) {
-        return new MarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Minter);
+        return new MarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Minter, new TestMinterMarketConfig());
     }
 
     /// @dev What a test does to the market the run stood up - see `MarketActions`. Made in `setUpContract`, once the

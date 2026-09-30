@@ -21,15 +21,15 @@ import {Array} from "@bao-test/utils/Array.sol";
 ///         Inherits production deployment infrastructure (DeployEURSetUp) for realistic test setup.
 contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function _permitTarget() internal view override returns (address) {
-        return sp;
+        return stabilityPool;
     }
 
     address user1;
     address user2;
     address user3;
 
-    // Short names pointing into the EUR::fxUSD market.
-    address sp;
+    // The EUR::fxUSD market's pool and tokens, under the names these tests use.
+    address stabilityPool;
     address peggedToken;
     address wrappedCollateralToken;
 
@@ -39,25 +39,26 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         user2 = makeAddr("user2");
         user3 = makeAddr("user3");
 
-        sp = fxUSD.collateralPool;
+        stabilityPool = fxUSD.collateralPool;
         peggedToken = pegged;
         wrappedCollateralToken = fxUSD.wrappedCollateral;
     }
 
-    /// @dev Mint pegged tokens to `user` and deposit them into the SP.
+    /// @dev Mint pegged tokens to `user` and deposit them into the stability pool.
     function _deposit(address user, uint256 amount) internal {
         _mintPegged(fxUSD.minter, user, amount);
-        vm.prank(user);
-        IERC20(peggedToken).approve(sp, amount);
-        vm.prank(user);
-        IStabilityPool(sp).deposit(amount, user, 0);
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(stabilityPool, amount);
+        IStabilityPool(stabilityPool).deposit(amount, user, 0);
+        vm.stopPrank();
     }
 
-    /// @dev Apply a loss to the SP via notifyLiquidation. Returns the wCol used as the liquidation reward.
+    /// @dev Apply a loss to the stability pool via notifyLiquidation: `liquidated` of its pegged is taken, and it is
+    ///      paid `returned` of wrapped collateral for it.
     function _applyLoss(uint256 liquidated, uint256 returned) internal {
-        deal(wrappedCollateralToken, sp, IERC20(wrappedCollateralToken).balanceOf(sp) + returned);
+        deal(wrappedCollateralToken, stabilityPool, IERC20(wrappedCollateralToken).balanceOf(stabilityPool) + returned);
         vm.startPrank(fxUSD.manager);
-        IStabilityPool_v3(sp).notifyLiquidation(wrappedCollateralToken, liquidated, returned);
+        IStabilityPool_v3(stabilityPool).notifyLiquidation(wrappedCollateralToken, liquidated, returned);
         vm.stopPrank();
     }
 
@@ -67,19 +68,19 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
 
     /// Intent: name() returns a non-empty string from immutable storage.
     function test_name() public view {
-        string memory n = IERC20Metadata(sp).name();
+        string memory n = IERC20Metadata(stabilityPool).name();
         assertGt(bytes(n).length, 0, "name not empty");
     }
 
     /// Intent: symbol() returns a non-empty string from immutable storage.
     function test_symbol() public view {
-        string memory s = IERC20Metadata(sp).symbol();
+        string memory s = IERC20Metadata(stabilityPool).symbol();
         assertGt(bytes(s).length, 0, "symbol not empty");
     }
 
     /// Intent: decimals() matches the underlying pegged token (18).
     function test_decimals() public view {
-        uint8 d = IERC20Metadata(sp).decimals();
+        uint8 d = IERC20Metadata(stabilityPool).decimals();
         assertEq(d, 18, "decimals");
     }
 
@@ -107,33 +108,33 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
 
     /// Intent: short strings (<32 chars) round-trip through ERC20MetadataLib_v1 correctly.
     function test_name_shortString() public {
-        StabilityPool_v3 sp_ = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, "Short", "S");
-        assertEq(sp_.name(), "Short", "short name");
-        assertEq(sp_.symbol(), "S", "short symbol");
+        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, "Short", "S");
+        assertEq(pool.name(), "Short", "short name");
+        assertEq(pool.symbol(), "S", "short symbol");
     }
 
     /// Intent: 31-char strings (fits entirely in word 0 after the length prefix) round-trip.
     function test_name_exactly31chars() public {
         string memory name31 = "1234567890123456789012345678901";
         assertEq(bytes(name31).length, 31, "sanity");
-        StabilityPool_v3 sp_ = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name31, "S");
-        assertEq(sp_.name(), name31, "31-char name");
+        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name31, "S");
+        assertEq(pool.name(), name31, "31-char name");
     }
 
     /// Intent: 32..63 char strings (spill into word 1) round-trip correctly.
     function test_name_between31and63chars() public {
         string memory name40 = "1234567890123456789012345678901234567890";
         assertEq(bytes(name40).length, 40, "sanity");
-        StabilityPool_v3 sp_ = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name40, "S");
-        assertEq(sp_.name(), name40, "40-char name");
+        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name40, "S");
+        assertEq(pool.name(), name40, "40-char name");
     }
 
     /// Intent: 63-char strings (max length) round-trip correctly.
     function test_name_exactly63chars() public {
         string memory name63 = "123456789012345678901234567890123456789012345678901234567890123";
         assertEq(bytes(name63).length, 63, "sanity");
-        StabilityPool_v3 sp_ = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name63, "S");
-        assertEq(sp_.name(), name63, "63-char name");
+        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name63, "S");
+        assertEq(pool.name(), name63, "63-char name");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -143,19 +144,19 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     /// Intent: ERC20 balanceOf returns the depositor's compounded position.
     function test_balanceOf_matchesDeposit() public {
         _deposit(user1, 10 ether);
-        assertEq(IERC20(sp).balanceOf(user1), 10 ether, "balanceOf == deposit (no loss)");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 10 ether, "balanceOf == deposit (no loss)");
     }
 
     /// Intent: a user with no deposits has zero balance.
     function test_balanceOf_zeroForNewUser() public view {
-        assertEq(IERC20(sp).balanceOf(user1), 0, "zero for new user");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 0, "zero for new user");
     }
 
     /// Intent: ERC20 totalSupply matches the sum of deposits (no loss).
     function test_totalSupply_matchesDeposits() public {
-        uint256 supplyBefore = IERC20(sp).totalSupply();
+        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
         _deposit(user1, 10 ether);
-        assertEq(IERC20(sp).totalSupply(), supplyBefore + 10 ether, "totalSupply increased by deposit");
+        assertEq(IERC20(stabilityPool).totalSupply(), supplyBefore + 10 ether, "totalSupply increased by deposit");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -167,12 +168,13 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 10 ether);
         _deposit(user2, 5 ether);
 
-        vm.prank(user1);
-        bool success = IERC20(sp).transfer(user2, 3 ether);
+        vm.startPrank(user1);
+        bool success = IERC20(stabilityPool).transfer(user2, 3 ether);
+        vm.stopPrank();
 
         assertTrue(success, "returns true");
-        assertEq(IERC20(sp).balanceOf(user1), 7 ether, "sender");
-        assertEq(IERC20(sp).balanceOf(user2), 8 ether, "receiver");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 7 ether, "sender");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), 8 ether, "receiver");
     }
 
     /// Intent: transferring entire balance leaves sender with zero.
@@ -180,10 +182,11 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 10 ether);
         _deposit(user2, 5 ether);
 
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 10 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 10 ether);
+        vm.stopPrank();
 
-        assertEq(IERC20(sp).balanceOf(user1), 0, "sender zero");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 0, "sender zero");
     }
 
     /// Intent: transferring more than balance reverts with InsufficientBalance.
@@ -191,27 +194,30 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_transfer_exceedsBalance_reverts() public {
         _deposit(user1, 10 ether);
 
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(ERC20.InsufficientBalance.selector);
-        IERC20(sp).transfer(user2, 11 ether);
+        IERC20(stabilityPool).transfer(user2, 11 ether);
+        vm.stopPrank();
     }
 
     /// Intent: transfer to zero address reverts with InvalidReceiver.
     function test_transfer_toZeroAddress_reverts() public {
         _deposit(user1, 10 ether);
 
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, address(0)));
-        IERC20(sp).transfer(address(0), 1 ether);
+        IERC20(stabilityPool).transfer(address(0), 1 ether);
+        vm.stopPrank();
     }
 
     /// Intent: transfer to self reverts with InvalidReceiver.
     function test_transfer_toSelf_reverts() public {
         _deposit(user1, 10 ether);
 
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, user1));
-        IERC20(sp).transfer(user1, 1 ether);
+        IERC20(stabilityPool).transfer(user1, 1 ether);
+        vm.stopPrank();
     }
 
     /// Intent: transfer emits the standard Transfer event.
@@ -221,17 +227,19 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(user1, user2, 3 ether);
 
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 3 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 3 ether);
+        vm.stopPrank();
     }
 
     /// Intent: transfer from zero address (msg.sender = address(0)) reverts.
     function test_transfer_fromZeroAddress_reverts() public {
         _deposit(user1, 10 ether);
 
-        vm.prank(address(0));
+        vm.startPrank(address(0));
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, address(0)));
-        IERC20(sp).transfer(user1, 1 ether);
+        IERC20(stabilityPool).transfer(user1, 1 ether);
+        vm.stopPrank();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -240,11 +248,12 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
 
     /// Intent: approve sets the allowance and returns true.
     function test_approve_and_allowance() public {
-        vm.prank(user1);
-        bool success = IERC20(sp).approve(user2, 5 ether);
+        vm.startPrank(user1);
+        bool success = IERC20(stabilityPool).approve(user2, 5 ether);
+        vm.stopPrank();
 
         assertTrue(success, "returns true");
-        assertEq(IERC20(sp).allowance(user1, user2), 5 ether, "allowance");
+        assertEq(IERC20(stabilityPool).allowance(user1, user2), 5 ether, "allowance");
     }
 
     /// Intent: approve emits the standard Approval event.
@@ -252,8 +261,9 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         vm.expectEmit(true, true, false, true);
         emit IERC20.Approval(user1, user2, 5 ether);
 
-        vm.prank(user1);
-        IERC20(sp).approve(user2, 5 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user2, 5 ether);
+        vm.stopPrank();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -264,29 +274,33 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_transferFrom() public {
         _deposit(user1, 10 ether);
 
-        vm.prank(user1);
-        IERC20(sp).approve(user2, 5 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user2, 5 ether);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        bool success = IERC20(sp).transferFrom(user1, user2, 3 ether);
+        vm.startPrank(user2);
+        bool success = IERC20(stabilityPool).transferFrom(user1, user2, 3 ether);
+        vm.stopPrank();
 
         assertTrue(success, "returns true");
-        assertEq(IERC20(sp).balanceOf(user1), 7 ether, "sender");
-        assertEq(IERC20(sp).balanceOf(user2), 3 ether, "receiver");
-        assertEq(IERC20(sp).allowance(user1, user2), 2 ether, "allowance decreased");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 7 ether, "sender");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), 3 ether, "receiver");
+        assertEq(IERC20(stabilityPool).allowance(user1, user2), 2 ether, "allowance decreased");
     }
 
     /// Intent: transferFrom with type(uint256).max allowance does not deduct from the allowance.
     function test_transferFrom_infiniteAllowance() public {
         _deposit(user1, 10 ether);
 
-        vm.prank(user1);
-        IERC20(sp).approve(user2, type(uint256).max);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user2, type(uint256).max);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IERC20(sp).transferFrom(user1, user2, 3 ether);
+        vm.startPrank(user2);
+        IERC20(stabilityPool).transferFrom(user1, user2, 3 ether);
+        vm.stopPrank();
 
-        assertEq(IERC20(sp).allowance(user1, user2), type(uint256).max, "infinite not deducted");
+        assertEq(IERC20(stabilityPool).allowance(user1, user2), type(uint256).max, "infinite not deducted");
     }
 
     /// Intent: transferFrom with insufficient allowance reverts with InsufficientAllowance.
@@ -294,12 +308,14 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_transferFrom_insufficientAllowance_reverts() public {
         _deposit(user1, 10 ether);
 
-        vm.prank(user1);
-        IERC20(sp).approve(user2, 2 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user2, 2 ether);
+        vm.stopPrank();
 
-        vm.prank(user2);
+        vm.startPrank(user2);
         vm.expectRevert(ERC20.InsufficientAllowance.selector);
-        IERC20(sp).transferFrom(user1, user2, 3 ether);
+        IERC20(stabilityPool).transferFrom(user1, user2, 3 ether);
+        vm.stopPrank();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -313,14 +329,15 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_transfer_equivalence_noLoss() public {
         _deposit(user1, 100 ether);
 
-        uint256 user1Before = IERC20(sp).balanceOf(user1);
-        uint256 user2Before = IERC20(sp).balanceOf(user2);
+        uint256 user1Before = IERC20(stabilityPool).balanceOf(user1);
+        uint256 user2Before = IERC20(stabilityPool).balanceOf(user2);
 
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 30 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 30 ether);
+        vm.stopPrank();
 
-        assertEq(IERC20(sp).balanceOf(user1), user1Before - 30 ether, "user1 -30");
-        assertEq(IERC20(sp).balanceOf(user2), user2Before + 30 ether, "user2 +30");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), user1Before - 30 ether, "user1 -30");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), user2Before + 30 ether, "user2 +30");
     }
 
     /// Intent: after a loss, transferring X stored-units must move X compounded-balance,
@@ -336,32 +353,35 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _applyLoss(25 ether, 25 ether);
 
         // After the loss, user1's compounded balance is 75 (75% of original)
-        uint256 user1Compounded = IERC20(sp).balanceOf(user1);
+        uint256 user1Compounded = IERC20(stabilityPool).balanceOf(user1);
         assertApproxEqAbs(user1Compounded, 75 ether, 1, "user1 75 after loss");
 
         // Transfer 30 (compounded) from user1 to user2
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 30 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 30 ether);
+        vm.stopPrank();
 
         // user1 should have 45, user2 should have 30
-        assertApproxEqAbs(IERC20(sp).balanceOf(user1), 45 ether, 1, "user1 45");
-        assertApproxEqAbs(IERC20(sp).balanceOf(user2), 30 ether, 1, "user2 30");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 45 ether, 1, "user1 45");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), 30 ether, 1, "user2 30");
     }
 
     /// Intent: round-trip transfer A->B then B->A leaves both balances unchanged (within rounding).
     function test_transfer_roundTrip_noLoss() public {
         _deposit(user1, 100 ether);
 
-        uint256 user1Before = IERC20(sp).balanceOf(user1);
-        uint256 user2Before = IERC20(sp).balanceOf(user2);
+        uint256 user1Before = IERC20(stabilityPool).balanceOf(user1);
+        uint256 user2Before = IERC20(stabilityPool).balanceOf(user2);
 
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 30 ether);
-        vm.prank(user2);
-        IERC20(sp).transfer(user1, 30 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 30 ether);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IERC20(stabilityPool).transfer(user1, 30 ether);
+        vm.stopPrank();
 
-        assertEq(IERC20(sp).balanceOf(user1), user1Before, "user1 unchanged");
-        assertEq(IERC20(sp).balanceOf(user2), user2Before, "user2 unchanged");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), user1Before, "user1 unchanged");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), user2Before, "user2 unchanged");
     }
 
     /// Intent: round-trip transfer A->B then B->A after a loss leaves both balances unchanged.
@@ -369,16 +389,18 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 100 ether);
         _applyLoss(25 ether, 25 ether);
 
-        uint256 user1Before = IERC20(sp).balanceOf(user1);
-        uint256 user2Before = IERC20(sp).balanceOf(user2);
+        uint256 user1Before = IERC20(stabilityPool).balanceOf(user1);
+        uint256 user2Before = IERC20(stabilityPool).balanceOf(user2);
 
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 30 ether);
-        vm.prank(user2);
-        IERC20(sp).transfer(user1, 30 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 30 ether);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IERC20(stabilityPool).transfer(user1, 30 ether);
+        vm.stopPrank();
 
-        assertApproxEqAbs(IERC20(sp).balanceOf(user1), user1Before, 1, "user1 unchanged");
-        assertApproxEqAbs(IERC20(sp).balanceOf(user2), user2Before, 1, "user2 unchanged");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), user1Before, 1, "user1 unchanged");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), user2Before, 1, "user2 unchanged");
     }
 
     /// Intent: transferring entire compounded balance after multiple losses leaves sender empty
@@ -389,14 +411,15 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _applyLoss(18 ether, 18 ether); // ~10% of remaining
         _applyLoss(16 ether, 16 ether); // ~10% again
 
-        uint256 user1Compounded = IERC20(sp).balanceOf(user1);
+        uint256 user1Compounded = IERC20(stabilityPool).balanceOf(user1);
         assertGt(user1Compounded, 0, "user1 has some balance");
 
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, user1Compounded);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, user1Compounded);
+        vm.stopPrank();
 
-        assertApproxEqAbs(IERC20(sp).balanceOf(user1), 0, 1, "user1 empty");
-        assertApproxEqAbs(IERC20(sp).balanceOf(user2), user1Compounded, 1, "user2 has full");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 0, 1, "user1 empty");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), user1Compounded, 1, "user2 has full");
     }
 
     /// Intent: a transfer should not affect the sender's pending rewards. Reward accrual up to
@@ -405,29 +428,36 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 100 ether);
         _deposit(user2, 100 ether);
 
-        // Accrue rewards (simulating SPM harvest deposit)
-        _depositReward(sp, wrappedCollateralToken, wrappedCollateralToken, 10 ether);
+        // Accrue rewards (as a stability pool manager's harvest deposits them)
+        _depositReward(stabilityPool, wrappedCollateralToken, wrappedCollateralToken, 10 ether);
         skip(2 weeks); // let rewards fully drip
 
         // Snapshot pending rewards before transfer
-        uint256 user1ClaimableBefore = IMultipleRewardAccumulator(sp).claimable(user1, aa(wrappedCollateralToken))[0];
-        uint256 user2ClaimableBefore = IMultipleRewardAccumulator(sp).claimable(user2, aa(wrappedCollateralToken))[0];
+        uint256 user1ClaimableBefore = IMultipleRewardAccumulator(stabilityPool).claimable(
+            user1,
+            aa(wrappedCollateralToken)
+        )[0];
+        uint256 user2ClaimableBefore = IMultipleRewardAccumulator(stabilityPool).claimable(
+            user2,
+            aa(wrappedCollateralToken)
+        )[0];
         assertGt(user1ClaimableBefore, 0, "user1 has rewards");
         assertGt(user2ClaimableBefore, 0, "user2 has rewards");
 
         // Transfer half of user1's balance to user2
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 50 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 50 ether);
+        vm.stopPrank();
 
         // Pending rewards should be preserved (within tiny rounding)
         assertApproxEqAbs(
-            IMultipleRewardAccumulator(sp).claimable(user1, aa(wrappedCollateralToken))[0],
+            IMultipleRewardAccumulator(stabilityPool).claimable(user1, aa(wrappedCollateralToken))[0],
             user1ClaimableBefore,
             1,
             "user1 rewards preserved"
         );
         assertApproxEqAbs(
-            IMultipleRewardAccumulator(sp).claimable(user2, aa(wrappedCollateralToken))[0],
+            IMultipleRewardAccumulator(stabilityPool).claimable(user2, aa(wrappedCollateralToken))[0],
             user2ClaimableBefore,
             1,
             "user2 rewards preserved"
@@ -441,15 +471,20 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user2, 100 ether);
 
         // Transfer 50 from user1 to user2 — now user1 has 50, user2 has 150
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 50 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 50 ether);
+        vm.stopPrank();
 
         // Accrue new rewards
-        _depositReward(sp, wrappedCollateralToken, wrappedCollateralToken, 20 ether);
+        _depositReward(stabilityPool, wrappedCollateralToken, wrappedCollateralToken, 20 ether);
         skip(2 weeks);
 
-        uint256 user1Claimable = IMultipleRewardAccumulator(sp).claimable(user1, aa(wrappedCollateralToken))[0];
-        uint256 user2Claimable = IMultipleRewardAccumulator(sp).claimable(user2, aa(wrappedCollateralToken))[0];
+        uint256 user1Claimable = IMultipleRewardAccumulator(stabilityPool).claimable(user1, aa(wrappedCollateralToken))[
+            0
+        ];
+        uint256 user2Claimable = IMultipleRewardAccumulator(stabilityPool).claimable(user2, aa(wrappedCollateralToken))[
+            0
+        ];
 
         // user2's claim should be ~3x user1's (150 vs 50)
         assertApproxEqRel(user2Claimable, user1Claimable * 3, 0.01 ether, "user2 ~3x user1");
@@ -462,18 +497,19 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 200 ether);
 
         // Transfer 100 from user1 to user2 — both have 100
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, 100 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, 100 ether);
+        vm.stopPrank();
 
-        assertApproxEqAbs(IERC20(sp).balanceOf(user1), 100 ether, 1, "user1 100 after transfer");
-        assertApproxEqAbs(IERC20(sp).balanceOf(user2), 100 ether, 1, "user2 100 after transfer");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 100 ether, 1, "user1 100 after transfer");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), 100 ether, 1, "user2 100 after transfer");
 
         // Apply a 50% loss to the pool
         _applyLoss(100 ether, 100 ether);
 
         // Both should have 50 (half each)
-        assertApproxEqAbs(IERC20(sp).balanceOf(user1), 50 ether, 1, "user1 50 after loss");
-        assertApproxEqAbs(IERC20(sp).balanceOf(user2), 50 ether, 1, "user2 50 after loss");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 50 ether, 1, "user1 50 after loss");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), 50 ether, 1, "user2 50 after loss");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -489,17 +525,18 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         // Apply a 37.5% loss (same as the worked example: 100 -> 62.5)
         _applyLoss(37.5 ether, 37.5 ether);
 
-        uint256 balanceAfterLoss = IERC20(sp).balanceOf(user1);
+        uint256 balanceAfterLoss = IERC20(stabilityPool).balanceOf(user1);
         assertApproxEqAbs(balanceAfterLoss, 62.5 ether, 1e15, "user1 has 62.5 after loss");
 
         // Transfer the full compounded balance to user2
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, balanceAfterLoss);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, balanceAfterLoss);
+        vm.stopPrank();
 
         // Sender should have 0
-        assertEq(IERC20(sp).balanceOf(user1), 0, "sender should have 0 after full transfer");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 0, "sender should have 0 after full transfer");
         // Receiver should have the full amount
-        assertApproxEqAbs(IERC20(sp).balanceOf(user2), balanceAfterLoss, 1, "receiver gets the full amount");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), balanceAfterLoss, 1, "receiver gets the full amount");
     }
 
     /// Intent: after a loss, transferring a partial compounded amount should leave sender with the remainder.
@@ -509,20 +546,26 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         // Apply a 37.5% loss: 100 -> 62.5
         _applyLoss(37.5 ether, 37.5 ether);
 
-        uint256 balanceAfterLoss = IERC20(sp).balanceOf(user1);
+        uint256 balanceAfterLoss = IERC20(stabilityPool).balanceOf(user1);
         uint256 halfBalance = balanceAfterLoss / 2; // ~31.25
 
         // Transfer half the compounded balance
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, halfBalance);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, halfBalance);
+        vm.stopPrank();
 
         // Sender should have the other half
-        uint256 senderRemaining = IERC20(sp).balanceOf(user1);
+        uint256 senderRemaining = IERC20(stabilityPool).balanceOf(user1);
         assertApproxEqAbs(senderRemaining, balanceAfterLoss - halfBalance, 1, "sender has correct remainder");
         // Receiver should have what was sent
-        assertApproxEqAbs(IERC20(sp).balanceOf(user2), halfBalance, 1, "receiver has correct amount");
+        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), halfBalance, 1, "receiver has correct amount");
         // Total should be conserved
-        assertApproxEqAbs(senderRemaining + IERC20(sp).balanceOf(user2), balanceAfterLoss, 1, "total conserved");
+        assertApproxEqAbs(
+            senderRemaining + IERC20(stabilityPool).balanceOf(user2),
+            balanceAfterLoss,
+            1,
+            "total conserved"
+        );
     }
 
     /// Intent: two sequential transfers after a loss should both work correctly.
@@ -532,25 +575,27 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         // Apply a 50% loss: 100 -> 50
         _applyLoss(50 ether, 50 ether);
 
-        uint256 balanceAfterLoss = IERC20(sp).balanceOf(user1);
+        uint256 balanceAfterLoss = IERC20(stabilityPool).balanceOf(user1);
         uint256 firstTransfer = 20 ether;
         uint256 secondTransfer = 20 ether;
 
         // First transfer
-        vm.prank(user1);
-        IERC20(sp).transfer(user2, firstTransfer);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user2, firstTransfer);
+        vm.stopPrank();
 
         // Second transfer
-        vm.prank(user1);
-        IERC20(sp).transfer(user3, secondTransfer);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).transfer(user3, secondTransfer);
+        vm.stopPrank();
 
-        uint256 remaining = IERC20(sp).balanceOf(user1);
-        uint256 total = remaining + IERC20(sp).balanceOf(user2) + IERC20(sp).balanceOf(user3);
+        uint256 remaining = IERC20(stabilityPool).balanceOf(user1);
+        uint256 total = remaining + IERC20(stabilityPool).balanceOf(user2) + IERC20(stabilityPool).balanceOf(user3);
         assertApproxEqAbs(total, balanceAfterLoss, 2, "total conserved across 3 addresses");
         assertApproxEqAbs(remaining, balanceAfterLoss - firstTransfer - secondTransfer, 1, "sender remainder correct");
     }
 
-    /// @notice SP-specific: permit approval persists across a rebase (loss). The allowance
+    /// @notice Specific to the stability pool: permit approval persists across a rebase (loss). The allowance
     ///         sits on the share token's allowance slot, independent of the compounded balance
     ///         accounting that rebases reduce.
     function test_permit_allowanceSurvivesRebase() public {
@@ -560,13 +605,13 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(signer, 10 ether);
         _grantPermit(signer, pk, spender, 5 ether);
 
-        assertEq(IERC20(sp).allowance(signer, spender), 5 ether, "allowance set");
+        assertEq(IERC20(stabilityPool).allowance(signer, spender), 5 ether, "allowance set");
 
         // Trigger a rebase (50% loss).
         _applyLoss(5 ether, 5 ether);
 
         // Signer's balance should have dropped, but the allowance is unchanged.
-        assertLt(IERC20(sp).balanceOf(signer), 10 ether, "signer balance reduced by rebase");
-        assertEq(IERC20(sp).allowance(signer, spender), 5 ether, "allowance unchanged by rebase");
+        assertLt(IERC20(stabilityPool).balanceOf(signer), 10 ether, "signer balance reduced by rebase");
+        assertEq(IERC20(stabilityPool).allowance(signer, spender), 5 ether, "allowance unchanged by rebase");
     }
 }

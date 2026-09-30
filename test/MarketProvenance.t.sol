@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {DeployedMarket} from "@harbor-test/harness/DeployedMarket.sol";
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
+import {LocalMarketConfig} from "@harbor-test/config/LocalMarketConfig.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
@@ -25,7 +26,7 @@ contract LocalMarketProvenanceTest is LocalMarket {
         string memory expected = string.concat("lineage,", reader.lineage(), ",\n");
         expected = string.concat(expected, "contract,code at the address,implementation\n");
         expected = string.concat(expected, "minter,BaoERC1967Proxy,Minter_v3\n");
-        expected = string.concat(expected, "manager,ERC1967Proxy,StabilityPoolManager_v2\n");
+        expected = string.concat(expected, "manager,BaoERC1967Proxy,StabilityPoolManager_v2\n");
         expected = string.concat(expected, "collateralPool,BaoERC1967Proxy,StabilityPool_v3\n");
         expected = string.concat(expected, "leveragedPool,BaoERC1967Proxy,StabilityPool_v3\n");
         expected = string.concat(expected, "pegged,BaoERC1967Proxy,MintableBurnableERC20_v2\n");
@@ -48,7 +49,13 @@ contract LocalMarketProvenanceTest is LocalMarket {
 
 contract MockPoolMarketProvenanceTest is LocalMarket {
     function newDeployRun() internal override returns (MarketDeployRun) {
-        return new MockStabilityPoolMarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.BothPools);
+        return
+            new MockStabilityPoolMarketDeployRun(
+                owner(),
+                treasury(),
+                MarketDeployRun.Scope.Market,
+                new LocalMarketConfig()
+            );
     }
 
     /// A mock standing in for a contract it inherits from is recorded as the mock. The two differ by a handful
@@ -61,7 +68,7 @@ contract MockPoolMarketProvenanceTest is LocalMarket {
         string memory expected = string.concat("lineage,", reader.lineage(), ",\n");
         expected = string.concat(expected, "contract,code at the address,implementation\n");
         expected = string.concat(expected, "minter,BaoERC1967Proxy,Minter_v3\n");
-        expected = string.concat(expected, "manager,ERC1967Proxy,StabilityPoolManager_v2\n");
+        expected = string.concat(expected, "manager,BaoERC1967Proxy,StabilityPoolManager_v2\n");
         expected = string.concat(expected, "collateralPool,BaoERC1967Proxy,MockStabilityPool\n");
         expected = string.concat(expected, "leveragedPool,BaoERC1967Proxy,MockStabilityPool\n");
         expected = string.concat(expected, "pegged,BaoERC1967Proxy,MintableBurnableERC20_v2\n");

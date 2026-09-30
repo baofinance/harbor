@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
@@ -15,7 +16,13 @@ contract TestStabilityPool2SetUp is TestStabilityPoolRebalanceSetUp {
     /// @dev Both of the market's pools: the collateral pool below and the one that absorbs leveraged tokens.
     ///      Together that is every pool a market has.
     function newDeployRun() internal virtual override returns (MarketDeployRun) {
-        return new MockStabilityPoolMarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.BothPools);
+        return
+            new MockStabilityPoolMarketDeployRun(
+                owner(),
+                treasury(),
+                MarketDeployRun.Scope.BothPools,
+                new TestMinterMarketConfig()
+            );
     }
 
     function setUp() public virtual override {

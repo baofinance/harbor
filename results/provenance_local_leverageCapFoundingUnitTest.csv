@@ -1,7 +1,7 @@
 lineage,v3,
 contract,code at the address,implementation
 minter,BaoERC1967Proxy,Minter_v3
-manager,ERC1967Proxy,StabilityPoolManager_v2
+manager,BaoERC1967Proxy,StabilityPoolManager_v2
 collateralPool,BaoERC1967Proxy,StabilityPool_v3
 leveragedPool,BaoERC1967Proxy,StabilityPool_v3
 pegged,BaoERC1967Proxy,MintableBurnableERC20_v2

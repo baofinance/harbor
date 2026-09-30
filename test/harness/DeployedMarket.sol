@@ -81,18 +81,6 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         return "_main";
     }
 
-    function marketOwner() internal view override returns (address) {
-        return deployedOwner;
-    }
-
-    function _asOwner() internal override {
-        vm.startPrank(deployedOwner);
-    }
-
-    function _stopAsOwner() internal override {
-        vm.stopPrank();
-    }
-
     function standUpMarket(
         uint256 collateralPoolShare,
         uint256 leveragedPoolShare,
@@ -125,9 +113,10 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
             _upgradeMarketToV3(config);
         } else {
             // The deployed manager carries the production keeper bounty and harvest cut - one percent each -
-            // and the managers the harness builds carry none. Zeroed, so that a column read against a local
-            // run compares the RULE and not the fee schedule: a deployed conversion paid its pool exactly 0.99
-            // of fair value before this, and the 0.01 was the bounty, not the rule.
+            // where the local market's config zeroes both and the upgrade's manager is built without them. Zeroed
+            // here too, so that a column read against a local run compares the RULE and not the fee schedule: a
+            // deployed conversion paid its pool exactly 0.99 of fair value before this, and the 0.01 was the
+            // bounty, not the rule.
             vm.startPrank(IBaoOwnable(market.manager).owner());
             IStabilityPoolManager(market.manager).updateRebalanceBountyRatio(0);
             IStabilityPoolManager(market.manager).updateHarvestBountyRatio(0);
@@ -178,16 +167,21 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         // and when this function was introduced the separate call was dropped by accident - the pools and the
         // manager moved, the minter stayed on `Minter_v2`, and the market reverted on a selector the manager
         // expected it to have. One function that performs the whole upgrade is what stops that being possible
-        // a second time.
-        installMinterOverride();
-
+        // a second time. The rule builds it from the immutables the proxy already carries, so the replacement is
+        // constructed with what the market is living with.
+        address minterImplementation = ruleUnderTest.buildMinter(
+            IMinter(market.minter).WRAPPED_COLLATERAL_TOKEN(),
+            IMinter(market.minter).PEGGED_TOKEN(),
+            IMinter(market.minter).LEVERAGED_TOKEN()
+        );
         address collateralImplementation = _buildStabilityPool(config, market.collateralPool, true);
         address leveragedImplementation = _buildStabilityPool(config, market.leveragedPool, false);
 
-        _asOwner();
+        vm.startPrank(deployedOwner);
+        UUPSUpgradeable(market.minter).upgradeToAndCall(minterImplementation, "");
         UUPSUpgradeable(market.collateralPool).upgradeToAndCall(collateralImplementation, "");
         UUPSUpgradeable(market.leveragedPool).upgradeToAndCall(leveragedImplementation, "");
-        _stopAsOwner();
+        vm.stopPrank();
 
         _replaceManager();
         reader = new MarketReaderV3Lineage();
