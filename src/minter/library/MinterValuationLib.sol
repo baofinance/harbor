@@ -60,6 +60,30 @@ library MinterValuationLib {
         return Math.mulDiv(wrappedAmount, rate, 1 ether, Math.Rounding.Ceil);
     }
 
+    /// @notice The leveraged tokens that `collateralAdded` buys in a market that already has them: its value's share
+    /// of the residual, counted in leveraged tokens.
+    /// @dev Floored, so a mint never takes more of the residual than it brings. The one definition every leveraged
+    /// mint into such a market uses, fee-paying or free. `collateralAdded` is what the record is credited with -
+    /// through `wrappedAsCollateral` - not the unrounded figure it was converted from: minting against more than was
+    /// credited buys a share of a residual that never arrived.
+    /// @param collateralAdded The collateral credited to the record for this mint.
+    /// @param price The collateral price the mint is valued at.
+    /// @param leveragedTokenBalance The leveraged supply before the mint.
+    /// @param residualE36 The collateral's value less the pegged claim before the mint, scaled to 1e36.
+    function leveragedForCollateral(
+        uint256 collateralAdded,
+        uint256 price,
+        uint256 leveragedTokenBalance,
+        uint256 residualE36
+    ) internal pure returns (uint256) {
+        // `collateralAdded x price x supply / residual`, floored, without forming a product of three: the value added
+        // divided by the residual, its whole part and its remainder, each scaled by the supply. Exact, and only a
+        // result too large for a word can overflow.
+        uint256 wholeResiduals = Math.mulDiv(collateralAdded, price, residualE36);
+        uint256 remainderE36 = mulmod(collateralAdded, price, residualE36);
+        return wholeResiduals * leveragedTokenBalance + Math.mulDiv(remainderE36, leveragedTokenBalance, residualE36);
+    }
+
     /// @notice Calculates the raw collateral ratio without any flooring.
     /// @dev This returns the actual mathematical ratio (collateralValue / peggedValue) which may be < 1 in depegged scenarios.
     /// Semantics:

@@ -6,6 +6,7 @@ import {console2 as console} from "forge-std/console2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
@@ -16,6 +17,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 
 import {LibString} from "@solady/utils/LibString.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterMintLeveraged is TestMinterMint {
     using SafeERC20 for IERC20;
@@ -609,5 +611,101 @@ contract TestMinterMintLeveraged is TestMinterMint {
             prevCollateralRatio = collateralRatio;
         }
         assertEq(sum, oneMint, "one is the sum of it's constituents");
+    }
+}
+
+/// @notice Minting leveraged without a fee, into a market that already has leveraged tokens, prices the tokens as the
+/// fee-paying mint does: against the collateral the record is credited with, at the residual's value.
+contract TestMinterFreeMintLeveraged is TestMinterSetUp {
+    /// @dev No incentive in any band, so a fee-paying mint pays nothing and receives nothing either, and the two
+    ///      routes can be compared trade for trade.
+    function setUpConfig() internal virtual override {
+        setUp_config_free();
+    }
+
+    /// @dev A live market at a collateral ratio of two, priced and rated as the fuzz asks, with `wrappedIn` in the
+    ///      hands of the zero-fee actor.
+    function _liveMarket(uint256 wrappedIn, uint256 rate, uint256 price) private {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 100 ether);
+        deal(wrappedCollateralToken, zeroFee, wrappedIn);
+    }
+
+    /// @dev What each leveraged token is a claim on is the residual - the collateral's value less the pegged claim -
+    ///      shared over the leveraged supply.
+    function _residualAndSupply(uint256 price) private view returns (uint256 residualE36, uint256 supply) {
+        residualE36 = IMinter(minter).collateralTokenBalance() * price - IMinter(minter).peggedTokenBalance() * 1 ether;
+        supply = IMinter(minter).leveragedTokenBalance();
+    }
+
+    /// Minting leveraged for free never takes more of the residual than the collateral it brings, so the value
+    /// behind each leveraged token already held does not fall - including where leveraged tokens held elsewhere make
+    /// the supply so large that the supply times the price no longer fits in a word.
+    function testFuzz_aFreeLeveragedMintNeverLowersTheValueOfALeveragedToken(
+        uint256 wrappedIn,
+        uint256 rate,
+        uint256 price,
+        uint256 leveragedHeldElsewhere
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        wrappedIn = bound(wrappedIn, 1e9, 100 ether);
+        leveragedHeldElsewhere = bound(leveragedHeldElsewhere, 0, 2 ** 200);
+        _liveMarket(wrappedIn, rate, price);
+        deal(leveragedToken, makeAddr("leveragedHolder"), leveragedHeldElsewhere, true);
+
+        (uint256 residualBefore, uint256 supplyBefore) = _residualAndSupply(price);
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter(minter).freeMintLeveragedToken(wrappedIn, zeroFee);
+        vm.stopPrank();
+        (uint256 residualAfter, uint256 supplyAfter) = _residualAndSupply(price);
+
+        // Residual per leveraged token, after against before: residualAfter / supplyAfter >= residualBefore /
+        // supplyBefore. Exact without a product that overflows, because a whole-number bound holds for the floor
+        // exactly when it holds for the quotient.
+        assertGe(
+            Math.mulDiv(residualAfter, supplyBefore, supplyAfter),
+            residualBefore,
+            "the value behind each leveraged token fell"
+        );
+    }
+
+    /// With no incentive in force a free leveraged mint and a fee-paying one are the same trade: from the same market
+    /// the same collateral mints the same leveraged tokens and credits the same backing - including where leveraged
+    /// tokens held elsewhere have diluted each one's claim far below any price a market would show, and made the
+    /// supply times the price too large for a word.
+    function testFuzz_aFreeLeveragedMintMintsWhatAZeroFeeMintDoes(
+        uint256 wrappedIn,
+        uint256 rate,
+        uint256 price,
+        uint256 leveragedHeldElsewhere
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        wrappedIn = bound(wrappedIn, 1e9, 100 ether);
+        leveragedHeldElsewhere = bound(leveragedHeldElsewhere, 0, 2 ** 200);
+        _liveMarket(wrappedIn, rate, price);
+        deal(leveragedToken, makeAddr("leveragedHolder"), leveragedHeldElsewhere, true);
+
+        uint256 backingBefore = IMinter(minter).collateralTokenBalance();
+        uint256 snapshot = vm.snapshotState();
+
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        uint256 freeMinted = IMinter(minter).freeMintLeveragedToken(wrappedIn, zeroFee);
+        vm.stopPrank();
+        uint256 freeCredited = IMinter(minter).collateralTokenBalance() - backingBefore;
+
+        vm.revertToState(snapshot);
+
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        uint256 paidMinted = IMinter(minter).mintLeveragedToken(wrappedIn, zeroFee, 0);
+        vm.stopPrank();
+        uint256 paidCredited = IMinter(minter).collateralTokenBalance() - backingBefore;
+
+        assertEq(freeMinted, paidMinted, "the same collateral mints the same leveraged tokens");
+        assertEq(freeCredited, paidCredited, "and credits the same backing");
     }
 }

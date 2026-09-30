@@ -986,7 +986,13 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.startPrank(owner());
         try IMinter_v3(minter).recogniseImpairment() {
             recognitionSucceeds = true;
-        } catch {
+        } catch (bytes memory reason) {
+            // the one refusal recognition makes: the holding already covers the record
+            assertEq(
+                reason,
+                abi.encodeWithSelector(IMinter_v3.NothingToRecognise.selector, recorded),
+                "recognition refused only because there is nothing to recognise"
+            );
             recognitionSucceeds = false;
         }
         vm.stopPrank();

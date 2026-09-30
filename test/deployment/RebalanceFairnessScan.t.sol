@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -162,7 +163,26 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         try IStabilityPoolManager(stabilityPoolManager).rebalance(makeAddr("bounty"), 0) {
             uint256 collAfter = IERC20(pegged).balanceOf(stabilityPoolCollateral);
             liquidFracE18 = ((collBefore - collAfter) * 1 ether) / collBefore;
-        } catch {
+        } catch (bytes memory reason) {
+            // Only the manager's two refusals, which leave nothing liquidated and so no row: at or above its threshold
+            // there is nothing to rebalance, and at or below the peg nothing a rebalance could repair. The ratio and
+            // threshold are the ones it judged, since a refused call leaves both as they were.
+            uint256 collateralRatio_ = IMinter(minter).collateralRatio();
+            uint256 rebalanceThreshold_ = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
+            assertEq(
+                reason,
+                collateralRatio_ >= rebalanceThreshold_
+                    ? abi.encodeWithSelector(
+                        IStabilityPoolManager_v2.CollateralRatioNotBelowRebalanceThreshold.selector,
+                        collateralRatio_,
+                        rebalanceThreshold_
+                    )
+                    : abi.encodeWithSelector(
+                        IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector,
+                        collateralRatio_
+                    ),
+                "a rebalance is refused only because the market is above its threshold or at or below the peg"
+            );
             liquidFracE18 = 0;
         }
     }

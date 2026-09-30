@@ -15,7 +15,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | config                                           |  79541 | 7.954e+04 |
 | donateWrappedCollateral                          |  45558 | 4.556e+04 |
 | feeReceiver                                      |   2464 | 2.464e+03 |
-| freeMintLeveragedToken                           | 148598 | 1.486e+05 |
+| freeMintLeveragedToken                           | 148580 | 1.486e+05 |
 | freeMintPeggedToken                              | 171348 | 1.713e+05 |
 | freeRedeemDryRun                                 |  36692 | 3.669e+04 |
 | freeRedeemLeveragedToken                         |  91722 | 9.172e+04 |
@@ -31,8 +31,8 @@ src/minter/Minter_v3.sol:Minter_v3
 | leveragedTokenBalance                            |  10396 | 1.040e+04 |
 | leveragedTokenPrice                              |  29882 | 2.988e+04 |
 | mintLeveragedToken                               | 168363 | 1.684e+05 |
-| mintLeveragedTokenDryRun                         |  78466 | 7.847e+04 |
-| mintLeveragedTokenIncentiveRatio                 |  28224 | 2.822e+04 |
+| mintLeveragedTokenDryRun                         |  78722 | 7.872e+04 |
+| mintLeveragedTokenIncentiveRatio                 |  31023 | 3.102e+04 |
 | mintPeggedToken(uint256,address,uint256)         | 213319 | 2.133e+05 |
 | mintPeggedToken(uint256,address,uint256,uint256) | 150026 | 1.500e+05 |
 | mintPeggedTokenDryRun(uint256)                   |  78740 | 7.874e+04 |
@@ -46,11 +46,11 @@ src/minter/Minter_v3.sol:Minter_v3
 | recogniseImpairment                              |  28616 | 2.862e+04 |
 | redeemLeveragedToken                             | 133822 | 1.338e+05 |
 | redeemLeveragedTokenDryRun                       |  67289 | 6.729e+04 |
-| redeemLeveragedTokenIncentiveRatio               |  26322 | 2.632e+04 |
+| redeemLeveragedTokenIncentiveRatio               |  29121 | 2.912e+04 |
 | redeemPeggedForCollateralRatio                   |  25575 | 2.558e+04 |
 | redeemPeggedToken                                | 155368 | 1.554e+05 |
 | redeemPeggedTokenDryRun                          |  64319 | 6.432e+04 |
-| redeemPeggedTokenIncentiveRatio                  |  28203 | 2.820e+04 |
+| redeemPeggedTokenIncentiveRatio                  |  30069 | 3.007e+04 |
 | reservePool                                      |   2411 | 2.411e+03 |
 | supportsInterface                                |    943 | 9.430e+02 |
 | sweep                                            |  40212 | 4.021e+04 |

@@ -504,21 +504,21 @@ library MinterAdjustments_v1 {
         // The tokens are minted against the collateral the record actually gained, not against the unrounded
         // figure the band walk accumulated. Minting against more than was credited buys the holder a share of a
         // residual that never arrived, which shows up as the leveraged price moving on a mint that should not move it.
-        uint256 addedE36 = underlyingCollateralAdded * 1 ether;
         if (w.leveragedTokenBalance > 0) {
-            leveragedMinted = Math.mulDiv(
-                addedE36,
-                cr.price * w.leveragedTokenBalance,
+            leveragedMinted = MinterValuationLib.leveragedForCollateral(
+                underlyingCollateralAdded,
+                cr.price,
+                w.leveragedTokenBalance,
                 w.collateralValueE36 - w.peggedValueE36
             );
-        } else if (addedE36 > 0) {
+        } else if (underlyingCollateralAdded > 0) {
+            uint256 addedE36 = underlyingCollateralAdded * 1 ether;
+            // Floored: a mint never mints more than the exact formula gives.
             leveragedMinted =
-                Math.mulDiv((cr.underlyingCollateral * 1 ether) + addedE36, cr.price, 1e18) - w.peggedValueE36;
+                (Math.mulDiv((cr.underlyingCollateral * 1 ether) + addedE36, cr.price, 1e18) - w.peggedValueE36) / 1e18;
         } else {
             leveragedMinted = 0;
         }
-        // Floored: a mint never mints more than the exact formula gives.
-        leveragedMinted = leveragedMinted / 1e18;
     }
 
     struct RedeemLeveragedWorkspace {

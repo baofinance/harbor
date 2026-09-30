@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {GraphRefinement} from "@bao-test/GraphRefinement.t.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
@@ -24,11 +25,6 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     uint256 start;
     uint256 finish;
     uint256 increment;
-
-    /// @dev How many swept points refused to be measured. Only ever added to, and never read to decide
-    ///      anything - the sweep behaves identically whatever it holds. It exists so a run that quietly
-    ///      drew less than it was asked to says so.
-    uint256 internal refusedSamples;
 
     function setUpRange() internal virtual {
         increment = 1 ether / 500;
@@ -219,46 +215,16 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
         vm.revertToStateAndDelete(snap);
     }
 
-    /// @notice One swept point, measured.
-    /// @dev External so that a measurement refusing here can be caught. Called on this contract rather
-    ///      than inherited into the caller, so `msg.sender` inside is this contract either way and the
-    ///      operations see the same caller they always did.
-    function measureAt(uint256 ratio) external {
-        _setCollateralRatio(ratio);
-        doOneCollateralRatio();
-    }
-
     /// @inheritdoc GraphRefinement
-    /// @dev An operation refusing at one point is a fact about that point, and usually about the very
-    ///      region the graph is being drawn to study - so it costs that row and no more. Left unguarded,
-    ///      the first refusal ends the sweep, and a graph whose refused region happens to lie at the
-    ///      start emerges holding nothing but its header.
-    ///
-    ///      The row is written by the measurement itself, at its end, so a refusal reaches this having
-    ///      written nothing: file writes are cheatcodes and do NOT roll back with the state.
+    /// @dev Not guarded. Every refusal a sweep expects is handled inside its own measurement, where the reason can
+    ///      be checked, and a graph records such a point as a `NaN`, which gnuplot draws as a break in the line. A
+    ///      revert that reaches here is therefore an error, and fails the test rather than costing a row unseen.
     function emitSampleAt(uint256 ratio) internal override {
         uint256 snap = vm.snapshotState();
-        bool refused;
-        try this.measureAt(ratio) {
-            // measured, and the row written
-        } catch {
-            refused = true;
-        }
+        _setCollateralRatio(ratio);
+        doOneCollateralRatio();
         vm.revertToStateAndDelete(snap);
-        // After the market is put back, because the snapshot would otherwise roll the count back with it.
-        if (refused) {
-            refusedSamples++;
-            emitRefusedSampleAt(ratio);
-        }
     }
-
-    /// @notice A row standing in for a point the measurement refused at.
-    /// @dev Writes nothing by default, which leaves the point out of the file. That is right where the
-    ///      refused points sit at one end of the sweep, which is where a region an operation cannot serve
-    ///      usually lies: the line simply starts where the operation starts working. A graph that can
-    ///      meet a refusal in the MIDDLE of its range should override this to write a row of `NaN`, so
-    ///      the line breaks there rather than being drawn straight across it.
-    function emitRefusedSampleAt(uint256) internal virtual {}
 
     /// @notice Every line the graph draws, for a graph that opts in by also setting a tolerance.
     /// @dev All of them, not one chosen: a stretch is only uninteresting if nothing drawn there is
@@ -292,9 +258,6 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
             }
 
             emitSampleAt(ratio);
-        }
-        if (refusedSamples > 0) {
-            console2.log("%s of the swept points refused to be measured and are absent", refusedSamples);
         }
         reportRefinement();
         setDown();
@@ -370,11 +333,11 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         compareHoldings(beforeHolding, afterHolding, deltas, "redeemPegged");
         vm.revertToState(snap);
 
-        // leveraged operations don't work for depegged
-
-        // mint leveraged
+        // mint leveraged: below the leverage cap's collateral-ratio floor the market sells no leverage, and the mint
+        // is refused by that rule, naming the ratio it judged and the floor it wanted
         data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-        if (currentCollateralRatio > 1 ether) {
+        uint256 minimumCollateralRatio = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        if (currentCollateralRatio >= minimumCollateralRatio) {
             (, data.fee, data.discount, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
 
@@ -405,8 +368,19 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             // logDeltaHoldings(deltas);
             compareHoldings(beforeHolding, afterHolding, deltas, "mintLeveraged");
             vm.revertToState(snap);
+        } else {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    IMinter_v3.LeverageAboveCap.selector,
+                    currentCollateralRatio,
+                    minimumCollateralRatio
+                )
+            );
+            IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+        }
 
-            // redeem leveraged
+        // redeem leveraged: not refused by the cap, which governs only minting; depegged there is no residual to redeem
+        if (currentCollateralRatio > 1 ether) {
             data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
             (data.incentiveRatio, data.fee, data.levergedRedeemed, data.collateralReturned, , ) = IMinter(minter)
                 .redeemLeveragedTokenDryRun(1000 ether);
@@ -561,7 +535,10 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         } else if (action == Action.RedeemPegged) {
             IMinter(minter).redeemPeggedToken(multiple * 1000 ether, address(this), 0);
         } else if (action == Action.MintLeveraged) {
-            if (leveraged()) IMinter(minter).mintLeveragedToken(multiple * 1 ether, address(this), 0);
+            // below the leverage cap's collateral-ratio floor the market sells no leverage, so there is nothing to compare
+            if (currentCollateralRatio >= IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()) {
+                IMinter(minter).mintLeveragedToken(multiple * 1 ether, address(this), 0);
+            }
         } else if (action == Action.RedeemLeveraged) {
             if (leveraged()) IMinter(minter).redeemLeveragedToken(multiple * 1000 ether, address(this), 0);
         }

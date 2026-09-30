@@ -1190,6 +1190,15 @@ the state before the trade. Redeeming sells nothing — it lets a holder leave �
 applies to it. Minting reopens by itself once the ratio is back above the leverage floor. The first
 sail token of a market with no sail supply is not judged, which is how a market is founded.
 
+**How many sail tokens a mint gives.** Into a market that already has sail tokens, a mint buys its
+share of the residual: the collateral it adds, valued at the high price, as a fraction of the
+residual, times the sail supply. The collateral counted is what the backing record is credited with
+— the wrapped amount at the low rate, rounded down, after any fee or discount — and the result is
+rounded down too, so a mint never takes more of the residual than it brings and the value behind
+each sail token already held never falls. The fee-paying and the zero-fee mint share this one
+definition: with no incentive in force they are the same trade. The first sail tokens of a market
+take the whole residual their own deposit creates (§5.1).
+
 ### 5.5 Stability-pool deposit and withdrawal
 
 **Trigger:** user action. **Preconditions:** deposits must leave the pool's total at zero or above
@@ -2046,6 +2055,7 @@ reach this market's collateral.
 | **P3** | A zero wrapped-to-collateral rate reverts — a rate of zero is a unit conversion, not an economic state, so it can only mean a faulty oracle. | By the oracle's check |
 | **P4** | Where a minimum and maximum differ, every mint and redeem uses the end that pays its caller less, chosen per operation and direction; the market's measures read the middle. Each operation reads the oracle once. | By construction |
 | **P5** | The rebalance prices at the band's **middle** — the stability pool is the backstop, not charged the spread, and the sizing and the payout read the same price. | By construction |
+| **P6** | A sail mint into a market with sail outstanding buys the **credited** collateral's share of the residual, rounded down, by one definition on the fee-paying and the zero-fee route: the value behind each sail token already held never falls, and with no incentive in force the two mints are the same trade (§5.4). | By construction; fuzz-tested |
 
 ### 8.3 Stability pool
 

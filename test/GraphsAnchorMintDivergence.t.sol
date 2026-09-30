@@ -102,13 +102,12 @@ abstract contract TestGraphsAnchorMintDivergenceBase is GraphTestBase, TestColla
             return lines;
         }
 
+        // Never refused in this sweep: the anchor price stays far above the smallest it can report, and every way the
+        // ratio is moved leaves the record covered. So the mint is not caught, and a revert fails the test.
         uint256 snapshot = vm.snapshotState();
-        try IMinter_v3(minter).freeMintPeggedToken(COLLATERAL_IN, address(this)) returns (uint256 anchorOut) {
-            lines[1] = int256((anchorOut * 1 ether) / valueIn);
-            lines[2] = int256(((anchorSupply + anchorOut) * 1 ether) / anchorSupply);
-        } catch {
-            // the mint is refused here; a gap says so
-        }
+        uint256 anchorOut = IMinter_v3(minter).freeMintPeggedToken(COLLATERAL_IN, address(this));
+        lines[1] = int256((anchorOut * 1 ether) / valueIn);
+        lines[2] = int256(((anchorSupply + anchorOut) * 1 ether) / anchorSupply);
         vm.revertToState(snapshot);
     }
 

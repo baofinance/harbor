@@ -88,5 +88,4 @@ threshold_line = "nohead dashtype 2 linewidth 1 linecolor rgb 'gray20'"
 floor_line     = "nohead dashtype 5 linewidth 1 linecolor rgb 'gray20'"
 
 # Shared canvas conventions.
-set datafile missing NaN
 set grid xtics ytics

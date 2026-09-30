@@ -164,11 +164,9 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
             row[5] = NaN;
 
             if (askLeveraged > 0) {
-                try IMinter_v3(minter).freeRedeemDryRun(0, askLeveraged) returns (uint256, uint256 minted) {
-                    row[2] = int256(minted);
-                } catch {
-                    // the market will not price it, which is itself worth seeing as a gap
-                }
+                // A dry run reports zero where the call would be refused rather than reverting, so it is read directly.
+                (, uint256 minted) = IMinter_v3(minter).freeRedeemDryRun(0, askLeveraged);
+                row[2] = int256(minted);
                 MinterClaimRescaleLib.Valuation memory valuation = MinterClaimRescaleLib.valuationOf(
                     minter,
                     priceOracle

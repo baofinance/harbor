@@ -1307,26 +1307,31 @@ contract Minter_v3 is
             backing,
             price
         );
-        uint256 underlyingCollateralInE36 = wrappedCollateralIn * reading.minRate;
+        // What the record is credited with, and so what the mint is priced against: the wrapped offered, valued at
+        // the low rate by the conversion the holding is valued by, rounded down.
+        uint256 underlyingCollateralAdded = MinterValuationLib.wrappedAsCollateral(
+            wrappedCollateralIn,
+            reading.minRate
+        );
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
         // Leveraged is the residual claim, so there must be a residual for a mint to buy into. Left at zero,
         // `_mintLeveragedToken` turns the caller away by name - matching the fee-paying path, whose adjustments
         // return zero in the same state.
         if (leveragedTokenBalance_ > 0) {
-            // A minted leveraged token with no residual behind it is worth nothing, and nothing is not a price.
-            uint256 leveragedPriceE36 = _leveragedTokenPriceE36(
-                collateralValueE36,
-                peggedValueE36,
-                leveragedTokenBalance_
-            );
-            if (leveragedPriceE36 > 0) {
-                leveragedOut = (underlyingCollateralInE36 * price) / leveragedPriceE36;
+            if (collateralValueE36 > peggedValueE36) {
+                // The fee-paying mint's own definition, so the two routes price the same trade the same.
+                leveragedOut = MinterValuationLib.leveragedForCollateral(
+                    underlyingCollateralAdded,
+                    price,
+                    leveragedTokenBalance_,
+                    collateralValueE36 - peggedValueE36
+                );
             }
         } else {
             // The first leveraged minted takes the residual this deposit itself creates, so it is the balance AFTER the
             // deposit that must cover the pegged claim - which is why the test is not the one above. The claim is
             // taken unclamped: `tokenValuesE36` caps it at the collateral value, and the shortfall is the point here.
-            uint256 postDepositValueE36 = collateralValueE36 + Math.mulDiv(underlyingCollateralInE36, price, 1e18);
+            uint256 postDepositValueE36 = collateralValueE36 + underlyingCollateralAdded * price;
             uint256 peggedClaimE36 = $.peggedTokenBalance * 1e18;
             if (postDepositValueE36 > peggedClaimE36) {
                 leveragedOut = (postDepositValueE36 - peggedClaimE36) / 1e18;
@@ -1337,7 +1342,7 @@ contract Minter_v3 is
         _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);
 
         // update our records
-        $.underlyingCollateral += underlyingCollateralInE36 / 1e18;
+        $.underlyingCollateral += underlyingCollateralAdded;
     }
 
     // @inheritdoc IMinter

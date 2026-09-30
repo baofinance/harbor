@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
@@ -76,8 +77,12 @@ contract TestGraphsRebalanceTrigger is GraphTestBase, TestCollateralRatioRangeSe
             appliedOverFair = (appliedRate * 1 ether) / fairRate;
         }
 
+        // With no residual the minter reports the maximum - a claim of nothing rather than a leverage - so the line
+        // breaks there instead of carrying a number.
+        uint256 leverageRatio_ = IMinter_v3(minter).leverageRatio();
+
         lines = new int256[](4);
-        lines[0] = int256(IMinter_v3(minter).leverageRatio());
+        lines[0] = leverageRatio_ == type(uint256).max ? NaN : SafeCast.toInt256(leverageRatio_);
         lines[1] = fairRate;
         lines[2] = appliedRate;
         lines[3] = appliedOverFair;
