@@ -171,10 +171,38 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
         uint256 share = bound(shareSeed, 0.0001 ether, 0.5 ether);
         setCollateralRatio(collateralRatio);
-        uint256 anchorIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
-        vm.assume(anchorIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= anchorIn);
-        uint256 sailBefore = IMinter(minter).leveragedTokenBalance();
-        uint256 anchorSupply = IMinter(minter).peggedTokenBalance();
+        uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
+        vm.assume(peggedIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= peggedIn);
+
+        _assertOneConversionStaysWithinTheBound(peggedIn);
+    }
+
+    /// R4 AT ITS EDGE. The bound is tightest where the market only just sells leverage, and a fuzzed collateral ratio
+    /// lands there only by chance, so the leverage floor itself is a case of its own.
+    function test_mintingStaysWithinTheBound_atExactlyTheLeverageFloor() public {
+        uint256 release = releaseCollateralRatio();
+        setCollateralRatio(release);
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            release,
+            "precondition: the market sits exactly at the leverage floor"
+        );
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "precondition: and sells leverage there");
+        uint256 peggedIn = IMinter(minter).peggedTokenBalance() / 2;
+        assertGe(
+            IERC20(peggedToken).balanceOf(address(this)),
+            peggedIn,
+            "precondition: this contract holds the pegged it converts"
+        );
+
+        _assertOneConversionStaysWithinTheBound(peggedIn);
+    }
+
+    /// @dev Converts `peggedIn` at the collateral ratio the market already stands at, and holds the result to R4:
+    ///      within the bound where the market sells leverage, and nothing minted where it does not.
+    function _assertOneConversionStaysWithinTheBound(uint256 peggedIn) private {
+        uint256 leveragedBefore = IMinter(minter).leveragedTokenBalance();
+        uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
 
         if (!IMinter_v3(minter).leveragedMintable()) {
             vm.expectRevert(
@@ -184,22 +212,27 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
                     releaseCollateralRatio()
                 )
             );
-            IMinter_v3(minter).freeRedeemPeggedToken(0, anchorIn, address(this));
-            assertEq(IMinter(minter).leveragedTokenBalance(), sailBefore, "nothing is minted below the floor");
+            IMinter_v3(minter).freeRedeemPeggedToken(0, peggedIn, address(this));
+            assertEq(IMinter(minter).leveragedTokenBalance(), leveragedBefore, "nothing is minted below the floor");
             return;
         }
 
-        Conversion memory done = _convert(anchorIn);
+        Conversion memory done = _convert(peggedIn);
 
         uint256 valueIn = Math.mulDiv(done.anchorTaken, done.anchorPrice, 1 ether);
-        // `(K-1) x S/n` sail per unit of value, plus one for the flooring of the count.
-        uint256 mostPerValue = Math.mulDiv(IMinter_v3(minter).MAX_LEVERAGE_RATIO() - 1 ether, sailBefore, anchorSupply);
+        // At any collateral ratio the market sells leverage at, the residual is at least `n/(K-1)` for a pegged supply
+        // `n`, so `valueIn` of pegged value buys at most `valueIn x (K-1) x S/n` leveraged, `S` the leveraged supply
+        // before the conversion. The count is floored, so it never exceeds that.
         assertLe(
             done.sailGiven,
-            Math.mulDiv(valueIn, mostPerValue, 1 ether) + 1,
+            Math.mulDiv(
+                valueIn * (IMinter_v3(minter).MAX_LEVERAGE_RATIO() - 1 ether),
+                leveragedBefore,
+                peggedSupply * 1 ether
+            ),
             "one conversion must not mint without limit"
         );
-        assertGe(IMinter(minter).leveragedTokenBalance(), sailBefore, "and the supply cannot go backwards");
+        assertGe(IMinter(minter).leveragedTokenBalance(), leveragedBefore, "and the supply cannot go backwards");
     }
 
     /// R5. THE CONVERSION IS REFUSED WHERE THE RESIDUAL VANISHES. Approaching the collateral ratio where the
@@ -208,7 +241,13 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     /// offered stays with its holder, and the sail supply is untouched. A rebalance in that condition is the
     /// manager's to route around, not the minter's to settle by minting.
     function test_theConversionIsRefusedWhereTheResidualVanishes() public {
-        uint256[4] memory ratios = [uint256(1.02 ether), 1.002 ether, 1 ether, 0.5 ether];
+        // Just under the leverage floor, just over the peg, the peg, and far below it.
+        uint256[4] memory ratios = [
+            marketActions.collateralRatioBandsAboveThePeg(0.9 ether),
+            marketActions.collateralRatioBandsAboveThePeg(0.1 ether),
+            1 ether,
+            0.5 ether
+        ];
         uint256 release = releaseCollateralRatio();
 
         for (uint256 i = 0; i < ratios.length; i++) {

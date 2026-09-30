@@ -137,13 +137,15 @@ contract Minter_v3 is
     /// measured to let go: the same number, seen from the other side. That cap bounded the COUNT a conversion
     /// minted and left the retail route unbounded; this one refuses, on every route, so no token is ever sold
     /// carrying more than `K`.
-    uint256 public constant override MAX_LEVERAGE_RATIO = 20 ether;
+    uint256 public constant override MAX_LEVERAGE_RATIO = 100 ether;
 
     /// @inheritdoc IMinter_v3
-    /// @dev Derived from the cap by integer division, which floors it as `Math.mulDiv` would - the one place
-    /// the two figures are related, so they cannot disagree.
+    /// @dev `K/(K-1)` rounded UP to its 1e18 scale - the one place the two figures are related, so they cannot
+    /// disagree. Up, because this is the floor that enforces the cap: a market at or above it holds a residual of
+    /// at least `n/(K-1)` for a pegged supply `n`, so no leveraged token is sold carrying more than `K`. Rounded
+    /// down, a market standing in the last unit below the exact `K/(K-1)` would be sold a little more.
     uint256 public constant override MINIMUM_COLLATERAL_RATIO =
-        (MAX_LEVERAGE_RATIO * 1 ether) / (MAX_LEVERAGE_RATIO - 1 ether);
+        (MAX_LEVERAGE_RATIO * 1 ether + (MAX_LEVERAGE_RATIO - 1 ether) - 1) / (MAX_LEVERAGE_RATIO - 1 ether);
 
     /////////////
     // Storage //

@@ -9,6 +9,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 
@@ -26,6 +27,9 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
     /// @dev One anchor token, so the sail received IS the applied conversion rate.
     uint256 internal constant ANCHOR_IN = 1 ether;
 
+    /// @dev What the suites on this base do to the market: place it against the leverage floor.
+    MarketActions internal marketActions;
+
     function setUpConfig() internal virtual override {
         setUp_config_likely();
     }
@@ -38,8 +42,10 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        vm.prank(owner());
+        vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
+        marketActions = new MarketActions(minter);
     }
 
     /// @notice The collateral ratio at which the market starts selling leverage: the minter's own floor,

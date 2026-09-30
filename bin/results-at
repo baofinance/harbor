@@ -90,9 +90,22 @@ gp_references() {
         | sort -u
 }
 
+# The .gp filenames a plot file pulls in with gnuplot's own `load "other.gp"` statement. style.gp is the
+# only one today, but this reads the statement rather than naming that file, so a second shared file loaded
+# the same way is picked up without another edit here. A file reached this way draws nothing itself - that
+# is why gp_references finds no CSV in style.gp - but gnuplot refuses to run at all without it, so it needs
+# recovering even when nothing about it changed.
+gp_loads() {
+    { grep -v '^[[:space:]]*#' "$1" || [[ $? -eq 1 ]]; } \
+        | { grep -oE "load[[:space:]]+['\"][A-Za-z0-9_:.-]+\.gp['\"]" || [[ $? -eq 1 ]]; } \
+        | { grep -oE '[A-Za-z0-9_:.-]+\.gp' || [[ $? -eq 1 ]]; } \
+        | sort -u
+}
+
 declare -A csv_delta=()    # CSV name -> how many lines differ from the ref
 declare -A gp_delta=()     # .gp name -> how many lines differ from the ref
 declare -A gp_refs=()      # .gp name -> the CSVs it reads, at the ref and now
+declare -A gp_loads_of=()  # .gp name -> the .gp files it loads (e.g. style.gp), at the ref and now
 declare -A drawn_by=()     # CSV name -> the .gp files that read it
 declare -A keep=()         # what survives the prune
 declare -a csv_added=() csv_removed=() gp_added=() gp_removed=()
@@ -141,11 +154,14 @@ for path in results/*.gp "${dir}"/*.gp; do
     fi
 
     refs=""
+    loads=""
     for version in "results/${name}" "${dir}/${name}"; do
         [[ -f "${version}" ]] || continue
         refs+=" $(gp_references "${version}" | tr '\n' ' ')"
+        loads+=" $(gp_loads "${version}" | tr '\n' ' ')"
     done
     gp_refs["${name}"]="$(echo ${refs} | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+    gp_loads_of["${name}"]="$(echo ${loads} | tr ' ' '\n' | sort -u | tr '\n' ' ')"
 done
 
 # A plot file is wanted when it draws something that moved, or when it moved itself. Either way it brings
@@ -172,6 +188,22 @@ done
 # A CSV that moved is worth recovering whether or not anything draws it.
 for csv in "${!csv_delta[@]}"; do
     keep["${csv}"]=1
+done
+
+# Close `keep` under `load "other.gp"`: a kept plot file that loads a shared one like style.gp needs that
+# file present too, or gnuplot refuses to run it - unrelated to whether the shared file itself changed. Loop
+# to a fixed point rather than one level deep, so a load chain of any length is covered.
+closing=1
+while [[ "${closing}" -eq 1 ]]; do
+    closing=0
+    for name in "${!keep[@]}"; do
+        for loaded in ${gp_loads_of[${name}]:-}; do
+            if [[ -z "${keep[${loaded}]:-}" ]]; then
+                keep["${loaded}"]=1
+                closing=1
+            fi
+        done
+    done
 done
 
 # A name can be wanted and yet not exist at the ref - a plot file written since, or a CSV it reads that

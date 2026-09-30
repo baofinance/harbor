@@ -24,6 +24,7 @@ import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -109,6 +110,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         reader = new MarketReaderV2Lineage(ConfigTokenNames(address(config)));
 
         market.minter = productionRun.minterAddress(config);
+        marketActions = new MarketActions(market.minter);
         market.collateralPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Collateral);
         market.leveragedPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Leveraged);
         market.manager = productionRun.stabilityPoolManagerAddress(config);

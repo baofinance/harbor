@@ -13,7 +13,7 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice Graphs what stops a rebalance short, against the size of the stability pools.
@@ -26,19 +26,17 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// for, what the pools could lose, what was actually taken, and where the collateral ratio ended up.
 ///
 /// It exists to answer a question about a DIFFERENT bound. The conversion bound over-mints only while
-/// the leverage ratio is at its cap, which is at and below a collateral ratio of `K/(K-1)` - about
-/// 1.0526. A rebalance that succeeds lifts the market to the threshold, far above that, so the bound is
+/// the leverage ratio is at its cap, which is at and below a collateral ratio of `K/(K-1)`. A rebalance
+/// that succeeds lifts the market to the threshold, far above that, so the bound is
 /// binding in practice only when a rebalance CANNOT lift the market out. That makes "is this bound ever
 /// the binding one" a question about how small the pools are, which is what is plotted here.
 ///
 /// The market starts each point inside the band, at a collateral ratio the bound is engaged at, so every
 /// point is a rebalance attempting that escape. Every number is measured: the amounts come from the
 /// contracts' own views before the call and from the call's own return afterwards.
-contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolManagerSetUp, HarborTestActions {
-    /// @dev A collateral ratio inside the band where the conversion bound is engaged: the leverage ratio
-    ///      here is about 51, well past the cap of 20, so every rebalance graphed is one that converts at
-    ///      the bound rather than at a fair conversion rate.
-    uint256 private constant DISTRESSED_COLLATERAL_RATIO = 1.02 ether;
+contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolManagerSetUp {
+    /// @dev What this graph does to the market: place it at the collateral ratio each point starts from.
+    MarketActions private marketActions;
 
     /// @dev Collateral behind each side at deployment. Large against the pools' minimum supply, so that
     ///      pool size has a four-hundredfold range to be swept over rather than the tenfold one a small
@@ -57,13 +55,15 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
     function setUp() public virtual override {
         super.setUp();
         setUp_collateral(COLLATERAL_EACH_SIDE, COLLATERAL_EACH_SIDE, address(this));
+        marketActions = new MarketActions(minter);
         deal(address(wrappedCollateralToken), address(this), 100_000 ether);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-        vm.prank(owner());
+        vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
 
         file = openFile(
             "rebalance_binding_limits",
@@ -78,13 +78,9 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
     }
 
     function test_whatStopsARebalanceShort() public {
-        // The band this graph is about: the bound is engaged at and below here, so the distressed ratio
-        // each point starts from has to be inside it for the escape to be the one being measured.
-        assertLt(
-            DISTRESSED_COLLATERAL_RATIO,
-            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO(),
-            "the sweep must start inside the band where the conversion bound is engaged"
-        );
+        // Four tenths of the way from the peg to the floor: the leverage ratio here is about two and a half times
+        // the cap, so every rebalance graphed starts where the market sells none.
+        uint256 distressedCollateralRatio = marketActions.collateralRatioBandsAboveThePeg(0.4 ether);
 
         for (uint256 share = FIRST_POOL_SHARE; share <= LAST_POOL_SHARE; share = (share * 3) / 2) {
             uint256 snapshot = vm.snapshotState();
@@ -94,7 +90,8 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
             IStabilityPool(stabilityPoolCollateral).deposit(perPool, address(this), 0);
             IStabilityPool(stabilityPoolLeveraged).deposit(perPool, address(this), 0);
 
-            setCollateralRatioByPrice(minter, priceOracle, DISTRESSED_COLLATERAL_RATIO);
+            marketActions.setCollateralRatioByPrice(distressedCollateralRatio);
+            assertFalse(IMinter_v3(minter).leveragedMintable(), "each point starts where the market sells no leverage");
 
             // What the threshold asks for, with the pools' own limits taken off: the same view the
             // rebalance uses, against the manager's own threshold, with the headroom arguments opened up

@@ -9,6 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {MarketReader} from "@harbor-test/harness/MarketReader.sol";
 import {MarketRule, TreeRule} from "@harbor-test/harness/MarketRule.sol";
 
@@ -45,6 +46,10 @@ abstract contract MarketUnderTest {
     /// @dev How to ASK this market its questions - see `MarketReader`. Chosen once, where the market is stood
     /// up and where what sits behind each proxy is decided, so it cannot disagree with the market it reads.
     MarketReader internal reader;
+
+    /// @dev How to ACT on this market - see `MarketActions`. Made where the market is stood up, once its minter is
+    /// known, so every measurement places the market through the one implementation.
+    MarketActions internal marketActions;
 
     /// @dev Stand the market up and fund its INITIAL CONDITIONS - the starting state every measurement is
     /// entitled to assume, so that two measurements of the same market are comparing the same thing. Funding

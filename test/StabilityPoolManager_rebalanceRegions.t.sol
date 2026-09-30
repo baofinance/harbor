@@ -13,8 +13,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
-import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice What a rebalance does in each region of the collateral ratio.
@@ -28,8 +27,11 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 ///
 /// The market: 100 of collateral backing 200,000 pegged, and 25 more behind the leveraged tokens, at the mock's price
 /// of 2,000 - a ratio of 1.25. Each test places it by price, which leaves the backing where it is.
-contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSetUp, HarborTestActions {
+contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSetUp {
     uint256 private constant THRESHOLD = 1.3 ether;
+
+    /// @dev What these tests do to the market: place it at a collateral ratio, and open a price band around one.
+    MarketActions private marketActions;
 
     /// @dev One `Liquidated` event, as a pool records a payment: the pegged it gave up, and what it was paid in.
     struct Liquidation {
@@ -46,6 +48,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0);
         vm.stopPrank();
         setUp_collateral(100 ether, 25 ether, user);
+        marketActions = new MarketActions(minter);
     }
 
     /// Deposit these shares of the pegged supply - in basis points - into the two pools.
@@ -61,6 +64,14 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
 
     function _floor() private view returns (uint256) {
         return IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+    }
+
+    /// @dev Where every test that starts between the peg and the floor starts: four tenths of the way up that band.
+    ///      Reaching the floor from there by the collateral route takes six tenths of the pegged supply, which the
+    ///      pools hold when they hold nine tenths and do not when they hold four. Makes an external call, so it must
+    ///      be taken into a local BEFORE any one-shot cheatcode.
+    function _insideTheBand() private view returns (uint256) {
+        return marketActions.collateralRatioBandsAboveThePeg(0.4 ether);
     }
 
     function _price() private view returns (uint256 price) {
@@ -131,8 +142,8 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// they gave. From the floor both legs run as usual, and the leveraged pool is paid in leveraged tokens.
     function testFuzz_insideTheBand_theFloorByTheCollateralRouteThenTheThresholdByBothLegs(uint256 start) public {
         _fillPools(3_000, 6_000);
-        start = bound(start, 1.02 ether, _floor() - 1);
-        setCollateralRatioByPrice(minter, priceOracle, start);
+        start = bound(start, _insideTheBand(), _floor() - 1);
+        marketActions.setCollateralRatioByPrice(start);
         assertFalse(IMinter_v3(minter).leveragedMintable(), "the market starts where it sells no leverage");
         uint256 holdingCollateral = _poolPegged(stabilityPoolCollateral);
         uint256 holdingLeveraged = _poolPegged(stabilityPoolLeveraged);
@@ -170,7 +181,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// and still rebalanceable for when the pools refill.
     function test_poolsTooSmallToReachTheFloor_liftTheMarketAsFarAsTheyGo() public {
         _fillPools(2_000, 2_000);
-        setCollateralRatioByPrice(minter, priceOracle, 1.02 ether);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
         uint256 start = IMinter(minter).collateralRatio();
         assertLt(
             _poolPegged(stabilityPoolCollateral) + _poolPegged(stabilityPoolLeveraged),
@@ -203,13 +214,13 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// covers it: both pools paid in collateral, no leveraged token minted, and the market left at the threshold,
     /// still selling no leverage.
     function test_aThresholdBelowTheFloor_isReachedByTheCollateralRouteAlone() public {
-        uint256 threshold = 1.04 ether;
+        uint256 threshold = marketActions.collateralRatioBandsAboveThePeg(0.75 ether);
         assertLt(threshold, _floor(), "the threshold is below the floor");
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(threshold);
         vm.stopPrank();
         _fillPools(3_000, 6_000);
-        setCollateralRatioByPrice(minter, priceOracle, 1.02 ether);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
         uint256 leveragedSupply = IERC20(leveragedToken).totalSupply();
 
         Liquidation[] memory paid = _rebalance(0);
@@ -228,10 +239,8 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// runs in the same call - rather than stopping a band's width short and finding nothing to do next time.
     function test_acrossAnOracleSpread_theSecondStepRunsInTheSameCall() public {
         _fillPools(3_000, 6_000);
-        uint256 price = setCollateralRatioByPrice(minter, priceOracle, 1.02 ether);
-        (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        uint256 halfSpread = price / 100;
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price - halfSpread, price + halfSpread, rate, rate);
+        // A fifth of a band either side, so the whole quoted band is between the peg and the floor.
+        marketActions.openPriceBand(_insideTheBand(), marketActions.leverageFloorBandWidth() / 5);
 
         Liquidation[] memory paid = _rebalance(0);
 
@@ -249,7 +258,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
         vm.stopPrank();
         _fillPools(3_000, 6_000);
-        setCollateralRatioByPrice(minter, priceOracle, 1.02 ether);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
         uint256 minterCollateralBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
 
         Liquidation[] memory paid = _rebalance(0);
@@ -277,7 +286,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// The keeper's minimum is judged against the pegged taken by the whole rebalance, both steps together.
     function test_theKeepersMinimumCountsBothSteps() public {
         _fillPools(3_000, 6_000);
-        setCollateralRatioByPrice(minter, priceOracle, 1.02 ether);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
         uint256 snapshot = vm.snapshotState();
         Liquidation[] memory paid = _rebalance(0);
         assertEq(paid.length, 4, "both steps ran");
@@ -309,7 +318,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// the leveraged pool in leveraged tokens, and nothing paid to either in the other's token.
     function test_aboveTheFloor_oneStepByBothLegs() public {
         _fillPools(3_000, 6_000);
-        setCollateralRatioByPrice(minter, priceOracle, 1.1 ether);
+        marketActions.setCollateralRatioByPrice(1.1 ether);
         assertTrue(IMinter_v3(minter).leveragedMintable(), "the market sells leverage");
 
         Liquidation[] memory paid = _rebalance(0);
@@ -333,7 +342,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// the same measure and leaves the ratio at one: nothing to repair, and the rebalance is refused by name.
     function test_atThePeg_theRebalanceIsRefused() public {
         _fillPools(3_000, 6_000);
-        setCollateralRatioByPrice(minter, priceOracle, 1 ether);
+        marketActions.setCollateralRatioByPrice(1 ether);
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "the market is exactly at the peg");
         assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
 
@@ -345,7 +354,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// is for any amount. The pools keep their pegged for when the price brings the market back above the peg.
     function test_belowThePeg_theRebalanceIsRefused() public {
         _fillPools(3_000, 6_000);
-        setCollateralRatioByPrice(minter, priceOracle, 0.9 ether);
+        marketActions.setCollateralRatioByPrice(0.9 ether);
         uint256 ratio = IMinter(minter).collateralRatio();
         assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
 

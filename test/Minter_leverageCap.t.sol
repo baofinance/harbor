@@ -9,7 +9,6 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
-import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @notice The leverage cap: the minter refuses to sell leverage below `K/(K-1)`, on every route alike, judged
 ///         on the state the sale is priced at; above the floor it sells at the residual's price, uncapped.
@@ -28,17 +27,19 @@ contract MinterLeverageCapTest is LocalMarket {
         keeper = makeAddr("keeper");
     }
 
-    /// The floor is the cap: `K/(K-1)`, so that the leverage sold at the floor is exactly `K`.
+    /// The leverage floor is the cap seen from the other side: `K/(K-1)` rounded UP to its scale, so that the leverage
+    /// sold at the floor is the cap or a hair under it, and never over.
     function test_theFloorIsWhereTheLeverageSoldWouldBeTheCap() public view {
         uint256 cap = IMinter_v3(market.minter).MAX_LEVERAGE_RATIO();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
-        // `beta = CR/(CR-1)` at the floor. The floor is `K/(K-1)` floored to its 1e18 scale, so it is short of
-        // the exact ratio by less than one unit, and `beta` moves by `1e36 / (floor - 1e18)^2` per unit of
-        // the floor - about 361 here - so that is the most the two can differ by. The measured 19 is inside
-        // it; a floor derived from the wrong cap would miss by orders of magnitude.
-        uint256 betaAtFloor = (floor * 1 ether) / (floor - 1 ether);
-        uint256 tolerance = 1e36 / ((floor - 1 ether) * (floor - 1 ether));
-        assertApproxEqAbs(betaAtFloor, cap, tolerance, "the leverage sold at the floor is the cap");
+        // The leverage ratio at a collateral ratio `CR` is `CR/(CR-1)`. The floor is above the exact `K/(K-1)` by
+        // less than one unit of its 1e18 scale, and the leverage ratio falls by `1e36 / (CR - 1e18)^2` per unit of
+        // `CR` - steepest at the low end, so taken one unit under the floor, which is below the exact figure. That,
+        // plus one for the division the leverage ratio is itself floored by, is the most it can be under the cap.
+        uint256 leverageRatioAtFloor = Math.mulDiv(floor, 1 ether, floor - 1 ether);
+        uint256 shortfall = Math.ceilDiv(1e36, (floor - 1 - 1 ether) * (floor - 1 - 1 ether)) + 1;
+        assertLe(leverageRatioAtFloor, cap, "the leverage sold at the floor does not exceed the cap");
+        assertGe(leverageRatioAtFloor + shortfall, cap, "and is the cap to within the floor's own rounding");
     }
 
     /// A rebalance from ABOVE the floor proceeds and lands on the threshold, when its collateral leg alone would
@@ -50,7 +51,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// the supply. From 1.10 with these pools that reads 0.975, which is below the floor; the market stands at
     /// 1.10, which is above it. The sale is priced on the market, so the rule judges the market.
     function test_rebalanceAboveTheFloorProceeds_judgedOnThePricedStateNotAHalfAppliedRecord() public {
-        setMarketCollateralRatio(1.1 ether);
+        marketActions.setCollateralRatioByPrice(1.1 ether);
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertGe(IMinter(market.minter).collateralRatio(), floor, "precondition: the market is above the floor");
         uint256 leveragedPoolPeggedBefore = IERC20(market.pegged).balanceOf(market.leveragedPool);
@@ -80,7 +81,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// floor it wanted; and refusing takes nothing from the holder. A rebalance never asks for a conversion there,
     /// taking the collateral route instead, so this is the minter's own guard, reached directly.
     function test_conversionBelowTheFloorIsRefused_namingTheRatioTheMarketIsPricedAt() public {
-        setMarketCollateralRatio(1.05 ether);
+        marketActions.setCollateralRatioByPrice(marketActions.collateralRatioBandsAboveThePeg(0.5 ether));
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertLt(ratio, floor, "precondition: the market is below the floor");
@@ -97,7 +98,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// Below the floor BOTH retail routes are refused, by the same name and with the same figures as the
     /// conversion - the rule is a fact about the market, not about who asked.
     function test_retailMintBelowTheFloorIsRefused_onBothRoutesByTheSameName() public {
-        setMarketCollateralRatio(1.05 ether);
+        marketActions.setCollateralRatioByPrice(marketActions.collateralRatioBandsAboveThePeg(0.5 ether));
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertLt(ratio, floor, "precondition: the market is below the floor");
@@ -114,7 +115,7 @@ contract MinterLeverageCapTest is LocalMarket {
 
     /// Above the floor a retail mint is served: the refusal is a floor, not a closure.
     function test_retailMintAboveTheFloorIsServed() public {
-        setMarketCollateralRatio(1.1 ether);
+        marketActions.setCollateralRatioByPrice(1.1 ether);
         assertGe(
             IMinter(market.minter).collateralRatio(),
             IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(),
@@ -128,14 +129,21 @@ contract MinterLeverageCapTest is LocalMarket {
     }
 
     /// `leveragedMintable()` is the refusal as a view: true exactly where a mint is served, false exactly where
-    /// it is refused, on either side of the floor and at the ratio the churn sweep bracketed it to.
+    /// it is refused, well either side of the leverage floor and a tenth of the peg-to-floor band either side of it.
     function test_leveragedMintableAgreesWithTheRefusal() public {
-        uint256[6] memory ratios = [uint256(0.9 ether), 1 ether, 1.0525 ether, 1.0529 ether, 1.1 ether, 1.5 ether];
+        uint256[6] memory ratios = [
+            uint256(0.9 ether),
+            1 ether,
+            marketActions.collateralRatioBandsAboveThePeg(0.9 ether),
+            marketActions.collateralRatioBandsAboveThePeg(1.1 ether),
+            1.1 ether,
+            1.5 ether
+        ];
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         deal(market.wrappedCollateral, address(this), 6 ether);
 
         for (uint256 i = 0; i < ratios.length; i++) {
-            setMarketCollateralRatio(ratios[i]);
+            marketActions.setCollateralRatioByPrice(ratios[i]);
             uint256 ratio = IMinter(market.minter).collateralRatio();
             bool mintable = IMinter_v3(market.minter).leveragedMintable();
             assertEq(mintable, ratio >= floor, "the view is the comparison with the floor");
@@ -150,17 +158,20 @@ contract MinterLeverageCapTest is LocalMarket {
 
     /// The cap bounds the leverage SOLD, not the leverage held. Between the peg and the floor no leverage is sold,
     /// yet the tokens already minted carry more than the cap, and `leverageRatio()` reports that true figure -
-    /// `CR/(CR-1)`, about 51 at 1.02 - rather than the cap, which would understate the exposure it describes.
+    /// `CR/(CR-1)` - rather than the cap, which would understate the exposure it describes.
+    ///
+    /// Halfway from the peg to the floor, for a reason that holds for any cap: the band is `1/(K-1)` wide, so
+    /// `CR - 1` is half of that and the leverage ratio there is about `2(K-1)` - twice the cap, whatever the cap is.
     function test_leverageRatioReportsTheTrueFigureBetweenThePegAndTheFloor() public {
-        setMarketCollateralRatio(1.02 ether);
+        marketActions.setCollateralRatioByPrice(marketActions.collateralRatioBandsAboveThePeg(0.5 ether));
         uint256 ratio = IMinter(market.minter).collateralRatio();
         assertGt(ratio, 1 ether, "precondition: the residual is not gone");
         assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "precondition: below the floor");
 
         // `beta = CR/(CR-1)`, from the ratio the market reports. That ratio is floored to its 1e18 scale, short of
-        // the exact one by less than a unit, and `beta` moves by `1e36 / (CR - 1e18)^2` per unit of it - about 2500
-        // here - so that, plus one for the floor on each side, is the most the two can differ by. The cap, 20
-        // against about 51, is far outside it.
+        // the exact one by less than a unit, and `beta` moves by `1e36 / (CR - 1e18)^2` per unit of it - so that,
+        // plus one for the floor on each side, is the most the two can differ by. The cap, at half the leverage
+        // ratio reported here, is far outside it.
         uint256 expected = Math.mulDiv(ratio, 1 ether, ratio - 1 ether);
         uint256 tolerance = Math.ceilDiv(1e36, (ratio - 1 ether) * (ratio - 1 ether)) + 1;
         assertDiscriminates(
@@ -172,22 +183,17 @@ contract MinterLeverageCapTest is LocalMarket {
         );
     }
 
-    /// @dev Puts the middle of the oracle's price band where the market reports `ratio`, and opens the band 1% either
-    ///      side of it. Returns the collateral ratio each edge of the band would price the market at, so that a test
-    ///      can put the middle on one side of the floor and an edge on the other.
-    function _openASpreadAround(uint256 ratio) internal returns (uint256 lowEdgeRatio, uint256 highEdgeRatio) {
-        setMarketCollateralRatio(ratio);
-        (uint256 middle, , uint256 minRate, uint256 maxRate) = MockWrappedPriceOracle(market.oracle).latestAnswer();
-        uint256 halfSpread = middle / 100;
-        MockWrappedPriceOracle(market.oracle).setLatestAnswer(
-            middle - halfSpread,
-            middle + halfSpread,
-            minRate,
-            maxRate
-        );
-        uint256 reported = IMinter(market.minter).collateralRatio();
-        lowEdgeRatio = Math.mulDiv(reported, middle - halfSpread, middle);
-        highEdgeRatio = Math.mulDiv(reported, middle + halfSpread, middle);
+    /// @dev Opens the oracle's price band half a peg-to-floor band width either side of a middle `bands` widths
+    ///      above the peg, and returns the collateral ratio each edge would price the market at. From 0.75 the middle
+    ///      is below the leverage floor and the high edge above it; from 1.25 the middle is above and the low edge
+    ///      below; and every edge stays above the peg - for any cap, since the band the edges cross is what they are
+    ///      measured in.
+    function _openAHalfBandAround(uint256 bands) private returns (uint256 lowEdgeRatio, uint256 highEdgeRatio) {
+        return
+            marketActions.openPriceBand(
+                marketActions.collateralRatioBandsAboveThePeg(bands),
+                marketActions.leverageFloorBandWidth() / 2
+            );
     }
 
     /// Below the floor the leveraged mint's dry run reports that nothing would be minted, as the call refuses: every
@@ -195,7 +201,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// nothing reports. The middle price is below the floor while the high edge - the price the mint is priced at -
     /// is above it, so a dry run judging at the price it prices at would report a mint here.
     function test_mintDryRunBelowTheFloor_reportsNothingMinted_asTheCallRefuses() public {
-        (, uint256 highEdgeRatio) = _openASpreadAround(1.05 ether);
+        (, uint256 highEdgeRatio) = _openAHalfBandAround(0.75 ether);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertLt(ratio, floor, "precondition: the middle price is below the floor");
@@ -228,7 +234,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// Just above the floor the leveraged mint's dry run reports what the call mints. The middle price is above the
     /// floor while the low edge is below it, so a dry run judging at the low edge would refuse here.
     function test_mintDryRunJustAboveTheFloor_reportsWhatTheCallMints() public {
-        (uint256 lowEdgeRatio, ) = _openASpreadAround(1.055 ether);
+        (uint256 lowEdgeRatio, ) = _openAHalfBandAround(1.25 ether);
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertGe(IMinter(market.minter).collateralRatio(), floor, "precondition: the middle price is above the floor");
         assertLt(lowEdgeRatio, floor, "precondition: the low edge is below it");
@@ -246,7 +252,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// never comes. Asked for alone or beside a collateral leg, the answer is the same. The high edge is above the
     /// floor, so a dry run judging at an edge rather than the middle would report a conversion here.
     function test_conversionDryRunBelowTheFloor_reportsNothingOnEitherLeg_asTheCallRefuses() public {
-        (, uint256 highEdgeRatio) = _openASpreadAround(1.05 ether);
+        (, uint256 highEdgeRatio) = _openAHalfBandAround(0.75 ether);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertLt(ratio, floor, "precondition: the middle price is below the floor");
@@ -268,7 +274,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// Below the floor a free redeem's dry run with no conversion leg is not judged, as the call is not: it reports
     /// the collateral the call pays. It is the preview a rebalance's first step sizes its payments with.
     function test_collateralRouteDryRunBelowTheFloor_reportsWhatTheCallPays() public {
-        setMarketCollateralRatio(1.05 ether);
+        marketActions.setCollateralRatioByPrice(marketActions.collateralRatioBandsAboveThePeg(0.5 ether));
         assertLt(
             IMinter(market.minter).collateralRatio(),
             IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(),
@@ -287,7 +293,7 @@ contract MinterLeverageCapTest is LocalMarket {
     /// Just above the floor a free redeem's dry run reports the conversion the call makes. The middle price is above
     /// the floor while the low edge is below it, so a dry run judging at the low edge would refuse here.
     function test_conversionDryRunJustAboveTheFloor_reportsWhatTheCallConverts() public {
-        (uint256 lowEdgeRatio, ) = _openASpreadAround(1.055 ether);
+        (uint256 lowEdgeRatio, ) = _openAHalfBandAround(1.25 ether);
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertGe(IMinter(market.minter).collateralRatio(), floor, "precondition: the middle price is above the floor");
         assertLt(lowEdgeRatio, floor, "precondition: the low edge is below it");
@@ -335,7 +341,7 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
         // The founding deposit lifted the ratio well above the floor. Put it back at one - the same state the
         // first mint was served in - so that the only thing that differs for the second is that a holder now
         // exists.
-        setMarketCollateralRatio(1 ether);
+        marketActions.setCollateralRatioByPrice(1 ether);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "back below the floor");
         assertFalse(IMinter_v3(market.minter).leveragedMintable(), "and now there is a holder to protect");
@@ -353,7 +359,7 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
     /// floor as it would above it: the founding exemption holds for the forecast as it does for the call. Between the
     /// peg and the floor, because at exactly one there is no residual for the fee-paying mint to price.
     function test_theFoundingMintsDryRun_reportsTheMintTheCallServes() public {
-        setMarketCollateralRatio(1.03 ether);
+        marketActions.setCollateralRatioByPrice(marketActions.collateralRatioBandsAboveThePeg(0.5 ether));
         assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
         uint256 ratio = IMinter(market.minter).collateralRatio();
         assertGt(ratio, 1 ether, "precondition: there is a residual to buy");

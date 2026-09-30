@@ -10,7 +10,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 /// @notice Which edge of the oracle's bands each Minter operation reads.
@@ -33,7 +33,10 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// Every dry run reads what its call reads. The backing is always valued at the min rate, the market's ratio is
 /// always reported at the middle of the price band, and the leverage cap is judged at that same middle on every
 /// route. Each entry point reads the oracle once.
-contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
+contract MinterOracleEdgesTest is TestMinterSetUp {
+    /// @dev What these tests do to the market beyond opening their own bands: place it against the leverage floor.
+    MarketActions private marketActions;
+
     /// @dev A route through the Minter that exchanges one token for another.
     enum Route {
         MintPegged,
@@ -77,6 +80,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         vm.stopPrank();
+        marketActions = new MarketActions(minter);
     }
 
     /// @dev Opens a band around the market's current quote. The price band is centred on the current price, so its
@@ -494,19 +498,18 @@ contract MinterOracleEdgesTest is TestMinterSetUp, HarborTestActions {
 
     // The leverage cap is judged at the middle of the price band on every route --------------------------------------
 
-    /// @dev Puts the market below the leverage floor at the middle of a 3% price band but above it at the band's high
-    ///      edge, and returns the ratio at the middle. Makes external calls, so it must be called BEFORE any
+    /// @dev Puts the market below the leverage floor at the middle of a price band but above it at the band's high
+    ///      edge, and returns the collateral ratio at the middle: three quarters of the way from the peg to the floor,
+    ///      with half that band's width either side. Makes external calls, so it must be called BEFORE any
     ///      expectRevert.
     function _belowTheFloorOnlyAtTheMiddle() private returns (uint256 ratioAtMiddle) {
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
-        uint256 price = setCollateralRatioByPrice(minter, priceOracle, 1.04 ether);
-        (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        uint256 halfSpread = Math.mulDiv(price, 3, 100);
+        (, uint256 highEdgeRatio) = marketActions.openPriceBand(
+            marketActions.collateralRatioBandsAboveThePeg(0.75 ether),
+            marketActions.leverageFloorBandWidth() / 2
+        );
+        assertGe(highEdgeRatio, floor, "at the high edge the market is above the floor");
 
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price + halfSpread, rate);
-        assertGe(IMinter_v3(minter).collateralRatio(), floor, "at the high edge the market is above the floor");
-
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price - halfSpread, price + halfSpread, rate, rate);
         ratioAtMiddle = IMinter_v3(minter).collateralRatio();
         assertLt(ratioAtMiddle, floor, "at the middle the market is below the floor");
         assertFalse(IMinter_v3(minter).leveragedMintable(), "the view refuses leverage at the middle");

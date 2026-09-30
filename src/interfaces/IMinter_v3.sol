@@ -251,10 +251,11 @@ interface IMinter_v3 is IToken {
     ///         on every route alike - the retail mints and the conversion a rebalance performs.
     function MAX_LEVERAGE_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
-    /// @notice `K / (K - 1)` for `K = MAX_LEVERAGE_RATIO`: the collateral ratio at which the residual's
-    ///         sensitivity to the collateral price is exactly the cap. Since that sensitivity is `CR / (CR - 1)`,
-    ///         `beta <= K` if and only if `CR >= K / (K - 1)`, so refusing every mint below this ratio bounds
-    ///         the leverage of every token ever sold without capping a count or moving any collateral.
+    /// @notice `K / (K - 1)` for `K = MAX_LEVERAGE_RATIO`, rounded up to its 1e18 scale: the lowest collateral
+    ///         ratio at which the residual's sensitivity to the collateral price is no more than the cap. Since
+    ///         that sensitivity is `CR / (CR - 1)`, `beta <= K` if and only if `CR >= K / (K - 1)`, so refusing
+    ///         every mint below this collateral ratio bounds the leverage of every token ever sold without
+    ///         capping a count or moving any collateral.
     function MINIMUM_COLLATERAL_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice Whether the market will sell leverage at the ratio it stands at: true at or above

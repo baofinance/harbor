@@ -16,6 +16,8 @@ Leverage of 20 is a collateral ratio of 20/19, so the cap is a floor on the rati
 $$\text{MINIMUM\_COLLATERAL\_RATIO} = \frac{K}{K-1} = \frac{20}{19} \approx 1.0526$$
 
 Both are constants on the minter. The floor is derived from the cap, so changing the cap moves the floor with it.
+It is rounded up to the collateral ratio's 18 decimal places, so a market standing exactly at the floor is sold
+leverage of the cap or a hair under it, never over.
 
 ### Choosing the cap
 
@@ -65,7 +67,7 @@ Below the floor every route that mints sail is refused with `LeverageAboveCap(ra
 
 The ratio is judged at the middle of the oracle's price band, the same figure `collateralRatio()` reports, on
 the state before the trade. `leveragedMintable()` answers the same question in advance, and a front end should
-read it rather than compare `leverageRatio()` against the cap itself: the floor is `K/(K-1)` rounded down, so
+read it rather than compare `leverageRatio()` against the cap itself: the floor is `K/(K-1)` rounded up, so
 the two comparisons can differ by a wei.
 
 The dry runs agree with the calls. Below the floor `mintLeveragedTokenDryRun` reports nothing minted: every
