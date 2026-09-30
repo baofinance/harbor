@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
@@ -51,20 +52,28 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
                 "leveraged pool pegged",
                 "leveraged returned",
                 "leveraged value returned",
-                "pegged value given up"
+                "pegged value given up",
+                "collateral returned",
+                "collateral value returned"
             )
         );
     }
 
+    /// @dev The pool is paid in leveraged tokens where the market mints them and in wrapped collateral where it
+    ///      does not, so what it got back is the two together. The collateral is valued as the rebalance pays it:
+    ///      at the middle of the rate band and of the price band.
     function _row(
         uint256 startCollateralRatio,
         uint256 rebalanceIndex,
         uint256 leveragedReturned,
-        uint256 peggedValueGivenUp
+        uint256 peggedValueGivenUp,
+        uint256 collateralReturned
     ) internal {
         uint256 leveragedPrice = IMinter_v3(market.minter).leveragedTokenPrice();
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(market.oracle)
+            .latestAnswer();
 
-        uint256[] memory row = new uint256[](11);
+        uint256[] memory row = new uint256[](13);
         row[0] = startCollateralRatio;
         row[1] = rebalanceIndex;
         row[2] = IMinter(market.minter).collateralRatio();
@@ -76,11 +85,17 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
         row[8] = leveragedReturned;
         row[9] = Math.mulDiv(leveragedReturned, leveragedPrice, 1 ether);
         row[10] = peggedValueGivenUp;
+        row[11] = collateralReturned;
+        row[12] = Math.mulDiv(
+            Math.mulDiv(collateralReturned, (minRate + maxRate) / 2, 1 ether),
+            (minPrice + maxPrice) / 2,
+            1 ether
+        );
 
-        uint8[] memory decimals = new uint8[](11);
+        uint8[] memory decimals = new uint8[](13);
         decimals[0] = DEFAULT_DECIMALS;
         decimals[1] = 0;
-        for (uint256 i = 2; i < 11; i++) {
+        for (uint256 i = 2; i < 13; i++) {
             decimals[i] = DEFAULT_DECIMALS;
         }
         writeLine(sequenceFile, row, decimals);
@@ -92,7 +107,7 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
     /// reading it afterwards values it at the restored ratio and overstates it - by about twice, at a
     /// starting ratio of a half.
     function _rebalanceUntilSettled(uint256 startCollateralRatio) internal {
-        _row(startCollateralRatio, 0, 0, 0);
+        _row(startCollateralRatio, 0, 0, 0, 0);
 
         for (uint256 i = 1; i <= MAX_REBALANCES; i++) {
             if (!_canRebalance()) {
@@ -100,6 +115,7 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
             }
             uint256 peggedBefore = IERC20(market.pegged).balanceOf(market.leveragedPool);
             uint256 leveragedBefore = IERC20(market.leveraged).balanceOf(market.leveragedPool);
+            uint256 collateralBefore = IERC20(market.wrappedCollateral).balanceOf(market.leveragedPool);
             uint256 peggedPriceBefore = IMinter_v3(market.minter).peggedTokenPrice();
 
             // A rule that REFUSES at this ratio ends the sequence: the row before it stands as the reading.
@@ -115,7 +131,8 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
                     peggedBefore - IERC20(market.pegged).balanceOf(market.leveragedPool),
                     peggedPriceBefore,
                     1 ether
-                )
+                ),
+                IERC20(market.wrappedCollateral).balanceOf(market.leveragedPool) - collateralBefore
             );
         }
     }

@@ -3,7 +3,9 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
@@ -17,7 +19,10 @@ import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 /// @title Common deployment setup for ETH::fxUSD market tests.
 /// @dev Deploys a full ETH::fxUSD market via production deployment scripts.
 ///      Inherit this instead of rolling your own deployment setup.
-abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter, HarborTestActions {
+abstract contract DeployETHfxUSDSetUp is BaoTest, HarborTestActions {
+    /// @dev The deploy run that stands the market up, held rather than inherited (see `HarborDeployRun`).
+    HarborDeployRun internal deployRun;
+
     address minter;
     address stabilityPoolCollateral;
     address stabilityPoolLeveraged;
@@ -29,23 +34,33 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter, HarborTestA
     MockWrappedPriceOracle mockOracle;
 
     function setUp() public virtual {
-        forkMainnetWithBaoFactory();
+        forkMainnet();
+        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "test_eth", "mainnet");
+        deployRun.ensureFactory();
 
-        (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
+        (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = ethMintersConfig();
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0];
-        deployHarborForPeg("test_eth", peg, mktConfigs, "mainnet", true, toDeploy);
+        deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        minter = minterAddress(mktConfigs[0]);
-        stabilityPoolCollateral = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Leveraged);
-        stabilityPoolManager = stabilityPoolManagerAddress(mktConfigs[0]);
-        pegged = peggedTokenAddress(mktConfigs[0]);
-        leveraged = leveragedTokenAddress(mktConfigs[0]);
+        minter = deployRun.minterAddress(mktConfigs[0]);
+        stabilityPoolCollateral = deployRun.stabilityPoolAddress(
+            mktConfigs[0],
+            HarborDeployer.StabilityPoolType.Collateral
+        );
+        stabilityPoolLeveraged = deployRun.stabilityPoolAddress(
+            mktConfigs[0],
+            HarborDeployer.StabilityPoolType.Leveraged
+        );
+        stabilityPoolManager = deployRun.stabilityPoolManagerAddress(mktConfigs[0]);
+        pegged = deployRun.peggedTokenAddress(mktConfigs[0]);
+        leveraged = deployRun.leveragedTokenAddress(mktConfigs[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Installed where the deploy wired the minter, not pushed in afterwards
-        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(mktConfigs[0])));
+        mockOracle = MockWrappedPriceOracle(
+            installMockPriceOracle(deployRun.wrappedPriceOracleAddress(mktConfigs[0]))
+        );
         mockOracle.setLatestAnswer(1 ether, 1 ether);
 
         vm.startPrank(HARBOR_MULTISIG);

@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {DeployETHfxUSDSetUp} from "@harbor-test/deployment/DeployETHfxUSD.t.sol";
+import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
@@ -21,7 +22,7 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
     function setUp() public override {
         super.setUp();
         // Same config source the deploy used, so the expected values are not a second copy.
-        (, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
+        (, Config_MinterMarket[] memory mktConfigs) = ethMintersConfig();
         market = mktConfigs[0];
         cfg = IHarborConfig(address(market));
     }
@@ -34,7 +35,7 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
         assertEq(deployedManager.rebalanceBountyRatio(), cfg.rebalanceBountyRatio(), "rebalanceBountyRatio");
         assertEq(deployedManager.harvestBountyRatio(), cfg.harvestBountyRatio(), "harvestBountyRatio");
         assertEq(deployedManager.harvestCutRatio(), cfg.harvestCutRatio(), "harvestCutRatio");
-        assertEq(deployedManager.feeReceiver(), treasury(), "feeReceiver");
+        assertEq(deployedManager.feeReceiver(), deployRun.treasury(), "feeReceiver");
     }
 
     /// Every Minter dependency is set by the deploy — no configuration step is outstanding once
@@ -43,9 +44,9 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
     /// the deploy rather than through a post-deploy setter.
     function test_deployedMinterIsWiredToAllItsDependencies() public {
         // Not `view`: the resolvers label the address they return, so they are state-changing.
-        assertEq(IMinter_v3(minter).reservePool(), reservePoolAddress(market), "reservePool");
-        assertEq(IMinter(minter).feeReceiver(), treasury(), "feeReceiver");
-        assertEq(IMinter_v3(minter).priceOracle(), wrappedPriceOracleAddress(market), "priceOracle");
+        assertEq(IMinter_v3(minter).reservePool(), deployRun.reservePoolAddress(market), "reservePool");
+        assertEq(IMinter(minter).feeReceiver(), deployRun.treasury(), "feeReceiver");
+        assertEq(IMinter_v3(minter).priceOracle(), deployRun.wrappedPriceOracleAddress(market), "priceOracle");
         assertEq(IMinter_v3(minter).priceOracle(), address(mockOracle), "the installed mock is that oracle");
     }
 

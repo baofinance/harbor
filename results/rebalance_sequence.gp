@@ -46,18 +46,19 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background r
 # the peg, 101 at 1.01 and 51 at 1.02 where the deployed rule says 20, and below the peg the encoding for a
 # claim of nothing, which is not drawn.
 #
-# THE THIRD PANEL IS WHAT THE POOL IS PAID, AGAINST WHAT IT GAVE UP - the fairness line. Columns 10 and 11 are
-# the VALUE of the leveraged tokens a rebalance returned and the value of the pegged it took, so their ratio is
-# what the pool got back per unit surrendered: 1.0 is a fair exchange and anything below it is the pool
-# subsidising the rescue. Read it as a comparison rather than as an absolute - a large rebalance is a path, and
+# THE THIRD PANEL IS WHAT THE POOL IS PAID, AGAINST WHAT IT GAVE UP - the fairness line. Columns 10 and 13 are
+# the VALUE of what a rebalance returned - the leveraged tokens, and the wrapped collateral - and column 11 the
+# value of the pegged it took, so (10 + 13) / 11 is what the pool got back per unit surrendered: 1.0 is a fair
+# exchange and anything below it is the pool subsidising the rescue. Read it as a comparison rather than as an
+# absolute - a large rebalance is a path, and
 # valuing what went out at the opening price against what came back at the closing one brackets the truth from
 # either side. All series are measured identically, so the GAPS between them are exact even where the level is
 # approximate. The deployed rule's junior claim is worth exactly zero below the peg, which is why its line sits
 # on zero there: you cannot be paid more than the thing you are buying is worth, and that rule has made it
 # worth nothing. The tree pays the marginal rate in bulk wherever it pays in leveraged - 1.0 at every ratio
-# from the floor up - because nothing dilutes. COLUMN 10 COUNTS LEVERAGED VALUE ONLY, so where the tree paid the
-# pool in collateral - between the peg and the floor - a point here would read as nothing paid, and those rows
-# are not drawn: the measurement does not yet record the collateral leg's payment.
+# from the floor up - because nothing dilutes. Between the peg and the floor it pays the pool in COLLATERAL, and
+# that is 1.0 too, at every one of those ratios: a zero-fee redemption at the middle price returns exactly the
+# value of the pegged it takes.
 #
 # THE BOTTOM PANEL IS THE LEVERAGED PRICE EACH RULE QUOTED (lines) AND HOW MANY TOKENS THE POOL WAS HANDED
 # (points). The deployed rule's price is zero below the peg, so the axis cannot show it; its count there is the
@@ -69,7 +70,8 @@ set xrange [0:1.65]
 
 # Columns: 1 start CR, 2 rebalance index, 3 collateral ratio, 4 leverage ratio, 5 leveraged price,
 #          6 pegged supply, 7 collateral pool pegged, 8 leveraged pool pegged, 9 leveraged returned,
-#          10 leveraged value returned, 11 pegged value given up
+#          10 leveraged value returned, 11 pegged value given up, 12 collateral returned,
+#          13 collateral value returned
 #
 # Index 0 is the row recorded BEFORE any rebalance at that starting ratio; 1 is the first rebalance, and a rule
 # carries further indices where the measurement calls again. `before` and `after` below select those two.
@@ -123,7 +125,7 @@ unset arrow 4
 unset label 2
 unset logscale y
 
-# ─── what the pool is paid in leveraged, against what it gave up ───
+# ─── what the pool is paid, in leveraged and in collateral, against what it gave up ───
 set ylabel "value back / value given"
 set yrange [0:1.15]
 set format y "%g"
@@ -131,9 +133,9 @@ set arrow 5 from graph 0, first 1 to graph 1, first 1 @fair_line
 set arrow 6 from 1, graph 0 to 1, graph 1 @peg_line
 set arrow 7 from floor_ratio, graph 0 to floor_ratio, graph 1 @floor_line
 plot \
-     deployed using 1:($2 == 1 && $11 > 0 ? $10 / $11 : NaN) with points @deployed_main_points title n_deployed, \
-     tree     using 1:($2 == 1 && $9 > 0 ? $10 / $11 : NaN)  with points @tree_local_points    title n_tree, \
-     v3       using 1:($2 == 1 && $9 > 0 ? $10 / $11 : NaN)  with points @tree_main_points     title n_v3
+     deployed using 1:($2 == 1 && $11 > 0 ? ($10 + $13) / $11 : NaN) with points @deployed_main_points title n_deployed, \
+     tree     using 1:($2 == 1 && $11 > 0 ? ($10 + $13) / $11 : NaN) with points @tree_local_points    title n_tree, \
+     v3       using 1:($2 == 1 && $11 > 0 ? ($10 + $13) / $11 : NaN) with points @tree_main_points     title n_v3
 unset arrow 5
 unset arrow 6
 unset arrow 7
