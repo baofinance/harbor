@@ -11,7 +11,6 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {RevertReason} from "@harbor-test/RevertReason.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
@@ -47,7 +46,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// came first - and the answer would be the mint's, because sail is minted against a residual that a
 /// large supply has already thinned. The conversion this whole investigation is about mints sail with no
 /// collateral behind it at all, so a supply reached without minting is not a hypothetical.
-contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, HarborTestActions, RevertReason {
+contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, RevertReason {
     /// @dev The declared envelope's largest pool, in dollars, 1e18-scaled - the same figure the stability
     ///      pool's envelope carries, because it is the same market being sized.
     uint256 private constant MAX_POOL_VALUE_USD = 1e10 ether;

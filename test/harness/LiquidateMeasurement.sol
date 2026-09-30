@@ -234,7 +234,7 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
     /// @dev Shared by the probe and the recording so that what refinement JUDGES is exactly what the graph
     /// DRAWS. Leaves the market liquidated; both callers snapshot around it.
     function _measureAt(uint256 ratio) private returns (Measures memory pre, Measures memory post) {
-        setMarketCollateralRatio(ratio);
+        actions.setCollateralRatioByPrice(ratio);
         pre = _readMeasures();
         _tryRebalance();
         post = _readMeasures();

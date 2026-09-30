@@ -174,7 +174,7 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
     /// zero: below the reach floor the pool cannot move the market at all.
     function probeSignalsAt(uint256 ratio) internal override returns (int256[] memory signals) {
         uint256 snapshot = vm.snapshotState();
-        setMarketCollateralRatio(ratio);
+        actions.setCollateralRatioByPrice(ratio);
 
         uint256 passes;
         uint256 ratioAfterFirst;
@@ -202,7 +202,7 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
     function emitSampleAt(uint256 ratio) internal override {
         // Every point starts from the market as founded, so no point inherits the sequence before it.
         uint256 snapshot = vm.snapshotState();
-        setMarketCollateralRatio(ratio);
+        actions.setCollateralRatioByPrice(ratio);
         _rebalanceUntilSettled(ratio);
         vm.revertToStateAndDelete(snapshot);
     }

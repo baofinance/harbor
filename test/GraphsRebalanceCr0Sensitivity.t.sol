@@ -48,7 +48,7 @@ contract TestGraphsRebalanceCr0Sensitivity is GraphTestBase, TestConversionBound
             uint256 snapshot = vm.snapshotState();
 
             // A market opened at `opening` carries `opening - 1` sail per anchor token.
-            setSailSupplyMultiple(minter, priceOracle, opening - 1 ether);
+            marketActions.setLeveragedSupplyMultiple(address(this), opening - 1 ether);
 
             writeLine(
                 file,

@@ -5,12 +5,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
-import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
-import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 
 /// @notice A market whose sail supply can be set, and the measurement of what the anchor-to-sail
@@ -23,12 +19,9 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 ///
 /// The release is always at the same collateral ratio, since the floor is fixed by the cap alone. The sail
 /// supply is a settable dimension because the fair rate above the floor scales with it.
-abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, HarborTestActions {
+abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
     /// @dev One anchor token, so the sail received IS the applied conversion rate.
     uint256 internal constant ANCHOR_IN = 1 ether;
-
-    /// @dev What the suites on this base do to the market: place it against the leverage floor.
-    MarketActions internal marketActions;
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -45,7 +38,6 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
         vm.stopPrank();
-        marketActions = new MarketActions(minter);
     }
 
     /// @notice The collateral ratio at which the market starts selling leverage: the minter's own floor,
@@ -54,23 +46,6 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
         return IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
     }
 
-    /// @dev Price the collateral so the market reports `requested`, derived from where the market is now
-    ///      rather than from where it was deployed - the sail supply is moved here, and the collateral
-    ///      ratio moves with it.
-    function setCollateralRatio(uint256 requested) internal {
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(
-            Math.mulDiv(requested, IMinter(minter).peggedTokenBalance(), IMinter(minter).collateralTokenBalance())
-        );
-        assertApproxEqAbs(
-            IMinter(minter).collateralRatio(),
-            requested,
-            Math.ceilDiv(IMinter(minter).collateralTokenBalance(), IMinter(minter).peggedTokenBalance()) + 1,
-            "the derived price must put the market at the requested collateral ratio"
-        );
-    }
-
-    /// @notice Buy or sell sail until the supply is `multiple` of the anchor supply, and report what was
-    ///         actually reached.
     /// @dev Convert one anchor token at `collateralRatio` and report the conversion rate it was given,
     ///      then put the market back. Measured through the conversion rather than recomputed, so the
     ///      answer is the contract's and not this test's.
@@ -78,7 +53,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
     ///      reading this helper exists to take. Anything else propagates unchanged.
     function appliedConversionRateAt(uint256 collateralRatio) internal returns (uint256 applied) {
         uint256 snapshot = vm.snapshotState();
-        setCollateralRatio(collateralRatio);
+        marketActions.setCollateralRatioByPrice(collateralRatio);
         try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 sailOut) {
             applied = (sailOut * 1 ether) / ANCHOR_IN;
         } catch (bytes memory err) {
@@ -122,7 +97,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
 
         for (uint256 round = 0; round < 40; round++) {
             uint256 middle = (low + high) / 2;
-            setCollateralRatio(middle);
+            marketActions.setCollateralRatioByPrice(middle);
             uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
             // Above the bound the crossing is still higher; at or below it, lower.
             if (sailPrice == 0 || (1 ether * 1 ether) / sailPrice > IMinter_v3(minter).MAX_LEVERAGE_RATIO()) {
@@ -144,7 +119,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
 
         for (uint256 round = 0; round < 40; round++) {
             uint256 middle = (low + high) / 2;
-            setCollateralRatio(middle);
+            marketActions.setCollateralRatioByPrice(middle);
             if (!IMinter_v3(minter).leveragedMintable()) {
                 low = middle;
             } else {
@@ -158,7 +133,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp, Ha
     /// @notice What one sail token is worth at the collateral ratio where the bound releases.
     function sailPriceAtTheRelease() internal returns (uint256 sailPrice) {
         uint256 snapshot = vm.snapshotState();
-        setCollateralRatio(releaseCollateralRatio());
+        marketActions.setCollateralRatioByPrice(releaseCollateralRatio());
         sailPrice = IMinter_v3(minter).leveragedTokenPrice();
         vm.revertToState(snapshot);
     }

@@ -13,7 +13,6 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {MinterClaimRescaleLib} from "@harbor-test/MinterClaimRescaleLib.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
@@ -44,7 +43,7 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 ///
 /// Measured at a SMALL pool share on purpose. The ceiling scales linearly with the pool's share of the
 /// supply, so a small pool is the stress case and the answer at a larger one follows by scaling.
-contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolManagerSetUp, HarborTestActions {
+contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolManagerSetUp {
     /// @dev Each pool holds this share of the anchor outstanding: a fifth of a percent, the stress case for a
     ///      ceiling that scales with the pool's size.
     uint256 private constant POOL_SHARE = 0.002 ether;
@@ -106,7 +105,7 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
     /// liquidated - and asserted from BOTH sides, because a bound that only ever passes proves nothing
     /// about where it lies.
     function test_anEscrowAboveNineWeiCannotOverflowTheRewardCeiling() public {
-        setCollateralRatioByPrice(minter, priceOracle, 1 ether + 1);
+        marketActions.setCollateralRatioByPrice(1 ether + 1);
 
         uint256 ceiling = IMultipleRewardAccumulator_v3(stabilityPoolLeveraged).maxLiquidationReward();
         uint256 poolAnchor = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
@@ -143,7 +142,7 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
 
         for (uint256 above = FIRST_ABOVE_PEG; above <= LAST_ABOVE_PEG; above = (above * 12) / 5) {
             uint256 snapshot = vm.snapshotState();
-            setCollateralRatioByPrice(minter, priceOracle, 1 ether + above);
+            marketActions.setCollateralRatioByPrice(1 ether + above);
 
             // What the manager would ask the leveraged leg for, taken from the minter exactly as the
             // manager takes it - so the anchor here is the anchor a real rebalance would burn.

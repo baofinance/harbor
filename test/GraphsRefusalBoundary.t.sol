@@ -99,7 +99,7 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
         uint256 high = HIGHEST_RATIO;
         for (uint256 i = 0; i < BISECTIONS; i++) {
             uint256 middle = low + (high - low) / 2;
-            setCollateralRatio(middle);
+            marketActions.setCollateralRatioByPrice(middle);
             if (_trueLeverageRatio() > cap) {
                 low = middle;
             } else {
@@ -116,7 +116,7 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
         uint256 high = HIGHEST_RATIO;
         for (uint256 i = 0; i < BISECTIONS; i++) {
             uint256 middle = low + (high - low) / 2;
-            setCollateralRatio(middle);
+            marketActions.setCollateralRatioByPrice(middle);
             if (IMinter_v3(minter).leveragedTokenPrice() < floor) {
                 low = middle;
             } else {
@@ -130,7 +130,7 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
     ///      does to the whole sail supply. Performed rather than predicted, and put back afterwards.
     function _conversionAt(uint256 collateralRatio) private returns (int256 sailOut, int256 supplyMultiple) {
         uint256 snapshot = vm.snapshotState();
-        setCollateralRatio(collateralRatio);
+        marketActions.setCollateralRatioByPrice(collateralRatio);
         uint256 supplyBefore = IMinter(minter).leveragedTokenBalance();
         sailOut = NaN;
         supplyMultiple = NaN;
@@ -155,7 +155,7 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
 
             // The achieved supply is what goes on the axis, not the requested one: buying sail to a
             // target rounds, and the row should say where the market was put.
-            uint256 achieved = setSailSupplyMultiple(minter, priceOracle, target);
+            uint256 achieved = marketActions.setLeveragedSupplyMultiple(address(this), target);
 
             int256[] memory row = new int256[](11);
             row[0] = int256(achieved);
@@ -184,7 +184,7 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
         // One sail token per anchor token: the boundary does not depend on the supply - that is what the
         // sweep above establishes - but the supply multiple recorded beside it does, so it is pinned at
         // an ordinary market rather than left wherever the deploy put it.
-        setSailSupplyMultiple(minter, priceOracle, 1 ether);
+        marketActions.setLeveragedSupplyMultiple(address(this), 1 ether);
 
         string memory capFile = openFile(
             "conversion_refusal_by_leverage_cap",
@@ -211,7 +211,7 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
     function test_theUncappedLeverageRatioAgreesWithTheReportedOne() public {
         uint256[4] memory ratios = [uint256(1.2 ether), 1.5 ether, 2 ether, 5 ether];
         for (uint256 i = 0; i < ratios.length; i++) {
-            setCollateralRatio(ratios[i]);
+            marketActions.setCollateralRatioByPrice(ratios[i]);
             uint256 reported = IMinter_v3(minter).leverageRatio();
             assertLt(reported, 20 ether, "the reported ratio must be off its cap for this to compare");
             assertApproxEqAbs(_trueLeverageRatio(), reported, 1, "the uncapped ratio is the reported one");

@@ -85,10 +85,10 @@ contract TestGraphsConversionFairness is GraphTestBase, TestCollateralRatioRange
         }
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         int256[] memory lines = _lines();
         int256[] memory row = new int256[](lines.length + 1);
-        row[0] = int256(currentCollateralRatio);
+        row[0] = int256(collateralRatio);
         for (uint256 i = 0; i < lines.length; i++) {
             row[i + 1] = lines[i];
         }

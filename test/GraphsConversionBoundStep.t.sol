@@ -50,7 +50,7 @@ contract TestGraphsConversionBoundStep is GraphTestBase, TestConversionBoundRele
 
             // The achieved supply is what goes on the axis, not the requested one: buying sail to a
             // target rounds, and the row should say where the market was put.
-            uint256 achieved = setSailSupplyMultiple(minter, priceOracle, target);
+            uint256 achieved = marketActions.setLeveragedSupplyMultiple(address(this), target);
             (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
 
             writeLine(file, ua(achieved, bounded, released, released == 0 ? 0 : (bounded * 1 ether) / released));

@@ -13,7 +13,6 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 
-import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -76,7 +75,8 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
         // Everything here comes from THIS tree's deploy chain, so every question is asked the v3 way.
         reader = new MarketReaderV3Lineage();
         market.minter = minter;
-        marketActions = new MarketActions(market.minter);
+        // The object the unit-test base made for this minter when it deployed it.
+        actions = marketActions;
         market.pegged = peggedToken;
         market.leveraged = leveragedToken;
         market.wrappedCollateral = wrappedCollateralToken;
@@ -147,14 +147,5 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
         if (toLeveraged > 0) {
             IStabilityPool(stabilityPoolLeveraged).deposit(toLeveraged, address(this), 0);
         }
-    }
-
-    /// @dev Price the collateral so the market reports `target`. The ratio is `backing x price / pegged`, so
-    /// the price that lands on it inverts that - derived rather than reached by repeated steps, because a
-    /// sequence has to start somewhere exact for its rows to line up with another market's.
-    function setMarketCollateralRatio(uint256 target) internal virtual override {
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(
-            Math.mulDiv(target, IMinter(minter).peggedTokenBalance(), IMinter(minter).collateralTokenBalance())
-        );
     }
 }

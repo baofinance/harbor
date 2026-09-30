@@ -88,9 +88,9 @@ contract TestGraphsRebalanceTrigger is GraphTestBase, TestCollateralRatioRangeSe
         lines[3] = appliedOverFair;
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         int256[] memory lines = _lines();
-        writeLine(file, ia(int256(currentCollateralRatio), lines[0], lines[1], lines[2], lines[3]));
+        writeLine(file, ia(int256(collateralRatio), lines[0], lines[1], lines[2], lines[3]));
     }
 
     /// @dev Every line, so a stretch counts as having nothing to say only when none of them is moving.

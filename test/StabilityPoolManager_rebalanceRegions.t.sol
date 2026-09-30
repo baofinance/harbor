@@ -13,7 +13,6 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
-import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice What a rebalance does in each region of the collateral ratio.
@@ -30,9 +29,6 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSetUp {
     uint256 private constant THRESHOLD = 1.3 ether;
 
-    /// @dev What these tests do to the market: place it at a collateral ratio, and open a price band around one.
-    MarketActions private marketActions;
-
     /// @dev One `Liquidated` event, as a pool records a payment: the pegged it gave up, and what it was paid in.
     struct Liquidation {
         address pool;
@@ -48,7 +44,6 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0);
         vm.stopPrank();
         setUp_collateral(100 ether, 25 ether, user);
-        marketActions = new MarketActions(minter);
     }
 
     /// Deposit these shares of the pegged supply - in basis points - into the two pools.

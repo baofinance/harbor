@@ -158,7 +158,7 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
             // differs between rounds is what the rounds before it left behind. Moving pegged between holders
             // changes neither the supply nor the collateral, so the order of these two does not matter.
             _restorePoolShare();
-            setMarketCollateralRatio(roundCollateralRatio());
+            actions.setCollateralRatioByPrice(roundCollateralRatio());
 
             uint256 collateralRatioBefore = IMinter(market.minter).collateralRatio();
             uint256 priceBefore = IMinter_v3(market.minter).leveragedTokenPrice();

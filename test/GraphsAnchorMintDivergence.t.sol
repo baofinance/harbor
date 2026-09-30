@@ -9,7 +9,6 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
 
 /// @notice Graphs the anchor mint's divergence: how much anchor a unit of collateral value buys as the
@@ -111,9 +110,9 @@ abstract contract TestGraphsAnchorMintDivergenceBase is GraphTestBase, TestColla
         vm.revertToState(snapshot);
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         int256[] memory lines = _lines();
-        writeLine(file, ia(int256(currentCollateralRatio), lines[0], lines[1], lines[2]));
+        writeLine(file, ia(int256(collateralRatio), lines[0], lines[1], lines[2]));
     }
 
     /// @inheritdoc TestCollateralRatioRangeSetUp
@@ -138,7 +137,7 @@ contract TestGraphsAnchorMintDivergence is TestGraphsAnchorMintDivergenceBase {
 /// price is set by the written-down backing, while what a deposit is worth is set by the underlying price
 /// AND that same wrapped-to-underlying rate. So this route moves both of them and a repricing moves both
 /// of them, which is why neither changes what a deposit buys.
-contract TestGraphsAnchorMintDivergenceByRate is TestGraphsAnchorMintDivergenceBase, HarborTestActions {
+contract TestGraphsAnchorMintDivergenceByRate is TestGraphsAnchorMintDivergenceBase {
     function graphName() internal pure override returns (string memory) {
         return "anchor_mint_divergence_by_rate";
     }
@@ -147,14 +146,9 @@ contract TestGraphsAnchorMintDivergenceByRate is TestGraphsAnchorMintDivergenceB
     /// @dev Cutting the wrapped-to-underlying rate in proportion to the target collateral ratio leaves the
     ///      underlying price the seam derives where it started, so the collateral's own price does none of
     ///      the work.
-    function _setCollateralRatio(uint256 requested) internal override {
-        currentPrice = setCollateralRatioByRate(
-            minter,
-            priceOracle,
-            requested,
-            (startRate * requested) / START_COLLATERAL_RATIO
-        );
-        currentCollateralRatio = IMinter(minter).collateralRatio();
+    function _setCollateralRatio(uint256 requested) internal override returns (uint256 collateralRatio) {
+        marketActions.setCollateralRatioByWrapRate(requested, (startRate * requested) / START_COLLATERAL_RATIO);
+        collateralRatio = IMinter(minter).collateralRatio();
     }
 }
 
@@ -172,16 +166,16 @@ contract TestGraphsAnchorMintDivergenceByBacking is TestGraphsAnchorMintDivergen
     }
 
     /// @inheritdoc TestCollateralRatioRangeSetUp
-    function _setCollateralRatio(uint256 requested) internal override {
+    function _setCollateralRatio(uint256 requested) internal override returns (uint256 collateralRatio) {
         deal(address(wrappedCollateralToken), minter, (startHeld * requested) / START_COLLATERAL_RATIO);
         // The record now claims collateral that is gone, and the views report the record: recognising the loss is
         // what moves the ratio. Below the starting ratio there is always something to recognise.
         vm.startPrank(owner());
         IMinter_v3(minter).recogniseImpairment();
         vm.stopPrank();
-        currentCollateralRatio = IMinter(minter).collateralRatio();
+        collateralRatio = IMinter(minter).collateralRatio();
         assertApproxEqAbs(
-            currentCollateralRatio,
+            collateralRatio,
             requested,
             Math.ceilDiv(IMinter(minter).collateralTokenBalance(), IMinter(minter).peggedTokenBalance()) + 1,
             "taking the collateral away must put the market at the requested collateral ratio"

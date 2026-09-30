@@ -47,9 +47,11 @@ abstract contract MarketUnderTest {
     /// up and where what sits behind each proxy is decided, so it cannot disagree with the market it reads.
     MarketReader internal reader;
 
-    /// @dev How to ACT on this market - see `MarketActions`. Made where the market is stood up, once its minter is
-    /// known, so every measurement places the market through the one implementation.
-    MarketActions internal marketActions;
+    /// @dev How to ACT on this market - see `MarketActions`. Set where the market is stood up, once its minter is
+    /// known, so every measurement acts on the market through the one implementation. It places the market by a
+    /// derived price, not by repeated steps towards one, because a sequence has to start somewhere exact for its rows
+    /// to line up with another market's.
+    MarketActions internal actions;
 
     /// @dev Stand the market up and fund its INITIAL CONDITIONS - the starting state every measurement is
     /// entitled to assume, so that two measurements of the same market are comparing the same thing. Funding
@@ -228,10 +230,6 @@ abstract contract MarketUnderTest {
 
     /// @dev Names this market in every file it writes, via `context()`.
     function marketLabel() internal pure virtual returns (string memory);
-
-    /// @dev Price the collateral so the market reports `target`. Local and forked markets reach a collateral
-    /// ratio differently, so the measurement asks rather than computes.
-    function setMarketCollateralRatio(uint256 target) internal virtual;
 
     /// @dev Who may upgrade the minter and grant its roles.
     function marketOwner() internal view virtual returns (address);

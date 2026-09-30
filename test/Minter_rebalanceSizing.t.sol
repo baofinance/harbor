@@ -9,7 +9,6 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 /// @notice The rebalance sizing reaches its target as the market measures it.
@@ -24,7 +23,7 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// the payout read against the price the ratio is reported at, the rounding of the amount itself, and the rounding of
 /// the backing where the held collateral is what decides it. Each sizes the collateral route alone - the leg whose
 /// redemption moves the backing - and redeems exactly what it was told.
-contract MinterRebalanceSizingTest is TestMinterSetUp, HarborTestActions {
+contract MinterRebalanceSizingTest is TestMinterSetUp {
     /// @dev The highest target the sweeps ask for. Well inside what the supply can reach by the collateral route
     ///      from the ratios they start at, so no sized amount exceeds the pegged outstanding.
     uint256 private constant HIGHEST_TARGET = 1.5 ether;
@@ -97,7 +96,7 @@ contract MinterRebalanceSizingTest is TestMinterSetUp, HarborTestActions {
         dropBps = bound(dropBps, 1, 5_000);
         uint256 impairedRate = rate - Math.mulDiv(rate, dropBps, 10_000);
         startRatio = bound(startRatio, 1.001 ether, 1.2 ether);
-        setCollateralRatioByRate(minter, priceOracle, startRatio, impairedRate);
+        marketActions.setCollateralRatioByWrapRate(startRatio, impairedRate);
         assertEq(
             IMinter(minter).collateralTokenBalance(),
             Math.mulDiv(IERC20(wrappedCollateralToken).balanceOf(minter), impairedRate, 1 ether),

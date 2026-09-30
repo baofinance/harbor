@@ -12,7 +12,6 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice Graphs what repeated rebalances do to a market over time: the sail supply, the sail price, and
@@ -26,11 +25,7 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// Where the dip lands relative to the minter's `MINIMUM_COLLATERAL_RATIO` decides the rebalance's route:
 /// at or above it the rebalance converts anchor into sail, growing the sail supply; below it no sail can be
 /// minted, the rebalance is to collateral, and the conversion rate is graphed as zero.
-abstract contract TestGraphsRebalanceSupplyTrajectoryBase is
-    GraphTestBase,
-    TestStabilityPoolManagerSetUp,
-    HarborTestActions
-{
+abstract contract TestGraphsRebalanceSupplyTrajectoryBase is GraphTestBase, TestStabilityPoolManagerSetUp {
     /// @dev One anchor token, so the sail received IS the applied conversion rate.
     uint256 private constant ANCHOR_IN = 1 ether;
 
@@ -138,7 +133,7 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is
 
             // The dip. Priced, not rate-impaired: a falling collateral market, with the market holding
             // everything it was given.
-            setCollateralRatioByPrice(minter, priceOracle, distressedCollateralRatio());
+            marketActions.setCollateralRatioByPrice(distressedCollateralRatio());
 
             uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
             uint256 appliedOverFair = _appliedOverFair();

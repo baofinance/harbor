@@ -110,7 +110,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         reader = new MarketReaderV2Lineage(ConfigTokenNames(address(config)));
 
         market.minter = productionRun.minterAddress(config);
-        marketActions = new MarketActions(market.minter);
+        actions = new MarketActions(market.minter);
         market.collateralPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Collateral);
         market.leveragedPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Leveraged);
         market.manager = productionRun.stabilityPoolManagerAddress(config);
@@ -273,16 +273,5 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         if (toLeveraged > 0) {
             IStabilityPool(market.leveragedPool).deposit(toLeveraged, address(this), 0);
         }
-    }
-
-    function setMarketCollateralRatio(uint256 target) internal virtual override {
-        MockWrappedPriceOracle(market.oracle).setLatestAnswer(
-            Math.mulDiv(
-                target,
-                IMinter(market.minter).peggedTokenBalance(),
-                IMinter(market.minter).collateralTokenBalance()
-            ),
-            WRAP_RATE
-        );
     }
 }

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {StdCheats} from "forge-std/StdCheats.sol";
 import {Vm} from "forge-std/Vm.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -20,16 +22,17 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 /// here is reached by inheritance: every entry point is public, so a layer outside Solidity can compose the same
 /// scenarios from the same pieces, and a test contract's base list says what it is rather than what it borrows.
 ///
-/// The minter is the identity, and the only one. The oracle and the owner are read from the minter when an action
-/// needs them, so there is no second address here to drift from the market's own.
+/// The minter is the identity, and the only one. The oracle, the owner and the wrapped collateral token are read from
+/// the minter when an action needs them, so there is no second address here to drift from the market's own.
 ///
 /// TWO THINGS A CALLER MUST KNOW.
 /// - A call into this object is an external call. A one-shot cheatcode (`vm.expectRevert`, `vm.expectCall`) placed
 ///   before a statement that takes one of these results as an argument binds to THIS call, not to the one meant. Take
 ///   the result into a local first.
-/// - An action that acts as the market's owner pranks inside its own call, one call deeper than its caller, so a
-///   caller that is itself inside `vm.startPrank` keeps its prank.
-contract MarketActions {
+/// - An action that acts as someone else - the market's owner, or a holder it is given - pranks inside its own call,
+///   one call deeper than its caller, so a caller that is itself inside `vm.startPrank` keeps its prank.
+/// It inherits forge-std's `StdCheats` for `deal` alone: the cheat helpers, not a test base.
+contract MarketActions is StdCheats {
     // The well-known forge cheatcode address, referenced directly so this is not a test contract: `new` on a test
     // base would instantiate a whole test contract per market.
     Vm private constant _vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -158,6 +161,72 @@ contract MarketActions {
 
         lowEdgeCollateralRatio = Math.mulDiv(reported, middlePrice - halfSpread, middlePrice);
         highEdgeCollateralRatio = Math.mulDiv(reported, middlePrice + halfSpread, middlePrice);
+    }
+
+    /// @notice Buy or redeem leveraged tokens, as `holder`, until the market carries `multiple` of them per pegged
+    ///         token, and return the multiple actually reached.
+    /// @dev Both legs are price-neutral: a mint and a redemption each move the residual and the leveraged supply in the
+    ///      same proportion, so this changes how many leveraged tokens carry the residual without changing what any
+    ///      one of them is worth, and without taking value from anyone holding one. That is what lets a market be
+    ///      reshaped into the one a different founding would have produced - the state is the same either way, and the
+    ///      history that reached it is not something the protocol records.
+    ///
+    ///      Acts AS `holder`, one call deeper than its caller, and only for the one trade: the holder's leveraged
+    ///      tokens are redeemed and its collateral buys more, at no fee. So the holder must hold them, have approved
+    ///      the minter for both, and hold the zero-fee role the free routes require.
+    /// @param holder Who trades: whose leveraged tokens are redeemed, or whose collateral buys more.
+    /// @param multiple Leveraged tokens per pegged token, 1e18-scaled.
+    function setLeveragedSupplyMultiple(address holder, uint256 multiple) public returns (uint256 achieved) {
+        uint256 target = Math.mulDiv(IMinter(minter).peggedTokenBalance(), multiple, 1 ether);
+        uint256 current = IMinter(minter).leveragedTokenBalance();
+
+        if (target < current) {
+            _vm.startPrank(holder);
+            IMinter_v3(minter).freeRedeemLeveragedToken(current - target, holder);
+            _vm.stopPrank();
+        } else if (target > current) {
+            // Each leveraged token costs the leveraged price in value, and each wrapped collateral token is worth its
+            // wrapped-to-underlying rate times the underlying's price.
+            (uint256 collateralPrice, , uint256 wrapRate, ) = IWrappedPriceOracle(_oracle()).latestAnswer();
+            uint256 valueNeeded = Math.mulDiv(target - current, IMinter_v3(minter).leveragedTokenPrice(), 1 ether);
+            uint256 collateralIn = Math.mulDiv(valueNeeded, 1 ether * 1 ether, collateralPrice * wrapRate);
+            _vm.startPrank(holder);
+            IMinter_v3(minter).freeMintLeveragedToken(collateralIn, holder);
+            _vm.stopPrank();
+        }
+
+        achieved = Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, IMinter(minter).peggedTokenBalance());
+    }
+
+    /// @notice Mint pegged against `collateralForPegged` and leveraged against `collateralForLeveraged` of wrapped
+    ///         collateral, to `recipient`, as the minter's owner and at no fee - the founding mints Genesis makes.
+    ///         Returns what each mint gave; a side given nothing is not minted.
+    /// @dev The owner is given the collateral first, ADDED to what it already holds, so an owner that is also the
+    ///      treasury keeps its balance; the total supply grows with it, as a mint's would. The owner may take the free
+    ///      routes without the zero-fee role, so nothing is granted. The pegged are minted first, so the first
+    ///      leveraged token into an empty market is priced against the pegged claim it carries.
+    /// @param collateralForPegged Wrapped collateral behind the pegged minted.
+    /// @param collateralForLeveraged Wrapped collateral behind the leveraged minted.
+    /// @param recipient Who receives both.
+    function mint(
+        uint256 collateralForPegged,
+        uint256 collateralForLeveraged,
+        address recipient
+    ) public returns (uint256 peggedMinted, uint256 leveragedMinted) {
+        address minterOwner = IBaoOwnable(minter).owner();
+        address wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
+        uint256 total = collateralForPegged + collateralForLeveraged;
+        deal(wrappedCollateral, minterOwner, IERC20(wrappedCollateral).balanceOf(minterOwner) + total, true);
+
+        _vm.startPrank(minterOwner);
+        IERC20(wrappedCollateral).approve(minter, total);
+        if (collateralForPegged > 0) {
+            peggedMinted = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
+        }
+        if (collateralForLeveraged > 0) {
+            leveragedMinted = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
+        }
+        _vm.stopPrank();
     }
 
     /// @notice The width of the band between the peg and the minter's leverage floor: `MINIMUM_COLLATERAL_RATIO - 1`,

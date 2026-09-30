@@ -13,7 +13,6 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
-import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice Graphs what stops a rebalance short, against the size of the stability pools.
@@ -35,9 +34,6 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// point is a rebalance attempting that escape. Every number is measured: the amounts come from the
 /// contracts' own views before the call and from the call's own return afterwards.
 contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolManagerSetUp {
-    /// @dev What this graph does to the market: place it at the collateral ratio each point starts from.
-    MarketActions private marketActions;
-
     /// @dev Collateral behind each side at deployment. Large against the pools' minimum supply, so that
     ///      pool size has a four-hundredfold range to be swept over rather than the tenfold one a small
     ///      market would allow.
@@ -55,7 +51,6 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
     function setUp() public virtual override {
         super.setUp();
         setUp_collateral(COLLATERAL_EACH_SIDE, COLLATERAL_EACH_SIDE, address(this));
-        marketActions = new MarketActions(minter);
         deal(address(wrappedCollateralToken), address(this), 100_000 ether);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);

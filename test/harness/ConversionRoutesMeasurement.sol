@@ -169,7 +169,7 @@ abstract contract ConversionRoutesMeasurement is GraphTestBase, Array, RevertRea
     /// @dev Shared by the probe and the recording so that what refinement JUDGES is exactly what the graph
     /// DRAWS. Leaves the market at `ratio` with its routes taken; both callers snapshot around it.
     function _measureAt(uint256 ratio) private returns (uint256[] memory row) {
-        setMarketCollateralRatio(ratio);
+        actions.setCollateralRatioByPrice(ratio);
 
         row = new uint256[](9);
         row[0] = IMinter(market.minter).collateralRatio();

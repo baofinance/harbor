@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
@@ -93,8 +94,9 @@ contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
         (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether);
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         // write a gnuplot data file line for fees and liquidation
+        (uint256 collateralPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         int256 mintPeggedFees;
         int256 redeemPeggedFees;
@@ -106,8 +108,8 @@ contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
         writeLine(
             feesFile,
             ia(
-                int(currentPrice),
-                int(currentCollateralRatio),
+                int(collateralPrice),
+                int(collateralRatio),
                 mintPeggedFees,
                 redeemPeggedFees,
                 mintLeveragedFees,
@@ -119,8 +121,8 @@ contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
         writeLine(
             fees1File,
             ia(
-                int(currentPrice),
-                int(currentCollateralRatio),
+                int(collateralPrice),
+                int(collateralRatio),
                 mintPeggedFees,
                 redeemPeggedFees,
                 mintLeveragedFees,

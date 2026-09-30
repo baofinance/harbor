@@ -67,7 +67,7 @@ contract TestGraphsRebalanceConversionCohorts is GraphTestBase, TestConversionBo
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         uint256 aboveTheFloor = START_AND_FINISH - floor;
         for (uint256 i = 0; i < COHORTS; i++) {
-            setCollateralRatio(floor + aboveTheFloor);
+            marketActions.setCollateralRatioByPrice(floor + aboveTheFloor);
             aboveTheFloor = aboveTheFloor / 2;
 
             uint256 anchorIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), COHORT_SHARE_OF_ANCHOR, 1 ether);
@@ -86,7 +86,7 @@ contract TestGraphsRebalanceConversionCohorts is GraphTestBase, TestConversionBo
 
         // Back to where the market started, so that what separates the cohorts is their conversions and
         // not where each happened to be left.
-        setCollateralRatio(START_AND_FINISH);
+        marketActions.setCollateralRatioByPrice(START_AND_FINISH);
         uint256 finalSailPrice = IMinter_v3(minter).leveragedTokenPrice();
 
         for (uint256 i = 0; i < COHORTS; i++) {

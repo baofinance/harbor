@@ -26,12 +26,12 @@ import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.so
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
 import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
 import {ConfigPeg_ETH} from "@harbor-script/config/pegs/ConfigPeg_ETH.sol";
 import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {RevertReason} from "@harbor-test/RevertReason.sol";
 
 /// @notice A named market's supported operating envelope, in the units a director thinks in: dollars and counts. The
@@ -128,7 +128,7 @@ contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_ma
 ///
 /// The suite drives deposit, withdraw, harvest, and rebalance against the arranged state — each a fuzz walk plus a
 /// deterministic corner, including the reward-field corner that the harvest and rebalance rewards reach.
-abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservation, HarborTestActions, RevertReason {
+abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservation, RevertReason {
     /// @dev The deploy run that stands the market up, held rather than inherited (see `HarborDeployRun`).
     HarborDeployRun internal deployRun;
 
@@ -155,6 +155,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     address internal wrappedCollateral;
 
     MockWrappedPriceOracle internal mockOracle;
+    /// @dev What the envelope does to its market - see `MarketActions`. Made once the minter and its mock oracle exist,
+    ///      before the snapshot the tests rewind to, so a rewind keeps it.
+    MarketActions internal marketActions;
     uint256 internal currentPrice; // 1e18-scaled, set by _setEnvelopePoint
     uint256 internal currentRate;
 
@@ -218,6 +221,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         address priceOracle = deployRun.wrappedPriceOracleAddress(mktConfigs[0]);
         vm.etch(priceOracle, address(new MockWrappedPriceOracle()).code);
         mockOracle = MockWrappedPriceOracle(priceOracle);
+        marketActions = new MarketActions(minter);
 
         address spOwner = IBaoOwnable(stabilityPool).owner();
         uint256 rebalancerRole = IStabilityPool(stabilityPool).REBALANCER_ROLE();
@@ -466,7 +470,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// without also deciding whether the market is solvent. A test that means the rate as pure scale founds its
     /// market at that rate first (`_seedMarketAt`), so there is nothing to recognise.
     ///
-    /// The derivation itself is `HarborTestActions.setCollateralRatioByRate`, shared with any suite that needs to
+    /// The derivation itself is `MarketActions.setCollateralRatioByWrapRate`, shared with any suite that needs to
     /// reach the impaired branch; this wrapper keeps the envelope's own `currentPrice` / `currentRate` in step with it
     /// and declares the peg price the feasibility check is expressed against.
     /// @param targetCollateralRatio The collateral ratio the market should sit at, 1e18-scaled.
@@ -478,7 +482,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 pegPriceUSD
     ) internal {
         currentRate = wrapRate;
-        currentPrice = setCollateralRatioByRate(minter, address(mockOracle), targetCollateralRatio, wrapRate);
+        currentPrice = marketActions.setCollateralRatioByWrapRate(targetCollateralRatio, wrapRate);
 
         // The envelope declares a collateral-price range independently of its rate range, so not every pairing of
         // ratio and rate is expressible: holding a ratio while the rate falls demands a price rise of the same factor.
@@ -521,7 +525,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// limit), rather than pre-checking for it - so the boundary is discovered each run and cannot go stale.
     function _mintPeggedAtLeast(uint256 target) internal returns (uint256 minted) {
         uint256 collateral = _collateralFor(target) + 1 ether; // slack for the flooring in the mint
-        (minted, ) = genesisMint(minter, collateral, 0, address(this));
+        (minted, ) = marketActions.mint(collateral, 0, address(this));
     }
 
     function _deposit(address who, uint256 amount) internal {
@@ -573,8 +577,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // Three equal tranches of collateral: anchor and sail at genesis, then anchor again.
         // Value 3X against an anchor claim of 2X is a collateral ratio of 1.5.
         uint256 tranche = _collateralFor(IStabilityPool(stabilityPool).MIN_DEPOSIT()) + 1 ether;
-        genesisMint(minter, tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
-        genesisMint(minter, tranche, 0, address(this)); // the anchor tranche that takes it to 1.5
+        marketActions.mint(tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
+        marketActions.mint(tranche, 0, address(this)); // the pegged tranche that takes it to 1.5
 
         // What the flooring costs the reported ratio. The ratio is `backing x price / claim`, so a wei lost from
         // either side moves it by the ratio's own size over that side - and BOTH sides are counted in units the
@@ -1697,7 +1701,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// the peg, where a leveraged mint is refused.
     function _mintLeveragedBuffer(uint256 peggedBacked) internal {
         uint256 collateral = _collateralFor(peggedBacked) / 2;
-        genesisMint(minter, 0, collateral, address(this));
+        marketActions.mint(0, collateral, address(this));
     }
 
     /// @dev Lower the collateral price to put the collateral ratio inside the window a rebalance is offered in, halfway
@@ -1709,7 +1713,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 threshold = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         uint256 bottom = threshold > floor ? floor : 1 ether;
-        currentPrice = setCollateralRatioByPrice(minter, address(mockOracle), bottom + (threshold - bottom) / 2);
+        currentPrice = marketActions.setCollateralRatioByPrice(bottom + (threshold - bottom) / 2);
         assertTrue(
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
             "could not drive the collateral ratio below the rebalance threshold"

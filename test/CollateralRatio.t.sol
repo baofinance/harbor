@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -11,17 +10,15 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {GraphRefinement} from "@bao-test/GraphRefinement.t.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
-import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import {console2} from "forge-std/console2.sol";
 
 abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilityPool2SetUp {
-    /// @dev The ratio the market is deployed at, which the swept price is measured against.
+    /// @dev The collateral ratio the market is founded at: where every sweep starts, and what the sweeps that scale a
+    ///      starting quantity - the wrapped-to-underlying rate, the collateral held - scale it against.
     uint256 internal constant START_COLLATERAL_RATIO = 2 ether;
 
     uint256 startPrice;
-    uint256 currentPrice;
-    uint256 currentCollateralRatio;
     uint256 start;
     uint256 finish;
     uint256 increment;
@@ -44,17 +41,10 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-        vm.prank(owner());
+        vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
         assertEq(0, IERC20(wrappedCollateralToken).balanceOf(reservePool), "reserve pool should be empty");
-    }
-
-    function pegged() internal view returns (bool) {
-        return currentCollateralRatio >= 1 ether;
-    }
-
-    function leveraged() internal view returns (bool) {
-        return currentCollateralRatio > 1 ether;
     }
 
     struct Holdings {
@@ -178,16 +168,18 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
         uint256 rate;
     }
 
-    function doOneCollateralRatio() internal virtual;
+    /// @dev The measurement at one point of the sweep. `collateralRatio` is the one the market reported when it was
+    ///      placed there: the point's position on the sweep, which stays fixed even where the measurement moves the
+    ///      market.
+    function doOneCollateralRatio(uint256 collateralRatio) internal virtual;
 
     function setDown() internal virtual {}
 
-    /// @dev Move the market to `requested` by pricing the collateral for it, then take the ratio the
-    ///      market actually reports as the one being measured. For the swept points the two are equal;
+    /// @dev Move the market to `requested` by pricing the collateral for it, and return the collateral ratio the
+    ///      market then reports, which is the one each measurement records. For the swept points the two are equal;
     ///      a refined point between them may land a wei away, and the row should carry where the market
-    ///      is rather than where it was asked to be. The tolerance is the price's own flooring: it
-    ///      contributes at most `backing / pegged` to the ratio, and the ratio's division floors once
-    ///      more.
+    ///      is rather than where it was asked to be. `MarketActions` refuses a placement further off than
+    ///      the derived price's own flooring allows.
     ///
     ///      Pricing the collateral is one of several ways to reach a collateral ratio, and a sweep that
     ///      needs another - the backing written down while the collateral's own price holds still -
@@ -195,16 +187,9 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     ///      underlying price and on the wrapped-to-underlying rate, and a backing written down to what
     ///      is held depends on those AND on how much is still held, so the same collateral ratio
     ///      reached different ways prices a deposit differently.
-    function _setCollateralRatio(uint256 requested) internal virtual {
-        currentPrice = (startPrice * requested) / START_COLLATERAL_RATIO;
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);
-        currentCollateralRatio = IMinter(minter).collateralRatio();
-        assertApproxEqAbs(
-            currentCollateralRatio,
-            requested,
-            Math.ceilDiv(IMinter(minter).collateralTokenBalance(), IMinter(minter).peggedTokenBalance()) + 1,
-            "the derived price must put the market at the requested collateral ratio"
-        );
+    function _setCollateralRatio(uint256 requested) internal virtual returns (uint256 collateralRatio) {
+        marketActions.setCollateralRatioByPrice(requested);
+        collateralRatio = IMinter(minter).collateralRatio();
     }
 
     /// @inheritdoc GraphRefinement
@@ -221,8 +206,8 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     ///      revert that reaches here is therefore an error, and fails the test rather than costing a row unseen.
     function emitSampleAt(uint256 ratio) internal override {
         uint256 snap = vm.snapshotState();
-        _setCollateralRatio(ratio);
-        doOneCollateralRatio();
+        uint256 collateralRatio = _setCollateralRatio(ratio);
+        doOneCollateralRatio(collateralRatio);
         vm.revertToStateAndDelete(snap);
     }
 
@@ -275,7 +260,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         setUp_config_likelyNoDisallow();
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         // collect the data and check against actuals
         Data memory data;
         Holdings memory beforeHolding;
@@ -337,7 +322,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         // is refused by that rule, naming the ratio it judged and the floor it wanted
         data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         uint256 minimumCollateralRatio = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
-        if (currentCollateralRatio >= minimumCollateralRatio) {
+        if (collateralRatio >= minimumCollateralRatio) {
             (, data.fee, data.discount, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
 
@@ -372,7 +357,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             vm.expectRevert(
                 abi.encodeWithSelector(
                     IMinter_v3.LeverageAboveCap.selector,
-                    currentCollateralRatio,
+                    collateralRatio,
                     minimumCollateralRatio
                 )
             );
@@ -380,7 +365,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         }
 
         // redeem leveraged: not refused by the cap, which governs only minting; depegged there is no residual to redeem
-        if (currentCollateralRatio > 1 ether) {
+        if (collateralRatio > 1 ether) {
             data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
             (data.incentiveRatio, data.fee, data.levergedRedeemed, data.collateralReturned, , ) = IMinter(minter)
                 .redeemLeveragedTokenDryRun(1000 ether);
@@ -522,10 +507,12 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         else s = "unknown";
     }
 
+    /// @dev `collateralRatio` is the one the market was placed at, which decides whether a leveraged action applies.
     function doOne(
         Action action,
         uint multiple,
-        DeltaHoldings memory changesSoFar
+        DeltaHoldings memory changesSoFar,
+        uint256 collateralRatio
     ) internal returns (DeltaHoldings memory withNewChanges) {
         // before
         Holdings memory antes = readHoldings();
@@ -536,18 +523,21 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
             IMinter(minter).redeemPeggedToken(multiple * 1000 ether, address(this), 0);
         } else if (action == Action.MintLeveraged) {
             // below the leverage cap's collateral-ratio floor the market sells no leverage, so there is nothing to compare
-            if (currentCollateralRatio >= IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()) {
+            if (collateralRatio >= IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()) {
                 IMinter(minter).mintLeveragedToken(multiple * 1 ether, address(this), 0);
             }
         } else if (action == Action.RedeemLeveraged) {
-            if (leveraged()) IMinter(minter).redeemLeveragedToken(multiple * 1000 ether, address(this), 0);
+            // depegged there is no residual to redeem
+            if (collateralRatio > 1 ether) {
+                IMinter(minter).redeemLeveragedToken(multiple * 1000 ether, address(this), 0);
+            }
         }
         // after + changes
         DeltaHoldings memory cambios = makeDeltaHoldings(antes, readHoldings());
         withNewChanges = addDeltaHoldings(changesSoFar, cambios);
     }
 
-    function doOneCollateralRatio() internal override(TestCollateralRatioRangeSetUp) {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override(TestCollateralRatioRangeSetUp) {
         // for each action we mint 10 small amounts then mint one large amount = 10 * small amount
         // we then compare the transfers - the 10 small amounts should equal the one large amount.
 
@@ -557,13 +547,13 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
 
         for (uint a = 0; a <= uint(type(Action).max); a++) {
             snap = vm.snapshotState();
-            largeChanges = doOne(Action(a), repeats, largeChanges);
+            largeChanges = doOne(Action(a), repeats, largeChanges, collateralRatio);
             // console2.log("in one go:");
             // logDeltaHoldings(largeChanges);
             vm.revertToState(snap);
             snap = vm.snapshotState();
             for (uint i = 0; i < repeats; i++) {
-                smallChanges = doOne(Action(a), 1, smallChanges);
+                smallChanges = doOne(Action(a), 1, smallChanges, collateralRatio);
                 // console2.log("%s th iteration", i + 1);
                 // logDeltaHoldings(smallChanges);
             }

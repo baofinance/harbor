@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
@@ -30,17 +31,17 @@ contract TestGraphsInvariant is GraphTestBase, TestCollateralRatioRangeSetUp {
         vm.closeFile(invariantFile);
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         // write a gnuplot data file line for fees, invariant and liquidation
-
+        (uint256 collateralPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         writeLine(
             invariantFile,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 IMinter(minter).leverageRatio(),
                 IMinter(minter).peggedTokenPrice(),
                 IMinter(minter).leveragedTokenPrice(),
-                currentPrice
+                collateralPrice
             )
         );
     }

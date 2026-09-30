@@ -96,10 +96,10 @@ contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatio
         vm.revertToState(snapshot);
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
         int256 fair = sailPrice == 0 ? NaN : int256((1 ether * 1 ether) / sailPrice);
 
-        writeLine(file, ia(int256(currentCollateralRatio), _throughTheConversion(), _theLongWayRound(), fair));
+        writeLine(file, ia(int256(collateralRatio), _throughTheConversion(), _theLongWayRound(), fair));
     }
 }

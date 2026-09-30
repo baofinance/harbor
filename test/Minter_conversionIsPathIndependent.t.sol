@@ -40,7 +40,7 @@ contract TestMinterConversionIsPathIndependent is TestConversionBoundReleaseSetU
     ///      scaled with the piece size, while a ragged one can only be matched by a price that does not
     ///      move at all.
     function test_oneConversionReturnsWhatManySmallerOnesDo() public {
-        setCollateralRatio(DISTRESSED_RATIO);
+        marketActions.setCollateralRatioByPrice(DISTRESSED_RATIO);
 
         uint256 snapshot = vm.snapshotState();
         uint256 wholeInOneGo = _sailFrom(TOTAL_ANCHOR);
@@ -81,7 +81,7 @@ contract TestMinterConversionIsPathIndependent is TestConversionBoundReleaseSetU
     /// number of band transitions the operation straddles, because the fee alone is recomputed per band
     /// as the collateral ratio moves through the call. The QUANTITY rule is the same one either way.
     function test_oneSailMintReturnsWhatManySmallerOnesDo() public {
-        setCollateralRatio(DISTRESSED_RATIO);
+        marketActions.setCollateralRatioByPrice(DISTRESSED_RATIO);
         uint256 totalCollateral = 10 ether;
 
         uint256 snapshot = vm.snapshotState();
@@ -112,7 +112,7 @@ contract TestMinterConversionIsPathIndependent is TestConversionBoundReleaseSetU
     /// because the residual and the supply grow in the same proportion. Nobody holding sail is better or
     /// worse off for a conversion having happened.
     function test_aConversionDoesNotMoveTheSailPrice() public {
-        setCollateralRatio(DISTRESSED_RATIO);
+        marketActions.setCollateralRatioByPrice(DISTRESSED_RATIO);
 
         uint256 priceBefore = IMinter_v3(minter).leveragedTokenPrice();
         uint256 ratioBefore = IMinter(minter).collateralRatio();

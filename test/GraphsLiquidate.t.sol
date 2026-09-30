@@ -117,7 +117,7 @@ contract TestGraphsLiquidatePartial is GraphTestBase, TestCollateralRatioRangeSe
         uint256 afterPrice_both;
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         PartialMeasures memory m;
         m.beforePegged = IMinter(minter).peggedTokenBalance();
         m.beforeCR = IMinter(minter).collateralRatio();
@@ -160,7 +160,7 @@ contract TestGraphsLiquidatePartial is GraphTestBase, TestCollateralRatioRangeSe
         writeLine(
             liquidateFile,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 m.afterCR_collateral,
                 m.afterCR_leveraged,
                 m.afterCR_both,
@@ -297,7 +297,7 @@ contract TestGraphsLiquidate is GraphTestBase, TestCollateralRatioRangeSetUp {
         m.leveragedTokenPrice = IMinter(minter).leveragedTokenPrice();
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         Measures memory pre = _readMeasures();
 
         uint256 snap = vm.snapshotState();
@@ -313,7 +313,7 @@ contract TestGraphsLiquidate is GraphTestBase, TestCollateralRatioRangeSetUp {
         writeLine(
             liquidateFile,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 pre.collateralRatio,
                 post.collateralRatio,
                 pre.minterPegged,
@@ -329,7 +329,7 @@ contract TestGraphsLiquidate is GraphTestBase, TestCollateralRatioRangeSetUp {
         writeLine(
             toFile,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 post.userCollateral,
                 post.stabilityPoolCollateralCollateral,
                 post.userLeveraged,
@@ -435,7 +435,7 @@ contract TestGraphsLiquidateParameters is GraphTestBase, TestCollateralRatioRang
         vm.closeFile(file);
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         // the unconstrained intercepts (no headroom caps, no holdings split) - the removed 1-arg's behaviour
         (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter_v3(minter)
             .redeemPeggedForCollateralRatio(1.01 ether, type(uint256).max, type(uint256).max, 0, 0);
@@ -446,7 +446,7 @@ contract TestGraphsLiquidateParameters is GraphTestBase, TestCollateralRatioRang
         writeLine(
             file,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 peggedForCollateral101,
                 peggedForLeveraged101,
                 peggedForCollateral125,

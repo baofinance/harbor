@@ -30,6 +30,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 import {Array} from "@bao-test/utils/Array.sol";
 
 import {ConfigFile} from "@harbor-test/Config.sol";
+import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
@@ -65,6 +66,10 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
     function newDeployRun() internal virtual returns (MarketDeployRun) {
         return new MarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Minter);
     }
+
+    /// @dev What a test does to the market the run stood up - see `MarketActions`. Made in `setUpContract`, once the
+    ///      minter and its mock oracle exist, so every suite on this base acts on its market through the one object.
+    MarketActions internal marketActions;
 
     address minter;
     IMinter.Config config;
@@ -376,6 +381,8 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(minPrice, maxPrice, minRate, maxRate);
         MockWrappedPriceOracle(priceOracle).setQuoteName(template.quoteName());
         vm.label(priceOracle, "priceOracle");
+
+        marketActions = new MarketActions(minter);
 
         minterRole = IMintableRole(leveragedToken).MINTER_ROLE();
         burnerRole = IBurnableRole(leveragedToken).BURNER_ROLE();

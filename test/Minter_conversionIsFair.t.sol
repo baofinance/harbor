@@ -61,7 +61,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     function testFuzz_theConversionReturnsWhatItTook(uint256 ratioSeed, uint256 shareSeed) public {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
         uint256 share = bound(shareSeed, 0.0001 ether, 0.5 ether);
-        setCollateralRatio(collateralRatio);
+        marketActions.setCollateralRatioByPrice(collateralRatio);
         uint256 anchorIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
         vm.assume(anchorIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= anchorIn);
 
@@ -99,7 +99,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 nudge = release / 1_000_000;
         assertGt(nudge, 0, "the two samples must actually differ in collateral ratio");
 
-        setCollateralRatio(release - nudge);
+        marketActions.setCollateralRatioByPrice(release - nudge);
         uint256 ratioBelow = IMinter(minter).collateralRatio();
         vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratioBelow, release));
         IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this));
@@ -107,7 +107,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
         assertEq(bounded, 0, "below the floor nothing is minted");
 
-        setCollateralRatio(release + nudge);
+        marketActions.setCollateralRatioByPrice(release + nudge);
         // The fair rate is one pegged at par over the sail price. The count is floored to a token, and the
         // price the market reports is floored to a wei of its scale, which at this price is under a token of
         // the count: two tokens covers both.
@@ -123,7 +123,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 anchorIn = 1 ether;
         vm.assume(IERC20(peggedToken).balanceOf(address(this)) >= anchorIn);
 
-        setCollateralRatio(collateralRatio);
+        marketActions.setCollateralRatioByPrice(collateralRatio);
 
         if (!IMinter_v3(minter).leveragedMintable()) {
             // Below the floor BOTH routes are refused, by the same name: neither is paid, so neither is paid
@@ -170,7 +170,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     function testFuzz_mintingStaysWithinTheBound(uint256 ratioSeed, uint256 shareSeed) public {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
         uint256 share = bound(shareSeed, 0.0001 ether, 0.5 ether);
-        setCollateralRatio(collateralRatio);
+        marketActions.setCollateralRatioByPrice(collateralRatio);
         uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
         vm.assume(peggedIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= peggedIn);
 
@@ -181,7 +181,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     /// lands there only by chance, so the leverage floor itself is a case of its own.
     function test_mintingStaysWithinTheBound_atExactlyTheLeverageFloor() public {
         uint256 release = releaseCollateralRatio();
-        setCollateralRatio(release);
+        marketActions.setCollateralRatioByPrice(release);
         assertEq(
             IMinter(minter).collateralRatio(),
             release,
@@ -252,7 +252,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
 
         for (uint256 i = 0; i < ratios.length; i++) {
             uint256 snapshot = vm.snapshotState();
-            setCollateralRatio(ratios[i]);
+            marketActions.setCollateralRatioByPrice(ratios[i]);
             uint256 anchorSupply = IMinter(minter).peggedTokenBalance();
             uint256 sailSupply = IMinter(minter).leveragedTokenBalance();
             uint256 ratio = IMinter(minter).collateralRatio();

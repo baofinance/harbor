@@ -98,7 +98,7 @@ abstract contract LeverageSensitivityMeasurement is GraphTestBase, Array, RatioS
 
     function _age() private {
         for (uint256 round = 0; round < agingRounds(); round++) {
-            setMarketCollateralRatio(AGING_COLLATERAL_RATIO);
+            actions.setCollateralRatioByPrice(AGING_COLLATERAL_RATIO);
             if (!_canRebalance() || !_rebalanceUnlessTheRuleRefuses(keeper)) {
                 return;
             }
@@ -157,7 +157,7 @@ abstract contract LeverageSensitivityMeasurement is GraphTestBase, Array, RatioS
     /// @dev The measurement itself, shared by the probe and the recording so that what refinement JUDGES is
     /// exactly what the graph DRAWS. Leaves the market perturbed; both callers snapshot around it.
     function _measureAt(uint256 ratio) private returns (Sample memory sample) {
-        setMarketCollateralRatio(ratio);
+        actions.setCollateralRatioByPrice(ratio);
         sample.collateralRatio = IMinter(market.minter).collateralRatio();
         sample.leveragedPrice = IMinter_v3(market.minter).leveragedTokenPrice();
         sample.reportedLeverage = IMinter_v3(market.minter).leverageRatio();
@@ -176,7 +176,7 @@ abstract contract LeverageSensitivityMeasurement is GraphTestBase, Array, RatioS
         // one-sided limits actually are.
         bool belowPeg = ratio < 1 ether;
         uint256 offset = Math.mulDiv(ratio, PERTURBATION, 1 ether);
-        setMarketCollateralRatio(belowPeg ? ratio - offset : ratio + offset);
+        actions.setCollateralRatioByPrice(belowPeg ? ratio - offset : ratio + offset);
         sample.leveragedPriceUp = IMinter_v3(market.minter).leveragedTokenPrice();
 
         // The response per unit of cause: `(dPrice/price) / (dCollateral/collateral)`, taken as magnitudes so

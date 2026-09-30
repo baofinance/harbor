@@ -7,7 +7,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
 
 /// @notice An anchor mint or redeem must not move value between the person doing it and everyone else,
@@ -20,7 +19,7 @@ import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
 /// The two regions ask different questions. Above a ratio of 1 the anchor price is pinned at 1 and the
 /// sail token holds the residual, so the residual is what must be conserved. At or below 1 the residual
 /// is zero and stays zero, making a sail assertion vacuous; there the anchor price is the live quantity.
-contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, HarborTestActions {
+contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint {
     uint256 private startingRate;
 
     /// @dev A configuration that disallows nothing, so the fee-paying paths can be exercised at every
@@ -53,7 +52,7 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint, Harbo
     ///      credited. A range that stopped at the starting level would leave every run on the held
     ///      branch and never price off an unimpaired record at all.
     function _moveTo(uint256 targetRatio, uint256 rateBps) private {
-        setCollateralRatioByRate(minter, priceOracle, targetRatio, (startingRate * rateBps) / 10_000);
+        marketActions.setCollateralRatioByWrapRate(targetRatio, (startingRate * rateBps) / 10_000);
     }
 
     function _price() private view returns (uint256 price) {
