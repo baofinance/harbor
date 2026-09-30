@@ -56,7 +56,11 @@ contract AddressResolversTest is DeployETHfxUSDSetUp {
         Market memory named = Market("ETH", "fxUSD");
         assertEq(deployRun.minterAddress(market), deployRun.minterAddress(named), "minterAddress");
         assertEq(deployRun.peggedTokenAddress(market), deployRun.peggedTokenAddress(named.peg), "peggedTokenAddress");
-        assertEq(deployRun.leveragedTokenAddress(market), deployRun.leveragedTokenAddress(named), "leveragedTokenAddress");
+        assertEq(
+            deployRun.leveragedTokenAddress(market),
+            deployRun.leveragedTokenAddress(named),
+            "leveragedTokenAddress"
+        );
         assertEq(deployRun.reservePoolAddress(market), deployRun.reservePoolAddress(named), "reservePoolAddress");
         assertEq(deployRun.genesisAddress(market), deployRun.genesisAddress(named), "genesisAddress");
         assertEq(
@@ -69,7 +73,11 @@ contract AddressResolversTest is DeployETHfxUSDSetUp {
             deployRun.stabilityPoolAddress(named, HarborDeployer.StabilityPoolType.Collateral),
             "stabilityPoolAddress(Collateral)"
         );
-        assertEq(deployRun.wrappedPriceOracleAddress(market), deployRun.wrappedPriceOracleAddress(named), "wrappedPriceOracleAddress");
+        assertEq(
+            deployRun.wrappedPriceOracleAddress(market),
+            deployRun.wrappedPriceOracleAddress(named),
+            "wrappedPriceOracleAddress"
+        );
     }
 
     /// The Minter's baked-in token addresses are the ones the token resolvers name.
@@ -92,12 +100,24 @@ contract AddressResolversTest is DeployETHfxUSDSetUp {
     /// The StabilityPoolManager's baked-in minter, and the two pools it manages, are what the resolvers name.
     function test_stabilityPoolManagerNamesTheMinterAndBothPools() public {
         IStabilityPoolManager deployedManager = IStabilityPoolManager(deployRun.stabilityPoolManagerAddress(market));
-        assertEq(StabilityPoolManagerMinter(address(deployedManager)).MINTER(), deployRun.minterAddress(market), "MINTER");
+        assertEq(
+            StabilityPoolManagerMinter(address(deployedManager)).MINTER(),
+            deployRun.minterAddress(market),
+            "MINTER"
+        );
 
         address[] memory pools = deployedManager.stabilityPools();
         assertEq(pools.length, 2, "pool count");
-        assertEq(pools[0], deployRun.stabilityPoolAddress(market, HarborDeployer.StabilityPoolType.Collateral), "pools[0]");
-        assertEq(pools[1], deployRun.stabilityPoolAddress(market, HarborDeployer.StabilityPoolType.Leveraged), "pools[1]");
+        assertEq(
+            pools[0],
+            deployRun.stabilityPoolAddress(market, HarborDeployer.StabilityPoolType.Collateral),
+            "pools[0]"
+        );
+        assertEq(
+            pools[1],
+            deployRun.stabilityPoolAddress(market, HarborDeployer.StabilityPoolType.Leveraged),
+            "pools[1]"
+        );
     }
 
     /// The two stability-pool resolvers name distinct pools, each distributing the reward tokens its type

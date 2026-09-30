@@ -7,7 +7,7 @@ load "style.gp"
 # line - the guard below is what makes that possible, and it works for multiplot graphs, which `replot`
 # cannot. Run from this directory:
 #
-#   gnuplot -e "terminal=1; set terminal pngcairo size 1100,1100 background rgb 'gray90'; set output 'liquidate_to_partial_both44_candidates.png'" liquidate_to_partial_both44_candidates.gp
+#   gnuplot -e "terminal=1; set terminal pngcairo size 1100,1100 background rgb 'gray90'; set output 'liquidate_to_partial_both44_by_market.png'" liquidate_to_partial_both44_by_market.gp
 #
 # Do not commit what those write: results/ holds the CSVs the tests regress against, and rendered output
 # is gitignored.
@@ -74,7 +74,7 @@ quoted(r, v) = (r < floor_ratio ? NaN : nz(v))
 set lmargin at screen 0.10
 set rmargin at screen 0.97
 
-set multiplot layout 3,1 title "liquidate\\_to\\_partial\\_both44\\_candidates.gp - one liquidation at each collateral ratio: deployed, the tree, and the upgrade" font ",11"
+set multiplot layout 3,1 title "liquidate\\_to\\_partial\\_both44\\_by\\_market.gp - one liquidation at each collateral ratio: deployed, the tree, and the upgrade" font ",11"
 
 # ─── where a liquidation leaves the market ───
 set ylabel "collateral ratio after"

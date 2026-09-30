@@ -84,18 +84,19 @@ abstract contract MarketUnderTest {
     /// and they would have been plotted. Nothing else here distinguishes the market that was meant from one
     /// that merely ran.
     ///
-    /// The CODE HASH is what makes it robust: it needs no list of marker functions to be kept in step, and it
-    /// changes if anything about an implementation changes. A different fork block, an implementation swapped
-    /// on chain, a mock silently substituted by an inherited setup - each shows up as a hash that does not
-    /// match the last run's, in a file beside the data it produced.
+    /// Each is recorded by WHAT IT IS - see `_whatAnswersAt` - and not by where it sits or what it hashes to,
+    /// so the file changes when what a market is built from changes and at no other time. An implementation
+    /// swapped on chain, a mock silently substituted by an inherited setup - each shows up as a row that does
+    /// not match the last run's, in a file beside the data it produced. An address moved by a change to the
+    /// test that deployed it, or the same source compiled with other settings, does not.
     ///
-    /// Addresses that are not proxies are reported as themselves, which is the honest answer for the etched
-    /// oracle mock and for any token that was never behind one.
+    /// Addresses that are not proxies say so, which is the honest answer for the etched oracle mock and for
+    /// any token that was never behind one.
     function _recordMarketProvenance(string memory runName) internal {
         // Accumulated a row at a time rather than in one `string.concat`: eight rows and a header in a single
         // call puts more than the EVM's reachable stack depth in flight and the compiler refuses it.
-        string memory out = string.concat("lineage,", reader.lineage(), ",,,\n");
-        out = string.concat(out, "contract,proxy,proxy codehash,implementation,implementation codehash\n");
+        string memory out = string.concat("lineage,", reader.lineage(), ",\n");
+        out = string.concat(out, "contract,code at the address,implementation\n");
         out = string.concat(out, _provenanceRow("minter", market.minter));
         out = string.concat(out, _provenanceRow("manager", market.manager));
         out = string.concat(out, _provenanceRow("collateralPool", market.collateralPool));
@@ -107,18 +108,56 @@ abstract contract MarketUnderTest {
         _vm.writeFile(string.concat("results/provenance", runName, ".csv"), out);
     }
 
-    /// @dev BOTH code hashes, and the proxy's own is not redundant. `vm.etch` replaces an address's CODE and
-    /// leaves its storage, so an etched proxy still points at whatever implementation it held before - and a
-    /// record that read only the slot would name the deployed contract while a mock was answering every call.
-    /// The etched oracle is precisely that case. Every genuine proxy shares one code hash, so a row whose
-    /// proxy hash differs from its siblings' has been replaced, whatever its implementation pointer says.
+    /// @dev BOTH the code at the address and the code behind it, and the first is not redundant. `vm.etch`
+    /// replaces an address's CODE and leaves its storage, so an etched proxy still points at whatever
+    /// implementation it held before - and a record that read only the slot would name the deployed contract
+    /// while a mock was answering every call. The etched oracle is precisely that case. A genuine proxy is
+    /// recorded as a proxy, so a row whose first column names anything else has been replaced, whatever its
+    /// implementation pointer says.
     function _provenanceRow(string memory name, address proxy) private view returns (string memory) {
         address implementation = address(uint160(uint256(_vm.load(proxy, _IMPLEMENTATION_SLOT))));
-        string memory row = string.concat(name, ",", _vm.toString(proxy), ",", _vm.toString(proxy.codehash), ",");
-        if (implementation == address(0)) {
-            return string.concat(row, "(not-a-proxy),\n");
+        return
+            string.concat(
+                name,
+                ",",
+                _whatAnswersAt(proxy),
+                ",",
+                implementation == address(0) ? "(not-a-proxy)" : _whatAnswersAt(implementation),
+                "\n"
+            );
+    }
+
+    /// @dev The NAME of the contract whose code is at `target` when this tree built it, and the ADDRESS when it
+    /// did not. Forge is asked which of the build's artifacts the code came from, which it can say for a
+    /// contract with immutables or linked libraries and for a mock beside the contract it inherits from.
+    ///
+    /// Both halves are stable, which is the point. A name does not move when a test changes the address a
+    /// contract is created at, nor when a build - the coverage run compiles with the optimizer off - turns the
+    /// same source into different bytecode. Code no artifact matches was on chain at the pinned block, and
+    /// there the block pins the address and the address pins the code.
+    function _whatAnswersAt(address target) private view returns (string memory) {
+        try _vm.getArtifactPathByDeployedCode(target.code) returns (string memory artifactPath) {
+            // Forge answers with the artifact's file, `<out>/<source file>/<contract>.json`, under a root that
+            // differs by machine and an output directory that differs by pass. The contract is its last part.
+            string[] memory parts = _vm.split(artifactPath, "/");
+            return _vm.replace(parts[parts.length - 1], ".json", "");
+        } catch (bytes memory err) {
+            if (
+                keccak256(err) !=
+                keccak256(
+                    abi.encodeWithSignature(
+                        "CheatcodeError(string)",
+                        "vm.getArtifactPathByDeployedCode: no matching artifact found"
+                    )
+                )
+            ) {
+                // solhint-disable-next-line no-inline-assembly
+                assembly {
+                    revert(add(err, 0x20), mload(err))
+                }
+            }
+            return _vm.toString(target);
         }
-        return string.concat(row, _vm.toString(implementation), ",", _vm.toString(implementation.codehash), "\n");
     }
 
     /// @dev Rebalance, reporting whether THE RULE UNDER TEST refused to.

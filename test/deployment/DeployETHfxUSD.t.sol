@@ -58,9 +58,7 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, HarborTestActions {
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Installed where the deploy wired the minter, not pushed in afterwards
-        mockOracle = MockWrappedPriceOracle(
-            installMockPriceOracle(deployRun.wrappedPriceOracleAddress(mktConfigs[0]))
-        );
+        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(deployRun.wrappedPriceOracleAddress(mktConfigs[0])));
         mockOracle.setLatestAnswer(1 ether, 1 ether);
 
         vm.startPrank(HARBOR_MULTISIG);

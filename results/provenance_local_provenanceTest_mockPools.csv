@@ -2,8 +2,8 @@ lineage,v3,
 contract,code at the address,implementation
 minter,BaoERC1967Proxy,Minter_v3
 manager,ERC1967Proxy,StabilityPoolManager_v2
-collateralPool,BaoERC1967Proxy,StabilityPool_v3
-leveragedPool,BaoERC1967Proxy,StabilityPool_v3
+collateralPool,BaoERC1967Proxy,MockStabilityPool
+leveragedPool,BaoERC1967Proxy,MockStabilityPool
 pegged,BaoERC1967Proxy,MintableBurnableERC20_v2
 leveraged,BaoERC1967Proxy,MintableBurnableERC20_v2
 wrappedCollateral,0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0,(not-a-proxy)

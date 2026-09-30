@@ -34,7 +34,7 @@
 | script/src/Deploy_MCAP_Minter.sol                                  | X  71% (5/7)       | X  67% (4/6)       | -  N/A (0/0)     | X  50% (1/2)     |
 | script/src/Deploy_SILVER_Minter.sol                                | X   0% (0/7)       | X   0% (0/6)       | -  N/A (0/0)     | X   0% (0/2)     |
 | script/src/HarborDeployStack.sol                                   | X  69% (31/45)     | X  62% (29/47)     | X  25% (1/4)     | X  71% (5/7)     |
-| script/src/HarborDeployer.sol                                      | X  62% (49/79)     | X  95% (70/74)     | -  N/A (0/0)     | X  24% (9/37)    |
+| script/src/HarborDeployer.sol                                      | X  73% (58/79)     | X  95% (70/74)     | -  N/A (0/0)     | X  49% (18/37)   |
 | script/src/HarborReporting.sol                                     | X  75% (18/24)     | X  74% (14/19)     | X  80% (4/5)     | X  80% (4/5)     |
 | script/src/contracts/Genesis.sol                                   | ✓ 100% (10/10)     | ✓ 100% (11/11)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/src/contracts/LeveragedToken.sol                            | ✓ 100% (16/16)     | ✓ 100% (23/23)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
@@ -74,4 +74,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                   | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
 | src/util/FmtLib.sol                                                | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)     |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
-| Total                                                              | X  53% (2931/5480) | X  54% (3243/5973) | X  49% (348/715) | X  57% (416/725) |
+| Total                                                              | X  54% (2940/5480) | X  54% (3243/5973) | X  49% (348/715) | X  59% (425/725) |
