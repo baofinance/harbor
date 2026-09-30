@@ -66,7 +66,7 @@ contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
         mintPeggedIncentive = IMinter(minter).mintPeggedTokenIncentiveRatio();
         redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio();
 
-        // if (leveraged()) {
+        // if (IMinter(minter).collateralRatio() > 1 ether) {
         mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
         redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
         // } else {

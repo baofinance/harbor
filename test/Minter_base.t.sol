@@ -368,18 +368,10 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         leveragedToken = deployRun.leveragedTokenAddress(marketConfig);
         reservePool = deployRun.reservePoolAddress(marketConfig);
 
-        // The price oracle is a separate deployment the minter only knows by predicted address. Etch the mock
-        // AFTER the deploy, so the deploy is exercised against a codeless reference exactly as in production,
-        // then restore the state `vm.etch` does not copy.
-        priceOracle = deployRun.wrappedPriceOracleAddress(marketConfig);
-        MockWrappedPriceOracle template = new MockWrappedPriceOracle();
-        vm.etch(priceOracle, address(template).code);
-        // `vm.etch` copies code but not storage, so the etched oracle arrives with every field zeroed and its
-        // constructor never runs. Seed it FROM the constructed template rather than restating the mock's
-        // starting values here, so the two cannot drift apart.
-        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = template.latestAnswer();
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(minPrice, maxPrice, minRate, maxRate);
-        MockWrappedPriceOracle(priceOracle).setQuoteName(template.quoteName());
+        // The price oracle is a separate deployment the minter only knows by predicted address. The run puts the
+        // mock there AFTER the deploy, so the deploy is exercised against a codeless reference exactly as in
+        // production, and restores the state `vm.etch` does not copy.
+        priceOracle = deployRun.installMockPriceOracle(marketConfig);
         vm.label(priceOracle, "priceOracle");
 
         marketActions = new MarketActions(minter);

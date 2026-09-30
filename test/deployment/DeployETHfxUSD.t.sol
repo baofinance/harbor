@@ -4,7 +4,6 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
-import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
@@ -13,13 +12,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 /// @title Common deployment setup for ETH::fxUSD market tests.
 /// @dev Deploys a full ETH::fxUSD market via production deployment scripts.
 ///      Inherit this instead of rolling your own deployment setup.
-abstract contract DeployETHfxUSDSetUp is BaoTest, HarborTestActions {
+abstract contract DeployETHfxUSDSetUp is BaoTest {
     /// @dev The deploy run that stands the market up, held rather than inherited (see `HarborDeployRun`).
     HarborDeployRun internal deployRun;
 
@@ -43,22 +42,16 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, HarborTestActions {
         toDeploy[0] = mktConfigs[0];
         deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        minter = deployRun.minterAddress(mktConfigs[0]);
-        stabilityPoolCollateral = deployRun.stabilityPoolAddress(
-            mktConfigs[0],
-            HarborDeployer.StabilityPoolType.Collateral
-        );
-        stabilityPoolLeveraged = deployRun.stabilityPoolAddress(
-            mktConfigs[0],
-            HarborDeployer.StabilityPoolType.Leveraged
-        );
-        stabilityPoolManager = deployRun.stabilityPoolManagerAddress(mktConfigs[0]);
-        pegged = deployRun.peggedTokenAddress(mktConfigs[0]);
-        leveraged = deployRun.leveragedTokenAddress(mktConfigs[0]);
-        wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
+        MarketAddresses memory addresses = deployRun.marketAddresses(mktConfigs[0]);
+        minter = addresses.minter;
+        stabilityPoolCollateral = addresses.collateralPool;
+        stabilityPoolLeveraged = addresses.leveragedPool;
+        stabilityPoolManager = addresses.manager;
+        pegged = addresses.pegged;
+        leveraged = addresses.leveraged;
+        wrappedCollateral = addresses.wrappedCollateral;
 
-        // Installed where the deploy wired the minter, not pushed in afterwards
-        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(deployRun.wrappedPriceOracleAddress(mktConfigs[0])));
+        mockOracle = MockWrappedPriceOracle(deployRun.installMockPriceOracle(mktConfigs[0]));
         mockOracle.setLatestAnswer(1 ether, 1 ether);
 
         vm.startPrank(HARBOR_MULTISIG);

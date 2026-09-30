@@ -10,6 +10,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
+import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MarketReader} from "@harbor-test/harness/MarketReader.sol";
 import {MarketRule, TreeRule} from "@harbor-test/harness/MarketRule.sol";
 
@@ -25,23 +26,12 @@ import {MarketRule, TreeRule} from "@harbor-test/harness/MarketRule.sol";
 /// it is funded with. WHAT DOES NOT: the measurement loop, the columns, the file naming. One axis of
 /// variation per run against a fixed measurement is the thing being bought.
 abstract contract MarketUnderTest {
-    /// @dev Everything a measurement needs to drive a market, gathered once by whoever stood it up.
-    struct Market {
-        address minter;
-        address collateralPool;
-        address leveragedPool;
-        address manager;
-        address pegged;
-        address leveraged;
-        address wrappedCollateral;
-        address oracle;
-    }
-
     // The well-known forge cheatcode address, referenced directly rather than inherited from a Test base so
     // this stays a mixin a market can be composed from.
     Vm private constant _vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
-    Market internal market;
+    /// @dev Everything a measurement needs to drive a market, gathered once by whoever stood it up.
+    MarketAddresses internal market;
 
     /// @dev How to ASK this market its questions - see `MarketReader`. Chosen once, where the market is stood
     /// up and where what sits behind each proxy is decided, so it cannot disagree with the market it reads.
@@ -77,7 +67,7 @@ abstract contract MarketUnderTest {
         uint256 collateralPoolShare,
         uint256 leveragedPoolShare,
         string memory runName
-    ) internal virtual returns (Market memory);
+    ) internal virtual returns (MarketAddresses memory);
 
     /// @dev The ERC-1967 implementation slot, `keccak256("eip1967.proxy.implementation") - 1`.
     bytes32 private constant _IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;

@@ -11,12 +11,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
+import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 /// @title MinterCappedMintTest
 /// @notice Tests for Minter_v3 fee-capped minting, deployed via production deployment scripts.
-contract MinterCappedMintSetUp is BaoTest, HarborTestActions {
+contract MinterCappedMintSetUp is BaoTest {
     /// @dev The deploy run that stands the market up, held rather than inherited (see `HarborDeployRun`).
     HarborDeployRun internal deployRun;
 
@@ -37,13 +37,14 @@ contract MinterCappedMintSetUp is BaoTest, HarborTestActions {
         marketsToDeploy[0] = allMarkets[0];
         deployRun.deploy(peg, allMarkets, true, marketsToDeploy);
 
-        minter = deployRun.minterAddress(allMarkets[0]);
-        pegged = deployRun.peggedTokenAddress(allMarkets[0]);
-        wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
+        MarketAddresses memory addresses = deployRun.marketAddresses(allMarkets[0]);
+        minter = addresses.minter;
+        pegged = addresses.pegged;
+        wrappedCollateral = addresses.wrappedCollateral;
 
-        // Install the mock oracle (price=1, rate=1) where the deploy wired the minter, then grant the
-        // zero-fee role for bootstrap minting.
-        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(deployRun.wrappedPriceOracleAddress(allMarkets[0])));
+        // The mock oracle (price=1, rate=1) where the deploy wired the minter, then the zero-fee role for
+        // bootstrap minting.
+        mockOracle = MockWrappedPriceOracle(deployRun.installMockPriceOracle(allMarkets[0]));
         mockOracle.setLatestAnswer(1 ether, 1 ether);
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         vm.startPrank(HARBOR_MULTISIG);

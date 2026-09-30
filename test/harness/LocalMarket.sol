@@ -13,6 +13,7 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 
+import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -70,7 +71,7 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
         uint256 collateralPoolShare,
         uint256 leveragedPoolShare,
         string memory runName
-    ) internal virtual override returns (Market memory) {
+    ) internal virtual override returns (MarketAddresses memory) {
         _requireHoldersOutsidePools(collateralPoolShare, leveragedPoolShare);
         // Everything here comes from THIS tree's deploy chain, so every question is asked the v3 way.
         reader = new MarketReaderV3Lineage();

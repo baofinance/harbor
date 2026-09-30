@@ -10,7 +10,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
@@ -27,6 +26,7 @@ import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
+import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
 import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
@@ -202,25 +202,21 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         toDeploy[0] = mktConfigs[0]; // the fxUSD market
         deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        minter = deployRun.minterAddress(mktConfigs[0]);
-        stabilityPool = deployRun.stabilityPoolAddress(mktConfigs[0], HarborDeployer.StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = deployRun.stabilityPoolAddress(
-            mktConfigs[0],
-            HarborDeployer.StabilityPoolType.Leveraged
-        );
-        stabilityPoolManager = deployRun.stabilityPoolManagerAddress(mktConfigs[0]);
-        pegged = deployRun.peggedTokenAddress(mktConfigs[0]);
-        leveraged = deployRun.leveragedTokenAddress(mktConfigs[0]);
-        wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
+        MarketAddresses memory addresses = deployRun.marketAddresses(mktConfigs[0]);
+        minter = addresses.minter;
+        stabilityPool = addresses.collateralPool;
+        stabilityPoolLeveraged = addresses.leveragedPool;
+        stabilityPoolManager = addresses.manager;
+        pegged = addresses.pegged;
+        leveraged = addresses.leveraged;
+        wrappedCollateral = addresses.wrappedCollateral;
 
         // The price oracle is a separately-deployed dependency (harbor-price-aggregators): the deploy wires the minter
-        // to its predicted CREATE3 address while that address is still codeless, exactly as production does. So etch the
-        // settable mock AFTER the deploy - at the same _wrappedPriceOracleAddress the deploy used - which exercises the
-        // deploy's codeless reference and puts the mock in place before the first read (the seed mint). etch copies code
-        // not storage, so the answer is set per envelope point via mockOracle.setLatestAnswer.
-        address priceOracle = deployRun.wrappedPriceOracleAddress(mktConfigs[0]);
-        vm.etch(priceOracle, address(new MockWrappedPriceOracle()).code);
-        mockOracle = MockWrappedPriceOracle(priceOracle);
+        // to its predicted CREATE3 address while that address is still codeless, exactly as production does. So the run
+        // installs the settable mock there AFTER the deploy, which exercises the deploy's codeless reference and puts the
+        // mock in place before the first read (the seed mint). The answer is set per envelope point via
+        // mockOracle.setLatestAnswer.
+        mockOracle = MockWrappedPriceOracle(deployRun.installMockPriceOracle(mktConfigs[0]));
         marketActions = new MarketActions(minter);
 
         address spOwner = IBaoOwnable(stabilityPool).owner();

@@ -20,11 +20,11 @@ import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {MarketReaderV2Lineage, MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
-import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
+import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -97,7 +97,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         uint256 collateralPoolShare,
         uint256 leveragedPoolShare,
         string memory runName
-    ) internal virtual override returns (Market memory) {
+    ) internal virtual override returns (MarketAddresses memory) {
         _requireHoldersOutsidePools(collateralPoolShare, leveragedPoolShare);
         vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         // After the fork is selected, which would otherwise discard it.
@@ -109,20 +109,13 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         // What is behind these proxies TODAY, until and unless the upgrade below moves them.
         reader = new MarketReaderV2Lineage(ConfigTokenNames(address(config)));
 
-        market.minter = productionRun.minterAddress(config);
+        market = productionRun.marketAddresses(config);
         actions = new MarketActions(market.minter);
-        market.collateralPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Collateral);
-        market.leveragedPool = productionRun.stabilityPoolAddress(config, HarborDeployer.StabilityPoolType.Leveraged);
-        market.manager = productionRun.stabilityPoolManagerAddress(config);
-        market.pegged = IMinter(market.minter).PEGGED_TOKEN();
-        market.leveraged = IMinter(market.minter).LEVERAGED_TOKEN();
-        market.wrappedCollateral = IMinter(market.minter).WRAPPED_COLLATERAL_TOKEN();
-        market.oracle = IMinter(market.minter).priceOracle();
         deployedOwner = IBaoOwnable(market.minter).owner();
 
-        // `vm.etch` copies CODE, not storage, so the mock's constructor has not run and its fields are zero
-        // until they are set here.
-        vm.etch(market.oracle, address(new MockWrappedPriceOracle()).code);
+        // The mock goes where the production minter reads its price - which the run checks is where it predicts - and
+        // is priced as the market is founded.
+        productionRun.installMockPriceOracle(config);
         MockWrappedPriceOracle(market.oracle).setLatestAnswer(FOUNDING_PRICE, WRAP_RATE);
 
         // EITHER the market as deployed, OR the whole v3 upgrade. There is no third option and none can be

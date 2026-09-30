@@ -3,46 +3,33 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {eurMintersConfig} from "@harbor-script/src/Deploy_EUR_Minter.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 /// @title Common deployment setup for EUR market tests.
 /// @dev Deploys EUR peg with two collaterals (fxUSD, stETH), each with collateral + leveraged SPs and ACs.
 ///      Forks mainnet at a pinned block, deploys all market infrastructure via production scripts,
 ///      grants test contract free-mint and reward-depositor roles, sets mock oracles to price=rate=1.
-abstract contract DeployEURSetUp is BaoTest, HarborTestActions {
+abstract contract DeployEURSetUp is BaoTest {
     /// @dev The deploy run that stands the peg's markets up, held rather than inherited (see `HarborDeployRun`).
     HarborDeployRun internal deployRun;
 
-    // ── EUR::fxUSD market ──────────────────────────────────────────────
-    address minterFxUSD;
-    address spCollFxUSD;
-    address spLevFxUSD;
-    address spmFxUSD;
+    /// @dev The EUR::fxUSD market, as the run reports it.
+    MarketAddresses internal fxUSD;
 
-    // ── EUR::stETH market ──────────────────────────────────────────────
-    address minterStETH;
-    address spCollStETH;
-    address spLevStETH;
-    address spmStETH;
+    /// @dev The EUR::stETH market.
+    MarketAddresses internal stETH;
 
-    // ── Shared ─────────────────────────────────────────────────────────
     address pegged; // haEUR - shared across markets
-    address wrappedCollateralFxUSD;
-    address wrappedCollateralStETH;
-
-    MockWrappedPriceOracle mockOracleFxUSD;
-    MockWrappedPriceOracle mockOracleStETH;
 
     function setUp() public virtual {
         forkMainnet();
@@ -53,47 +40,26 @@ abstract contract DeployEURSetUp is BaoTest, HarborTestActions {
 
         deployRun.deploy(peg_, mktConfigs, true, mktConfigs);
 
-        // EUR::fxUSD
-        string memory mkFx = MinterMarketConfigLib.salt(mktConfigs[0]); // "EUR::fxUSD"
-        minterFxUSD = deployRun.minterAddress(mktConfigs[0]);
-        spCollFxUSD = deployRun.stabilityPoolAddress(mktConfigs[0], HarborDeployer.StabilityPoolType.Collateral);
-        spLevFxUSD = deployRun.stabilityPoolAddress(mktConfigs[0], HarborDeployer.StabilityPoolType.Leveraged);
-        spmFxUSD = deployRun.stabilityPoolManagerAddress(mktConfigs[0]);
-        wrappedCollateralFxUSD = IMinter(minterFxUSD).WRAPPED_COLLATERAL_TOKEN();
+        fxUSD = deployRun.marketAddresses(mktConfigs[0]);
+        stETH = deployRun.marketAddresses(mktConfigs[1]);
+        pegged = fxUSD.pegged;
 
-        // EUR::stETH
-        string memory mkSt = MinterMarketConfigLib.salt(mktConfigs[1]); // "EUR::stETH"
-        minterStETH = deployRun.minterAddress(mktConfigs[1]);
-        spCollStETH = deployRun.stabilityPoolAddress(mktConfigs[1], HarborDeployer.StabilityPoolType.Collateral);
-        spLevStETH = deployRun.stabilityPoolAddress(mktConfigs[1], HarborDeployer.StabilityPoolType.Leveraged);
-        spmStETH = deployRun.stabilityPoolManagerAddress(mktConfigs[1]);
-        wrappedCollateralStETH = IMinter(minterStETH).WRAPPED_COLLATERAL_TOKEN();
-
-        // Shared pegged token
-        pegged = deployRun.peggedTokenAddress(mktConfigs[0]);
-
-        // Mock oracles (price=1, rate=1 for simple accounting), installed where the deploy wired each minter
-        mockOracleFxUSD = MockWrappedPriceOracle(
-            installMockPriceOracle(deployRun.wrappedPriceOracleAddress(mktConfigs[0]))
-        );
-        mockOracleFxUSD.setLatestAnswer(1 ether, 1 ether);
-        mockOracleStETH = MockWrappedPriceOracle(
-            installMockPriceOracle(deployRun.wrappedPriceOracleAddress(mktConfigs[1]))
-        );
-        mockOracleStETH.setLatestAnswer(1 ether, 1 ether);
+        // Mock oracles (price=1, rate=1 for simple accounting), where the deploy wired each minter
+        MockWrappedPriceOracle(deployRun.installMockPriceOracle(mktConfigs[0])).setLatestAnswer(1 ether, 1 ether);
+        MockWrappedPriceOracle(deployRun.installMockPriceOracle(mktConfigs[1])).setLatestAnswer(1 ether, 1 ether);
 
         vm.startPrank(HARBOR_MULTISIG);
         // Grant free mint role for test helpers
-        IBaoRoles(minterFxUSD).grantRoles(address(this), IMinter(minterFxUSD).ZERO_FEE_ROLE());
-        IBaoRoles(minterStETH).grantRoles(address(this), IMinter(minterStETH).ZERO_FEE_ROLE());
-        // Grant reward depositor role on collateral SPs
-        IBaoRoles(spCollFxUSD).grantRoles(
+        IBaoRoles(fxUSD.minter).grantRoles(address(this), IMinter(fxUSD.minter).ZERO_FEE_ROLE());
+        IBaoRoles(stETH.minter).grantRoles(address(this), IMinter(stETH.minter).ZERO_FEE_ROLE());
+        // Grant the reward depositor role on each collateral stability pool
+        IBaoRoles(fxUSD.collateralPool).grantRoles(
             address(this),
-            IMultipleRewardDistributor(spCollFxUSD).REWARD_DEPOSITOR_ROLE()
+            IMultipleRewardDistributor(fxUSD.collateralPool).REWARD_DEPOSITOR_ROLE()
         );
-        IBaoRoles(spCollStETH).grantRoles(
+        IBaoRoles(stETH.collateralPool).grantRoles(
             address(this),
-            IMultipleRewardDistributor(spCollStETH).REWARD_DEPOSITOR_ROLE()
+            IMultipleRewardDistributor(stETH.collateralPool).REWARD_DEPOSITOR_ROLE()
         );
         vm.stopPrank();
     }
