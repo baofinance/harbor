@@ -96,6 +96,15 @@ library Config_v2 {
                 if (currentUpperBound != config_.collateralRatioBandUpperBounds[i]) {
                     revert IMinter_v3.CollateralRatioBoundTooPrecise(name, config_.collateralRatioBandUpperBounds[i]);
                 }
+                // a wider bound would be stored truncated
+                if (currentUpperBound > ConfigIncentiveLib.MAX_COLLATERAL_RATIO_BOUND) {
+                    revert IMinter_v3.InvalidCollateralRatioBoundValue(
+                        name,
+                        currentUpperBound,
+                        i,
+                        "boundary too large for storage"
+                    );
+                }
                 if (i == 0 && currentUpperBound < 1 ether) {
                     revert IMinter_v3.InvalidCollateralRatioBoundValue(
                         name,

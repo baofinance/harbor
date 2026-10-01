@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {WordCodec} from "src/util/WordCodec.sol";
+import {WordCodec} from "@harbor/util/WordCodec.sol";
 
 /// @title ConfigIncentiveLib
 /// @notice Low-level data structure operations for ActionIncentive
-/// @dev Used by both Minter_v1 and Config_v1
+/// @dev The one statement of the stored layout, shared by every Minter version, its config loader and the libraries
+///      that price against its schedules.
 library ConfigIncentiveLib {
     using WordCodec for bytes32;
 
@@ -18,13 +19,22 @@ library ConfigIncentiveLib {
     uint internal constant INCENTIVE_RATIO_DECIMALS = 9; // solhint-disable-line explicit-types
 
     /// @notice The precision at which collateral ratio bounds are stored.
-    /// @dev With decimals = 6, this gives a max ratio of 4,000 (400,000%) with precision of 0.000001 (0.0001%)
+    /// @dev With decimals = 6 in a `COLLATERAL_RATIO_BOUND_BITS` field, this gives a precision of 0.000001 (0.0001%)
+    /// up to `MAX_COLLATERAL_RATIO_BOUND`.
     uint internal constant COLLATERAL_RATIO_DECIMALS = 6; // solhint-disable-line explicit-types
 
-    /// @notice The maximum number of fee/discount value bands that can be stored
+    /// @notice The width, in bits, of the field each collateral ratio bound is stored in.
+    uint256 internal constant COLLATERAL_RATIO_BOUND_BITS = 32;
+
+    /// @notice The widest collateral ratio bound a field holds, 1e18-scaled: 4294.967295. A wider one would be stored
+    /// truncated, so the config loader refuses it.
+    uint256 internal constant MAX_COLLATERAL_RATIO_BOUND =
+        (2 ** COLLATERAL_RATIO_BOUND_BITS - 1) * 10 ** (18 - COLLATERAL_RATIO_DECIMALS);
+
+    /// @notice The maximum number of fee/subsidy value bands that can be stored
     uint internal constant MAX_BANDS = 8; // solhint-disable-line explicit-types
 
-    /// @notice The maximum number of collateral ratio bounds for fee/discount variation that can be stored
+    /// @notice The maximum number of collateral ratio bounds for fee/subsidy variation that can be stored
     uint internal constant MAX_BOUNDS = MAX_BANDS - 1; // solhint-disable-line explicit-types
 
     ///////////////
@@ -52,7 +62,8 @@ library ConfigIncentiveLib {
         ActionIncentive memory config_,
         uint index // solhint-disable-line explicit-types
     ) internal pure returns (uint256 result) {
-        result = (config_.slot0.decodeUint(index * 32, 32) * 10 ** (18 - COLLATERAL_RATIO_DECIMALS));
+        result = (config_.slot0.decodeUint(index * COLLATERAL_RATIO_BOUND_BITS, COLLATERAL_RATIO_BOUND_BITS) *
+            10 ** (18 - COLLATERAL_RATIO_DECIMALS));
         // an upper bound of 1 ether actually means an upper bound just below 1 ether because that's where it becomes depegged
         // we treat 1 ether specially, as we can't specify 1 ether -1 so we just subtract 1 here
         if (result == 1 ether) {
@@ -92,7 +103,11 @@ library ConfigIncentiveLib {
     /// @notice Stores a collateral ratio bound at the given index
     // solhint-disable-next-line explicit-types
     function _setCollateralRatioUpperBounds(ActionIncentive memory config_, uint index, uint256 value) internal pure {
-        config_.slot0 = config_.slot0.encodeUint(value / 10 ** (18 - COLLATERAL_RATIO_DECIMALS), index * 32, 32);
+        config_.slot0 = config_.slot0.encodeUint(
+            value / 10 ** (18 - COLLATERAL_RATIO_DECIMALS),
+            index * COLLATERAL_RATIO_BOUND_BITS,
+            COLLATERAL_RATIO_BOUND_BITS
+        );
     }
 
     /// @notice Stored the collateral ratio bound count
