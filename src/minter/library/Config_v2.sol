@@ -86,6 +86,15 @@ library Config_v2 {
                         "must be in (-1, 1)"
                     );
                 }
+                // above the last bound a subsidy would have no end
+                if (incentiveRatio < 0 && i == config_.incentiveRatios.length - 1) {
+                    revert IMinter_v3.InvalidIncentiveRatioValue(
+                        name,
+                        i,
+                        config_.incentiveRatios[i],
+                        "highest band must be >= 0"
+                    );
+                }
             }
             // check collateral ratio upper bounds are strictly increasing and then copy
             uint256 currentUpperBound;
@@ -150,7 +159,7 @@ library Config_v2 {
                 revert IMinter_v3.TooManyIncentiveRatios(
                     name,
                     config_.incentiveRatios.length,
-                    config_.incentiveRatios.length - 1
+                    ConfigIncentiveLib.MAX_BANDS
                 );
             }
 

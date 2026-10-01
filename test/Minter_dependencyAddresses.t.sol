@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {Token} from "@bao/Token.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
@@ -93,5 +94,63 @@ contract MinterDependencyAddressesTest is TestMinterSetUp {
         assertEq(IMinter_v3(minter).priceOracle(), replacement, "price oracle updated");
         assertEq(IMinter_v3(minter).reservePool(), replacement, "reserve pool updated");
         assertEq(IMinter_v3(minter).feeReceiver(), replacement, "fee receiver updated");
+    }
+
+    // Owner only -------------------------------------------------------------
+
+    /// Only the owner replaces the price oracle: a stranger and a holder of the zero-fee role are refused.
+    function test_updatePriceOracle_isRefusedToAnyoneButTheOwner() public {
+        address replacement = makeAddr("replacement");
+        address[2] memory refused = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < refused.length; i++) {
+            vm.startPrank(refused[i]);
+            vm.expectRevert(IHarborOwnable.Unauthorized.selector);
+            IMinter_v3(minter).updatePriceOracle(replacement);
+            vm.stopPrank();
+        }
+    }
+
+    /// Only the owner replaces the reserve pool: a stranger and a holder of the zero-fee role are refused.
+    function test_updateReservePool_isRefusedToAnyoneButTheOwner() public {
+        address replacement = makeAddr("replacement");
+        address[2] memory refused = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < refused.length; i++) {
+            vm.startPrank(refused[i]);
+            vm.expectRevert(IHarborOwnable.Unauthorized.selector);
+            IMinter_v3(minter).updateReservePool(replacement);
+            vm.stopPrank();
+        }
+    }
+
+    // Announced --------------------------------------------------------------
+
+    /// Replacing the price oracle announces the address replaced and the one set.
+    function test_updatePriceOracle_emitsTheOldAndTheNewAddress() public {
+        address replacement = makeAddr("replacement");
+        vm.startPrank(owner());
+        vm.expectEmit(minter);
+        emit IMinter_v3.UpdatePriceOracle(priceOracle, replacement);
+        IMinter_v3(minter).updatePriceOracle(replacement);
+        vm.stopPrank();
+    }
+
+    /// Replacing the reserve pool announces the address replaced and the one set.
+    function test_updateReservePool_emitsTheOldAndTheNewAddress() public {
+        address replacement = makeAddr("replacement");
+        vm.startPrank(owner());
+        vm.expectEmit(minter);
+        emit IMinter_v3.UpdateReservePool(reservePool, replacement);
+        IMinter_v3(minter).updateReservePool(replacement);
+        vm.stopPrank();
+    }
+
+    /// Replacing the fee receiver announces the address replaced and the one set.
+    function test_updateFeeReceiver_emitsTheOldAndTheNewAddress() public {
+        address replacement = makeAddr("replacement");
+        vm.startPrank(owner());
+        vm.expectEmit(minter);
+        emit IMinter_v3.UpdateFeeReceiver(feeReceiver, replacement);
+        IMinter_v3(minter).updateFeeReceiver(replacement);
+        vm.stopPrank();
     }
 }

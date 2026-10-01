@@ -9,6 +9,8 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
+import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
 import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
@@ -196,6 +198,32 @@ contract MinterV2ToV3UpgradeTest is TestMinterSetUp {
         IMinter(minter).updateConfig(config);
         vm.stopPrank();
         _assertEqConfig(IMinter(minter).config(), config);
+    }
+
+    /// Roles live in storage the upgrade does not touch, read through constants v3 must keep: the zero-fee and
+    /// harvester roles granted under v2 still authorise a free mint and a sweep under v3.
+    function test_rolesGrantedUnderV2_stillAuthoriseAfterTheUpgrade() public {
+        address harvester = makeAddr("harvester");
+        uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
+        vm.startPrank(owner());
+        IBaoRoles(minter).grantRoles(harvester, harvesterRole);
+        vm.stopPrank();
+
+        _upgradeToV3();
+
+        deal(wrappedCollateralToken, zeroFee, 1 ether);
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
+        vm.stopPrank();
+        assertGt(minted, 0, "the zero-fee role granted under v2 free-mints under v3");
+
+        address stray = address(new MockERC20("stray", "STRAY", 18));
+        MockERC20(stray).mint(minter, 1 ether);
+        vm.startPrank(harvester);
+        ITokenHolder(minter).sweep(stray, 1 ether, harvester);
+        vm.stopPrank();
+        assertEq(IERC20(stray).balanceOf(harvester), 1 ether, "the harvester role granted under v2 sweeps under v3");
     }
 
     /// Mint, redeem across both token types, then upgrade - the state a live market would actually be in.

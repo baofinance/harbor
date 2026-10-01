@@ -140,19 +140,16 @@ interface IMinter_v3 is IToken {
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Thrown when the oracle price is invalid.
-    error InvalidOraclePrice();
-
     error RequestedSubsidyNotGiven(uint256 requested, uint256 available);
 
     /// @dev Thrown when collateral is passed but minting is prevented for some other reason.
     error MintZeroAmount(address mintingToken);
-    /// @dev Thrown when collateral is passed but minting is reduced below the miniumum requested.
-    error MintInsufficientAmount(address mintingToken, uint256 actual, uint256 miniumum);
+    /// @dev Thrown when collateral is passed but minting is reduced below the minimum requested.
+    error MintInsufficientAmount(address mintingToken, uint256 actual, uint256 minimum);
     /// @dev Thrown when pegged or leveraged is passed but redeeming is prevented for some other reason.
     error ReturnZeroAmount(address returningToken);
-    /// @dev Thrown when pegged or leveraged is passed but redeeming is reduced below the miniumum requested.
-    error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 miniumum);
+    /// @dev Thrown when pegged or leveraged is passed but redeeming is reduced below the minimum requested.
+    error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 minimum);
     error NoRedeemableTokens(address redeemingToken);
     error InsufficientRedeemableTokens(address redeemingToken, uint256 available, uint256 requested);
 
@@ -176,26 +173,20 @@ interface IMinter_v3 is IToken {
     /// operation priced against that value has no answer.
     error ZeroPeggedTokenPrice();
 
-    /// @dev thrown if a ratio doesn't make sense in some context
-    error InvalidRatio();
-    error TooManyCollateralRatioBounds(string config, uint count, uint max); // solhint-disable-line explicit-types
     error InvalidCollateralRatioBoundValue(string config, uint256 value, uint index, string reason); // solhint-disable-line explicit-types
     error CollateralRatioBoundValueNotIncreasing(
         string config,
-        uint256 shouldBeLessOrEqual,
+        uint256 bound,
         uint index, // solhint-disable-line explicit-types
-        uint256 shouldBeGreaterOrEqual
+        uint256 previousBound
     );
     error TooManyIncentiveRatios(string config, uint count, uint max); // solhint-disable-line explicit-types
     error TooFewIncentiveRatios(string config, uint count, uint min); // solhint-disable-line explicit-types
-    error InvalidIncentiveRatioValue(string config, uint index, int256 shouldBeMinusOnetoOne, string reason); // solhint-disable-line explicit-types
+    error InvalidIncentiveRatioValue(string config, uint index, int256 value, string reason); // solhint-disable-line explicit-types
     error IncentiveRatioTooPrecise(string config, int256 value);
-    error CollateralRatioBoundsIncentivesLengthsMismatch(string config, uint256 oneLess, uint256 oneMore);
+    error CollateralRatioBoundsIncentivesLengthsMismatch(string config, uint256 boundCount, uint256 ratioCount);
     error CollateralRatioBoundTooPrecise(string config, uint256 value);
     error NoDepegBoundaryOrDisallow(string config);
-
-    /// @notice Thrown when the burn interface does not match one known by this contract
-    error UnsupportedBurnInterface(bytes4 interfaceId);
 
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
@@ -504,8 +495,7 @@ interface IMinter_v3 is IToken {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Mint some pegged tokens in exchange for collateral tokens.
-    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
-    /// collateral token.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied.
     /// @param receiver The address of receiver for peggedToken.
     /// @param minPeggedOut The minimum amount of peggedToken should be received. 0 means no check is made.
     /// @return peggedOut The amount of peggedToken should be received.
@@ -520,7 +510,7 @@ interface IMinter_v3 is IToken {
     /// buy a proportional fee budget to spend on a smaller amount at a steeper rate. Returns (0, 0)
     /// gracefully when even the cheapest band on offer costs more than the cap - unless minPeggedOut
     /// was given, which that zero cannot meet, so it reverts MintInsufficientAmount like any other path.
-    /// @param collateralIn The amount of wrapped collateral to post. Use type(uint256).max for all.
+    /// @param collateralIn The amount of wrapped collateral to post.
     /// @param receiver The address to receive minted pegged tokens.
     /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.
     /// @param maxFeeRatio Maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
@@ -534,7 +524,7 @@ interface IMinter_v3 is IToken {
     ) external returns (uint256 peggedOut, uint256 collateralUsed);
 
     /// @notice Redeem some pegged tokens for collateral tokens.
-    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
+    /// @param peggedIn the amount of peggedToken to redeem.
     /// @param receiver The address of receiver for collateral token.
     /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no
     /// check is made.
@@ -546,8 +536,7 @@ interface IMinter_v3 is IToken {
     ) external returns (uint256 collateralOut);
 
     /// @notice Mint some leveraged tokens in exchange for collateral tokens.
-    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
-    /// collateral token.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied.
     /// @param receiver The address of receiver for leveragedToken.
     /// @param minLeveragedOut The minimum amount of leveragedToken should be received. 0 means no check is made.
     /// @return leveragedOut The amount of leveragedToken should be received.
@@ -558,7 +547,7 @@ interface IMinter_v3 is IToken {
     ) external returns (uint256 leveragedOut);
 
     /// @notice Redeem some leveraged tokens for collateral tokens.
-    /// @param leveragedIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
+    /// @param leveragedIn the amount of leveragedToken to redeem.
     /// @param receiver The address of receiver for collateral token.
     /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no
     /// check is made.
@@ -622,8 +611,7 @@ interface IMinter_v3 is IToken {
     function updatePriceOracle(address priceOracle_) external;
 
     /// @notice Mint some pegged tokens in exchange for collateral tokens.
-    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
-    /// collateral token.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied.
     /// @param receiver The address of receiver for peggedToken.
     /// @return peggedOut The amount of pegged tokens received.
     function freeMintPeggedToken(uint256 collateralIn, address receiver) external returns (uint256 peggedOut);
@@ -639,15 +627,15 @@ interface IMinter_v3 is IToken {
         uint256 peggedForLeveraged,
         address receiver
     ) external returns (uint256 wrappedCollateralOut, uint256 leveragedOut);
+
     /// @notice Mint some leveraged tokens in exchange for collateral tokens.
-    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
-    /// collateral token.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied.
     /// @param receiver The address of receiver for leveraged Tokens.
     /// @return leveragedOut The amount of leveraged tokens received.
     function freeMintLeveragedToken(uint256 collateralIn, address receiver) external returns (uint256 leveragedOut);
 
     /// @notice Redeem some leveraged tokens for collateral tokens.
-    /// @param leveragedIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
+    /// @param leveragedIn the amount of leveragedToken to redeem.
     /// @param receiver The address of receiver for collateral token.
     /// @return collateralOut The amount of collateral tokens received.
     function freeRedeemLeveragedToken(uint256 leveragedIn, address receiver) external returns (uint256 collateralOut);

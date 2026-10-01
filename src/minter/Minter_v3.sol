@@ -758,8 +758,8 @@ contract Minter_v3 is
 
     /// @inheritdoc IMinter_v3
     function updateConfig(Config calldata config_) external override onlyOwner {
-        // or is this handled by the fact that the CR for subsidy is much lower than the rebalance CR
-        emit UpdateConfig(config_); // the code below may alter the config so emit it soon
+        // the loader stores the config exactly or refuses it whole, so this is the config that takes effect
+        emit UpdateConfig(config_);
         MinterStorage storage $ = _getMinterStorage();
         // incentive config
         Config_v2.checkAndCopyIncentives(config_, $.incentiveConfig);

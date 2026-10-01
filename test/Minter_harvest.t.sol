@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-//import { Test } from "forge-std/Test.sol";
-
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -36,11 +35,38 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         harvestReceiver = makeAddr("harvestReceiver");
         harvester = makeAddr("harvester");
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
-        vm.prank(owner());
+        vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(harvester, harvesterRole);
+        vm.stopPrank();
         deal(address(Deployed.wstETH), harvester, 100 ether);
-        vm.prank(harvester);
+        vm.startPrank(harvester);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// Only the owner or a harvester sweeps: a stranger and a holder of the zero-fee role are refused, and the
+    /// owner's and the harvester's sweeps each go through and are announced.
+    function test_sweep_isRefusedToAnyoneButTheOwnerOrAHarvester() public {
+        address stray = address(new MockERC20("stray", "STRAY", 18));
+        MockERC20(stray).mint(minter, 2 ether);
+
+        address[2] memory refused = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < refused.length; i++) {
+            vm.startPrank(refused[i]);
+            vm.expectRevert(IHarborOwnable.Unauthorized.selector);
+            ITokenHolder(minter).sweep(stray, 1 ether, harvestReceiver);
+            vm.stopPrank();
+        }
+
+        address[2] memory allowed = [owner(), harvester];
+        for (uint256 i = 0; i < allowed.length; i++) {
+            vm.startPrank(allowed[i]);
+            vm.expectEmit(minter);
+            emit ITokenHolder.Swept(stray, 1 ether, harvestReceiver);
+            ITokenHolder(minter).sweep(stray, 1 ether, harvestReceiver);
+            vm.stopPrank();
+        }
+        assertEq(IERC20(stray).balanceOf(harvestReceiver), 2 ether, "both sweeps delivered");
     }
 
     function test_harvestInit() public {
@@ -116,12 +142,12 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
                 expectedHarvestable = heldValue > accountingValue ? heldValue - accountingValue : 0;
             }
             assertEq(
-                IMinter(minter).harvestable(), // 0.699482885940368019
-                expectedHarvestable, // 0
+                IMinter(minter).harvestable(),
+                expectedHarvestable,
                 string.concat(
-                    "harvestable is correct with price=", // 1845.157210154513240346
+                    "harvestable is correct with price=",
                     Strings.toString(startPrice),
-                    ", rate=", // 1.110000000000000000
+                    ", rate=",
                     Strings.toString(r)
                 )
             );
@@ -130,13 +156,12 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
 
     function test_harvestVariableRateChange(uint256 startPrice, uint256 startRate) public {
         startPrice = bound(startPrice, 0, 10000 ether);
-        startRate = bound(startRate, 0, 5 ether); // 1.102235739966061915
+        startRate = bound(startRate, 0, 5 ether);
 
         setUp_collateral(50 ether, 50 ether); // 100 collateral
         uint256 collateral = IMinter(minter).collateralTokenBalance();
         address wrappedCollateralToken = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        uint256 lastRate = startRate;
         // the sweep starts at the smallest non-zero rate: a zero rate is an oracle fault, which the Minter rejects
         for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
@@ -144,11 +169,9 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
 
             // The surplus over the wrapped the record needs, that need rounded UP, as above.
             uint256 expectedHarvestable = 0;
-            if (r > 0) {
-                uint256 accountingValue = Math.ceilDiv(collateral * 1e18, r);
-                if (wrappedCollateral > accountingValue) {
-                    expectedHarvestable = wrappedCollateral - accountingValue;
-                }
+            uint256 accountingValue = Math.ceilDiv(collateral * 1e18, r);
+            if (wrappedCollateral > accountingValue) {
+                expectedHarvestable = wrappedCollateral - accountingValue;
             }
             assertEq(
                 IMinter(minter).harvestable(),
@@ -165,8 +188,9 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
                 // Harvest
                 uint256 beforeHarvestReceiver = IERC20(wrappedCollateralToken).balanceOf(harvestReceiver);
                 uint256 beforeMinter = IERC20(wrappedCollateralToken).balanceOf(minter);
-                vm.prank(harvester);
+                vm.startPrank(harvester);
                 ITokenHolder(minter).sweep(wrappedCollateralToken, expectedHarvestable, harvestReceiver);
+                vm.stopPrank();
                 assertEq(
                     IERC20(wrappedCollateralToken).balanceOf(harvestReceiver),
                     beforeHarvestReceiver + expectedHarvestable,
@@ -178,7 +202,6 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
                     "minter balance matches"
                 );
             }
-            lastRate = r;
         }
     }
 }
