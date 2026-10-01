@@ -80,12 +80,12 @@ contract HarborDeployRun is HarborDeployStack {
         cut = cut_;
     }
 
-    /// @dev Phase 2 of the deploy run, cut to this run's `cut` - the only phase a run may change, so the state it starts
-    ///      from and the handover of ownership after it are production's whatever the cut. `Whole` is production's own
-    ///      phase 2. Every other cut deploys, for each market, the contracts it names by the framework's own deploy
-    ///      functions in production's order, each of which configures its contract and grants its roles; the one order
-    ///      that matters is a constructor reading another contract, which is why the minter comes before Genesis and
-    ///      the pools.
+    /// @dev Phase 2 of the deploy run, cut to this run's `cut` - the only phase a run may change, so the state it
+    ///      starts from and the handover of ownership after it are production's whatever the cut. `Whole` is
+    ///      production's own phase 2. Every other cut deploys, for each market, the contracts it names by the
+    ///      framework's own deploy functions in production's order, each of which configures its contract and grants
+    ///      its roles; the one order that matters is a constructor reading another contract, which is why the minter
+    ///      comes before Genesis and the pools.
     function _deployAndConfigure(
         DeploymentTypes.State memory state,
         ConfigPeg peg,

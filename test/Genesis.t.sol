@@ -16,11 +16,13 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 import {Genesis_v2} from "@harbor/minter/Genesis_v2.sol";
 
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {Token} from "@bao/Token.sol";
 
 contract Test_GenesisBase is TestMinterSetUp {
-    address genesisImpl;
     address genesis;
 
     address user1;
@@ -36,17 +38,29 @@ contract Test_GenesisBase is TestMinterSetUp {
     }
     */
 
-    function setUp() public virtual override {
-        super.setUp();
+    /// @dev The minter and its genesis, which the deploy grants the minter's zero-fee role - ending a genesis mints
+    ///      through the minter fee-free - and hands to the run's owner.
+    function newDeployRun() internal virtual override returns (MarketDeployRun) {
+        return
+            new MarketDeployRun(
+                owner(),
+                treasury(),
+                HarborDeployRun.Cut.MinterAndGenesis,
+                new TestMinterMarketConfig()
+            );
+    }
 
+    /// @dev A one-percent incentive in every band, which the deploy applies as the minter's config.
+    function setUpConfig() internal virtual override {
         IMinter.IncentiveConfig memory percent1 = IMinter.IncentiveConfig(
             ua(1 ether),
             ia(1 ether / 100, 1 ether / 100)
         );
-        config = IMinter.Config(percent1, percent1, percent1, percent1);
+        setUp_config(IMinter.Config(percent1, percent1, percent1, percent1));
+    }
 
-        vm.prank(owner());
-        IMinter(minter).updateConfig(config);
+    function setUp() public virtual override {
+        super.setUp();
 
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
@@ -55,49 +69,26 @@ contract Test_GenesisBase is TestMinterSetUp {
         // substitute the wct for better errors
         // wrappedCollateralToken = address(new MockERC20("Collateral", "COLL", 18));
 
-        setUp_genesisImplementation();
-        setUp_genesisProxy();
-    }
-
-    function setUp_genesisImplementation() internal {
-        genesisImpl = address(new Genesis_v2(minter));
-    }
-    /*  */
-    function setUp_genesisProxy() internal {
-        // vm.expectEmit();
-        // emit IERC1967.Upgraded(genesisImpl);
-        // vm.expectEmit();
-        // emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
-        // vm.expectEmit();
-        // emit IGenesis.GenesisBegins();
-        // vm.expectEmit();
-        // emit Initializable.Initialized(1);
-        genesis = UnsafeUpgrades.deployUUPSProxy(
-            genesisImpl, //"Genesis_v2.sol",
-            abi.encodeCall(Genesis_v2.initialize, (address(this), owner()))
-        );
-        // vm.expectEmit();
-        // emit IBaoOwnable.OwnershipTransferred(address(this), owner);
-        IBaoOwnable(genesis).transferOwnership(owner());
-
-        // approve genesis to use my collateral
+        genesis = deployRun.genesisAddress(marketConfig);
         IERC20(wrappedCollateralToken).approve(genesis, type(uint256).max);
     }
 
+    /// A genesis comes up announcing itself: its implementation locks its own initialiser, and initialising the proxy
+    /// records the implementation, makes the deployer its owner and begins the genesis.
     function test_initEvents() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        setUp_genesisImplementation();
+        address implementation = address(new Genesis_v2(minter));
 
         vm.expectEmit();
-        emit IERC1967.Upgraded(genesisImpl);
+        emit IERC1967.Upgraded(implementation);
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit IGenesis.GenesisBegins();
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
-        setUp_genesisProxy();
+        UnsafeUpgrades.deployUUPSProxy(implementation, abi.encodeCall(Genesis_v2.initialize, (address(this), owner())));
     }
 
     function test_init() public {
@@ -168,24 +159,28 @@ contract Test_GenesisBase is TestMinterSetUp {
 
         // can't withdraw if none
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user3, 0, 1 ether));
-        vm.prank(user3);
+        vm.startPrank(user3);
         IGenesis(genesis).withdraw(1 ether, user3);
+        vm.stopPrank();
 
         // can't withdraw none
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, genesis));
-        vm.prank(user2);
+        vm.startPrank(user2);
         IGenesis(genesis).withdraw(0, user2);
+        vm.stopPrank();
 
         // can't withdraw to zero address
         vm.expectRevert(Token.ZeroAddress.selector);
-        vm.prank(user2);
+        vm.startPrank(user2);
         IGenesis(genesis).withdraw(1 ether, address(0));
+        vm.stopPrank();
 
         // can withdraw some
-        vm.prank(user2);
+        vm.startPrank(user2);
         vm.expectEmit();
         emit IGenesis.Withdraw(user2, user3, 1 ether);
         IGenesis(genesis).withdraw(1 ether, user3);
+        vm.stopPrank();
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether);
         assertEq(IGenesis(genesis).balanceOf(user2), 8 ether);
         assertEq(IGenesis(genesis).balanceOf(user3), 0 ether);
@@ -194,27 +189,29 @@ contract Test_GenesisBase is TestMinterSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user2, 8 ether, 9 ether)
         );
-        vm.prank(user2);
+        vm.startPrank(user2);
         IGenesis(genesis).withdraw(9 ether, user2);
+        vm.stopPrank();
 
         // can withdraw all
-        vm.prank(user2);
+        vm.startPrank(user2);
         IGenesis(genesis).withdraw(type(uint256).max, user2);
+        vm.stopPrank();
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether);
         assertEq(IGenesis(genesis).balanceOf(user2), 0 ether);
         assertEq(IGenesis(genesis).balanceOf(user3), 0 ether);
 
         // can't add it unless approved
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
-        vm.prank(user2);
+        vm.startPrank(user2);
         IGenesis(genesis).deposit(8 ether, user1);
+        vm.stopPrank();
 
-        // approve it
-        vm.prank(user2);
+        // approve it, and add it back
+        vm.startPrank(user2);
         IERC20(wrappedCollateralToken).approve(genesis, type(uint256).max);
-        // and add it back
-        vm.prank(user2);
         IGenesis(genesis).deposit(8 ether, user2);
+        vm.stopPrank();
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether);
         assertEq(IGenesis(genesis).balanceOf(user2), 8 ether);
         assertEq(IGenesis(genesis).balanceOf(user3), 0 ether);
@@ -231,17 +228,12 @@ contract Test_GenesisBase is TestMinterSetUp {
         IGenesis(genesis).endGenesis();
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
-        // only minter zero fee access can complete it - the revert comes from the Minter, not from Genesis
-        assertFalse(IHarborRoles(minter).hasAnyRole(genesis, zeroFeeRole));
-        vm.prank(owner());
-        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
-        IGenesis(genesis).endGenesis();
-        assertFalse(IGenesis(genesis).genesisIsEnded());
-
-        // grant zero fee access
-        vm.prank(owner());
-        IHarborRoles(minter).grantRoles(genesis, zeroFeeRole);
-        assertTrue(IHarborRoles(minter).hasAllRoles(genesis, zeroFeeRole));
+        // the deploy grants genesis the minter's zero-fee role, without which the minter refuses the ending - see
+        // test_endGenesis_isRefusedByTheMinterWithoutItsZeroFeeRole
+        assertTrue(
+            IHarborRoles(minter).hasAllRoles(genesis, zeroFeeRole),
+            "the deploy grants genesis the minter's zero-fee role"
+        );
 
         // actually end it
         // ------------------------------------------------------------------------------------
@@ -255,10 +247,11 @@ contract Test_GenesisBase is TestMinterSetUp {
         assertEq(IERC20(peggedToken).balanceOf(genesis), 0 ether, "genesis now has 0 ether pegged tokens");
         assertEq(IERC20(leveragedToken).balanceOf(genesis), 0 ether, "genesis now has 0 ether leveraged tokens");
         assertFalse(IGenesis(genesis).genesisIsEnded());
-        vm.prank(owner());
+        vm.startPrank(owner());
         vm.expectEmit();
         emit IGenesis.GenesisEnds();
         IGenesis(genesis).endGenesis();
+        vm.stopPrank();
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether, "user1 still has 1 ether genesis tokens");
         assertEq(IGenesis(genesis).balanceOf(user2), 8 ether, "user2 now has 8 ether genesis tokens");
         assertEq(
@@ -283,17 +276,19 @@ contract Test_GenesisBase is TestMinterSetUp {
 
         // cannot end it again
         vm.expectRevert(IGenesis.GenesisIsEnded.selector);
-        vm.prank(owner());
+        vm.startPrank(owner());
         IGenesis(genesis).endGenesis();
+        vm.stopPrank();
 
         // cannot deposit once ended
         vm.expectRevert(IGenesis.GenesisIsEnded.selector);
         IGenesis(genesis).deposit(100 ether, user1);
 
         // cannot withdraw after ended
-        vm.prank(user2);
+        vm.startPrank(user2);
         vm.expectRevert(IGenesis.GenesisIsEnded.selector);
         IGenesis(genesis).withdraw(1 ether, user2);
+        vm.stopPrank();
 
         // not anyone can claim - only those holding shares
         assertEq(IERC20(peggedToken).balanceOf(user1), 0, "user1 has no pegged");
@@ -305,23 +300,40 @@ contract Test_GenesisBase is TestMinterSetUp {
 
         // user2 claims
         assertEq(IGenesis(genesis).balanceOf(user2), 8 ether, "user2 still has 9 ether genesis tokens");
-        vm.prank(user2);
+        vm.startPrank(user2);
         vm.expectEmit();
         emit IGenesis.Claim(user2, user1, 8000 ether, 8000 ether);
         IGenesis(genesis).claim(user1);
+        vm.stopPrank();
         assertEq(IGenesis(genesis).balanceOf(user2), 0 ether, "user2 has no genesis tokens");
         assertEq(IERC20(peggedToken).balanceOf(user1), 8000 ether, "user1 has got pegged");
         assertEq(IERC20(leveragedToken).balanceOf(user1), 8000 ether, "user1 has got leveraged");
 
         // user2 cannot claim again
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, wrappedCollateralToken));
-        vm.prank(user2);
+        vm.startPrank(user2);
         IGenesis(genesis).claim(user2);
+        vm.stopPrank();
+    }
+
+    /// Ending a genesis mints its collateral through the minter fee-free, so a genesis the minter has not granted the
+    /// zero-fee role cannot end: the refusal is the minter's, and the genesis stays open.
+    function test_endGenesis_isRefusedByTheMinterWithoutItsZeroFeeRole() public {
+        deal(wrappedCollateralToken, address(this), 1 ether);
+        IGenesis(genesis).deposit(1 ether, user1);
+
+        vm.startPrank(owner());
+        IHarborRoles(minter).revokeRoles(genesis, zeroFeeRole);
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
+        IGenesis(genesis).endGenesis();
+        vm.stopPrank();
+        assertFalse(IGenesis(genesis).genesisIsEnded(), "the genesis stays open");
     }
 
     function test_nullGenesis() public {
-        vm.prank(owner());
+        vm.startPrank(owner());
         IGenesis(genesis).endGenesis();
+        vm.stopPrank();
         uint256 p;
         uint256 l;
         (p, l) = IGenesis(genesis).claimable(user1);

@@ -18,6 +18,12 @@ import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
+
+/// @dev The reserve pool comes from the deploy, cut to the minter: the minter is the one requester the deploy grants,
+///      so the requests here are made as it.
 contract TestReservePoolSetUp is BaoTest {
     address token1 = Deployed.BaoUSD;
     address token2 = Deployed.wstETH;
@@ -28,38 +34,21 @@ contract TestReservePoolSetUp is BaoTest {
     address minter;
     address treasury;
     address reservePool;
-    address reservePoolImpl;
+
+    MarketDeployRun internal deployRun;
 
     function setUpFork() internal virtual {
         forkMainnet();
         owner = makeAddr("owner");
-        minter = makeAddr("minter");
         bonusReceiver = makeAddr("bonusReceiver");
         treasury = makeAddr("treasury");
     }
 
-    function setUp_impl() internal {
-        reservePoolImpl = address(new ReservePool_v2());
-    }
-
-    function setUp_proxy() internal {
-        reservePool = UnsafeUpgrades.deployUUPSProxy(
-            reservePoolImpl, // "ReservePool_v2.sol",
-            abi.encodeCall(ReservePool_v2.initialize, (address(this), owner))
-        );
-    }
-
     function setUpContract() internal virtual {
-        setUp_impl();
-        setUp_proxy();
-
-        uint256 minterRole = IReservePool(reservePool).REQUESTER_ROLE();
-
-        vm.expectEmit();
-        emit IBaoRoles.RolesUpdated(minter, minterRole);
-        IBaoRoles(reservePool).grantRoles(minter, minterRole);
-
-        IBaoOwnable(reservePool).transferOwnership(owner);
+        deployRun = new MarketDeployRun(owner, treasury, HarborDeployRun.Cut.Minter, new TestMinterMarketConfig());
+        deployRun.deployMinterMarket();
+        reservePool = deployRun.reservePoolAddress(deployRun.marketConfig());
+        minter = deployRun.minterAddress(deployRun.marketConfig());
     }
 
     function setUp() public {
@@ -69,19 +58,24 @@ contract TestReservePoolSetUp is BaoTest {
 }
 
 contract TestReservePoolInitEvents is TestReservePoolSetUp {
+    /// The implementation locks its own initialiser as it is constructed.
     function test_initEventsImpl() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        setUp_impl();
+        new ReservePool_v2();
     }
 
+    /// Initialising a proxy records the implementation behind it and initialises it once.
     function test_initEventsProxy() public {
-        setUp_impl();
+        address implementation = address(new ReservePool_v2());
         vm.expectEmit();
-        emit IERC1967.Upgraded(reservePoolImpl);
+        emit IERC1967.Upgraded(implementation);
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
-        setUp_proxy();
+        UnsafeUpgrades.deployUUPSProxy(
+            implementation,
+            abi.encodeCall(ReservePool_v2.initialize, (address(this), owner))
+        );
     }
 }
 
@@ -146,8 +140,9 @@ contract TestReservePool is TestReservePoolSetUp {
             // request
             vm.expectEmit(true, true, true, true);
             emit IReservePool.RequestBonus(minter, tokens[i], bonusReceiver, 1 ether, 0);
-            vm.prank(minter);
+            vm.startPrank(minter);
             IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver, 1 ether);
+            vm.stopPrank();
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 0);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
@@ -159,8 +154,9 @@ contract TestReservePool is TestReservePoolSetUp {
             // request less than some
             vm.expectEmit(true, true, true, true);
             emit IReservePool.RequestBonus(minter, tokens[i], bonusReceiver, 1 ether, 1 ether);
-            vm.prank(minter);
+            vm.startPrank(minter);
             IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver, 1 ether);
+            vm.stopPrank();
             //-------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 1 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 2 ether);
@@ -168,8 +164,9 @@ contract TestReservePool is TestReservePoolSetUp {
             // request more than some
             vm.expectEmit(true, true, true, true);
             emit IReservePool.RequestBonus(minter, tokens[i], bonusReceiver, 3 ether, 2 ether);
-            vm.prank(minter);
+            vm.startPrank(minter);
             IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver, 3 ether);
+            vm.stopPrank();
             //-------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 3 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
@@ -184,8 +181,9 @@ contract TestReservePool is TestReservePoolSetUp {
         // No single expectRevert parameter matches both, and the ONLY thing that can revert here is that extcodesize
         // guard (codeless token, balanceOf is the first call), so this parameterless form is the justified exception.
         vm.expectRevert();
-        vm.prank(minter);
+        vm.startPrank(minter);
         IReservePool(reservePool).requestBonus(tokenNotERC20, bonusReceiver, 1 ether);
+        vm.stopPrank();
     }
 
     function test_introspection() public view {

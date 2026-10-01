@@ -11,7 +11,7 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
+import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice A rebalance while the minter's record of its backing overstates what it holds.
 ///
@@ -22,15 +22,9 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 ///
 /// The market: 100 of collateral backing 200,000 pegged, and 25 more behind the leveraged tokens, at the mock's price
 /// of 2,000 - a ratio of 1.25, below the 1.3 threshold and above the leverage floor, so it is rebalanceable.
-contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp {
-    uint256 private constant THRESHOLD = 1.3 ether;
-
+contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
     function setUp() public virtual override {
         super.setUp();
-        vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(THRESHOLD);
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0);
-        vm.stopPrank();
         setUp_collateral(100 ether, 25 ether, user);
 
         // a third of the pegged supply in each pool
@@ -62,7 +56,11 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp {
     /// Below the threshold and impaired, the rebalance is refused with the minter's error and both figures, and the
     /// pools keep their pegged.
     function test_rebalance_revertsWhileImpaired() public {
-        assertLt(IMinter(minter).collateralRatio(), THRESHOLD, "precondition: below the threshold");
+        assertLt(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "precondition: below the threshold"
+        );
         _impair();
         uint256 collateralPoolPegged = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
         uint256 leveragedPoolPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
@@ -82,7 +80,11 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp {
 
         _impair();
 
-        assertLt(IMinter(minter).collateralRatio(), THRESHOLD, "still below the threshold, as the record reports");
+        assertLt(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "still below the threshold, as the record reports"
+        );
         assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "but not rebalanceable");
     }
 

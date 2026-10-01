@@ -11,10 +11,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {ConfigMarket_ETH_fxUSD_zeroFeesAndBounties} from "@harbor-test/config/ConfigMarket_ETH_fxUSD_zeroFeesAndBounties.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -69,6 +69,9 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
 
         // Deploy a fresh ETH::fxUSD market via the production deployment scripts
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = ethMintersConfig();
+        // The same market with the manager's harvest cut and both bounties zeroed, so a harvest goes to the pools and
+        // not the treasury - applied by the deploy, and with the production market's salts, so its addresses
+        mktConfigs[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
         // Deploy only the fxUSD market (index 0)
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0];
@@ -91,12 +94,6 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         oraclePrice = 1 ether / 4000;
         oracleRate = 1 ether;
         mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-
-        // Override harvest config: set cut to 0 so harvest goes to pools, not treasury
-        vm.startPrank(IBaoOwnable(stabilityPoolManager).owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0, 0);
-        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0);
-        vm.stopPrank();
 
         // Create actors
         alice = makeAddr("alice");

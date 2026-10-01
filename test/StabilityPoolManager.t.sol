@@ -30,6 +30,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 import {MockStabilityPoolManagerUpgraded} from "@harbor-test/mocks/MockStabilityPoolManagerUpgraded.sol";
 import {MockYieldVault} from "@harbor-test/mocks/MockYieldVault.sol";
 import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
+import {TestMinterMarketConfig_rebalanceThreshold130} from "@harbor-test/config/TestMinterMarketConfig_rebalanceThreshold130.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
@@ -78,6 +79,20 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
             "stored bounty ratio"
         );
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(), harvestCutRatio_, "stored cut ratio");
+    }
+}
+
+/// @dev The market cut on the unit-test market with its rebalance threshold at 1.30, for the suites whose rebalance
+///      scenarios are placed around it - the threshold reaches the manager by the deploy's own path.
+abstract contract TestStabilityPoolManagerSetUp_rebalanceThreshold130 is TestStabilityPoolManagerSetUp {
+    function newDeployRun() internal virtual override returns (MarketDeployRun) {
+        return
+            new MockStabilityPoolMarketDeployRun(
+                owner(),
+                treasury(),
+                HarborDeployRun.Cut.Market,
+                new TestMinterMarketConfig_rebalanceThreshold130()
+            );
     }
 }
 

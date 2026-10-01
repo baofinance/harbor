@@ -13,7 +13,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
-import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
+import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice What a rebalance does in each region of the collateral ratio.
 ///
@@ -26,9 +26,7 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 ///
 /// The market: 100 of collateral backing 200,000 pegged, and 25 more behind the leveraged tokens, at the mock's price
 /// of 2,000 - a ratio of 1.25. Each test places it by price, which leaves the backing where it is.
-contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSetUp {
-    uint256 private constant THRESHOLD = 1.3 ether;
-
+contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
     /// @dev One `Liquidated` event, as a pool records a payment: the pegged it gave up, and what it was paid in.
     struct Liquidation {
         address pool;
@@ -39,10 +37,6 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
 
     function setUp() public virtual override {
         super.setUp();
-        vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(THRESHOLD);
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0);
-        vm.stopPrank();
         setUp_collateral(100 ether, 25 ether, user);
     }
 
@@ -167,7 +161,11 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
             "each pool is paid in proportion to the pegged it gave up"
         );
 
-        assertGe(IMinter(minter).collateralRatio(), THRESHOLD, "one rebalance reaches the threshold");
+        assertGe(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "one rebalance reaches the threshold"
+        );
         assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "and there is nothing left to do");
     }
 
@@ -241,7 +239,11 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
 
         assertEq(paid.length, 4, "both steps ran");
         assertEq(paid[3].token, leveragedToken, "the second step paid the leveraged pool in leveraged tokens");
-        assertGe(IMinter(minter).collateralRatio(), THRESHOLD, "one rebalance reaches the threshold");
+        assertGe(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "one rebalance reaches the threshold"
+        );
     }
 
     /// The keeper's bounty is its ratio of every payment, in the token each is made in: collateral from both pools'
@@ -326,7 +328,11 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
             0,
             "the leveraged pool is paid no collateral"
         );
-        assertGe(IMinter(minter).collateralRatio(), THRESHOLD, "the threshold is reached");
+        assertGe(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "the threshold is reached"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
