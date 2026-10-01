@@ -9,13 +9,13 @@ import {IToken} from "@bao/interfaces/IToken.sol";
 /// @notice Provides an interface for minting and redeeming pegged and leveraged tokens, some with fees, others without.
 ///
 /// For the fee'd fuctions equivalent "dry run" functions are available that could allow a user to know what
-/// fees, discounts, etc. are expected (modulo slippage). This id designed for a user interface to use.
+/// fees, subsidies, etc. are expected (modulo slippage). This id designed for a user interface to use.
 ///
 /// Configuration functions are available such as for allowing setting of:
-/// * the fee/discount/disallow configuration
+/// * the fee/subsidy/disallow configuration
 /// * the collateral ratio that rebalancing can start
 /// * the price oracle and rate (for wrapped) of the collateral
-/// * the fee receiver and discount provider (reserve pool)
+/// * the fee receiver and subsidy provider (reserve pool)
 ///
 /// Various queries are provided such as:
 /// * the net asset values of the tokens,
@@ -37,13 +37,13 @@ interface IMinter_v3 is IToken {
         // must be strictly increasing at the precision of 18 decimals
         uint256[] collateralRatioBandUpperBounds;
         // incentive ratios for the above bands , interval (-1 ether, 1 ether]
-        // positive = fee ratio, negative for discount, == 1 ether disallow
+        // positive = fee ratio, negative for subsidy, == 1 ether disallow
         // any 1 ether values must be at index 0
         // no negative values are allowed in the highest band
         int256[] incentiveRatios;
     }
     struct Config {
-        // bonus/fees
+        // fees/subsidies
         IncentiveConfig mintPeggedIncentiveConfig;
         IncentiveConfig redeemPeggedIncentiveConfig;
         // leverage tokens have their own intrinsic value in that they increase in leverage the lower the collateral
@@ -143,7 +143,7 @@ interface IMinter_v3 is IToken {
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
 
-    error RequestedBonusNotGiven(uint256 requested, uint256 available);
+    error RequestedSubsidyNotGiven(uint256 requested, uint256 available);
 
     /// @dev Thrown when collateral is passed but minting is prevented for some other reason.
     error MintZeroAmount(address mintingToken);
@@ -325,7 +325,7 @@ interface IMinter_v3 is IToken {
     /// @notice Returns the address of the price oracle contract
     function priceOracle() external view returns (address);
 
-    /// @notice Returns the address of the reserve pool contract that provides the collateral for discounts
+    /// @notice Returns the address of the reserve pool contract that provides the collateral for subsidies
     function reservePool() external view returns (address);
 
     /// @notice Returns the address of the fee receiver contract
@@ -343,19 +343,19 @@ interface IMinter_v3 is IToken {
     function collateralTokenBalance() external view returns (uint256);
 
     /// @notice Returns the current instantaneous incentive ratio for minting pegged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function mintPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
     /// @notice Returns the current instantaneous incentive ratio for redeeming pegged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function redeemPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
     /// @notice Returns the current instantaneous incentive ratio for minting leveraged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function mintLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
     /// @notice Returns the current instantaneous incentive ratio for redeeming leveraged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function redeemLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
     /// @notice Returns values that will be used if an actual `mintPeggedToken` function call is made.
@@ -371,7 +371,7 @@ interface IMinter_v3 is IToken {
     ///
     /// @param collateralIn The amount of wrapped collateral to be exchanged for pegged tokens.
     /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
-    /// a fee ratio; a negative number indicates a discount.
+    /// a fee ratio; a negative number indicates a subsidy.
     /// @return fee The amount deducted from `collateralIn` as a fee.
     /// @return collateralTaken The amount of collateral used in the exchange.
     /// This is usually the same as `collateralIn` but at certain collateral ratio levels minting pegged tokens may be
@@ -397,19 +397,19 @@ interface IMinter_v3 is IToken {
     ///                                                                 ┌──────────────┐
     /// ┌──────┐                           ┌────────┐               ┌─► │ fee receiver │
     /// │ user │ ════ peggedRedeemed ════▶ │ minter │ ───── fee ────┘   └──────────────┘
-    /// │      │ ◄── collateralReturned ── │        │ ◄── discount ─┐   ┌──────────────┐
-    /// └──────┘  (including any discount) └────────┘               └── │ reserve pool │
+    /// │      │ ◄── collateralReturned ── │        │ ◄── subsidy ──┐   ┌──────────────┐
+    /// └──────┘  (including any subsidy)  └────────┘               └── │ reserve pool │
     ///                                         │                       └──────────────┘
     ///            collateral held -= collateral value of peggedRedeemed - fee
     ///
     /// @param peggedIn The amount of pegged token to be redeemed.
     /// @return incentiveRatio the effective incentive ratio for `peggedIn` pegged tokens.  A positive number is a fee
-    /// ratio; a negative number indicates a discount. This is the theoretic value.
+    /// ratio; a negative number indicates a subsidy. This is the theoretic value.
     /// @return fee The amount deducted in wrapped collateral from 'peggedIn' as a fee.
-    /// @return discount The amount in wrapped collateral added to 'collateralReturned' taken from the reserve pool.
+    /// @return subsidy The amount in wrapped collateral added to 'collateralReturned' taken from the reserve pool.
     /// This takes into account the possibility the reserve pool may be exhausted by this action.
     /// @return peggedRedeemed The amount of pegged tokens that would be redeemed.
-    /// @return wrappedCollateralReturned The amount of collateral returned to the caller including from the reserve pool (if a discount has been configured)
+    /// @return wrappedCollateralReturned The amount of collateral returned to the caller including from the reserve pool (if a subsidy has been configured)
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function redeemPeggedTokenDryRun(
@@ -420,7 +420,7 @@ interface IMinter_v3 is IToken {
         returns (
             int256 incentiveRatio,
             uint256 fee,
-            uint256 discount,
+            uint256 subsidy,
             uint256 peggedRedeemed,
             uint256 wrappedCollateralReturned,
             uint256 price,
@@ -433,12 +433,12 @@ interface IMinter_v3 is IToken {
     /// the band the market sits in, as it reports wherever nothing would be used.
     /// @param collateralIn The amount of collateral to be exchanged for leveraged tokens.
     /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
-    /// a fee ratio; a negative number indicates a discount.
+    /// a fee ratio; a negative number indicates a subsidy.
     /// @return fee The amount deducted from 'collateralIn' as a fee.
-    /// @return discount The amount in wrapped collateral added to 'leverageMinted' taken from the reserve pool.
+    /// @return subsidy The amount in wrapped collateral added to 'leverageMinted' taken from the reserve pool.
     /// This takes into account the possibility the reserve pool may be exhausted by this action.
     /// @return collateralUsed The amount of collateral used in the exchange.
-    /// @return leveragedMinted The amount of leveraged tokens that would be minted. This takes into account the discount applied.
+    /// @return leveragedMinted The amount of leveraged tokens that would be minted. This takes into account the subsidy applied.
 
     function mintLeveragedTokenDryRun(
         uint256 collateralIn
@@ -448,7 +448,7 @@ interface IMinter_v3 is IToken {
         returns (
             int256 incentiveRatio,
             uint256 fee,
-            uint256 discount,
+            uint256 subsidy,
             uint256 collateralUsed,
             uint256 leveragedMinted,
             uint256 price,
@@ -458,7 +458,7 @@ interface IMinter_v3 is IToken {
     /// @notice Returns values that will be used if an actual `redeemLeveragedToken` function call is made.
     /// @param leveragedIn The amount of pegged token to be redeemed.
     /// @return incentiveRatio the effective incentive ratio for `leveragedIn` pegged tokens.  A positive number is a
-    /// fee ratio; a negative number indicates a discount.
+    /// fee ratio; a negative number indicates a subsidy.
     /// @return fee The amount deducted from the returned collateral as a fee.
     /// @return leveragedRedeemed The amount of leveraged tokens that would be redeemed.
     /// This could be limited (some or all redeeming being disallowed) by configuration

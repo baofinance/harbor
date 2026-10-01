@@ -14,10 +14,10 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// a boundary, never ones that land on it.
 ///
 /// Also covers the disallow band, fee linearity within a band, and the reserve pool clamping the
-/// redeem discount.
+/// redeem subsidy.
 ///
 /// Test oracle: price = rate = 1e18 (set by MockWrappedPriceOracle in setUp), so 1 wrapped
-/// collateral is worth 1 pegged and the fee/discount amounts equal input * band rate exactly.
+/// collateral is worth 1 pegged and the fee/subsidy amounts equal input * band rate exactly.
 ///
 /// The fee schedule is NOT restated here. The market is deployed by the production deploy scripts,
 /// so the schedule is whatever the deployed config carries, and every expectation below is read back
@@ -62,8 +62,8 @@ contract MinterFeeBandBoundariesTest is MinterCappedMintSetUp {
     }
 
     /// @dev Give the reserve pool `amount` of wrapped collateral. The reserve pool funds redeem
-    /// discounts and `redeemPeggedTokenDryRun` clamps the discount to its balance, so it must hold
-    /// enough for a discount to show up at its full band rate.
+    /// subsidies and `redeemPeggedTokenDryRun` clamps the subsidy to its balance, so it must hold
+    /// enough for a subsidy to show up at its full band rate.
     function _fundReservePool(uint256 amount) internal {
         deal(wrappedCollateral, IMinter(minter).reservePool(), amount);
     }
@@ -182,25 +182,25 @@ contract MinterFeeBandBoundariesTest is MinterCappedMintSetUp {
     // Redeem: the boundary belongs to the band above it
     // ═══════════════════════════════════════════════════════════════
 
-    function test_redeemDiscount_atExactUpperBound_usesUpperBand() public {
+    function test_redeemSubsidy_atExactUpperBound_usesUpperBand() public {
         // Collateral ratio exactly on the 1.10 boundary. Redeem's exclusive `<` comparator assigns the
-        // boundary to the UPPER band (1.10-1.29, 0.3% discount), not the 1.00-1.10 band (0.75%).
+        // boundary to the UPPER band (1.10-1.29, 0.3% subsidy), not the 1.00-1.10 band (0.75%).
         _bootstrapCollateralRatio();
         _mintToLowerCollateralRatio(4500 ether); // (5500)/(5000) = 1.10
         assertEq(IMinter(minter).collateralRatio(), 1.10e18, "precondition: collateral ratio = 1.10 exactly");
         _fundReservePool(100 ether);
 
         // At price = rate = 1 the pegged price is 1, so redeeming 1 pegged draws down 1 wrapped
-        // collateral and the discount is 0.3% of it.
-        (, , uint256 discount, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
+        // collateral and the subsidy is 0.3% of it.
+        (, , uint256 subsidy, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
 
-        assertEq(discount, 3e15, "discount = 1 * 0.3% - boundary owned by the upper band");
+        assertEq(subsidy, 3e15, "subsidy = 1 * 0.3% - boundary owned by the upper band");
     }
 
-    function test_redeemDiscount_atDepegSeam_usesUpperBand() public {
+    function test_redeemSubsidy_atDepegSeam_usesUpperBand() public {
         // Collateral ratio exactly 1.0 (the depeg seam). The sub-1.0 band's stored upper bound of 1.0
         // is decoded as (1 ether - 1), so 1.0 is excluded from it and falls in the 1.00-1.10 band
-        // (0.75% discount), not the <1.0 band (1%).
+        // (0.75% subsidy), not the <1.0 band (1%).
         _bootstrapCollateralRatio();
         // Drop the collateral price to 0.5 so the collateral ratio is 1000 * 0.5 / 500 = 1.0 exactly.
         mockOracle.setLatestAnswer(0.5 ether, 1 ether);
@@ -208,65 +208,65 @@ contract MinterFeeBandBoundariesTest is MinterCappedMintSetUp {
         _fundReservePool(100 ether);
 
         // Exactly backed, so the pegged price is still 1. Redeeming 1 pegged draws down 1 of value,
-        // which at a collateral price of 0.5 is 2 wrapped collateral; the discount is 0.75% of that.
-        (, , uint256 discount, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
+        // which at a collateral price of 0.5 is 2 wrapped collateral; the subsidy is 0.75% of that.
+        (, , uint256 subsidy, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
 
-        assertEq(discount, 1.5e16, "discount = 2 * 0.75% - the 1.00-1.10 band, not the <1.0 band");
+        assertEq(subsidy, 1.5e16, "subsidy = 2 * 0.75% - the 1.00-1.10 band, not the <1.0 band");
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Redeem: the reserve pool bounds the discount it can pay
+    // Redeem: the reserve pool bounds the subsidy it can pay
     // ═══════════════════════════════════════════════════════════════
 
-    function test_redeemDiscount_clampedByReservePoolBalance() public {
-        // The discount is paid out of the reserve pool, so it is capped at whatever the pool holds.
-        // Same state as the 1.10 boundary test, which earns a 3e15 discount when the pool is flush;
-        // with only 1e15 in the pool the discount is that balance instead.
+    function test_redeemSubsidy_clampedByReservePoolBalance() public {
+        // The subsidy is paid out of the reserve pool, so it is capped at whatever the pool holds.
+        // Same state as the 1.10 boundary test, which earns a 3e15 subsidy when the pool is flush;
+        // with only 1e15 in the pool the subsidy is that balance instead.
         _bootstrapCollateralRatio();
         _mintToLowerCollateralRatio(4500 ether); // collateral ratio = 1.10
         _fundReservePool(1e15);
 
-        (, , uint256 discount, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
+        (, , uint256 subsidy, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
 
-        assertEq(discount, 1e15, "discount clamped to the reserve pool balance");
+        assertEq(subsidy, 1e15, "subsidy clamped to the reserve pool balance");
     }
 
-    function test_redeemDiscount_zero_whenBandIsAFee() public {
-        // At a collateral ratio of 2.0 the redeemPegged band is positive — a fee, not a discount — so
-        // no discount is due however much the reserve pool holds. Funding the pool is what makes this
-        // meaningful: an empty pool would clamp the discount to zero whatever the band said.
+    function test_redeemSubsidy_zero_whenBandIsAFee() public {
+        // At a collateral ratio of 2.0 the redeemPegged band is positive — a fee, not a subsidy — so
+        // no subsidy is due however much the reserve pool holds. Funding the pool is what makes this
+        // meaningful: an empty pool would clamp the subsidy to zero whatever the band said.
         _bootstrapCollateralRatio();
         _fundReservePool(100 ether);
 
-        (, uint256 fee, uint256 discount, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
+        (, uint256 fee, uint256 subsidy, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(1 ether);
 
         assertGt(fee, 0, "the band charges a fee at a collateral ratio of 2.0");
-        assertEq(discount, 0, "no discount when the band is a fee");
+        assertEq(subsidy, 0, "no subsidy when the band is a fee");
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // The mint fee and the redeem discount cannot both apply
+    // The mint fee and the redeem subsidy cannot both apply
     // ═══════════════════════════════════════════════════════════════
 
-    function test_mintFeeAndRedeemDiscount_mutuallyExclusive() public {
+    function test_mintFeeAndRedeemSubsidy_mutuallyExclusive() public {
         // ConfigPriceVolatility_130_stable:
         //   a mint fee requires a collateral ratio >= 1.31 (the first non-disallow mint band)
-        //   a redeem discount requires a collateral ratio < 1.29 (the first discount redeem band)
+        //   a redeem subsidy requires a collateral ratio < 1.29 (the first subsidy redeem band)
         // These ranges do not overlap, so both can never be charged at once.
         _bootstrapCollateralRatio(); // collateral ratio = 2.0
         _fundReservePool(100 ether);
 
         (, uint256 mintFeeHigh, , , , ) = IMinter(minter).mintPeggedTokenDryRun(100 ether);
-        (, , uint256 discountHigh, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(100 ether);
+        (, , uint256 subsidyHigh, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(100 ether);
         assertGt(mintFeeHigh, 0, "at 2.0: a mint fee is charged");
-        assertEq(discountHigh, 0, "at 2.0: no redeem discount");
+        assertEq(subsidyHigh, 0, "at 2.0: no redeem subsidy");
 
         _mintToLowerCollateralRatio(1500 ether); // collateral ratio -> 1.25
 
         (, uint256 mintFeeLow, uint256 collateralTakenLow, , , ) = IMinter(minter).mintPeggedTokenDryRun(100 ether);
-        (, , uint256 discountLow, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(100 ether);
+        (, , uint256 subsidyLow, , , , ) = IMinter(minter).redeemPeggedTokenDryRun(100 ether);
         assertEq(collateralTakenLow, 0, "at 1.25: minting is disallowed");
         assertEq(mintFeeLow, 0, "at 1.25: no mint fee");
-        assertGt(discountLow, 0, "at 1.25: a redeem discount is offered");
+        assertGt(subsidyLow, 0, "at 1.25: a redeem subsidy is offered");
     }
 }

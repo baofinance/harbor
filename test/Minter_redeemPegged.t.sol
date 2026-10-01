@@ -450,7 +450,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     struct DryRunResults {
         int256 incentiveRatio;
         uint256 wrappedFee;
-        uint256 wrappedDiscount;
+        uint256 wrappedSubsidy;
         uint256 peggedRedeemed;
         uint256 wrappedCollateralReturned;
         uint256 price;
@@ -463,7 +463,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         (
             r.incentiveRatio,
             r.wrappedFee,
-            r.wrappedDiscount,
+            r.wrappedSubsidy,
             r.peggedRedeemed,
             r.wrappedCollateralReturned,
             r.price,
@@ -471,7 +471,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         ) = IMinter(minter).redeemPeggedTokenDryRun(collateralIn);
         assertEq(r.incentiveRatio, expected.incentiveRatio, "incentiveRatio");
         assertEq(r.wrappedFee, expected.wrappedFee, "wrappedFee");
-        assertEq(r.wrappedDiscount, expected.wrappedDiscount, "wrappedDiscount");
+        assertEq(r.wrappedSubsidy, expected.wrappedSubsidy, "wrappedSubsidy");
         assertEq(r.peggedRedeemed, expected.peggedRedeemed, "peggedRedeemed");
         assertEq(r.wrappedCollateralReturned, expected.wrappedCollateralReturned, "  wrappedCollateralReturned");
         assertEq(r.price, expected.price, "price");
@@ -484,7 +484,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
             DryRunResults({
                 incentiveRatio: 0,
                 wrappedFee: 0,
-                wrappedDiscount: 0,
+                wrappedSubsidy: 0,
                 peggedRedeemed: 0,
                 wrappedCollateralReturned: 0,
                 price: price_,
@@ -828,7 +828,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     ///
     /// The fee is asserted non-zero, because a configuration with no fee would make this the free-path
     /// test again under a name claiming otherwise. The reserve pool is asserted empty, because a
-    /// discount drawn from it would add collateral from outside the market and move the price for a
+    /// subsidy drawn from it would add collateral from outside the market and move the price for a
     /// reason that has nothing to do with the redeem's own proportions.
     function test_redeemPeggedToken_leavesLeveragedPriceUnchanged_whenFeePaid() public {
         setUp_collateral(1 ether, 1 ether); // both tokens minted, so the sail has a price to move
@@ -843,7 +843,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IERC20(peggedToken).approve(minter, anchorToRedeem);
         vm.stopPrank();
         assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole), "the payer must not be fee-exempt");
-        assertEq(IERC20(Deployed.wstETH).balanceOf(reservePool), 0, "a discount would move the price by other means");
+        assertEq(IERC20(Deployed.wstETH).balanceOf(reservePool), 0, "a subsidy would move the price by other means");
 
         (, uint256 fee, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(anchorToRedeem);
         assertGt(fee, 0, "a fee of zero would make this the free path under another name");

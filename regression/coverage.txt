@@ -65,7 +65,7 @@
 | src/minter/library/RebalanceSizing_v1.sol                          | X  90% (35/39)     | X  91% (42/46)     | X  73% (11/15)   | ✓ 100% (2/2)     |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol    | X   0% (0/137)     | X   0% (0/171)     | X   0% (0/16)    | X   0% (0/22)    |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol | X  75% (111/148)   | X  77% (142/184)   | X  61% (11/18)   | X  70% (16/23)   |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol | X  98% (130/132)   | X  99% (167/169)   | X  88% (15/17)   | ✓ 100% (20/20)   |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol | X  98% (129/132)   | X  98% (166/169)   | X  82% (14/17)   | ✓ 100% (20/20)   |
 | src/reward/distributor/LinearMultipleRewardDistributor.sol         | X   0% (0/77)      | X   0% (0/86)      | X   0% (0/12)    | X   0% (0/14)    |
 | src/reward/distributor/LinearMultipleRewardDistributor_v2.sol      | X  58% (45/77)     | X  63% (54/86)     | X  25% (3/12)    | X  50% (7/14)    |
 | src/reward/distributor/LinearMultipleRewardDistributor_v3.sol      | X  99% (87/88)     | X  99% (98/99)     | X  93% (13/14)   | ✓ 100% (16/16)   |
@@ -74,4 +74,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                   | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
 | src/util/FmtLib.sol                                                | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)     |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
-| Total                                                              | X  54% (2942/5479) | X  54% (3234/5962) | X  49% (349/715) | X  59% (425/724) |
+| Total                                                              | X  54% (2941/5479) | X  54% (3233/5962) | X  49% (348/715) | X  59% (425/724) |

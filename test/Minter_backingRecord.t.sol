@@ -50,15 +50,15 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         return Math.mulDiv(IERC20(wrappedCollateralToken).balanceOf(minter), _rate(), 1 ether);
     }
 
-    /// A market low enough in the schedule to sit in the DISCOUNT bands — below 1.10 for sail minting and
-    /// below 1.15 for anchor redemption — with a reserve to pay them from. The discount is the term that
+    /// A market low enough in the schedule to sit in the SUBSIDY bands — below 1.10 for sail minting and
+    /// below 1.15 for anchor redemption — with a reserve to pay them from. The subsidy is the term that
     /// makes the record and the holding separable: it is floored in wrapped when the reserve pays it, while
     /// the band walk accumulates it in full, so a record derived from the accumulator claims collateral the
     /// reserve never sent.
-    function _setUpDiscountedMarket(uint256 reserveWrapped) private returns (uint256 sailTokens) {
+    function _setUpSubsidisedMarket(uint256 reserveWrapped) private returns (uint256 sailTokens) {
         (, sailTokens) = setUp_collateral(100 ether, 8 ether); // collateral ratio 1.08
         deal(wrappedCollateralToken, reservePool, reserveWrapped);
-        assertLt(IMinter(minter).collateralRatio(), 1.10 ether, "the market must sit in the discount bands");
+        assertLt(IMinter(minter).collateralRatio(), 1.10 ether, "the market must sit in the subsidy bands");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -161,21 +161,21 @@ contract MinterBackingRecordTest is TestMinterSetUp {
     }
 
     /*//////////////////////////////////////////////////////////////
-                      WITH A DISCOUNT IN PLAY
+                      WITH A SUBSIDY IN PLAY
     //////////////////////////////////////////////////////////////*/
 
-    /// Minting sail into a discount band brings collateral in from two sources — the caller and the reserve —
+    /// Minting sail into a subsidy band brings collateral in from two sources — the caller and the reserve —
     /// and the reserve's share is floored on its way in. The record must follow what arrived, not what the
     /// schedule offered.
-    function testFuzz_discountedSailMintRecordNeverGainsMoreThanTheHolding(uint256 wrappedIn) public {
+    function testFuzz_subsidisedSailMintRecordNeverGainsMoreThanTheHolding(uint256 wrappedIn) public {
         wrappedIn = bound(wrappedIn, 1e15, 1 ether);
-        _setUpDiscountedMarket(100 ether);
+        _setUpSubsidisedMarket(100 ether);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
 
         uint256 recordBefore = _recordedBacking();
         uint256 heldBefore = _heldAsCollateral();
 
-        address sailMinter = makeAddr("discountedSailMinter");
+        address sailMinter = makeAddr("subsidisedSailMinter");
         deal(wrappedCollateralToken, sailMinter, wrappedIn);
         vm.startPrank(sailMinter);
         IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
@@ -189,8 +189,8 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         );
     }
 
-    function testFuzz_discountedAnchorRedeemRecordNeverLosesLessThanTheHolding(uint256 redeeming) public {
-        _setUpDiscountedMarket(100 ether);
+    function testFuzz_subsidisedAnchorRedeemRecordNeverLosesLessThanTheHolding(uint256 redeeming) public {
+        _setUpSubsidisedMarket(100 ether);
         redeeming = bound(redeeming, 1e15, IMinter(minter).peggedTokenBalance() / 20);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
 
@@ -209,11 +209,11 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         );
     }
 
-    /// A reserve too small to pay the whole discount caps it, so the collateral arriving falls short of what
+    /// A reserve too small to pay the whole subsidy caps it, so the collateral arriving falls short of what
     /// the schedule offered. The record must account for what the reserve actually sent — a record built from
     /// the offered figure claims the shortfall, and the reserve is not there to be overdrawn.
-    function test_discountedRedeemDoesNotOverdrawTheReserve() public {
-        _setUpDiscountedMarket(1e12); // far less than the discount the schedule offers
+    function test_subsidisedRedeemDoesNotOverdrawTheReserve() public {
+        _setUpSubsidisedMarket(1e12); // far less than the subsidy the schedule offers
         uint256 redeeming = IMinter(minter).peggedTokenBalance() / 20;
 
         uint256 recordBefore = _recordedBacking();
@@ -226,12 +226,12 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         vm.stopPrank();
 
         uint256 paid = reserveBefore - IERC20(wrappedCollateralToken).balanceOf(reservePool);
-        assertGt(paid, 0, "the discount must actually be paid, or this proves nothing");
+        assertGt(paid, 0, "the subsidy must actually be paid, or this proves nothing");
         assertLe(paid, reserveBefore, "the reserve pays at most what it holds");
         assertGe(
             recordBefore - _recordedBacking(),
             heldBefore - _heldAsCollateral(),
-            "a capped discount still leaves the record giving up at least what the holding did"
+            "a capped subsidy still leaves the record giving up at least what the holding did"
         );
     }
 

@@ -67,7 +67,7 @@ contract EverythingTest is TestStabilityPoolManagerSetUp {
     ) external view returns (uint256 wrappedCollateral);
 
     /// @notice Returns the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and
-    /// discounts
+    /// subsidies
     /// @param forLeveragedTokens The amount of leveraged tokens
     /// @return collateral The amount of collateral tokens equivalent to `forLeveragedTokens` wrapped collateral
     function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 collateral);
@@ -75,7 +75,7 @@ contract EverythingTest is TestStabilityPoolManagerSetUp {
     /// @notice Returns the address of the price oracle contract
     function priceOracle() external view returns (address);
 
-    /// @notice Returns the address of the reserve pool contract that provides the collateral for discounts
+    /// @notice Returns the address of the reserve pool contract that provides the collateral for subsidies
     function reservePool() external view returns (address);
 
     /// @notice Returns the address of the fee receiver contract
@@ -93,19 +93,19 @@ contract EverythingTest is TestStabilityPoolManagerSetUp {
     function collateralTokenBalance() external view returns (uint256);
 
     /// @notice Returns the current instantaneous incentive ratio for minting pegged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function mintPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
     /// @notice Returns the current instantaneous incentive ratio for redeeming pegged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function redeemPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
     /// @notice Returns the current instantaneous incentive ratio for minting leveraged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function mintLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
     /// @notice Returns the current instantaneous incentive ratio for redeeming leveraged tokens (18 decimals).
-    /// A positive number is a fee ratio; a negative number indicates a discount.
+    /// A positive number is a fee ratio; a negative number indicates a subsidy.
     function redeemLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
 */

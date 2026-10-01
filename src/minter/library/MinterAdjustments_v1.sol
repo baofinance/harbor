@@ -11,7 +11,7 @@ import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol"
 /// @title MinterAdjustments_v1
 /// @author rootminus0x1
 /// @notice Prices an order across the Minter's fee bands: given the state and a schedule, how much is taken, how
-///         much is minted or returned, and what fee or discount applies.
+///         much is minted or returned, and what fee or subsidy applies.
 /// @dev Deployed and reached by `DELEGATECALL`, which keeps the band-walking loops - the bulk of the Minter's
 ///      code - out of its bytecode. Every mint, redeem and dry run enters here exactly once per transaction, so
 ///      the single extra call is noise beside the transfers and oracle reads around it; nothing here is reached
@@ -37,7 +37,7 @@ library MinterAdjustments_v1 {
     }
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
-    /// Fees, discounts and disallows relating to the different incentiveRatios values are calculated as sum, weighted
+    /// Fees, subsidies and disallows relating to the different incentiveRatios values are calculated as sum, weighted
     /// in proportion, in collateral space, to the amount spent within each collateral ratio boundary.
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
@@ -98,7 +98,7 @@ library MinterAdjustments_v1 {
         w.mintedE36 = 0;
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
-            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, w.band)); // no discounts for this action
+            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, w.band)); // no subsidies for this action
             // slither-disable-next-line incorrect-equality, the vaule 1 ether corresponds to a specific meaning
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
@@ -198,15 +198,15 @@ library MinterAdjustments_v1 {
         uint256 underlyingCollateralHeldE36;
         uint256 peggedTokenHeldE36;
         uint256 underlyingFeeE36;
-        uint256 underlyingDiscountE36;
+        uint256 underlyingSubsidyE36;
         uint256 redeemedE36;
         int256 feeErrorE54;
-        int256 discountErrorE54;
+        int256 subsidyErrorE54;
         int256 collateralHeldErrorE54;
     }
 
     /// @notice Perform a dry run of a redeem pegged to calculate the various transfers of tokens
-    /// Fees and discounts relating to the different incentiveRatios values are calculated as sum, weighted
+    /// Fees and subsidies relating to the different incentiveRatios values are calculated as sum, weighted
     /// in proportion, in collateral space, to the amount spent within each collateral ratio boundary.
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
@@ -218,7 +218,7 @@ library MinterAdjustments_v1 {
     ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
     /// @param reserveWrappedCapacity The current balance of the reserve pool (scaled to 1e36).
     /// @return wrappedFee the fee charged in wrapped collateral tokens.
-    /// @return wrappedDiscount the discount given in wrapped collateral tokens.
+    /// @return wrappedSubsidy the subsidy given in wrapped collateral tokens.
     /// @return wrappedCollateralReturned the wrapped collateral returned to the receiver in exchange for the 'peggedRedeemed'
     /// @return underlyingCollateralRemoved the collateral removed from the balance to return the peggedIn.
     /// @return peggedPriceE36 the price of pegged token (takes into account the pegged token depegging)
@@ -233,8 +233,8 @@ library MinterAdjustments_v1 {
         pure
         returns (
             uint256 wrappedFee,
-            uint256 wrappedDiscount, // amount requested from reserve pool
-            uint256 wrappedCollateralReturned, // this includes the discount
+            uint256 wrappedSubsidy, // amount requested from reserve pool
+            uint256 wrappedCollateralReturned, // this includes the subsidy
             uint256 underlyingCollateralRemoved,
             uint256 peggedPriceE36
         )
@@ -264,7 +264,7 @@ library MinterAdjustments_v1 {
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1 ether; // scaled to 1e36
         w.peggedTokenHeldE36 = cr.peggedTokenBalance * 1 ether;
         w.underlyingFeeE36 = 0;
-        w.underlyingDiscountE36 = 0;
+        w.underlyingSubsidyE36 = 0;
         w.redeemedE36 = 0;
 
         while (w.peggedInLeftE36 > 0) {
@@ -300,16 +300,16 @@ library MinterAdjustments_v1 {
                     w.collateralHeldErrorE54
                 );
 
-                // tally the fee or discount - these values have no effect at the moment:
-                // fees have already been accounted for and discounts come from the reserve pool
+                // tally the fee or subsidy - these values have no effect at the moment:
+                // fees have already been accounted for and subsidies come from the reserve pool
                 int256 bandIncentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
                 if (bandIncentiveRatio < 0) {
-                    uint256 bandDiscountE36;
-                    (bandDiscountE36, w.discountErrorE54) = _divAccumulateError(
+                    uint256 bandSubsidyE36;
+                    (bandSubsidyE36, w.subsidyErrorE54) = _divAccumulateError(
                         collateralInBandE36 * uint256(-bandIncentiveRatio),
-                        w.discountErrorE54
+                        w.subsidyErrorE54
                     );
-                    w.underlyingDiscountE36 += bandDiscountE36;
+                    w.underlyingSubsidyE36 += bandSubsidyE36;
                 } else {
                     uint256 bandFeeE36;
                     (bandFeeE36, w.feeErrorE54) = _divAccumulateError(
@@ -324,14 +324,14 @@ library MinterAdjustments_v1 {
             band++;
         }
         wrappedFee = w.underlyingFeeE36 / cr.rate;
-        wrappedDiscount = Math.min(reserveWrappedCapacity, w.underlyingDiscountE36 / cr.rate); // amount requested from reserve pool
+        wrappedSubsidy = Math.min(reserveWrappedCapacity, w.underlyingSubsidyE36 / cr.rate); // amount requested from reserve pool
         uint256 underlyingCollateralRemovedE36 = cr.underlyingCollateral * 1 ether - w.underlyingCollateralHeldE36;
-        wrappedCollateralReturned = underlyingCollateralRemovedE36 / cr.rate + wrappedDiscount - wrappedFee;
+        wrappedCollateralReturned = underlyingCollateralRemovedE36 / cr.rate + wrappedSubsidy - wrappedFee;
         // Derived from the wrapped that actually leaves: paid to the redeemer, plus the fee paid away, less what
-        // the reserve sent for the discount. Ceiled, so the record gives up at least as much as the holding did -
+        // the reserve sent for the subsidy. Ceiled, so the record gives up at least as much as the holding did -
         // giving up less would leave it claiming the difference.
         underlyingCollateralRemoved = MinterValuationLib.wrappedAsCollateralCeil(
-            wrappedCollateralReturned + wrappedFee - wrappedDiscount,
+            wrappedCollateralReturned + wrappedFee - wrappedSubsidy,
             cr.rate
         );
     }
@@ -344,9 +344,9 @@ library MinterAdjustments_v1 {
         uint256 underlyingCollateralAddedE36;
         uint256 peggedTokenHeldE36;
         uint256 underlyingFeeE36;
-        uint256 underlyingDiscountE36;
+        uint256 underlyingSubsidyE36;
         uint256 bandFeeRatio;
-        uint256 bandDiscountRatio;
+        uint256 bandSubsidyRatio;
         uint256 leveragedPriceE36;
         uint256 leveragedTokenBalance;
         uint256 collateralValueE36;
@@ -354,7 +354,7 @@ library MinterAdjustments_v1 {
     }
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
-    /// Fees, discounts and disallows relating to the different incentiveRatios values are calculated as sum, weighted
+    /// Fees, subsidies and disallows relating to the different incentiveRatios values are calculated as sum, weighted
     /// in proportion, in collateral space, to the amount spent within each collateral ratio boundary.
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
@@ -366,8 +366,8 @@ library MinterAdjustments_v1 {
     ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
     /// @param reserveWrappedCapacity The current balance of the reserve pool.
     /// @return wrappedFee The pro-rated fee, in wrapped collateral terms.
-    /// @return wrappedDiscount the discount given in wrapped collateral tokens.
-    /// @return leveragedMinted The amount of leveraged tokens minted, after fees and discounts are taken into account.
+    /// @return wrappedSubsidy the subsidy given in wrapped collateral tokens.
+    /// @return leveragedMinted The amount of leveraged tokens minted, after fees and subsidies are taken into account.
     /// @return maxWrappedCollateralIn the collateral used from the wrappedCollateralIn.
     /// @return underlyingCollateralAdded the collateral added to the balance to return the wrappedCollateralIn.
 
@@ -382,7 +382,7 @@ library MinterAdjustments_v1 {
         pure
         returns (
             uint256 wrappedFee,
-            uint256 wrappedDiscount,
+            uint256 wrappedSubsidy,
             uint256 leveragedMinted,
             uint256 maxWrappedCollateralIn,
             uint256 underlyingCollateralAdded
@@ -415,54 +415,54 @@ library MinterAdjustments_v1 {
         w.peggedTokenHeldE36 = cr.peggedTokenBalance * 1e18;
 
         while (w.underlyingCollateralInLeftE36 > 0) {
-            // we calculate the collateral and discount for the current band
+            // we calculate the collateral and subsidy for the current band
             uint256 collateralInBandE36;
-            uint256 bandDiscountE36 = 0;
+            uint256 bandSubsidyE36 = 0;
             {
                 int256 incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, w.band);
-                // get the fee and discount ratios
+                // get the fee and subsidy ratios
                 w.bandFeeRatio = incentiveRatio > 0 ? uint256(incentiveRatio) : 0;
-                w.bandDiscountRatio = incentiveRatio < 0 ? uint256(-incentiveRatio) : 0;
+                w.bandSubsidyRatio = incentiveRatio < 0 ? uint256(-incentiveRatio) : 0;
             }
             // now get:
             // the collateral in the band,
-            // the corresponding discount
-            // This is complex because both are dependent on the reservePool capacity which limits the discount which, in turn, inflences the collateral
+            // the corresponding subsidy
+            // This is complex because both are dependent on the reservePool capacity which limits the subsidy which, in turn, inflences the collateral
 
             // slither-disable-next-line incorrect-equality
             if (w.band + 1 == ConfigIncentiveLib._collateralRatioBandCount(config_)) {
                 // the last band has no upper bound and there are at least 2 bands
-                // gross collateral includes fees and discounts
+                // gross collateral includes fees and subsidies
                 collateralInBandE36 = w.underlyingCollateralInLeftE36;
-                if (w.bandDiscountRatio > 0) {
+                if (w.bandSubsidyRatio > 0) {
                     // theoretical
-                    bandDiscountE36 = Math.mulDiv(collateralInBandE36, w.bandDiscountRatio, 1e18);
+                    bandSubsidyE36 = Math.mulDiv(collateralInBandE36, w.bandSubsidyRatio, 1e18);
                     // actual
-                    bandDiscountE36 = Math.min(bandDiscountE36, w.underlyingReserveCapacityE36);
+                    bandSubsidyE36 = Math.min(bandSubsidyE36, w.underlyingReserveCapacityE36);
                 }
-            } else if (w.bandDiscountRatio > 0) {
-                // discount
+            } else if (w.bandSubsidyRatio > 0) {
+                // subsidy
                 // we calculate the collateralInBand assuming there is no reserve pool capacity limit (for this band)
                 collateralInBandE36 = Math.mulDiv(
                     ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band) * w.peggedTokenHeldE36 -
                         w.underlyingCollateralHeldE36 * cr.price,
                     1e18,
-                    cr.price * (1e18 + w.bandDiscountRatio)
+                    cr.price * (1e18 + w.bandSubsidyRatio)
                 );
-                // user limits how much of the band collateral is used (and the discount)
+                // user limits how much of the band collateral is used (and the subsidy)
                 collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
 
                 // now check that the reserve pool can do it's corresponding bit
-                bandDiscountE36 = Math.mulDiv(collateralInBandE36, w.bandDiscountRatio, 1e18);
-                if (bandDiscountE36 > w.underlyingReserveCapacityE36) {
+                bandSubsidyE36 = Math.mulDiv(collateralInBandE36, w.bandSubsidyRatio, 1e18);
+                if (bandSubsidyE36 > w.underlyingReserveCapacityE36) {
                     // Reserve pool has a capacity limit and wont be able to supply it's part of the collateralInBand,
                     // so we shift the onus on reaching the upper bound to the supplied collateral
-                    collateralInBandE36 += bandDiscountE36 - w.underlyingReserveCapacityE36;
+                    collateralInBandE36 += bandSubsidyE36 - w.underlyingReserveCapacityE36;
                     collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
-                    bandDiscountE36 = w.underlyingReserveCapacityE36;
+                    bandSubsidyE36 = w.underlyingReserveCapacityE36;
                 }
             } else {
-                // no discount
+                // no subsidy
                 collateralInBandE36 = Math.mulDiv(
                     ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band) * w.peggedTokenHeldE36 -
                         w.underlyingCollateralHeldE36 * cr.price,
@@ -472,7 +472,7 @@ library MinterAdjustments_v1 {
                 collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
             }
 
-            // we have, for the band the user collateral needed, and the band discount
+            // we have, for the band the user collateral needed, and the band subsidy
 
             w.underlyingCollateralHeldE36 += collateralInBandE36;
             w.underlyingCollateralInLeftE36 -= collateralInBandE36;
@@ -483,22 +483,22 @@ library MinterAdjustments_v1 {
                 w.underlyingFeeE36 += bandFeeE36;
                 w.underlyingCollateralHeldE36 -= bandFeeE36;
                 w.underlyingCollateralAddedE36 -= bandFeeE36;
-            } else if (bandDiscountE36 > 0) {
-                w.underlyingDiscountE36 += bandDiscountE36;
-                w.underlyingReserveCapacityE36 -= bandDiscountE36;
-                w.underlyingCollateralHeldE36 += bandDiscountE36;
-                w.underlyingCollateralAddedE36 += bandDiscountE36;
+            } else if (bandSubsidyE36 > 0) {
+                w.underlyingSubsidyE36 += bandSubsidyE36;
+                w.underlyingReserveCapacityE36 -= bandSubsidyE36;
+                w.underlyingCollateralHeldE36 += bandSubsidyE36;
+                w.underlyingCollateralAddedE36 += bandSubsidyE36;
             }
 
             w.band++;
         }
-        wrappedDiscount = w.underlyingDiscountE36 / cr.rate; // we don't round this as it may overflow the reserve pool
+        wrappedSubsidy = w.underlyingSubsidyE36 / cr.rate; // we don't round this as it may overflow the reserve pool
         wrappedFee = MinterValuationLib.round(w.underlyingFeeE36, cr.rate);
         // Derived from the wrapped that actually stays: the whole input, plus what the reserve sends for the
-        // discount, less the fee paid away. Valued by the same conversion the holding is, so the record and the
+        // subsidy, less the fee paid away. Valued by the same conversion the holding is, so the record and the
         // collateral behind it move together to the wei.
         underlyingCollateralAdded = MinterValuationLib.wrappedAsCollateral(
-            maxWrappedCollateralIn + wrappedDiscount - wrappedFee,
+            maxWrappedCollateralIn + wrappedSubsidy - wrappedFee,
             cr.rate
         );
         // The tokens are minted against the collateral the record actually gained, not against the unrounded
@@ -594,7 +594,7 @@ library MinterAdjustments_v1 {
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1e18;
 
         while (true) {
-            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, band)); // no discounts for this action
+            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, band)); // no subsidies for this action
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;

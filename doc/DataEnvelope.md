@@ -32,13 +32,13 @@ across the full envelope, leveraged mints where the market mints them (§1.3):
 | leveraged token amount (minted / redeemed) | 1e-2 → 1e12 tokens † |
 | collateral price | 1e-9 → 1e9 |
 | wrap rate | 1e-6 → 1e6 |
-| collateral ratio | every fee / discount / disallow band, **and depegged (CR < 1)** — collateral repriced to 1/2, 1/3, 1/4 of nominal |
+| collateral ratio | every fee / subsidy / disallow band, **and depegged (CR < 1)** — collateral repriced to 1/2, 1/3, 1/4 of nominal |
 
 † The token floor is **split by operation**. Pegged sweeps from **1 wei**: mint stays accurate to
 the wei at every price, and redeem too — tolerating the dust floors where the input or returned
 collateral rounds to zero (`ZeroInputBalance` / `ReturnZeroAmount`). The higher `1e-2` floor is
 kept only where a *ratio* metric loses precision at dust — the **leveraged** fee-ratio and the
-**depeg** discount / pegged-price checks (a test-tolerance limit, not a minter error). Collateral
+**depeg** subsidy / pegged-price checks (a test-tolerance limit, not a minter error). Collateral
 already reaches dust (1e-9).
 
 The Minter prices a mint **per collateral-ratio band** (each a floored `Math.mulDiv` on balances

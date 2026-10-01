@@ -9,7 +9,7 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// @notice The Minter must refuse the zero address for each of the three dependencies it holds in storage —
 /// the price oracle, the reserve pool and the fee receiver — and must leave the working address in place when it does.
 ///
-/// Zero is not a configuration for any of them. Every price read calls the oracle, every discount draws on the
+/// Zero is not a configuration for any of them. Every price read calls the oracle, every subsidy draws on the
 /// reserve pool, and every fee is sent to the fee receiver; with zero stored, each of those fails only because a
 /// call into an address with no code cannot decode a return value, or silently sends value nowhere. Those are
 /// accidents of the ABI rather than decisions, and they surface far from the mistake that caused them — inside a

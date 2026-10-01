@@ -161,7 +161,7 @@ abstract contract SPLTestBase is BaoTest, HarborDeployer {
         // Check instantaneous incentive ratio
         int256 instantIncentive = IMinter(minter).mintPeggedTokenIncentiveRatio();
         if (instantIncentive >= 0) console.log("    instantaneous incentive (fee): %d", uint256(instantIncentive));
-        else console.log("    instantaneous incentive (discount): -%d", uint256(-instantIncentive));
+        else console.log("    instantaneous incentive (subsidy): -%d", uint256(-instantIncentive));
 
         vm.startPrank(user);
         IERC20(wrappedCollateral).approve(minter, fxSaveAmount);
@@ -173,7 +173,7 @@ abstract contract SPLTestBase is BaoTest, HarborDeployer {
 
         console.log("    pre-mint ratio=%d", ratioBefore);
         if (incentive >= 0) console.log("    incentive (fee): %d", uint256(incentive));
-        else console.log("    incentive (discount): -%d", uint256(-incentive));
+        else console.log("    incentive (subsidy): -%d", uint256(-incentive));
         console.log("    mint peg: %d fxSAVE -> %d haETH (expected %d)", fxSaveAmount, pegMinted, expectedPeg);
         console.log("    fee: %d (expected %d), ratio after=%d", feeCollected, expectedFee, ratioAfter);
         console.log(

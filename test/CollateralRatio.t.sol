@@ -163,7 +163,7 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
         uint256 collateralUsed;
         uint256 collateralReturned;
         uint256 fee;
-        uint256 discount;
+        uint256 subsidy;
         uint256 price;
         uint256 rate;
     }
@@ -298,7 +298,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
 
         // redeem pegged
         data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-        (, data.fee, data.discount, data.peggedRedeemed, data.collateralReturned, data.price, data.rate) = IMinter(
+        (, data.fee, data.subsidy, data.peggedRedeemed, data.collateralReturned, data.price, data.rate) = IMinter(
             minter
         ).redeemPeggedTokenDryRun(1000 ether);
         snap = vm.snapshotState();
@@ -307,9 +307,9 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         afterHolding = readHoldings();
         deltas = DeltaHoldings(
             int256(data.fee),
-            -int256(data.discount),
-            -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
-            -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
+            -int256(data.subsidy),
+            -int256(data.collateralReturned) + int256(data.subsidy) - int256(data.fee),
+            -int256(data.collateralReturned) + int256(data.subsidy) - int256(data.fee),
             -int256(data.peggedRedeemed),
             int256(data.collateralReturned),
             -int256(data.peggedRedeemed),
@@ -323,7 +323,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         uint256 minimumCollateralRatio = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         if (collateralRatio >= minimumCollateralRatio) {
-            (, data.fee, data.discount, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
+            (, data.fee, data.subsidy, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
 
             snap = vm.snapshotState();
@@ -336,11 +336,11 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 //int256 feeReceiverCollateral;
                 int256(data.fee),
                 // int256 reservePoolCollateral;
-                -int256(data.discount),
+                -int256(data.subsidy),
                 // int256 minterCollateral;
-                int256(data.collateralUsed - data.fee + data.discount),
+                int256(data.collateralUsed - data.fee + data.subsidy),
                 // int256 minterUnderlyingCollateral;
-                int256(data.collateralUsed - data.fee + data.discount),
+                int256(data.collateralUsed - data.fee + data.subsidy),
                 // int256 minterPegged;
                 int256(0),
                 // int256 thisCollateral;
@@ -372,9 +372,9 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 afterHolding = readHoldings();
                 deltas = DeltaHoldings(
                     int256(data.fee),
-                    -int256(data.discount),
-                    -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
-                    -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
+                    -int256(data.subsidy),
+                    -int256(data.collateralReturned) + int256(data.subsidy) - int256(data.fee),
+                    -int256(data.collateralReturned) + int256(data.subsidy) - int256(data.fee),
                     -int256(0),
                     int256(data.collateralReturned),
                     int256(0),

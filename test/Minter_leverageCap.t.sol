@@ -208,7 +208,7 @@ contract MinterLeverageCapTest is LocalMarket {
         (
             int256 incentiveRatio,
             uint256 fee,
-            uint256 discount,
+            uint256 subsidy,
             uint256 collateralUsed,
             uint256 leveragedMinted,
             ,
@@ -218,7 +218,7 @@ contract MinterLeverageCapTest is LocalMarket {
         assertEq(leveragedMinted, 0, "nothing minted");
         assertEq(collateralUsed, 0, "no collateral used");
         assertEq(fee, 0, "no fee");
-        assertEq(discount, 0, "no discount");
+        assertEq(subsidy, 0, "no subsidy");
         assertEq(
             incentiveRatio,
             IMinter_v3(market.minter).mintLeveragedTokenIncentiveRatio(),

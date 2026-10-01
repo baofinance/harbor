@@ -437,10 +437,10 @@ The Minter already has two CR-dependent fee curves, each capturing a different a
 
 An StabilityPool withdrawal is economically similar to minting pegged -- it removes stability from the pool, making the system weaker. The mint-pegged fee captures how much the system is harmed by this kind of action.
 
-**`redeemPeggedTokenIncentiveRatio()`** -- the incentive for redeeming pegged tokens at the current CR. Redeeming pegged raises CR (fewer obligations, collateral returned). At low CR this is *encouraged* with a discount:
+**`redeemPeggedTokenIncentiveRatio()`** -- the incentive for redeeming pegged tokens at the current CR. Redeeming pegged raises CR (fewer obligations, collateral returned). At low CR this is *encouraged* with a subsidy:
 - Healthy CR (> 1.25): ~0.25% fee (slight discouragement -- system is fine)
-- Near rebalance threshold (1.20): ~-0.5% (discount -- system WANTS redemptions)
-- Low CR (< 1.0): ~-1% (larger discount)
+- Near rebalance threshold (1.20): ~-0.5% (subsidy -- system WANTS redemptions)
+- Low CR (< 1.0): ~-1% (larger subsidy)
 
 The negative of this ratio tells us: *how much does the system value someone taking pegged tokens OUT of circulation?* At low CR the answer is "a lot" -- meaning anyone who KEEPS pegged tokens (instead of redeeming) is sitting on value the system would like to see redeemed. A depositor who withdraws pegged from the StabilityPool (keeping them in circulation, not redeeming) is doing the opposite of what the system incentivises.
 
@@ -460,7 +460,7 @@ At **healthy CR** (e.g., 1.50):
 At **CR near rebalance threshold** (e.g., 1.20):
 - mint ratio ≈ +1.5%, redeem ratio ≈ -0.5%
 - fee = 1.5% - (-0.5%) = **2.0%**
-- Both components reinforce: minting pegged is costly (system is stressed) AND the system is offering discounts for redemptions (it wants pegged supply reduced). An StabilityPool withdrawal goes against both signals.
+- Both components reinforce: minting pegged is costly (system is stressed) AND the system is offering subsidies for redemptions (it wants pegged supply reduced). An StabilityPool withdrawal goes against both signals.
 
 At **CR below disallow** (< 1.16):
 - mint ratio = 1 ether (disallowed), redeem ratio ≈ -1%
@@ -472,7 +472,7 @@ At **CR below disallow** (< 1.16):
 The combined fee punishes the withdrawer *proportionally to how much their action harms the system*, measured by the system's own existing, audited fee curves:
 
 1. **Withdrawing pegged weakens the StabilityPool** (fewer depositors to absorb rebalance losses). The mint-pegged ratio captures this: the system charges more for actions that weaken it.
-2. **Withdrawing pegged instead of redeeming keeps obligations outstanding** when the system wants them reduced. The redeem ratio's negative value (discount) measures how badly the system wants pegged supply to shrink. By NOT redeeming, the withdrawer is denying the system what it needs.
+2. **Withdrawing pegged instead of redeeming keeps obligations outstanding** when the system wants them reduced. The redeem ratio's negative value (subsidy) measures how badly the system wants pegged supply to shrink. By NOT redeeming, the withdrawer is denying the system what it needs.
 3. **At healthy CR, both components cancel** -- the system doesn't need StabilityPool stability OR pegged supply reduction, so no fee.
 4. **No new parameters** except `MAX_WITHDRAWAL_FEE` (constructor immutable, e.g., 5%) for the disallow edge case.
 
@@ -576,7 +576,7 @@ Fees deter the withdrawal; auto-compounding restores the stayer.
 3. Alice: 62.5 pegged + 166,667 fxSAVE claimable. AutoCompounder compounds: claims fxSAVE, mints ~37.5 pegged (minus mint fee), redeposits. Alice ≈ 100 pegged.
 4. Result: Alice and Bob are roughly equal in pegged balance. Bob lost 2.0 haETH to the withdrawal fee. Attack is mildly unprofitable.
 
-**Note:** The deterrent effect depends on the Minter's fee curve magnitude. The current config gives a combined fee of ~2.0% near the rebalance threshold (~1.5% mint plus a ~0.5% redeem discount). If stronger deterrence is needed, the StabilityPool could multiply the Minter fee by a configurable factor, or use a steeper curve.
+**Note:** The deterrent effect depends on the Minter's fee curve magnitude. The current config gives a combined fee of ~2.0% near the rebalance threshold (~1.5% mint plus a ~0.5% redeem subsidy). If stronger deterrence is needed, the StabilityPool could multiply the Minter fee by a configurable factor, or use a steeper curve.
 
 **Fred (legitimate new entrant):**
 1. No withdrawal fee (wasn't in pool).

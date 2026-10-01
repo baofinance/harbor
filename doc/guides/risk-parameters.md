@@ -91,8 +91,8 @@ stabilityPoolManager.updateFeeReceiver(newFeeReceiver);  // Multisig recommended
 ## Fee Structure Validation
 
 - Mint ha blocked below 1.0x
-- Redeem ha has discounts below 1.1x
-- Mint hs has discounts below 1.2x
+- Redeem ha has subsidies below 1.1x
+- Mint hs has subsidies below 1.2x
 - Redeem hs blocked below 1.0x
 - Fees increase smoothly (no sudden jumps)
 - Bands cover all possible collateral ratios

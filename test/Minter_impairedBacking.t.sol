@@ -556,8 +556,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         assertEq(IMinter(minter).mintPeggedTokenIncentiveRatio(), 1 ether, "anchor minting disallowed");
         assertEq(IMinter(minter).redeemLeveragedTokenIncentiveRatio(), 1 ether, "sail redemption disallowed");
-        assertEq(IMinter(minter).redeemPeggedTokenIncentiveRatio(), -7.5e15, "anchor redemption discounted");
-        assertEq(IMinter(minter).mintLeveragedTokenIncentiveRatio(), -5e15, "sail minting discounted");
+        assertEq(IMinter(minter).redeemPeggedTokenIncentiveRatio(), -7.5e15, "anchor redemption subsidised");
+        assertEq(IMinter(minter).mintLeveragedTokenIncentiveRatio(), -5e15, "sail minting subsidised");
     }
 
     /// The manager redeems through the free path during a rebalance, and sizes it from this dry run.

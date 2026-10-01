@@ -22,11 +22,11 @@ import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol"
 /// the STABILITY POOL is paid for creating it, while anyone else does the same trade unimpeded.
 ///
 /// The configs sharpen this rather than softening it. `ConfigPriceVolatility_105` prices minting sail at
-/// a DISCOUNT of one and a half percent between collateral ratios 1.00 and 1.02, and one percent between
+/// a SUBSIDY of one and a half percent between collateral ratios 1.00 and 1.02, and one percent between
 /// 1.02 and 1.04 - the protocol paying users to do, at exactly the ratios where it caps the rebalance
 /// from doing it, what it is capping.
 ///
-/// Both routes are measured through the real calls, each under its own snapshot, so fees, discounts and
+/// Both routes are measured through the real calls, each under its own snapshot, so fees, subsidies and
 /// the reserve pool's behaviour are all the real ones.
 contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatioRangeSetUp {
     /// @dev Small against the market, so each route is measured at the rate it faces rather than at one

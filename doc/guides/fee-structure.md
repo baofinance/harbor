@@ -16,8 +16,8 @@ The Minter contract uses a health-based fee structure that dynamically adjusts f
 ## Key Principles
 
 1. **Minting ha tokens**: Discouraged when system is unhealthy (expensive fees)
-2. **Redeeming ha tokens**: Encouraged when system is unhealthy (discounts/free)
-3. **Minting hs tokens**: Encouraged when system is unhealthy (discounts)
+2. **Redeeming ha tokens**: Encouraged when system is unhealthy (subsidies/free)
+3. **Minting hs tokens**: Encouraged when system is unhealthy (subsidies)
 4. **Redeeming hs tokens**: Discouraged when system is unhealthy (expensive fees/blocked)
 
 ## Example Fee Tables by Collateral Ratio
@@ -41,10 +41,10 @@ One structural point the example below does **not** show, and every deployed cla
 
 ### Redeem Anchor (ha) Tokens
 
-| Collateral Ratio | Fee/Discount | Behavior |
+| Collateral Ratio | Fee/Subsidy | Behavior |
 |-----------------|--------------|----------|
-| < 1.0x | **-10% (Discount)** | You get 10% bonus -- strongly encouraged |
-| 1.0x - 1.05x | **-5% (Discount)** | You get 5% bonus -- encouraged |
+| < 1.0x | **-10% (Subsidy)** | You get 10% bonus -- strongly encouraged |
+| 1.0x - 1.05x | **-5% (Subsidy)** | You get 5% bonus -- encouraged |
 | 1.05x - 1.1x | **0% (FREE)** | No fee -- system needs help |
 | 1.1x - 1.2x | **1%** | Low fee -- system recovering |
 | 1.2x - 1.3x | **2%** | Small fee -- system healthy |
@@ -54,12 +54,12 @@ One structural point the example below does **not** show, and every deployed cla
 
 ### Mint Sail (hs) Tokens
 
-| Collateral Ratio | Fee/Discount | Behavior |
+| Collateral Ratio | Fee/Subsidy | Behavior |
 |-----------------|--------------|----------|
-| < 1.0x | **-15% (Discount)** | You get 15% bonus -- strongly encouraged |
-| 1.0x - 1.05x | **-10% (Discount)** | You get 10% bonus -- encouraged |
-| 1.05x - 1.1x | **-5% (Discount)** | You get 5% bonus -- small incentive |
-| 1.1x - 1.2x | **-2% (Discount)** | You get 2% bonus -- minimal incentive |
+| < 1.0x | **-15% (Subsidy)** | You get 15% bonus -- strongly encouraged |
+| 1.0x - 1.05x | **-10% (Subsidy)** | You get 10% bonus -- encouraged |
+| 1.05x - 1.1x | **-5% (Subsidy)** | You get 5% bonus -- small incentive |
+| 1.1x - 1.2x | **-2% (Subsidy)** | You get 2% bonus -- minimal incentive |
 | 1.2x - 1.3x | **0% (FREE)** | No fee -- system healthy |
 | 1.3x - 1.5x | **1%** | Small fee -- system very healthy |
 | 1.5x - 2.0x | **2%** | Moderate fee -- system extremely healthy |
@@ -81,14 +81,14 @@ One structural point the example below does **not** show, and every deployed cla
 ## Incentive Ratio Format
 
 - **Positive values**: Fees (0 to 1.0 ether = 0% to 100%)
-- **Negative values**: Discounts (-1.0 to 0 ether = -100% to 0%)
+- **Negative values**: Subsidies (-1.0 to 0 ether = -100% to 0%)
 - **1.0 ether**: Disallow (100% fee = blocked)
-- **0 ether**: No fee, no discount
+- **0 ether**: No fee, no subsidy
 
 ### Validation Rules
 
-1. **Mint Pegged / Redeem Leveraged**: Values in [0, 1 ether]. Can have disallow (1.0 ether) at index 0. Cannot have discounts (negative values).
-2. **Redeem Pegged / Mint Leveraged**: Values in (-1 ether, 1 ether). Can have discounts (negative values). Cannot have disallow (1.0 ether).
+1. **Mint Pegged / Redeem Leveraged**: Values in [0, 1 ether]. Can have disallow (1.0 ether) at index 0. Cannot have subsidies (negative values).
+2. **Redeem Pegged / Mint Leveraged**: Values in (-1 ether, 1 ether). Can have subsidies (negative values). Cannot have disallow (1.0 ether).
 
 ### Collateral Ratio Bands
 
@@ -101,20 +101,20 @@ One structural point the example below does **not** show, and every deployed cla
 
 ### System at 1.05x (Stressed)
 - Mint ha: **20% fee** (expensive)
-- Redeem ha: **-5% discount** (encouraged)
-- Mint hs: **-10% discount** (encouraged)
+- Redeem ha: **-5% subsidy** (encouraged)
+- Mint hs: **-10% subsidy** (encouraged)
 - Redeem hs: **30% fee** (discouraged)
 
 ### System at 1.25x (Healthy)
 - Mint ha: **5% fee** (reasonable)
 - Redeem ha: **2% fee** (normal)
-- Mint hs: **-2% discount** (small incentive)
+- Mint hs: **-2% subsidy** (small incentive)
 - Redeem hs: **5% fee** (normal)
 
 ### System at 0.98x (Undercollateralized)
 - Mint ha: **BLOCKED**
-- Redeem ha: **-10% discount** (strongly encouraged)
-- Mint hs: **-15% discount** (strongly encouraged)
+- Redeem ha: **-10% subsidy** (strongly encouraged)
+- Mint hs: **-15% subsidy** (strongly encouraged)
 - Redeem hs: **BLOCKED**
 
 ## Where Fees Go

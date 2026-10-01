@@ -126,7 +126,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         return (amount * 1 ether) / 10000;
     }
 
-    /// @dev The number of adjacent incentive bands whose fee/discount rate differs — i.e. how many distinct
+    /// @dev The number of adjacent incentive bands whose fee/subsidy rate differs — i.e. how many distinct
     ///      fee "steps" an operation's collateral-ratio path can straddle. A flat config returns 0, so the
     ///      operation is exactly path-independent (splitting it changes nothing but per-step rounding). Each
     ///      transition admits a bounded, magnitude-scaled divergence between doing an operation in one call
@@ -162,7 +162,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
     }
 
-    function setUp_config_flatDiscountWide() internal {
+    function setUp_config_flatSubsidyWide() internal {
         setUp_config(
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
@@ -171,7 +171,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
     }
 
-    function setUp_config_flatDisallowDiscountWide() internal {
+    function setUp_config_flatDisallowSubsidyWide() internal {
         setUp_config(
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 50, 50, 50, 50, 50, 50)),
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
@@ -207,7 +207,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
     }
 
-    function setUp_config_directionalDisallowDiscountWide() internal {
+    function setUp_config_directionalDisallowSubsidyWide() internal {
         setUp_config(
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 110, 100, 90, 80, 70, 60)),
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, -50)),
@@ -216,7 +216,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
     }
 
-    function setUp_config_reverseDirectionalDisallowDiscountWide() internal {
+    function setUp_config_reverseDirectionalDisallowSubsidyWide() internal {
         setUp_config(
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 60, 70, 80, 90, 100, 110)),
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, -120)),
@@ -701,10 +701,10 @@ contract TestMinterBasics is TestMinterSetUp {
         // assertEq(IMinter(minter).leveragedTokenBalance(), ((1 ether - 0.01 ether) * price) / 1e18, "leveraged minted");
     }
 
-    // TODO: test that if the config is set up for no fees or discounts then free mint/redeem = normal mint/redeem
+    // TODO: test that if the config is set up for no fees or subsidies then free mint/redeem = normal mint/redeem
 
     function test_depegBoundary() public {
-        // simple config that has a fee and a discount
+        // simple config that has a fee and a subsidy
         _checkConfig(
             ic(ua(100), ia(150, 50)), // mint pegged 50 basis points = 0.5 %
             ic(ua(100), ia(-100, -100)), // redeem pegged
@@ -777,7 +777,7 @@ contract TestMinterBasics is TestMinterSetUp {
     }
 
     function test_connections() public {
-        // simple config that has a fee and a discount
+        // simple config that has a fee and a subsidy
         _checkConfig(
             ic(ua(100), ia(50, 50)), // mint pegged 50 basis points = 0.5 %
             ic(ua(100), ia(-100, -100)), // redeem pegged
@@ -837,16 +837,15 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(minted, peggedMinted, "amount minted is the same as predicted");
         assertEq(IERC20(wrappedCollateralToken).balanceOf(address(this)), startCollateral - 1 ether);
 
-        // reserve pool - same as above but with a discount, not a fee
-        (, uint256 redeemFee, uint256 discount, uint256 peggedRedeemed, uint256 collateralReturned, , ) = IMinter(
-            minter
-        ).redeemPeggedTokenDryRun(price);
+        // reserve pool - same as above but with a subsidy, not a fee
+        (, uint256 redeemFee, uint256 subsidy, uint256 peggedRedeemed, uint256 collateralReturned, , ) = IMinter(minter)
+            .redeemPeggedTokenDryRun(price);
         assertEq(
-            int256(redeemFee) - int256(discount),
+            int256(redeemFee) - int256(subsidy),
             config.redeemPeggedIncentiveConfig.incentiveRatios[0],
-            "dryRun feeOrDiscount"
+            "dryRun feeOrSubsidy"
         );
-        assertEq(collateralReturned, 1 ether + discount - redeemFee, "dryRun collateralReturned");
+        assertEq(collateralReturned, 1 ether + subsidy - redeemFee, "dryRun collateralReturned");
         assertEq(peggedRedeemed, price, "dryRun peggedRedeemed");
 
         assertEq(IERC20(wrappedCollateralToken).balanceOf(reservePool), 1 ether);
@@ -854,9 +853,9 @@ contract TestMinterBasics is TestMinterSetUp {
         // --------------------------------------------------------------------------
         assertEq(peggedRedeemed, price, "Pegged redeemed");
         assertEq(
-            int256(redeemFee) - int256(discount),
+            int256(redeemFee) - int256(subsidy),
             config.redeemPeggedIncentiveConfig.incentiveRatios[0],
-            "feeOrDiscount"
+            "feeOrSubsidy"
         );
         assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000, "feeReceiver as before");
         assertEq(IMinter(minter).peggedTokenBalance(), (price * 995) / 1000, "pegged balance as before - redeemed");

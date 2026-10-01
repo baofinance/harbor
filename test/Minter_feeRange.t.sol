@@ -97,10 +97,10 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     uint256 mintLeveragedBands;
     uint256 redeemLeveragedBands;
 
-    bool areDiscounts;
+    bool areSubsidies;
     bool areDisallows;
     bool reverseDirection;
-    uint256 discountLimitRatio;
+    uint256 subsidyLimitRatio;
 
     function setUp() public virtual override {
         super.setUp();
@@ -117,10 +117,10 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         mintLeveragedBands = 7;
         redeemLeveragedBands = 7;
 
-        areDiscounts = false;
+        areSubsidies = false;
         areDisallows = false;
         reverseDirection = false;
-        discountLimitRatio = 0;
+        subsidyLimitRatio = 0;
     }
 
     function test_mintPeggedRange_(uint256 p, uint256 l, uint256 w) public virtual {
@@ -185,7 +185,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     struct LeveragedSpanCtx {
         uint256[] bounds;
         uint256 feePerc;
-        uint256 discountPerc;
+        uint256 subsidyPerc;
         uint256 oneMinusFee;
         uint256 price;
         uint256 rate;
@@ -220,10 +220,10 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
             int256 feeI = initial(config.mintLeveragedIncentiveConfig.incentiveRatios);
 
             if (feeI < 0) {
-                C.discountPerc = uint256(-feeI);
+                C.subsidyPerc = uint256(-feeI);
                 C.feePerc = 0;
             } else {
-                C.discountPerc = 0;
+                C.subsidyPerc = 0;
                 C.feePerc = uint256(feeI); // shrink not required but keeps stack light
             }
         }
@@ -308,8 +308,8 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                     if (C.underlyingTarget > C.underlyingCurrent && C.rate != 0) {
                         C.deltaUnderlying = C.underlyingTarget - C.underlyingCurrent;
 
-                        // CRITICAL FIX: Handle discounts properly for zero-span cases
-                        if (C.discountPerc > 0) {
+                        // CRITICAL FIX: Handle subsidies properly for zero-span cases
+                        if (C.subsidyPerc > 0) {
                             // Check if we have an inexhaustible reserve pool
                             uint256 reservePoolAmount = IERC20(wrappedCollateralToken).balanceOf(reservePool);
                             uint256 reserveUnderlyingCapacity = (reservePoolAmount * C.rate) / 1e18;
@@ -324,8 +324,8 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                                 C.deltaUnderlying = C.deltaUnderlying / 100;
                             }
 
-                            // With a significant discount, calculate user contribution
-                            uint256 userContribution = (C.deltaUnderlying * (1e18 - C.discountPerc)) / 1e18;
+                            // With a significant subsidy, calculate user contribution
+                            uint256 userContribution = (C.deltaUnderlying * (1e18 - C.subsidyPerc)) / 1e18;
                             C.wNeeded = _ceilDiv(userContribution * 1e36, C.rate) + 1;
                         } else if (C.oneMinusFee != 0) {
                             C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.oneMinusFee) + 5;
@@ -337,7 +337,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                             _mintLeveraged(C.wNeeded);
                             uint256 postCR0 = IMinter(minter).collateralRatio();
                             assertGt(postCR0, bandLower, "zero-span lower");
-                            if (areDiscounts) {
+                            if (areSubsidies) {
                                 // For inexhaustible reserve tests, we only check that CR has increased but don't enforce strict upper bound
                                 assertGt(postCR0, C.preCR, "zero-span CR should increase");
                             } else {
@@ -348,7 +348,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                                 uint256 b0 = C.bounds[C.bi];
                                 if (b0 > C.preCR && b0 <= postCR0) C.crossings++;
                             }
-                            if (!areDiscounts) {
+                            if (!areSubsidies) {
                                 assertEq(C.crossings, 0, "zero-span crossings");
                             }
                         }
@@ -377,8 +377,8 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                 C.deltaUnderlying = C.underlyingTarget - C.underlyingCurrent;
                 if (C.rate == 0) continue;
 
-                // CRITICAL FIX: For cross-band tests, handle discounts properly
-                if (C.discountPerc > 0) {
+                // CRITICAL FIX: For cross-band tests, handle subsidies properly
+                if (C.subsidyPerc > 0) {
                     // Calculate how much underlying we really need to request
                     uint256 reservePoolAmount = IERC20(wrappedCollateralToken).balanceOf(reservePool);
                     uint256 reserveUnderlyingCapacity = (reservePoolAmount * C.rate) / 1e18;
@@ -390,8 +390,8 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                         C.deltaUnderlying = C.deltaUnderlying / 10;
                     }
 
-                    // User only needs to provide the portion not covered by discount
-                    uint256 userContribution = (C.deltaUnderlying * (1e18 - C.discountPerc)) / 1e18;
+                    // User only needs to provide the portion not covered by subsidy
+                    uint256 userContribution = (C.deltaUnderlying * (1e18 - C.subsidyPerc)) / 1e18;
                     C.wNeeded = _ceilDiv(userContribution * 1e36, C.rate) + 10;
                 } else if (C.oneMinusFee != 0) {
                     C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.oneMinusFee) + 10;
@@ -414,7 +414,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
 
                 // Normal end-band assertions
                 assertGt(postCR, _bandLower(C.e, C.bounds), "end lower");
-                if (areDiscounts) {
+                if (areSubsidies) {
                     // For inexhaustible reserve tests, we only check that CR has increased but don't enforce strict upper bound
                     assertGt(postCR, preCRLocal, "end CR should increase");
                 } else {
@@ -640,25 +640,25 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // adjust wrapped
         wrapped = mulDivNearest(pegged, pre.peggedPrice * 1e18, r * p);
         // console2.log("wrapped=%s", wrapped);
-        // calculate max fee & discount
+        // calculate max fee & subsidy
         uint256 fee;
-        uint256 discount;
+        uint256 subsidy;
         {
             int256 incentiveRatio = initial(config.redeemPeggedIncentiveConfig.incentiveRatios); // assume flat
             if (incentiveRatio < 0) {
                 fee = 0;
-                discount = (uint256(-incentiveRatio) * wrapped) / 1e18; // assume inexhaustable reserve pool (TODO: for now)
+                subsidy = (uint256(-incentiveRatio) * wrapped) / 1e18; // assume inexhaustable reserve pool (TODO: for now)
             } else {
                 fee = (uint256(incentiveRatio) * wrapped) / 1e18;
-                discount = 0;
+                subsidy = 0;
             }
         }
         // console2.log("fee=%s", fee);
-        // console2.log("discount=%s", discount);
+        // console2.log("subsidy=%s", subsidy);
 
-        if (discountLimitRatio > 0) {
-            // use the max discount to determine a reserve pool capacity that should be exhasted by this redeem
-            pre.reservePoolWrapped = (discount * discountLimitRatio) / 1e18;
+        if (subsidyLimitRatio > 0) {
+            // use the max subsidy to determine a reserve pool capacity that should be exhasted by this redeem
+            pre.reservePoolWrapped = (subsidy * subsidyLimitRatio) / 1e18;
             // console2.log("pre.reservePoolWrapped=%s", pre.reservePoolWrapped);
             deal(address(wrappedCollateralToken), reservePool, pre.reservePoolWrapped);
         }
@@ -670,21 +670,21 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         Measures memory post = _measure();
         _dump(post, "post");
 
-        if (discountLimitRatio > 0) {
+        if (subsidyLimitRatio > 0) {
             assertEq(post.reservePoolWrapped, 0, "rp reserve not exhausted");
         }
 
-        // adjust discount
-        discount = Math.min(discount, pre.reservePoolWrapped);
+        // adjust subsidy
+        subsidy = Math.min(subsidy, pre.reservePoolWrapped);
 
         // console2.log("fee=%s", fee);
-        // console2.log("discount=%s", discount);
+        // console2.log("subsidy=%s", subsidy);
         assertApprox(post.feeWrapped, pre.feeWrapped + fee, 3, 4, "rp fee wrapped");
-        assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - discount, 0, 0, "rp discount wrapped");
+        assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - subsidy, 0, 0, "rp subsidy wrapped");
 
         assertApprox(
             pre.incentiveRatio,
-            ((int256(fee) - int256(discount)) * 1e18) / int256(wrapped),
+            ((int256(fee) - int256(subsidy)) * 1e18) / int256(wrapped),
             100,
             0,
             "rp dry run incentive ratio"
@@ -692,7 +692,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         assertEq(post.userPegged, pre.userPegged - pegged, "rp user pegged");
         uint256 qPR = _qPR(p, r);
-        assertApprox(wrappedReturned, wrapped - fee + discount, qPR, 5, "rp user wrapped");
+        assertApprox(wrappedReturned, wrapped - fee + subsidy, qPR, 5, "rp user wrapped");
         assertEq(post.userLeveraged, pre.userLeveraged, "rp user leveraged");
         assertEq(post.userWrapped, pre.userWrapped + wrappedReturned, "rp user wrapped returned");
 
@@ -752,21 +752,21 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             Measures memory pre;
 
             uint256 fee;
-            uint256 discount;
+            uint256 subsidy;
             {
                 int256 incentiveRatio = initial(config.mintLeveragedIncentiveConfig.incentiveRatios); // assume flat
                 if (incentiveRatio < 0) {
                     fee = 0;
-                    discount = (uint256(-incentiveRatio) * wrapped) / 1e18;
+                    subsidy = (uint256(-incentiveRatio) * wrapped) / 1e18;
                 } else {
                     fee = (uint256(incentiveRatio) * wrapped) / 1e18;
-                    discount = 0;
+                    subsidy = 0;
                 }
             }
 
-            if (discountLimitRatio > 0) {
-                // use the max discount to determine a reserve pool capacity that should be exhasted by this redeem
-                pre.reservePoolWrapped = (discount * discountLimitRatio) / 1e18;
+            if (subsidyLimitRatio > 0) {
+                // use the max subsidy to determine a reserve pool capacity that should be exhasted by this redeem
+                pre.reservePoolWrapped = (subsidy * subsidyLimitRatio) / 1e18;
                 // console2.log("pre.reservePoolWrapped=%s", pre.reservePoolWrapped);
                 deal(address(wrappedCollateralToken), reservePool, pre.reservePoolWrapped);
             }
@@ -779,22 +779,22 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             Measures memory post = _measure();
             uint256 q = r / 1e18; // how many 1e18-scale “chunks” in rate
 
-            if (discountLimitRatio > 0) {
+            if (subsidyLimitRatio > 0) {
                 assertEq(post.reservePoolWrapped, 0, "ml reserve not exhausted");
             }
 
-            discount = Math.min(discount, pre.reservePoolWrapped);
+            subsidy = Math.min(subsidy, pre.reservePoolWrapped);
             // console2.log("fee=%s", fee);
-            // console2.log("discount=%s", discount);
+            // console2.log("subsidy=%s", subsidy);
 
             assertApprox(post.feeWrapped, pre.feeWrapped + fee, q + 2, "ml fee wrapped");
-            // The reserve pool falls by the discount the contract actually applied; the test reconstructs `discount`
+            // The reserve pool falls by the subsidy the contract actually applied; the test reconstructs `subsidy`
             // with a single truncating division, so the two differ by at most 1 wei (same as "ml minter wrapped").
-            assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - discount, 1, "ml discount wrapped");
+            assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - subsidy, 1, "ml subsidy wrapped");
 
             assertApprox(
                 pre.incentiveRatio,
-                ((int256(fee) - int256(discount)) * 1e18) / int256(wrapped),
+                ((int256(fee) - int256(subsidy)) * 1e18) / int256(wrapped),
                 100,
                 0,
                 "ml dry run fee ratio"
@@ -802,7 +802,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
             assertApprox(
                 post.minterUnderlying,
-                pre.minterUnderlying + ((wrapped - fee + discount) * r) / 1e18,
+                pre.minterUnderlying + ((wrapped - fee + subsidy) * r) / 1e18,
                 q + 2,
                 "ml minter underlying"
             );
@@ -810,14 +810,14 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertEq(post.userWrapped, pre.userWrapped - wrapped, "ml user wrapped");
 
             assertEq(post.minterLeveraged, pre.minterLeveraged + minted, "ml minter leveraged");
-            assertApprox(post.minterWrapped, pre.minterWrapped + wrapped - fee + discount, 1, "ml minter wrapped");
+            assertApprox(post.minterWrapped, pre.minterWrapped + wrapped - fee + subsidy, 1, "ml minter wrapped");
 
             assertEq(post.userLeveraged, pre.userLeveraged + minted, "ml user leveraged returned");
             // Use full-precision E36 leveraged price rather than the truncated-to-wei public view;
             // in depeg scenarios lp can shrink to a few wei and the truncation becomes the dominant error.
             assertApprox(
                 minted,
-                Math.mulDiv((wrapped - fee + discount) * r /*underlying collateral */, p, _leveragedPriceE36(p)),
+                Math.mulDiv((wrapped - fee + subsidy) * r /*underlying collateral */, p, _leveragedPriceE36(p)),
                 q + 2,
                 0.00000011 ether, // the test calculation is far less accurate than the contract one
                 "ml user leveraged"
@@ -977,7 +977,7 @@ contract TestMinterFixedFeeRangeDepegShallow_ is TestMinterFixedFeeRange_ {
         super.setUp();
         measurePrice = price / 2;
         redeemPeggedBands = 1;
-        // depeg's discount / pegged-price metrics lose precision at dust, so use the leveraged floor here; the 1-wei
+        // depeg's subsidy / pegged-price metrics lose precision at dust, so use the leveraged floor here; the 1-wei
         // pegged floor holds only outside depeg.
         minTokenPegged = minToken;
     }
@@ -1046,41 +1046,41 @@ contract TestMinterFixedFeeRangePrice1Billionth_ is TestMinterFixedFeeRange_ {
     }
 }
 
-// discount
-contract TestMinterFixedFeeRangeDiscountInexhaustableReserve_ is TestMinterFixedFeeRange_ {
+// subsidy
+contract TestMinterFixedFeeRangeSubsidyInexhaustableReserve_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
         deal(address(wrappedCollateralToken), reservePool, 1e50);
-        areDiscounts = true;
+        areSubsidies = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_flatDiscountWide();
+        setUp_config_flatSubsidyWide();
     }
 }
 
-contract TestMinterFixedFeeRangeDiscountNoReserve_ is TestMinterFixedFeeRange_ {
+contract TestMinterFixedFeeRangeSubsidyNoReserve_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_flatDiscountWide();
+        setUp_config_flatSubsidyWide();
     }
 }
 
-contract TestMinterFixedFeeRangeDiscountLimitedReserve_ is TestMinterFixedFeeRangeDiscountNoReserve_ {
+contract TestMinterFixedFeeRangeSubsidyLimitedReserve_ is TestMinterFixedFeeRangeSubsidyNoReserve_ {
     function setUp() public virtual override {
         super.setUp();
-        discountLimitRatio = 0.5 ether;
+        subsidyLimitRatio = 0.5 ether;
     }
 }
 
 // rate checks
 
-contract TestMinterFixedFeeRangeDiscountInexhaustableReserveRate1Million_ is
-    TestMinterFixedFeeRangeDiscountInexhaustableReserve_
+contract TestMinterFixedFeeRangeSubsidyInexhaustableReserveRate1Million_ is
+    TestMinterFixedFeeRangeSubsidyInexhaustableReserve_
 {
     function setUp() public virtual override {
         super.setUp();
@@ -1191,9 +1191,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
     function _mintPegged(uint256 wrapped) internal virtual override {
         // MINT PEGGED INTEGRAL
         // _dump(_measure());
-        if (discountLimitRatio > 0) {
-            // use the max discount to determine a reserve pool capacity that should be exhasted by this redeem
-            uint256 reservePoolWrapped = (wrapped * discountLimitRatio) / 1e18;
+        if (subsidyLimitRatio > 0) {
+            // use the max subsidy to determine a reserve pool capacity that should be exhasted by this redeem
+            uint256 reservePoolWrapped = (wrapped * subsidyLimitRatio) / 1e18;
             // console2.log("pre.reservePoolWrapped=%s", reservePoolWrapped);
             deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
         }
@@ -1369,12 +1369,12 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         uint256 wrappedReturnedSteps = 0;
         uint256 pegged = Math.min((wrapped * p * r) / 1e36, IMinter(minter).peggedTokenBalance());
 
-        if (discountLimitRatio > 0) {
+        if (subsidyLimitRatio > 0) {
             // adjust wrapped for limited pegged
             uint256 peggedPrice = IMinter(minter).peggedTokenPrice();
             wrapped = Math.mulDiv(pegged, peggedPrice * 1e18, r * p);
             // use the wrapped to determine a reserve pool capacity that should be exhasted by this redeem
-            uint256 reservePoolWrapped = (wrapped * discountLimitRatio) / 1e18;
+            uint256 reservePoolWrapped = (wrapped * subsidyLimitRatio) / 1e18;
             // console2.log("pre.reservePoolWrapped=%s", reservePoolWrapped);
             deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
         }
@@ -1413,14 +1413,14 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
         Measures memory post = _measure();
 
-        // Reserve-pool discount is consumed step-by-step, so it drifts by the same per-step rounding as the
+        // Reserve-pool subsidy is consumed step-by-step, so it drifts by the same per-step rounding as the
         // other wrapped quantities in this redeem.
         assertApprox(
             post.reservePoolWrapped,
             postSteps.reservePoolWrapped,
             steps,
             steps,
-            "rp integral discount wrapped"
+            "rp integral subsidy wrapped"
         );
 
         assertApprox(post.feeWrapped, postSteps.feeWrapped, 2 * steps, 3e8 * steps, "rp integral fee wrapped");
@@ -1466,9 +1466,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         // MINT LEVERAGED INTEGRAL
         // we don't allow minting leveragedTokens when it's not economically sensible to do so
         if (IMinter(minter).collateralRatio() > 1 ether) {
-            if (discountLimitRatio > 0) {
+            if (subsidyLimitRatio > 0) {
                 // use the wrapped to determine a reserve pool capacity that should be exhasted by this redeem
-                uint256 reservePoolWrapped = (wrapped * discountLimitRatio) / 1e18;
+                uint256 reservePoolWrapped = (wrapped * subsidyLimitRatio) / 1e18;
                 // console2.log("pre.reservePoolWrapped=%s", reservePoolWrapped);
                 deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
             }
@@ -1512,7 +1512,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 postSteps.reservePoolWrapped,
                 steps,
                 0,
-                "ml integral discount wrapped"
+                "ml integral subsidy wrapped"
             );
 
             assertApprox(post.feeWrapped, postSteps.feeWrapped, steps, 2e4 * steps, "ml integral fee wrapped");
@@ -1712,94 +1712,94 @@ contract TestMinterIntegralFixedFees is TestMinterIntegralFees {
     }
 }
 
-contract TestMinterIntegralDisallowDiscountNoReserve is TestMinterIntegralFees {
+contract TestMinterIntegralDisallowSubsidyNoReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_flatDisallowDiscountWide();
+        setUp_config_flatDisallowSubsidyWide();
     }
 }
 
-contract TestMinterIntegralDiscountNoReserve is TestMinterIntegralFees {
+contract TestMinterIntegralSubsidyNoReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_flatDiscountWide();
+        setUp_config_flatSubsidyWide();
     }
 }
 
-contract TestMinterIntegralDiscountLimitedReserve is TestMinterIntegralDiscountNoReserve {
+contract TestMinterIntegralSubsidyLimitedReserve is TestMinterIntegralSubsidyNoReserve {
     function setUp() public virtual override {
         super.setUp();
-        discountLimitRatio = 0.005 ether;
+        subsidyLimitRatio = 0.005 ether;
     }
 }
 
-contract TestMinterIntegralDiscountDisallowForwardLimitedReserve is TestMinterIntegralDiscountNoReserve {
+contract TestMinterIntegralSubsidyDisallowForwardLimitedReserve is TestMinterIntegralSubsidyNoReserve {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_directionalDisallowDiscountWide();
+        setUp_config_directionalDisallowSubsidyWide();
     }
 }
 
-contract TestMinterIntegralDiscountDisallowReverseLimitedReserve is TestMinterIntegralDiscountNoReserve {
+contract TestMinterIntegralSubsidyDisallowReverseLimitedReserve is TestMinterIntegralSubsidyNoReserve {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
     }
     function setUpConfig() internal virtual override {
-        setUp_config_reverseDirectionalDisallowDiscountWide();
+        setUp_config_reverseDirectionalDisallowSubsidyWide();
     }
 }
 
-contract TestMinterIntegralDisallowDiscountVariableNoReserve is TestMinterIntegralFees {
+contract TestMinterIntegralDisallowSubsidyVariableNoReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_directionalDisallowDiscountWide();
+        setUp_config_directionalDisallowSubsidyWide();
     }
 }
 
-contract TestMinterIntegralDisallowDiscountReverseVariableNoReserve is TestMinterIntegralFees {
+contract TestMinterIntegralDisallowSubsidyReverseVariableNoReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
         reverseDirection = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_reverseDirectionalDisallowDiscountWide();
+        setUp_config_reverseDirectionalDisallowSubsidyWide();
     }
 }
 
-contract TestMinterIntegralDisallowDiscountInexhaustableReserve is TestMinterIntegralFees {
+contract TestMinterIntegralDisallowSubsidyInexhaustableReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
         deal(address(wrappedCollateralToken), reservePool, 1e50);
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
-        setUp_config_flatDisallowDiscountWide();
+        setUp_config_flatDisallowSubsidyWide();
     }
 
     function _mintPegged(uint256 wrapped) internal virtual override {
@@ -1840,12 +1840,12 @@ contract TestMinterIntegralReverseVariableFees is TestMinterIntegralFees {
 
 // -------- Directional + limited reserve under extreme p/r (integral) --------
 
-contract TestMinterIntegralDisallowDiscountForwardLimitedReserveRate1Million is TestMinterIntegralFees {
+contract TestMinterIntegralDisallowSubsidyForwardLimitedReserveRate1Million is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
-        discountLimitRatio = 0.005 ether;
+        subsidyLimitRatio = 0.005 ether;
 
         // p=1e18, r=1e12
         price = measurePrice = 1e18;
@@ -1853,25 +1853,25 @@ contract TestMinterIntegralDisallowDiscountForwardLimitedReserveRate1Million is 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
     }
     function setUpConfig() internal virtual override {
-        setUp_config_directionalDisallowDiscountWide();
+        setUp_config_directionalDisallowSubsidyWide();
     }
 }
 
 /// @notice A mint in the 1-million-rate regime that runs to completion instead of reaching the disallow.
-contract TestMinterIntegralDisallowDiscountForwardLimitedReserveRate1MillionCounterexample is
-    TestMinterIntegralDisallowDiscountForwardLimitedReserveRate1Million
+contract TestMinterIntegralDisallowSubsidyForwardLimitedReserveRate1MillionCounterexample is
+    TestMinterIntegralDisallowSubsidyForwardLimitedReserveRate1Million
 {
     function test_mintPeggedRange_freeIntegralCounterexample() public {
         test_mintPeggedRange_(1, 47330819957767311596, 249077380139801647028);
     }
 }
 
-contract TestMinterIntegralDisallowDiscountReverseLimitedReservePrice1Billionth is TestMinterIntegralFees {
+contract TestMinterIntegralDisallowSubsidyReverseLimitedReservePrice1Billionth is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areDiscounts = true;
+        areSubsidies = true;
         areDisallows = true;
-        discountLimitRatio = 0.005 ether;
+        subsidyLimitRatio = 0.005 ether;
 
         // p = 1e9, r = 1e18
         price = measurePrice = 1e9;
@@ -1879,7 +1879,7 @@ contract TestMinterIntegralDisallowDiscountReverseLimitedReservePrice1Billionth 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
     }
     function setUpConfig() internal virtual override {
-        setUp_config_reverseDirectionalDisallowDiscountWide();
+        setUp_config_reverseDirectionalDisallowSubsidyWide();
     }
 }
 
@@ -1889,8 +1889,8 @@ contract TestMinterIntegralDisallowDiscountReverseLimitedReservePrice1Billionth 
 ///      amplifies it roughly tenfold into collateral space. The one-shot and stepped paths therefore end more
 ///      than 2x apart on every collateral quantity while both sit correctly just above the boundary — the case
 ///      that shows why the two paths must be measured against the boundary rather than against each other.
-contract TestMinterIntegralDisallowDiscountReverseLimitedReservePrice1BillionthCounterexample is
-    TestMinterIntegralDisallowDiscountReverseLimitedReservePrice1Billionth
+contract TestMinterIntegralDisallowSubsidyReverseLimitedReservePrice1BillionthCounterexample is
+    TestMinterIntegralDisallowSubsidyReverseLimitedReservePrice1Billionth
 {
     function test_mintPeggedRange_fuzzerCounterexample() public {
         test_mintPeggedRange_(

@@ -39,11 +39,11 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // uint256 receiverLeveragedIncrease;
         // {
         //     uint256 fee;
-        //     uint256 discount;
-        //     (, fee, discount, , receiverLeveragedIncrease, , ) = IMinter(minter).mintLeveragedTokenDryRun(
+        //     uint256 subsidy;
+        //     (, fee, subsidy, , receiverLeveragedIncrease, , ) = IMinter(minter).mintLeveragedTokenDryRun(
         //         ownerCollateralDecrease
         //     );
-        //     receiverLeveragedIncrease = receiverLeveragedIncrease + (fee * price) - (discount * price);
+        //     receiverLeveragedIncrease = receiverLeveragedIncrease + (fee * price) - (subsidy * price);
         // }
         // assertEq(
         //     receiverLeveragedIncrease,
@@ -245,15 +245,15 @@ contract TestMinterMintLeveraged is TestMinterMint {
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
 
         uint256 mintLeveragedFee = 0;
-        uint256 mintLeveragedDiscount = 0;
+        uint256 mintLeveragedSubsidy = 0;
         {
-            int256 feeDiscount = (int256(senderCollateralDecrease) *
+            int256 feeSubsidy = (int256(senderCollateralDecrease) *
                 ultimate(config.mintLeveragedIncentiveConfig.incentiveRatios)) / 1 ether;
-            if (feeDiscount >= 0) mintLeveragedFee = uint256(feeDiscount);
-            else mintLeveragedDiscount = uint256(-feeDiscount);
+            if (feeSubsidy >= 0) mintLeveragedFee = uint256(feeSubsidy);
+            else mintLeveragedSubsidy = uint256(-feeSubsidy);
         }
         // uint256 receiverLeveragedIncrease = IMinter(minter).leveragedTokensForCollateral(
-        //     senderCollateralDecrease - mintLeveragedFee + mintLeveragedDiscount
+        //     senderCollateralDecrease - mintLeveragedFee + mintLeveragedSubsidy
         // );
 
         MintLeveragedHolding memory before = MintLeveragedHolding(
@@ -288,8 +288,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         );
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(reservePool),
-            before.reservePoolCollateral - mintLeveragedDiscount,
-            "discount transferred"
+            before.reservePoolCollateral - mintLeveragedSubsidy,
+            "subsidy transferred"
         );
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(sender),
@@ -318,7 +318,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         );
         assertEq(
             IMinter(minter).collateralTokenBalance(),
-            before.minterCollateralBalance + senderCollateralDecrease - mintLeveragedFee + mintLeveragedDiscount,
+            before.minterCollateralBalance + senderCollateralDecrease - mintLeveragedFee + mintLeveragedSubsidy,
             "minter is tracking the new collateral"
         );
 
@@ -328,7 +328,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     struct DryRunResults {
         int256 incentiveRatio;
         uint256 wrappedFee;
-        uint256 wrappedDiscount;
+        uint256 wrappedSubsidy;
         uint256 wrappedCollateralUsed;
         uint256 leveragedMinted;
         uint256 price;
@@ -342,7 +342,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         (
             r.incentiveRatio,
             r.wrappedFee,
-            r.wrappedDiscount,
+            r.wrappedSubsidy,
             r.wrappedCollateralUsed,
             r.leveragedMinted,
             r.price,
@@ -352,7 +352,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // console.log("expected.incentiveRatio = %s", expected.incentiveRatio);
         assertEq(r.incentiveRatio, expected.incentiveRatio, "incentiveRatio");
         assertEq(r.wrappedFee, expected.wrappedFee, "wrappedFee");
-        assertEq(r.wrappedDiscount, expected.wrappedDiscount, "wrappedDiscount");
+        assertEq(r.wrappedSubsidy, expected.wrappedSubsidy, "wrappedSubsidy");
         assertEq(r.wrappedCollateralUsed, expected.wrappedCollateralUsed, "wrappedCollateralUsed");
         assertEq(r.leveragedMinted, expected.leveragedMinted, "leveragedMinted");
         assertEq(r.price, expected.price, "price");
@@ -365,7 +365,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             DryRunResults({
                 incentiveRatio: 0,
                 wrappedFee: 0,
-                wrappedDiscount: 0,
+                wrappedSubsidy: 0,
                 wrappedCollateralUsed: 0,
                 leveragedMinted: 0,
                 price: price_,
@@ -584,9 +584,10 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // for a range of collateral ratios,
 
         // mint one
-        (, uint256 fee, uint256 discount, , uint256 oneMint, uint256 price, ) = IMinter(minter)
-            .mintLeveragedTokenDryRun(collateral);
-        oneMint = oneMint + (fee * price) / 1 ether - (discount * price) / 1 ether;
+        (, uint256 fee, uint256 subsidy, , uint256 oneMint, uint256 price, ) = IMinter(minter).mintLeveragedTokenDryRun(
+            collateral
+        );
+        oneMint = oneMint + (fee * price) / 1 ether - (subsidy * price) / 1 ether;
         // mint multiple
         uint multiples = 100;
         uint256 collateral2 = collateral / multiples;
@@ -594,8 +595,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 sum = 0;
         for (uint i = 0; i < multiples; i++) {
             uint256 oneOfMint;
-            (, fee, discount, , oneOfMint, , ) = IMinter(minter).mintLeveragedTokenDryRun(collateral2);
-            oneOfMint = oneOfMint + (fee * price) / 1 ether - (discount * price) / 1 ether;
+            (, fee, subsidy, , oneOfMint, , ) = IMinter(minter).mintLeveragedTokenDryRun(collateral2);
+            oneOfMint = oneOfMint + (fee * price) / 1 ether - (subsidy * price) / 1 ether;
             assertEq(
                 oneOfMint,
                 oneMint / multiples,

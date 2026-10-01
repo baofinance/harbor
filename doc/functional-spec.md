@@ -46,14 +46,14 @@ above 1, every anchor token is fully backed and the surplus belongs to the sail 
 has *depegged* — it can no longer be redeemed for its face value, only for its pro-rata share of
 what collateral remains.
 
-Everything the protocol does — pricing, fees, discounts, rebalancing — is aimed at keeping the
+Everything the protocol does — pricing, fees, subsidies, rebalancing — is aimed at keeping the
 collateral ratio comfortably above 1, and at making the *approach* to 1 progressively more
 expensive, so that it is arrested by ordinary self-interested behaviour rather than by intervention.
 
 ### 1.3 Scope of this document
 
 **In scope: the Harbor core protocol** — the minting and redeeming of anchor and sail tokens, the
-stability pools that backstop them, the genesis bootstrap, the reserve pool that funds discounts,
+stability pools that backstop them, the genesis bootstrap, the reserve pool that funds subsidies,
 the reward distribution to stability-pool depositors, and the keeper-driven background processes
 (rebalancing, harvesting, compounding).
 
@@ -459,13 +459,13 @@ accumulate until claimed. A depositor's accrued-but-unclaimed rewards are not ca
 
 ### 2.8 The reserve pool
 
-A separate pool of collateral funds **discounts** — negative fees, where a user receives *more* than
+A separate pool of collateral funds **subsidies** — negative fees, where a user receives *more* than
 the arithmetic exchange rate for performing an action that improves the system's health. It is
 funded by a share of collected fees and by direct transfers.
 
-The reserve pool is a **best-effort** facility. When it empties, discounts silently stop applying
-and actions simply proceed at zero fee; no operation fails because a discount could not be paid.
-Users are told the actual discount available, not the configured one, by the dry-run functions
+The reserve pool is a **best-effort** facility. When it empties, subsidies silently stop applying
+and actions simply proceed at zero fee; no operation fails because a subsidy could not be paid.
+Users are told the actual subsidy available, not the configured one, by the dry-run functions
 (§4, §5.3).
 
 ### 2.9 Terminology
@@ -534,7 +534,7 @@ Bears the risk that the market opens on unfavourable terms, in exchange for foun
 
 **Contributor.** Gives value to the protocol and takes no claim in return — typically the treasury,
 but anyone, since both routes accept direct transfers. The choice of route decides who benefits:
-collateral sent to the reserve pool funds discounts for users restoring the ratio, while wrapped
+collateral sent to the reserve pool funds subsidies for users restoring the ratio, while wrapped
 collateral sent to the Minter becomes yield for stability-pool depositors. Neither is an investment
 and neither is recoverable (§4.8).
 
@@ -545,7 +545,7 @@ rebalancing, harvesting, compounding — and is paid a **bounty** in the proceed
 protocol depends on keepers being profitable; §6 covers what happens when they are not. Keepers are
 permissionless and unprivileged: they choose *when* to call, never *what* the call does.
 
-**Owner / governance.** A multisig. Sets the fee and discount schedule, the rebalance threshold, the
+**Owner / governance.** A multisig. Sets the fee and subsidy schedule, the rebalance threshold, the
 bounty and cut ratios, the price source, and the fee and reserve destinations. Holds upgrade
 authority over every contract, and thereby the pause mechanism. This is the system's principal trust
 assumption and is enumerated as such in §9.
@@ -604,13 +604,13 @@ Acceptance criteria:
 
 Acceptance criteria:
 1. A read-only **dry-run function** exists for each of the four operations, returning the effective
-   incentive ratio, the fee, any discount, the exact input consumed, the exact output produced, and
+   incentive ratio, the fee, any subsidy, the exact input consumed, the exact output produced, and
    the price and rate used.
 2. The dry-run is exact for the state at the moment of the call — it is a computation of the same
    path, not an estimate.
 3. The dry-run accounts for **partial fills**: where configuration disallows part of an operation,
    it reports the amount that would actually transact, not the amount requested.
-4. The dry-run reports the **available** discount, reduced if the reserve pool cannot fund the
+4. The dry-run reports the **available** subsidy, reduced if the reserve pool cannot fund the
    configured one.
 5. Where the operation would be **refused** outright — a sail mint below the leverage floor (§2.3) —
    the dry-run reports that nothing would transact: every amount zero, with the incentive ratio of
@@ -646,11 +646,11 @@ Acceptance criteria:
 
 Acceptance criteria:
 1. Redeeming burns anchor tokens and returns wrapped collateral at the validated price.
-2. When the system is unhealthy the redemption attracts a **discount** rather than a fee — the holder
+2. When the system is unhealthy the redemption attracts a **subsidy** rather than a fee — the holder
    receives more than the arithmetic rate, funded by the reserve pool, because the redemption
    improves the collateral ratio.
-3. If the reserve pool cannot fund the full discount, the redemption still completes with whatever
-   discount is available.
+3. If the reserve pool cannot fund the full subsidy, the redemption still completes with whatever
+   subsidy is available.
 4. **Redemption is always permitted.** No configuration can disallow it, at any collateral ratio, so
    an anchor holder always has an exit (§7.5).
 5. The protocol will not redeem more anchor tokens than it minted, regardless of how many exist.
@@ -666,8 +666,8 @@ Acceptance criteria:
 1. Below a collateral ratio of 1, the anchor token's reported price is its pro-rata share of the
    remaining collateral, not 1.
 2. Redemption remains available and is priced from that share.
-3. Redemption at a depeg is **discounted, not penalised** — the fee schedule pays holders to redeem.
-   A redemption at the pro-rata share leaves the ratio unchanged, so the discount does not buy
+3. Redemption at a depeg is **subsidised, not penalised** — the fee schedule pays holders to redeem.
+   A redemption at the pro-rata share leaves the ratio unchanged, so the subsidy does not buy
    health; it keeps the exit worth taking.
 
 ### 4.2 Sail holder
@@ -684,7 +684,7 @@ Acceptance criteria:
 2. There is **no per-position liquidation price, no margin call, and no borrowing cost** — the
    position's leverage varies with the system's collateral ratio instead.
 3. The position dilutes toward zero only if the collateral ratio reaches 1; it is never seized.
-4. Minting attracts a **discount** when the system is unhealthy, because minting sail tokens adds
+4. Minting attracts a **subsidy** when the system is unhealthy, because minting sail tokens adds
    collateral without adding anchor claims and so raises the ratio.
 5. Minting is **refused below the leverage floor** (§2.3), with `LeverageAboveCap`, so nobody buys in
    at a leverage above the cap. `leveragedMintable()` reports whether a mint would be served, and
@@ -851,13 +851,13 @@ Acceptance criteria:
 
 **US-15 — Tune incentives without redeploying**
 
-> *As the owner, I want to adjust the fee and discount schedule as market conditions change, so that
+> *As the owner, I want to adjust the fee and subsidy schedule as market conditions change, so that
 > the incentives stay calibrated.*
 
 Acceptance criteria:
 1. The full four-way schedule (mint and redeem, for each token) is settable in one operation.
 2. The configuration is **validated on submission** against the rules in §7 — band bounds strictly
-   increasing, disallow values only where they are permitted, discounts only where they are
+   increasing, disallow values only where they are permitted, subsidies only where they are
    permitted — and rejected with a specific error naming the offending entry.
 3. Validation makes it impossible to configure a schedule that blocks anchor redemption or sail
    minting, so the health-restoring paths cannot be closed by configuration. Sail minting is closed
@@ -934,16 +934,16 @@ decision, and it is not reversible.
 
 **US-19 — Subsidise the actions that restore health**
 
-> *As a contributor, I want to fund the discounts that pay users for restoring the collateral ratio,
+> *As a contributor, I want to fund the subsidies that pay users for restoring the collateral ratio,
 > so that the incentive works when it is most needed.*
 
 Acceptance criteria:
 1. The reserve pool accepts collateral by **direct transfer** — no call, no permission, no
    registration.
-2. What it holds funds discounts on anchor redemption and sail minting, paid automatically as those
+2. What it holds funds subsidies on anchor redemption and sail minting, paid automatically as those
    actions occur (§7.6).
 3. The contributor receives nothing and retains no claim. Only the owner may withdraw.
-4. An empty pool degrades discounts to zero without failing any operation, so a contribution changes
+4. An empty pool degrades subsidies to zero without failing any operation, so a contribution changes
    how much is paid, never whether an action is permitted.
 
 ---
@@ -1109,24 +1109,24 @@ sequenceDiagram
 
     alt system healthy — a fee applies
         M->>F: fee (wrapped collateral)
-    else system unhealthy — a discount applies
-        M->>R: request discount
-        R-->>M: discount, or as much as is left
-        note over M: discount added to the user's proceeds<br/>reduced silently if the pool is short
+    else system unhealthy — a subsidy applies
+        M->>R: request subsidy
+        R-->>M: subsidy, or as much as is left
+        note over M: subsidy added to the user's proceeds<br/>reduced silently if the pool is short
     end
 
     U-->>M: burn anchor tokens
-    M-->>U: wrapped collateral (+ discount)
+    M-->>U: wrapped collateral (+ subsidy)
     note over M: anchor supply falls<br/>collateral ratio rises
 ```
 
 **Outcome.** The user holds collateral; the system has fewer anchor claims. The collateral ratio
-**rises** — this action restores health, which is why it is discounted when health is poor.
+**rises** — this action restores health, which is why it is subsidised when health is poor.
 
 **Notable properties.**
 - Configuration **cannot** disallow this action; the validation rules reject a 100% fee here. An
   anchor holder always has an exit.
-- The discount is best-effort. An exhausted reserve pool reduces it to whatever remains — possibly
+- The subsidy is best-effort. An exhausted reserve pool reduces it to whatever remains — possibly
   zero — without failing the redemption.
 - The protocol tracks what it has minted and refuses to redeem beyond it, so anchor tokens minted by
   another chain's deployment cannot drain this market.
@@ -1137,7 +1137,7 @@ These mirror §5.2 and §5.3 with the incentives inverted.
 
 | | Effect on collateral ratio | Incentive when unhealthy | Can configuration disallow it? |
 |---|---|---|---|
-| **Mint sail** | Rises | **Discount** (funded by reserve pool) | No — but the **leverage cap refuses it below the leverage floor** (§2.3), whatever the configuration says |
+| **Mint sail** | Rises | **Subsidy** (funded by reserve pool) | No — but the **leverage cap refuses it below the leverage floor** (§2.3), whatever the configuration says |
 | **Redeem sail** | Falls | **Fee**, rising | **Yes** — blocked below a ratio of 1. **Never limited by the leverage cap** |
 
 ```mermaid
@@ -1150,17 +1150,17 @@ sequenceDiagram
     participant F as Fee receiver
 
     rect rgb(233, 245, 238)
-    note over U,F: Mint sail — health-improving, may be discounted
+    note over U,F: Mint sail — health-improving, may be subsidised
     U->>M: mintLeveragedToken(collateralIn, receiver, minOut)
     M->>O: latestAnswer()
     alt collateral ratio below the leverage floor
         M-->>U: revert — LeverageAboveCap(ratio, floor)
     end
-    M->>R: request discount (if configured at this ratio)
-    R-->>M: discount, or as much as is left
+    M->>R: request subsidy (if configured at this ratio)
+    R-->>M: subsidy, or as much as is left
     U-->>M: transfer collateral
     M->>F: fee (if any)
-    M-->>U: sail tokens (+ discount value)
+    M-->>U: sail tokens (+ subsidy value)
     end
 
     rect rgb(253, 235, 235)
@@ -1193,7 +1193,7 @@ sail token of a market with no sail supply is not judged, which is how a market 
 **How many sail tokens a mint gives.** Into a market that already has sail tokens, a mint buys its
 share of the residual: the collateral it adds, valued at the high price, as a fraction of the
 residual, times the sail supply. The collateral counted is what the backing record is credited with
-— the wrapped amount at the low rate, rounded down, after any fee or discount — and the result is
+— the wrapped amount at the low rate, rounded down, after any fee or subsidy — and the result is
 rounded down too, so a mint never takes more of the residual than it brings and the value behind
 each sail token already held never falls. The fee-paying and the zero-fee mint share this one
 definition: with no incentive in force they are the same trade. The first sail tokens of a market
@@ -1558,11 +1558,11 @@ simulating.
 | **Cadence** | Event-driven: whenever the collateral price falls far enough |
 
 **If it never runs.** The collateral ratio stays below the threshold and the system does not
-self-heal through the stability pools. It is not immediately insolvent — the fee and discount
+self-heal through the stability pools. It is not immediately insolvent — the fee and subsidy
 schedule keeps pushing users toward the restoring actions (§7), and those alone may recover the
 ratio. But the pools are the protocol's *only* mechanism that raises the ratio without needing a
 user to volunteer, so with rebalancing stalled the system depends entirely on market participants
-finding the discounts attractive. If the collateral price keeps falling, the ratio can reach 1 and
+finding the subsidies attractive. If the collateral price keeps falling, the ratio can reach 1 and
 the anchor token depegs — and at or below the peg no rebalance can help, so a stalled keeper costs
 the market the window in which the pools could have acted.
 
@@ -1754,11 +1754,11 @@ depositors retain access to their positions even while the market is halted.
 | **Who may call** | Anyone may fund it; only the owner may withdraw |
 | **Cadence** | Discretionary |
 
-The reserve pool funds discounts and is **best-effort by design**: it hands out what is asked for,
+The reserve pool funds subsidies and is **best-effort by design**: it hands out what is asked for,
 or as much as it has, and never reverts for being short.
 
-**If it empties.** Discounts silently stop applying and the health-improving actions proceed at zero
-fee instead. No operation fails. The dry-run functions report the *available* discount rather than
+**If it empties.** Subsidies silently stop applying and the health-improving actions proceed at zero
+fee instead. No operation fails. The dry-run functions report the *available* subsidy rather than
 the configured one, so a user is never quoted a subsidy that will not be paid.
 
 The consequence is a **weakening, not a breaking**, of the incentive design: the actions that restore
@@ -1771,7 +1771,7 @@ permitted is the load-bearing part and the subsidy is the accelerator.
 
 ### 7.1 The single lever
 
-Every fee and every discount in the minting system is expressed as one signed number, the
+Every fee and every subsidy in the minting system is expressed as one signed number, the
 **incentive ratio**, scaled so that 1.0 means 100%:
 
 | Value | Meaning |
@@ -1779,8 +1779,8 @@ Every fee and every discount in the minting system is expressed as one signed nu
 | `+1.0` | **Disallowed** — a 100% fee is the encoding for "this action may not happen here" |
 | `> 0` | A **fee**: the user receives less than the arithmetic exchange rate |
 | `0` | Free — the exact arithmetic rate |
-| `< 0` | A **discount**: the user receives *more* than the arithmetic rate, funded by the reserve pool |
-| `-1.0` | Excluded — a 100% discount is not representable |
+| `< 0` | A **subsidy**: the user receives *more* than the arithmetic rate, funded by the reserve pool |
+| `-1.0` | Excluded — a 100% subsidy is not representable |
 
 Encoding "disallowed" as a fee of 100%, rather than as a separate flag, means the same lookup, the
 same validation and the same arithmetic path handle permission and pricing together. There is no
@@ -1825,7 +1825,7 @@ would give.
 
 Two actions consume system health and two restore it. The schedule for each is shaped accordingly:
 
-| Action | Effect on collateral ratio | Priced to be… | May be discounted? | May be disallowed? |
+| Action | Effect on collateral ratio | Priced to be… | May be subsidised? | May be disallowed? |
 |---|---|---|---|---|
 | **Mint anchor** | Falls | Expensive when unhealthy | **No** | **Yes** |
 | **Redeem anchor** | Rises | Rewarding when unhealthy | **Yes** | **No** |
@@ -1866,7 +1866,7 @@ real schedule are worth drawing out, because both are sharper than the principle
   *shutting off* the damaging action at the boundary, not by pricing it punitively — the disallow
   does the heavy lifting, and the percentages handle the healthy range.
 - **The sail-mint column is overridden near the peg.** Below the leverage floor (§2.3) — about 1.053
-  for a cap of 20 — the leverage cap refuses sail minting whatever the schedule says, so the discount
+  for a cap of 20 — the leverage cap refuses sail minting whatever the schedule says, so the subsidy
   in the 1.00–1.10 band is paid only on the part of the band above the floor.
 
 ### 7.4 The self-correcting loop
@@ -1933,7 +1933,7 @@ Some rules are arithmetic hygiene; two are structural guarantees.
    at which to mint. The guarantee therefore says only that the *schedule* cannot close sail minting
    where the cap allows it. The deployed schedules still carry a 99.9999% fee in the depegged band,
    now redundant behind the cap.
-2. **Anchor minting and sail redemption can never be discounted.** Their permitted range is [0, +1],
+2. **Anchor minting and sail redemption can never be subsidised.** Their permitted range is [0, +1],
    which excludes negatives. The protocol cannot be configured to *pay* users to damage its own
    health.
 
@@ -1952,9 +1952,9 @@ A further restriction: a disallow, where permitted at all, may only appear in th
 the depegged one. Blocking can therefore only ever apply at the bottom of the range, never carved
 into the middle of an otherwise healthy schedule.
 
-### 7.6 Discounts and the reserve pool
+### 7.6 Subsidies and the reserve pool
 
-A discount pays the user more than the arithmetic rate, and the difference comes from the reserve
+A subsidy pays the user more than the arithmetic rate, and the difference comes from the reserve
 pool. This makes it the only incentive with an **external funding requirement**, and therefore the
 only one that can fail to be delivered.
 
@@ -1962,9 +1962,9 @@ The design handles that by making the shortfall harmless:
 
 - The reserve pool hands over what is requested, or its whole balance if that is less. It never
   reverts for being short.
-- A partly-funded or unfunded discount reduces to a smaller discount, or to zero — the action still
+- A partly-funded or unfunded subsidy reduces to a smaller subsidy, or to zero — the action still
   completes.
-- The dry-run functions report the **available** discount, so a user is never quoted a subsidy that
+- The dry-run functions report the **available** subsidy, so a user is never quoted a subsidy that
   will not be paid.
 
 The relationship to §7.5 is what makes this safe: because the health-restoring actions can never be
@@ -2101,7 +2101,7 @@ handle is refused loudly, never mis-recorded.
 | # | Invariant | Assurance |
 |---|---|---|
 | **C1** | Configuration can never disallow anchor redemption or sail minting. Sail minting is closed below the leverage floor by the cap, not by configuration (A7). | By construction — the permitted range excludes the disallow encoding |
-| **C2** | Anchor minting and sail redemption can never be discounted. | By construction — the permitted range excludes negatives |
+| **C2** | Anchor minting and sail redemption can never be subsidised. | By construction — the permitted range excludes negatives |
 | **C3** | A disallow may appear only in the first (depegged) band. | By check |
 | **C4** | Band bounds are strictly increasing, and the first band covers the depeg boundary. | By check |
 | **C5** | A value too precise for its storage schema is **rejected**, never silently rounded. | By check |
@@ -2142,7 +2142,7 @@ flowchart TB
     subgraph econ["Economic surface"]
         V3["flash-loan the fee bands"]
         V4["front-run a rebalance"]
-        V5["drain the discount subsidy"]
+        V5["drain the subsidy"]
         V6["game the withdrawal window"]
     end
     subgraph acct["Accounting surface"]
@@ -2201,12 +2201,12 @@ is priced and so also halts, and the system cannot backstop itself until the fee
 ### 9.3 Flash-loaned fee-band traversal
 
 **The attempt.** Borrow a large amount, move the collateral ratio far within one transaction, and
-capture a favourable band — for instance push the ratio down into discount territory, redeem at the
-discount, and repay.
+capture a favourable band — for instance push the ratio down into subsidy territory, redeem with the
+subsidy, and repay.
 
 **Why it fails, and the reason is stronger than pricing.** The two ways to push the ratio down are
 minting anchor tokens and redeeming sail tokens, and the deployed schedules **shut both off** before
-the ratio reaches the discount region:
+the ratio reaches the subsidy region:
 
 - Anchor minting is **disallowed below the schedule's floor**, which sits just above the rebalance
   threshold (§7.3). An attacker cannot mint the ratio down into stressed territory at all.
@@ -2214,13 +2214,13 @@ the ratio reaches the discount region:
 
 So the attack is not merely made expensive — the lever is removed. Where it is still available the
 fee schedule is additionally **slice-priced across bands** (§7.2), so any ratio movement pays every
-band's fee on the way, and the discounts on the far side are small (around 1% in the deployed class
+band's fee on the way, and the subsidies on the far side are small (around 1% in the deployed class
 shown in §7.3) and bounded by the reserve pool's balance.
 
 **Residual risk.** The defence rests on the disallow floor being configured above the region where
-discounts begin. That relationship is a **calibration property, not a validated one**: the rules
-enforce signs and disallow placement (§8.5), not that the floor sits above the discount bands. A
-schedule that permitted minting into discount territory, with discounts exceeding the fees paid to
+subsidies begin. That relationship is a **calibration property, not a validated one**: the rules
+enforce signs and disallow placement (§8.5), not that the floor sits above the subsidy bands. A
+schedule that permitted minting into subsidy territory, with subsidies exceeding the fees paid to
 reach them, would open this. Every deployed class satisfies the relationship by following the
 `threshold + 0.01` rule, but nothing in the contract requires it.
 
@@ -2241,7 +2241,7 @@ there is a real edge. Four things bound it:
 - The depositor is liquidated only **pro-rata**, so a late entrant dilutes their own capture.
 - Exiting afterwards costs the **early-withdrawal fee** unless a window was opened in advance —
   which requires committing before the opportunity was visible.
-- Deeper into stress the alternative improves: **direct redemption is discounted** (−5%, −10%),
+- Deeper into stress the alternative improves: **direct redemption is subsidised** (−5%, −10%),
   which can beat zero-fee liquidation outright.
 - The deposit must satisfy the pool's minimum.
 
@@ -2308,19 +2308,19 @@ the target — in which case the second call performs genuine, needed work.
 The bounty is a share of proceeds actually released, so there is no way to be paid for a call that
 moves nothing.
 
-### 9.6 Draining the discount subsidy
+### 9.6 Draining the subsidy
 
-**The attempt.** Round-trip the discounted actions to extract the reserve pool — mint sail tokens at
-a discount, redeem them back, repeat.
+**The attempt.** Round-trip the subsidised actions to extract the reserve pool — mint sail tokens with
+a subsidy, redeem them back, repeat.
 
-**Why it fails.** The two legs are priced against each other. Minting sail is discounted exactly
+**Why it fails.** The two legs are priced against each other. Minting sail is subsidised exactly
 where redeeming sail is expensive, and below a ratio of 1 redeeming sail is **blocked outright**.
 The round trip is loss-making in every band. The reserve is additionally best-effort: it pays what
 it has, so the extractable amount is bounded by its balance regardless of the strategy.
 
 **Residual risk.** The reserve pool can be **exhausted** by legitimate use — many users genuinely
 redeeming anchor tokens during stress. That is the subsidy working as intended, not an attack, but
-it means the discount cannot be relied on to be available when most wanted. §7.6 explains why this
+it means the subsidy cannot be relied on to be available when most wanted. §7.6 explains why this
 degrades the incentive without breaking it: permission is load-bearing and needs no funding; the
 subsidy only accelerates.
 
@@ -2477,11 +2477,11 @@ in-protocol mechanism addresses.
 |---|---|---|
 | Feed manipulation | Band, deviation and staleness checks | Sustained genuine mispricing |
 | Stale feed | Reverts (fail-safe) | **Availability** — market halts, pool access survives |
-| Flash-loan band traversal | Both ratio-lowering actions disallowed before the discount region; slice pricing | Floor-above-discounts is calibration, not validated |
-| Rebalance timing — deposit before | Pro-rata dilution, exit fee, discounts compete | Dilution of incumbent depositors — small, bounded |
+| Flash-loan band traversal | Both ratio-lowering actions disallowed before the subsidy region; slice pricing | Floor-above-subsidies is calibration, not validated |
+| Rebalance timing — deposit before | Pro-rata dilution, exit fee, subsidies compete | Dilution of incumbent depositors — small, bounded |
 | Rebalance timing — withdraw before | Withdrawal window prices the exit; compounding restores the stayer | **Permanent harvest-share gap in the leveraged pool** |
 | Rebalance griefing | Threshold check; bounty only on real proceeds | None material |
-| Discount draining | Legs priced against each other; reserve best-effort | Reserve exhaustion under legitimate use |
+| Subsidy draining | Legs priced against each other; reserve best-effort | Reserve exhaustion under legitimate use |
 | Window gaming | Withdraw clears request; deposit cancels window | Accepted by design — a fee, not a lock |
 | Donation / first depositor | **Structurally absent** — explicit ledger, no share price | None |
 | Reward-integral overflow | Capped and deferred, floor bounds the divisor | Deferral latency only |
@@ -2563,7 +2563,7 @@ the previous one still has room.
 The leverage floor shown is for a cap of 20 (§2.3); a higher cap moves it toward 1.00 and shrinks the
 second row.
 
-"Paid" means a discount — the user receives more than the arithmetic rate, funded by the reserve
+"Paid" means a subsidy — the user receives more than the arithmetic rate, funded by the reserve
 pool while it lasts (§7.6).
 
 ### 10.2 Genesis
@@ -2578,7 +2578,7 @@ the market at roughly 2.0× (§5.1).
 ### 10.3 Healthy
 
 The ordinary operating state. All four actions are available, fees are mild — a fraction of a
-percent to a few percent — and no discount applies in either direction because the system needs
+percent to a few percent — and no subsidy applies in either direction because the system needs
 nothing from anyone.
 
 Harvesting runs on its keeper cadence; rebalancing is unavailable and reverts if attempted.
@@ -2599,7 +2599,7 @@ The band is deliberately thin. It is a boundary condition, not a place a market 
 
 The collateral ratio is below the threshold, so a keeper may rebalance at any time and is paid to.
 
-Discounts are now live: redeeming anchor tokens and minting sail tokens both pay the user, funded by
+Subsidies are now live: redeeming anchor tokens and minting sail tokens both pay the user, funded by
 the reserve pool. Sail redemption carries its steepest permitted fee. This is the state in which the
 economic mechanism and the backstop both work at once — the fee schedule recruits volunteers while
 rebalancing stands ready regardless of whether any appear.
@@ -2736,8 +2736,8 @@ document, the section is given.
 
 | Term | Meaning |
 |---|---|
-| **Incentive ratio** | One signed number carrying fee, discount and permission: positive is a fee, negative a discount, `+1.0` means disallowed (§7.1) |
-| **Discount** | A negative fee — the user receives more than the arithmetic rate, funded by the reserve pool. Best-effort: it shrinks silently if the pool is short (§7.6) |
+| **Incentive ratio** | One signed number carrying fee, subsidy and permission: positive is a fee, negative a subsidy, `+1.0` means disallowed (§7.1) |
+| **Subsidy** | A negative fee — the user receives more than the arithmetic rate, funded by the reserve pool. Best-effort: it shrinks silently if the pool is short (§7.6) |
 | **Band** | A collateral-ratio interval with one incentive ratio. A large order is priced slice-by-slice across the bands it moves through (§7.2) |
 | **Volatility class** | The per-market configuration supplying both the fee schedule and its matching rebalance threshold (§7.3) |
 | **Harvestable yield** | The surplus of wrapped collateral held over the tracked backing. Belongs to no claim in the accounting identity until harvested (§2.5) |
@@ -2757,7 +2757,7 @@ document, the section is given.
 | **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
 | **Genesis** | The bootstrap phase before a market opens (§5.1, §10.2) |
 | **Recognise an impairment** | Writing the recorded backing down to what is held, after a collateral impairment. Owner-only, one-directional, and deliberately not automated. It ends the halt, moves every price to what is held, and resumes the harvest (§6.7, US-16) |
-| **Dry run** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount (US-2) |
+| **Dry run** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available subsidy (US-2) |
 
 ### Structural
 
@@ -2766,7 +2766,7 @@ document, the section is given.
 | **Market** | One deployed instance: a (collateral, underlying) pair with its own tokens, pools and solvency. Independent of every other market (§1.4) |
 | **Floor / ceiling** | The stability pool's supply bounds. **Precision parameters, not risk limits** — they exist to keep the liquidation loss factor positive (§2.6, S2) |
 | **Reward divisor** | The denominator each reward accrual divides by. Held at or above the summed depositor balances so rewards conserve by construction (S4) |
-| **Reserve pool** | Collateral funding discounts. Best-effort — it never reverts for being short (§2.8) |
+| **Reserve pool** | Collateral funding subsidies. Best-effort — it never reverts for being short (§2.8) |
 | **Pause** | Halting a contract by upgrading its proxy to a stub that rejects everything. No pause flag exists (§10.9) |
 | **By construction / by check** | Whether an invariant cannot be expressed falsely, or is verified at runtime. The distinction carries very different assurance (§8) |
 

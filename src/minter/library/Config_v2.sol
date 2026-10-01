@@ -21,7 +21,7 @@ library Config_v2 {
     /// @notice Checks a given incentive config for errors and returns it ready for storage
     /// @param name Label for error messages
     /// @param config_ The user friendly config being checked and copied
-    /// @param disallowNotDiscount If true, the config may have a disallow and not a discount
+    /// @param disallowNotSubsidy If true, the config may have a disallow and not a subsidy
     /// true means it's a mint pegged or redeem leveraged config
     /// false means it's a redeem pegged or mint leveraged config
     /// @return out the storage efficient config
@@ -29,7 +29,7 @@ library Config_v2 {
     function checkAndCopyBands(
         string memory name,
         IMinter_v3.IncentiveConfig calldata config_,
-        bool disallowNotDiscount
+        bool disallowNotSubsidy
     ) internal pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
         // check the array sizes match
         if (config_.incentiveRatios.length < 1) {
@@ -55,7 +55,7 @@ library Config_v2 {
             }
 
             // check the incentive array values given
-            if (disallowNotDiscount) {
+            if (disallowNotSubsidy) {
                 // it's mint pegged or redeem leveraged
                 // check against interval [0, 1] i.e. zero fees to some fees to disallow (100% fees)
                 if (incentiveRatio < 0 ether || incentiveRatio > 1 ether) {
@@ -77,7 +77,7 @@ library Config_v2 {
                 }
             } else {
                 // it's a redeem pegged or mint leveraged
-                // check against interval (-1, 1) i.e. some discount; to zero; to some fees
+                // check against interval (-1, 1) i.e. some subsidy; to zero; to some fees
                 if (incentiveRatio <= -1 ether || incentiveRatio >= 1 ether) {
                     revert IMinter_v3.InvalidIncentiveRatioValue(
                         name,
@@ -202,7 +202,7 @@ library Config_v2 {
     }
 
     function defaultActionIncentive() internal pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
-        // default config is a single band with no fees, discounts or disallows
+        // default config is a single band with no fees, subsidies or disallows
         // we need the mandatory depeg boundary at 1 ether
 
         ConfigIncentiveLib._setIncentiveRatio(out, 0, 0); // in depeg

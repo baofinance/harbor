@@ -58,17 +58,17 @@ import {RebalanceSizing_v1} from "@harbor/minter/library/RebalanceSizing_v1.sol"
 /// value of the underlying collateral, then the pegged token is valued as it's share of the underlying collateral. This effectively
 /// places a lower limit on the collateral ratio of 1.
 /// The collateral ratio used internally assumes the pegged token value is 1. This allows the collateral ratio to reach 0.
-/// and consequently allows the configuration of fees/discounts to be applied in the event of a depeg.
-/// ### Fees, discounts and disallows
-/// Fees, discounts and disallows are defined by the config. Two arrays, one defining fee/discount/disallow values
+/// and consequently allows the configuration of fees/subsidies to be applied in the event of a depeg.
+/// ### Fees, subsidies and disallows
+/// Fees, subsidies and disallows are defined by the config. Two arrays, one defining fee/subsidy/disallow values
 /// between -1 and 1, and the other defining the collateral ratio levels at which those values apply.
 /// <ul>
 /// <li> positive values refer to fees as a ratio of the input tokens, e.g. a fee for minting pegged/leverage tokens would
 ///   be levied as a portion of the collateral tokens supplied, and a fee for redeeming a token would be a portion of
 ///   the pegged or leveraged tokens supplied and revalued at their actual price (i.e. pegged tokens can have a price less than 1)
 ///   at the given collateral ratio level.
-/// <li> negative values refer to discounts. The collateral needed to make up the discount is retrieved from the reserve
-///   pool. If the reserve pool does not have sufficient collateral to provide the full discount, the discount it can provide is.
+/// <li> negative values refer to subsidies. The collateral needed to make up the subsidy is retrieved from the reserve
+///   pool. If the reserve pool does not have sufficient collateral to provide the full subsidy, the subsidy it can provide is.
 /// <li> values == 1 ether are treated as a 'disallow', i.e. the action being requested is disallowed at that collateral
 ///   ratio level. The interpretation is that the fee is 100% and so we don't apply that. Fees are expected to be much lower than 100%
 /// </ul>
@@ -76,15 +76,15 @@ import {RebalanceSizing_v1} from "@harbor/minter/library/RebalanceSizing_v1.sol"
 /// Some actions - minting pegged tokens and redeemin leveraged tokens - tend to lower the collateral ratio and other
 /// actions - redeeming pegged tokens and minting leveraged tokens - tend to increase the collateral ratio. This means
 /// two things:
-/// 1. if an action results in the collateral ratio crossing one or more of the bounds then the fee and discount
+/// 1. if an action results in the collateral ratio crossing one or more of the bounds then the fee and subsidy
 ///    (and both may apply) are each applied to the portion of collateral that is processed within each bound. This
-///    means that the fees and discounts applied net and are also a definite integral of the collateral-fee/discount
-///    function, i.e. the same fees/discounts apply whether the action is performed one dollat at a time or in much
+///    means that the fees and subsidies applied net and are also a definite integral of the collateral-fee/subsidy
+///    function, i.e. the same fees/subsidies apply whether the action is performed one dollat at a time or in much
 ///    larger chunks. This is, of course, within the precision of the uint256 datatype.
 ///    'disallow' applies then the action is not permitted at the collateral ratio and effectively limits the amount of
 ///    collateral that can be processed.
 /// 2. Disallows ony apply to actions that tend to lower collateral ratio, and must only be in the first element of the
-///    array. The author also cannot envisage a situation where a discount is applied to an action that lowers
+///    array. The author also cannot envisage a situation where a subsidy is applied to an action that lowers
 ///    collateral ratio and so configs that contain them are rejected.
 /// ### Rebalancing
 /// Stability pools know about the minter contract they are offering a rebalance service to and set themselves up to use
@@ -160,11 +160,11 @@ contract Minter_v3 is
     /// * the addresses of the pegged, leveraged and collateral tokens
     /// * the pegged token balance - the total number of pegged tokens minted by this contract.
     ///   Other contracts may also mint these tokens and so we cannot just use the totalSupply of them
-    /// * the addresses of the reserve pool (where discounts come from) and fee receiver (where fees go to)
+    /// * the addresses of the reserve pool (where subsidies come from) and fee receiver (where fees go to)
     /// * the address of the price oracle, which provides the price of the collateral and also, if the collateral is
     ///   wrapped, the rate at which the token represents the token it wraps.
     /// * the rebalance and harvest collateral ratio trigger points
-    /// * the fee/discount/disallow configurations for minting/redeeming pegged/leveraged tokens
+    /// * the fee/subsidy/disallow configurations for minting/redeeming pegged/leveraged tokens
     /// @dev The entire state of the contract is in this struct so that changing the layout during an upgrade is
     /// simplified. See ERC 7201.
     /// @dev As most of the content is addresses and structs, solidity lays it out in memory efficiently.
@@ -552,7 +552,7 @@ contract Minter_v3 is
         returns (
             int256 incentiveRatio,
             uint256 wrappedFee,
-            uint256 wrappedDiscount,
+            uint256 wrappedSubsidy,
             uint256 peggedRedeemed,
             uint256 wrappedCollateralReturned,
             uint256 price,
@@ -568,7 +568,7 @@ contract Minter_v3 is
         peggedRedeemed = peggedIn;
         uint256 peggedPriceE36;
         // slither-disable-next-line unused-return a dry run does not touch the backing record
-        (wrappedFee, wrappedDiscount, wrappedCollateralReturned, , peggedPriceE36) = MinterAdjustments_v1
+        (wrappedFee, wrappedSubsidy, wrappedCollateralReturned, , peggedPriceE36) = MinterAdjustments_v1
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
@@ -587,11 +587,11 @@ contract Minter_v3 is
         } else {
             uint256 incentive;
             int256 sign;
-            if (wrappedFee > wrappedDiscount) {
-                incentive = wrappedFee - wrappedDiscount;
+            if (wrappedFee > wrappedSubsidy) {
+                incentive = wrappedFee - wrappedSubsidy;
                 sign = 1;
             } else {
-                incentive = wrappedDiscount - wrappedFee;
+                incentive = wrappedSubsidy - wrappedFee;
                 sign = -1;
             }
             incentiveRatio =
@@ -608,7 +608,7 @@ contract Minter_v3 is
         returns (
             int256 incentiveRatio,
             uint256 wrappedFee,
-            uint256 wrappedDiscount,
+            uint256 wrappedSubsidy,
             uint256 wrappedCollateralUsed,
             uint256 leveragedMinted,
             uint256 price,
@@ -627,7 +627,7 @@ contract Minter_v3 is
             (bool mintable, ) = _leveragedMintable(backing, reading, $.peggedTokenBalance);
             if (mintable) {
                 // slither-disable-next-line unused-return a dry run does not touch the backing record
-                (wrappedFee, wrappedDiscount, leveragedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1
+                (wrappedFee, wrappedSubsidy, leveragedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1
                     .mintLeveragedAdjustments(
                         $.incentiveConfig[Config_v2.MINT_LEVERAGED],
                         wrappedCollateralIn,
@@ -648,11 +648,11 @@ contract Minter_v3 is
         } else {
             uint256 incentive;
             int256 sign;
-            if (wrappedFee > wrappedDiscount) {
-                incentive = wrappedFee - wrappedDiscount;
+            if (wrappedFee > wrappedSubsidy) {
+                incentive = wrappedFee - wrappedSubsidy;
                 sign = 1;
             } else {
-                incentive = wrappedDiscount - wrappedFee;
+                incentive = wrappedSubsidy - wrappedFee;
                 sign = -1;
             }
             incentiveRatio = sign * int256(Math.mulDiv(incentive, 1 ether, wrappedCollateralUsed));
@@ -758,7 +758,7 @@ contract Minter_v3 is
 
     /// @inheritdoc IMinter_v3
     function updateConfig(Config calldata config_) external override onlyOwner {
-        // or is this handled by the fact that the CR for discount is much lower than the rebalance CR
+        // or is this handled by the fact that the CR for subsidy is much lower than the rebalance CR
         emit UpdateConfig(config_); // the code below may alter the config so emit it soon
         MinterStorage storage $ = _getMinterStorage();
         // incentive config
@@ -924,11 +924,11 @@ contract Minter_v3 is
         address reservePool_ = $.reservePool;
 
         uint256 wrappedFee;
-        uint256 wrappedDiscount;
+        uint256 wrappedSubsidy;
         uint256 underlyingCollateralRemoved;
         // Redeeming pegged reads the high edge of both bands, which pays the fewest wrapped tokens per pegged.
         // slither-disable-next-line unused-return the pegged price is only reported by the dry run
-        (wrappedFee, wrappedDiscount, wrappedCollateralOut, underlyingCollateralRemoved, ) = MinterAdjustments_v1
+        (wrappedFee, wrappedSubsidy, wrappedCollateralOut, underlyingCollateralRemoved, ) = MinterAdjustments_v1
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
@@ -950,21 +950,21 @@ contract Minter_v3 is
             revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
         }
 
-        // do the fee (feeReceiver) / discount (reservePool)
+        // do the fee (feeReceiver) / subsidy (reservePool)
         if (wrappedFee > 0) {
             // send the fee
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, wrappedFee);
         }
-        if (wrappedDiscount > 0) {
-            // it's a discount, so collect the extra collateral, if available
+        if (wrappedSubsidy > 0) {
+            // it's a subsidy, so collect the extra collateral, if available
             // wake-disable-next-line reentrancy // reservePool is trusted and reentrancy guard
-            uint256 actualBonus = IReservePool($.reservePool).requestBonus(
+            uint256 actualSubsidy = IReservePool($.reservePool).requestBonus(
                 WRAPPED_COLLATERAL_TOKEN,
                 address(this),
-                wrappedDiscount
+                wrappedSubsidy
             );
-            if (actualBonus != wrappedDiscount) {
-                revert RequestedBonusNotGiven(wrappedDiscount, actualBonus);
+            if (actualSubsidy != wrappedSubsidy) {
+                revert RequestedSubsidyNotGiven(wrappedSubsidy, actualSubsidy);
             }
         }
 
@@ -1004,13 +1004,13 @@ contract Minter_v3 is
             );
         }
         uint256 wrappedFee;
-        uint256 wrappedDiscount;
+        uint256 wrappedSubsidy;
         uint256 underlyingCollateralAdded;
         address reservePool_ = $.reservePool;
 
         (
             wrappedFee,
-            wrappedDiscount,
+            wrappedSubsidy,
             leveragedOut,
             wrappedCollateralIn,
             underlyingCollateralAdded
@@ -1021,16 +1021,16 @@ contract Minter_v3 is
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
             );
 
-        if (wrappedDiscount > 0) {
-            // it's a discount, so collect the extra collateral, if available
+        if (wrappedSubsidy > 0) {
+            // it's a subsidy, so collect the extra collateral, if available
             // wake-disable-next-line reentrancy // reservePool is trusted
-            uint256 actualBonus = IReservePool(reservePool_).requestBonus(
+            uint256 actualSubsidy = IReservePool(reservePool_).requestBonus(
                 WRAPPED_COLLATERAL_TOKEN,
                 address(this),
-                wrappedDiscount
+                wrappedSubsidy
             );
-            if (actualBonus != wrappedDiscount) {
-                revert RequestedBonusNotGiven(wrappedDiscount, actualBonus);
+            if (actualSubsidy != wrappedSubsidy) {
+                revert RequestedSubsidyNotGiven(wrappedSubsidy, actualSubsidy);
             }
         }
         // make sure it meets the minimum requirements
@@ -1415,7 +1415,7 @@ contract Minter_v3 is
     // ----------------------------
 
     /// @notice Perform the transfers and event emissions for minting pegged tokens.
-    /// Fees and discounts transfers and event emissions are not handled here.
+    /// Fees and subsidies transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
     /// @param wrappedCollateralIn The amount of collateral to be taken from the sender.
     /// @param peggedOut The amount of pegged to be transferred to the `receiver`.
@@ -1433,7 +1433,7 @@ contract Minter_v3 is
     }
 
     /// @notice Perform the transfers and event emissions for minting leveraged tokens
-    /// Fees and discounts transfers and event emissions are not handled here.
+    /// Fees and subsidies transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
     /// @param wrappedCollateralIn The amount of collateral to be taken from the sender.
     /// @param leveragedOut The amount of leveraged to be transferred to the `receiver`.
@@ -1454,7 +1454,7 @@ contract Minter_v3 is
     }
 
     /// @notice Perform the transfers and event emissions for redeeming leveraged tokens.
-    /// Fees and discounts transfers and event emissions are not handled here.
+    /// Fees and subsidies transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
     /// @param leveragedIn The amount of leveraged tokens to be taken from the sender.
     /// @param collateralOut The amount of collateral to be transferred to the `receiver`.
@@ -1493,7 +1493,7 @@ contract Minter_v3 is
         amountOut = Math.min(amountIn, tokenBalance_);
     }
 
-    // Adjustments - fees, bonuses and disallows
+    // Adjustments - fees, subsidies and disallows
     // -----------------------------------------
     // Each of the algorithms simulates the operation {mint/redeem}/{Pegged/Leveraged} in a loop covering each fee band
     // Much of the operations are performed and some results are returned at 1e36 precision.
