@@ -34,7 +34,13 @@ contract RewardSystemSetUp is BaoTest, Array {
 
     function setUp() public virtual {
         forkMainnet();
-        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "reward_cov", "mainnet");
+        deployRun = new HarborDeployRun(
+            HARBOR_MULTISIG,
+            HARBOR_MULTISIG,
+            "reward_cov",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
         deployRun.ensureFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = ethMintersConfig();
@@ -110,8 +116,9 @@ contract AccumulatorTest is RewardSystemSetUp {
         assertGt(claimable, 0, "has claimable");
 
         // Claim
-        vm.prank(alice);
+        vm.startPrank(alice);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
 
         // claimed() should return the claimed amount
         uint256 claimedAmount = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(
@@ -151,8 +158,9 @@ contract AccumulatorTest is RewardSystemSetUp {
         skip(8 days);
 
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
-        vm.prank(alice);
+        vm.startPrank(alice);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
         uint256 received = IERC20(wrappedCollateral).balanceOf(alice) - balBefore;
         assertGt(received, 0, "claimed via claim()");
     }
@@ -164,24 +172,29 @@ contract AccumulatorTest is RewardSystemSetUp {
         IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(alice);
 
         // Bob and carol claim to drain the pool's distributable balance
-        vm.prank(bob);
+        vm.startPrank(bob);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        vm.prank(carol);
+        vm.stopPrank();
+        vm.startPrank(carol);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
 
         // Flush any remaining queued dust
         _depositReward(wrappedCollateral, 1);
         skip(8 days);
-        vm.prank(bob);
+        vm.startPrank(bob);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        vm.prank(carol);
+        vm.stopPrank();
+        vm.startPrank(carol);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
         // Alice still hasn't claimed — her pending is sitting in her snapshot
 
         // Unregister
         uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-        vm.prank(HARBOR_MULTISIG);
+        vm.startPrank(HARBOR_MULTISIG);
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
+        vm.stopPrank();
         IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
 
         // Verify it's historical
@@ -198,8 +211,9 @@ contract AccumulatorTest is RewardSystemSetUp {
         address[] memory tokens = new address[](1);
         tokens[0] = wrappedCollateral;
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
-        vm.prank(alice);
+        vm.startPrank(alice);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim(tokens);
+        vm.stopPrank();
         assertGt(IERC20(wrappedCollateral).balanceOf(alice) - balBefore, 0, "claimed historical");
     }
 }

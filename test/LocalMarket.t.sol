@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {ConfigMarket_MCAP_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_MCAP_fxUSD_mainnet.sol";
 
-import {LocalMarketConfig} from "@harbor-test/config/LocalMarketConfig.sol";
+import {TestMinterMarketConfig_rebalanceThreshold130} from "@harbor-test/config/TestMinterMarketConfig_rebalanceThreshold130.sol";
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 
@@ -17,7 +17,7 @@ contract LocalMarketConfigTest is Test {
     /// local market's config carries the deployed market's rebalance threshold.
     function test_aLocalMarketCarriesTheDeployedMarketsRebalanceThreshold() public {
         assertEq(
-            new LocalMarketConfig().rebalanceThreshold(),
+            new TestMinterMarketConfig_rebalanceThreshold130().rebalanceThreshold(),
             new ConfigMarket_MCAP_fxUSD_mainnet().rebalanceThreshold(),
             "the deployed market's rebalance threshold"
         );

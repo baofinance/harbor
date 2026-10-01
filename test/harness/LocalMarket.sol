@@ -10,8 +10,9 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
 import {MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 
-import {LocalMarketConfig} from "@harbor-test/config/LocalMarketConfig.sol";
+import {TestMinterMarketConfig_rebalanceThreshold130} from "@harbor-test/config/TestMinterMarketConfig_rebalanceThreshold130.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
@@ -44,13 +45,19 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
     /// @notice The run names a rule other than the tree's, and a local market runs the tree's alone.
     error LocalMarketRunsOnlyTheTreesRule(string label);
 
-    /// @dev The WHOLE market, manager included, as `LocalMarketConfig` configures it - and THE REAL
+    /// @dev The market cut - both pools and their manager - with the deployed market's rebalance threshold, and THE REAL
     /// `StabilityPool_v3` behind both pools, not the `MockStabilityPool` the pool unit tests' run installs. Those
     /// tests substitute the mock to reach `__totalSupply`, `__notifyLoss` and the rest; no measurement here touches
     /// any of them - they read balances, prices and ratios, every one of them public - so these graphs are produced
     /// by the bytecode a deploy installs.
     function newDeployRun() internal virtual override returns (MarketDeployRun) {
-        return new MarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Market, new LocalMarketConfig());
+        return
+            new MarketDeployRun(
+                owner(),
+                treasury(),
+                HarborDeployRun.Cut.Market,
+                new TestMinterMarketConfig_rebalanceThreshold130()
+            );
     }
 
     function marketLabel() internal pure virtual override returns (string memory) {

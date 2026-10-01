@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Vm} from "forge-std/Vm.sol";
 
 import {BaoFactoryTestLib} from "@bao-test/BaoFactoryTestLib.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {HarborDeployStack} from "@harbor-script/src/HarborDeployStack.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -11,8 +12,9 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-/// @notice One Harbor deployment run: who owns it, where its fees go, its salt namespace and its network.
-/// @dev An INSTANCE is a run, and a test HOLDS one — `new HarborDeployRun(owner, treasury, "prefix", "mainnet")`,
+/// @notice One Harbor deployment run: who owns it, where its fees go, its salt namespace, its network and which cut of
+///         each market it deploys.
+/// @dev An INSTANCE is a run, and a test HOLDS one — `new HarborDeployRun(owner, treasury, "prefix", "mainnet", cut)`,
 ///      or a subclass that fixes the identity and states what it deploys (`MarketDeployRun`) — and drives it
 ///      from outside: construct it, then tell it to deploy. Two things follow from the run being an object
 ///      rather than a base of the test contract:
@@ -30,10 +32,12 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 ///      at all. What this adds for tests is what they need once it has run: the addresses of a market it built,
 ///      and a settable mock in place of the one dependency it does not deploy, the price oracle.
 ///
-///      The four constructor values are IDENTITY: what this run IS, fixed before it starts and constant
-///      throughout. None of them is a per-call choice, so none of them belongs in a deploy signature.
-///      Because they are inputs rather than invented here, two runs cannot accidentally share an owner, a fee
-///      receiver, or a salt namespace — which is precisely what a multi-run test must avoid.
+///      The five constructor values are IDENTITY: what this run IS, fixed before it starts and constant
+///      throughout. None of them is a per-call choice, so none of them belongs in a deploy signature - the cut
+///      least of all, since the deploy's phases are fixed and only the middle one is open to it: a cut chosen by a
+///      call could reach that phase only through state one call leaves for the next. Because they are inputs rather
+///      than invented here, two runs cannot accidentally share an owner, a fee receiver, or a salt namespace —
+///      which is precisely what a multi-run test must avoid.
 contract HarborDeployRun is HarborDeployStack {
     // The well-known forge cheatcode address, referenced directly: this is not a test contract.
     Vm private constant _vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -52,11 +56,68 @@ contract HarborDeployRun is HarborDeployStack {
     string private _saltPrefix;
     string private _network;
 
-    constructor(address owner_, address treasury_, string memory saltPrefix_, string memory network_) {
+    /// @notice Which of a market's contracts a run deploys: the cut of production's deploy a test asks for, so that it
+    ///         stands up what it needs and builds nothing by hand. Each cut names its contracts outright - it is not
+    ///         "everything up to here", which is what lets one skip contracts production deploys before others.
+    ///         With each, the peg's pegged token when the deploy is asked for it.
+    enum Cut {
+        Minter, // the market's leveraged token, its reserve pool and its minter
+        MinterAndGenesis, // ... and its genesis contract, without the stability pools or their manager
+        CollateralPool, // the minter's cut and the stability pool that takes wrapped collateral
+        BothPools, // ... and the one that takes the leveraged token
+        Market, // ... and the manager that coordinates the two
+        Whole // production's own deploy: whatever production deploys
+    }
+
+    /// @notice What this run deploys of each market it is given.
+    Cut public immutable cut;
+
+    constructor(address owner_, address treasury_, string memory saltPrefix_, string memory network_, Cut cut_) {
         _owner = owner_;
         _treasury = treasury_;
         _saltPrefix = saltPrefix_;
         _network = network_;
+        cut = cut_;
+    }
+
+    /// @dev Phase 2 of the deploy run, cut to this run's `cut` - the only phase a run may change, so the state it starts
+    ///      from and the handover of ownership after it are production's whatever the cut. `Whole` is production's own
+    ///      phase 2. Every other cut deploys, for each market, the contracts it names by the framework's own deploy
+    ///      functions in production's order, each of which configures its contract and grants its roles; the one order
+    ///      that matters is a constructor reading another contract, which is why the minter comes before Genesis and
+    ///      the pools.
+    function _deployAndConfigure(
+        DeploymentTypes.State memory state,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        bool deployPeg,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) internal virtual override {
+        if (cut == Cut.Whole) {
+            super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
+        } else {
+            if (deployPeg) {
+                deployPeggedTokenWithRoles(state, peg, allMarkets);
+            }
+            for (uint256 i = 0; i < marketsToDeploy.length; i++) {
+                Config_MinterMarket market = marketsToDeploy[i];
+                _deployLeveragedTokenWithRoles(state, market);
+                deployReservePool(state, market);
+                deployMinter(state, market);
+                if (cut == Cut.MinterAndGenesis) {
+                    deployGenesis(state, market);
+                }
+                if (cut == Cut.CollateralPool || cut == Cut.BothPools || cut == Cut.Market) {
+                    deployStabilityPool(StabilityPoolType.Collateral, state, market);
+                }
+                if (cut == Cut.BothPools || cut == Cut.Market) {
+                    deployStabilityPool(StabilityPoolType.Leveraged, state, market);
+                }
+                if (cut == Cut.Market) {
+                    deployStabilityPoolManager(state, market);
+                }
+            }
+        }
     }
 
     function owner() public view override returns (address) {

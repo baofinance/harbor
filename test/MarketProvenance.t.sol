@@ -3,7 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {DeployedMarket} from "@harbor-test/harness/DeployedMarket.sol";
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
-import {LocalMarketConfig} from "@harbor-test/config/LocalMarketConfig.sol";
+import {TestMinterMarketConfig_rebalanceThreshold130} from "@harbor-test/config/TestMinterMarketConfig_rebalanceThreshold130.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
@@ -53,8 +54,8 @@ contract MockPoolMarketProvenanceTest is LocalMarket {
             new MockStabilityPoolMarketDeployRun(
                 owner(),
                 treasury(),
-                MarketDeployRun.Scope.Market,
-                new LocalMarketConfig()
+                HarborDeployRun.Cut.Market,
+                new TestMinterMarketConfig_rebalanceThreshold130()
             );
     }
 

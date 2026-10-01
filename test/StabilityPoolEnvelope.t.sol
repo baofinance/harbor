@@ -30,6 +30,7 @@ import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
 import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
+import {ConfigMarket_ETH_fxUSD_zeroFeesAndBounties} from "@harbor-test/config/ConfigMarket_ETH_fxUSD_zeroFeesAndBounties.sol";
 import {ConfigPeg_ETH} from "@harbor-script/config/pegs/ConfigPeg_ETH.sol";
 import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 import {RevertReason} from "@harbor-test/RevertReason.sol";
@@ -98,24 +99,6 @@ library EnvelopeLib {
         e.pegPriceUSD = nominalPeg;
         e.minPegPriceUSD = nominalPeg / 3;
         e.maxPegPriceUSD = nominalPeg * 3;
-    }
-}
-
-/// @notice ETH::fxUSD market with the StabilityPoolManager's harvest cut and harvest/rebalance bounties zeroed, so all
-/// yield and rewards flow to depositors - the envelope's conservation and read-back assertions then measure the pool
-/// mechanics alone, not perturbed by a keeper bounty or a protocol cut. A test-only variant of the production market,
-/// changed through the deployment config (the config-axis approach) rather than an imperative setter in setUp.
-contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_mainnet {
-    function harvestCutRatio() public pure virtual override returns (uint256) {
-        return 0;
-    }
-
-    function harvestBountyRatio() public pure virtual override returns (uint256) {
-        return 0;
-    }
-
-    function rebalanceBountyRatio() public pure override returns (uint256) {
-        return 0;
     }
 }
 
@@ -189,7 +172,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // The run registers itself as the factory operator and deploys on its own account, as the production
         // multisig; the only mainnet state the deploy needs is the collateral pair, so mock those two tokens and run
         // with no fork.
-        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "envelope_test", "mainnet");
+        deployRun = new HarborDeployRun(
+            HARBOR_MULTISIG,
+            HARBOR_MULTISIG,
+            "envelope_test",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
         deployRun.ensureFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();

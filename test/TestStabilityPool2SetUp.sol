@@ -6,6 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
@@ -20,7 +21,7 @@ contract TestStabilityPool2SetUp is TestStabilityPoolRebalanceSetUp {
             new MockStabilityPoolMarketDeployRun(
                 owner(),
                 treasury(),
-                MarketDeployRun.Scope.BothPools,
+                HarborDeployRun.Cut.BothPools,
                 new TestMinterMarketConfig()
             );
     }

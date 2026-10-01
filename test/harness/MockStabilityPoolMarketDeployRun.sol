@@ -19,9 +19,9 @@ contract MockStabilityPoolMarketDeployRun is MarketDeployRun {
     constructor(
         address owner_,
         address treasury_,
-        Scope scope_,
+        Cut cut_,
         TestMinterMarketConfig marketConfig_
-    ) MarketDeployRun(owner_, treasury_, scope_, marketConfig_) {}
+    ) MarketDeployRun(owner_, treasury_, cut_, marketConfig_) {}
 
     function deployStabilityPoolImplementation(
         DeploymentTypes.State memory stateData,

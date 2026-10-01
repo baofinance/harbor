@@ -31,6 +31,7 @@ import {Array} from "@bao-test/utils/Array.sol";
 
 import {ConfigFile} from "@harbor-test/Config.sol";
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
@@ -64,7 +65,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
     /// @dev The run a suite wants: the minter alone here. A setup that needs more of the market, or a mock behind
     ///      its pools, returns another run - one choice, made once, in place of overriding the deploy's steps.
     function newDeployRun() internal virtual returns (MarketDeployRun) {
-        return new MarketDeployRun(owner(), treasury(), MarketDeployRun.Scope.Minter, new TestMinterMarketConfig());
+        return new MarketDeployRun(owner(), treasury(), HarborDeployRun.Cut.Minter, new TestMinterMarketConfig());
     }
 
     /// @dev What a test does to the market the run stood up - see `MarketActions`. Made in `setUpContract`, once the
@@ -101,12 +102,14 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         // slither-disable-next-line low-level-calls
         (bool hasOperator, ) = peggedToken.staticcall(abi.encodeWithSelector(IBaoUSD.operator.selector));
         if (hasOperator) {
-            vm.prank(IBaoUSD(peggedToken).operator());
+            vm.startPrank(IBaoUSD(peggedToken).operator());
             IMintable(peggedToken).mint(receiver, amount);
+            vm.stopPrank();
         } else {
             // if the pegged token does not have an operator, we mint it directly
-            vm.prank(owner());
+            vm.startPrank(owner());
             IMintable(peggedToken).mint(receiver, amount);
+            vm.stopPrank();
         }
         vm.label(peggedToken, "peggedToken");
     }
@@ -600,9 +603,12 @@ contract TestMinterBasics is TestMinterSetUp {
     ) private {
         setUp_config(mintPegged, redeemPegged, mintLeveraged, redeemLeveraged);
 
-        if (revertSelector.length != 0) vm.expectRevert(revertSelector);
-        vm.prank(owner());
+        if (revertSelector.length != 0) {
+            vm.expectRevert(revertSelector);
+        }
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
         IMinter.Config memory readConfig = IMinter(minter).config();
         _assertEqConfig(readConfig, config);
     }
@@ -635,8 +641,9 @@ contract TestMinterBasics is TestMinterSetUp {
 
     function test_firstMintRedeem1() public {
         setUp_config_feeIsCR();
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
@@ -673,8 +680,9 @@ contract TestMinterBasics is TestMinterSetUp {
 
     function test_firstMintRedeem2() public {
         setUp_config_feeIsCR();
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
 
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
@@ -957,12 +965,14 @@ contract TestMinterBasics is TestMinterSetUp {
             ""
         ); //3
 
+        // Every update below is the owner's.
+        vm.startPrank(owner());
+
         // mismatched length, too many bands
         config.mintPeggedIncentiveConfig = ic(ua(), ia(disallow, 100));
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, "mint pegged", 0, 2)
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //4
 
         // mismatched length, too many bands
@@ -970,7 +980,6 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, "mint pegged", 1, 1)
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //5
 
         // depegged not first
@@ -987,14 +996,12 @@ contract TestMinterBasics is TestMinterSetUp {
                 "first boundary must be >= 1"
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //6
 
         config.mintPeggedIncentiveConfig = ic(
             ua(100, 101, 131, 140, 150, 160, 170),
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //7
 
         // more than max number
@@ -1003,7 +1010,6 @@ contract TestMinterBasics is TestMinterSetUp {
             ia(disallow, 100, 50, 100, 200, 300, 400, 500, 600)
         );
         vm.expectRevert(abi.encodeWithSelector(IMinter.TooManyIncentiveRatios.selector, "mint pegged", 9, 8));
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //8
 
         // more than max with no depeg band, we allow one less unless it's a disallow
@@ -1011,7 +1017,6 @@ contract TestMinterBasics is TestMinterSetUp {
             ua(101, 102, 131, 140, 150, 160, 170),
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //9
 
         // numerical precision
@@ -1020,7 +1025,6 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundTooPrecise.selector, "mint pegged", 130 * 10 ** 16 + 1)
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //10
 
         config.mintPeggedIncentiveConfig = ic(ua(100, 130), ia(100, 50, 10));
@@ -1028,13 +1032,11 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.IncentiveRatioTooPrecise.selector, "mint pegged", 50 * 10 ** 16 + 1)
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //11
 
         // less than min length
         config.mintPeggedIncentiveConfig = ic(ua(), ia());
         vm.expectRevert(abi.encodeWithSelector(IMinter.TooFewIncentiveRatios.selector, "mint pegged", 0, 1));
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //12
 
         // check the collateral ratio bounds are are checked for strictly increasing
@@ -1049,7 +1051,6 @@ contract TestMinterBasics is TestMinterSetUp {
                 2 ether
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //13
         // middle
         config.mintPeggedIncentiveConfig = ic(ua(100, 200, 200, 300), ia(5, 4, 3, 2, 1));
@@ -1062,7 +1063,6 @@ contract TestMinterBasics is TestMinterSetUp {
                 2 ether
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //14
         // start
         config.mintPeggedIncentiveConfig = ic(ua(200, 200, 300, 400), ia(disallow, 2, 3, 4, 5));
@@ -1075,7 +1075,6 @@ contract TestMinterBasics is TestMinterSetUp {
                 2 ether
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); // 15
         // end
         config.mintPeggedIncentiveConfig = ic(ua(100, 200, 300, 300), ia(5, 4, 3, 2, 1));
@@ -1088,7 +1087,6 @@ contract TestMinterBasics is TestMinterSetUp {
                 3 ether
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //16
         // < not <=
         config.mintPeggedIncentiveConfig = ic(ua(300, 200, 300, 300), ia(disallow, 5, 4, 4, 3));
@@ -1101,7 +1099,6 @@ contract TestMinterBasics is TestMinterSetUp {
                 3 ether
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //17
 
         // set up the incentive configs for precise testing of values
@@ -1123,11 +1120,9 @@ contract TestMinterBasics is TestMinterSetUp {
                 "must be in [0, 1]"
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //18
         // = max
         config.mintPeggedIncentiveConfig.incentiveRatios[0] = 1 ether;
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //19
 
         // max - mint leveraged = 1 ether -1
@@ -1142,11 +1137,9 @@ contract TestMinterBasics is TestMinterSetUp {
                 "must be in (-1, 1)"
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //20
         // = max
         config.mintLeveragedIncentiveConfig.incentiveRatios[1] = 1 ether - incentivePrecision;
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //21
 
         // min - mint pegged = 0
@@ -1161,11 +1154,9 @@ contract TestMinterBasics is TestMinterSetUp {
                 "must be in [0, 1]"
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //22
         // = min
         config.mintPeggedIncentiveConfig.incentiveRatios[1] = 0;
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //23
 
         // min - mint leveraged = - 1 ether
@@ -1180,12 +1171,10 @@ contract TestMinterBasics is TestMinterSetUp {
                 "must be in (-1, 1)"
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //24
         // = min
         config.mintLeveragedIncentiveConfig.incentiveRatios[0] = -1 ether + incentivePrecision;
         config.mintLeveragedIncentiveConfig.incentiveRatios[1] = 0;
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //25
 
         // two disallow bands
@@ -1199,7 +1188,6 @@ contract TestMinterBasics is TestMinterSetUp {
                 "disallow (1) must be at index 0"
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //26
 
         // disallow not in first band
@@ -1213,8 +1201,8 @@ contract TestMinterBasics is TestMinterSetUp {
                 "disallow (1) must be at index 0"
             )
         );
-        vm.prank(owner());
         IMinter(minter).updateConfig(config); //27
+        vm.stopPrank();
 
         /*
         config.mintPeggedIncentiveConfig.incentiveRatios[0] = -1;

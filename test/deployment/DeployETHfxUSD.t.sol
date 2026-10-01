@@ -34,7 +34,13 @@ abstract contract DeployETHfxUSDSetUp is BaoTest {
 
     function setUp() public virtual {
         forkMainnet();
-        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "test_eth", "mainnet");
+        deployRun = new HarborDeployRun(
+            HARBOR_MULTISIG,
+            HARBOR_MULTISIG,
+            "test_eth",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
         deployRun.ensureFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = ethMintersConfig();

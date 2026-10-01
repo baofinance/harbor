@@ -28,7 +28,13 @@ contract MinterCappedMintSetUp is BaoTest {
 
     function setUp() public virtual {
         forkMainnet();
-        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "capped_test", "mainnet");
+        deployRun = new HarborDeployRun(
+            HARBOR_MULTISIG,
+            HARBOR_MULTISIG,
+            "capped_test",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
         deployRun.ensureFactory();
 
         // Deploy the ETH::fxUSD market (one collateral) via the production deploy scripts (Minter_v3).

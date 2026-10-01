@@ -32,6 +32,7 @@ import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
 import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -72,7 +73,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             new MockStabilityPoolMarketDeployRun(
                 owner(),
                 treasury(),
-                MarketDeployRun.Scope.CollateralPool,
+                HarborDeployRun.Cut.CollateralPool,
                 new TestMinterMarketConfig()
             );
     }
@@ -180,8 +181,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     }
 
     function _beginWithdrawal(address user) internal {
-        vm.prank(user);
+        vm.startPrank(user);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
         (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user);
         vm.warp(start + 1);
     }
@@ -203,16 +205,18 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
     // Test for _authorizeUpgrade function (coverage for function 192)
     function testUpgrade() public {
         // Only owner can upgrade
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
+        vm.stopPrank();
 
         // Create the V2 implementation
         StabilityPool_vN implementationV2 = new StabilityPool_vN(minter);
 
         // Perform the upgrade as the owner
-        vm.prank(owner());
+        vm.startPrank(owner());
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(implementationV2), "");
+        vm.stopPrank();
 
         // Verify the upgrade was successful by calling the new version function
         assertEq(
@@ -299,8 +303,9 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
 
-        vm.prank(owner());
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
+        vm.stopPrank();
     }
 
     function _depositWithdraw(address receiver) private {
@@ -314,15 +319,17 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 10 * price, 20 * price)
         );
-        vm.prank(user1);
+        vm.startPrank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
+        vm.stopPrank();
         // 1 deposit -----------------------------------------------------------
 
         // $2 deposit
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
-        vm.prank(user1);
+        vm.startPrank(user1);
         uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(2 * price, receiver, 0);
+        vm.stopPrank();
         // 2 deposit ------------------------------------------------------------------------------
         assertEq(deposited, 2 * price, "returned value");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 2 * price);
@@ -331,17 +338,19 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
 
         // $3 withdrawal
         _beginWithdrawal(user1);
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPool.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
         );
         IStabilityPool(stabilityPoolCollateral).withdraw(3 * price, receiver, 0);
+        vm.stopPrank();
         // 1 withdraw ---------------------------------------------
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 2 * price);
 
         // $5 second deposit
-        vm.prank(user1);
+        vm.startPrank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(5 * price, receiver, 0);
+        vm.stopPrank();
         // 3 deposit ------------------------------------------------------------
         assertEq(deposited, 5 * price, "returned value 5");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 7 * price);
@@ -349,8 +358,9 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
 
         // withdraw some
         _beginWithdrawal(user1);
-        vm.prank(user1);
+        vm.startPrank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(4 * price, receiver, 0);
+        vm.stopPrank();
         // 2 withdraw ---------------------------------------------------------------------------
         assertEq(withdrawn, 4 * price, "withdraw 4");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 3 * price);
@@ -359,16 +369,18 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // withdraw rest - the last holder is capped at the headroom, so the floor stays behind (and stays theirs)
         uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         _beginWithdrawal(user1);
-        vm.prank(user1);
+        vm.startPrank(user1);
         withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, receiver, 0);
+        vm.stopPrank();
         // 3 withdraw ---------------------------------------------------------------------------
         assertEq(withdrawn, 3 * price - floor, "withdraw 3 (capped at the floor)");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), floor);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), floor);
 
         // deposit all remaining - on top of the retained floor, restoring the full 10
-        vm.prank(user1);
+        vm.startPrank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, receiver, 0);
+        vm.stopPrank();
         // 4 deposit ------------------------------------------------------------------------------
         assertEq(deposited, 10 * price - floor, "returned value 10 less the floor already held");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 10 * price);
@@ -381,8 +393,9 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPool.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
         );
-        vm.prank(user1);
+        vm.startPrank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, receiver, 2 * price);
+        vm.stopPrank();
         // 5 deposit ------------------------------------------------------------------
     }
 
@@ -416,9 +429,10 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
     }
 
     function test_requestWithdrawal_applies_startDelay_and_window() public {
-        vm.prank(user1);
         uint256 nowTs = block.timestamp;
+        vm.startPrank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
         (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertEq(start, uint64(nowTs + WITHDRAWAL_START_DELAY));
         assertEq(end, start + uint64(WITHDRAWAL_END_WINDOW));

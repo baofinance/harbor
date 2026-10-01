@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Vm} from "forge-std/Vm.sol";
+
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
+import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
@@ -39,12 +42,19 @@ contract HarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
 
     /// Every identity value answers from the constructor, before any deploy call has run.
     function test_identityAnswersBeforeAnythingIsDeployed() public {
-        HarborDeployRun run = new HarborDeployRun(RUN_OWNER, RUN_TREASURY, "run_identity", "mainnet");
+        HarborDeployRun run = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_identity",
+            "mainnet",
+            HarborDeployRun.Cut.Market
+        );
 
         assertEq(run.owner(), RUN_OWNER, "owner");
         assertEq(run.treasury(), RUN_TREASURY, "treasury");
         assertEq(run.saltPrefix(), "run_identity", "salt prefix");
         assertEq(run.network(), "mainnet", "network");
+        assertEq(uint8(run.cut()), uint8(HarborDeployRun.Cut.Market), "cut");
 
         assertNotEq(run.minterAddress(market), address(0), "a minter address resolves with nothing deployed");
     }
@@ -53,7 +63,13 @@ contract HarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
     /// through, and they are distinct from each other — so a test can measure fees arriving at the treasury
     /// without that balance also being the owner's own holdings.
     function test_theRunsActorsReplaceTheProductionDefaults() public {
-        HarborDeployRun run = new HarborDeployRun(RUN_OWNER, RUN_TREASURY, "run_actors", "mainnet");
+        HarborDeployRun run = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_actors",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
 
         assertNotEq(run.owner(), owner(), "not the production multisig this test inherits");
         assertNotEq(run.owner(), run.treasury(), "owner and treasury are separately observable");
@@ -61,8 +77,20 @@ contract HarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
 
     /// Two runs with different salt namespaces are independent deployments that cannot collide.
     function test_runsWithDifferentPrefixesResolveToDifferentContracts() public {
-        HarborDeployRun first = new HarborDeployRun(RUN_OWNER, RUN_TREASURY, "run_first", "mainnet");
-        HarborDeployRun second = new HarborDeployRun(RUN_OWNER, RUN_TREASURY, "run_second", "mainnet");
+        HarborDeployRun first = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_first",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        HarborDeployRun second = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_second",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
 
         assertNotEq(first.minterAddress(market), second.minterAddress(market), "minter");
         assertNotEq(first.peggedTokenAddress(market), second.peggedTokenAddress(market), "pegged token");
@@ -73,8 +101,20 @@ contract HarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
     /// contracts, so several minters can be stood up against one pegged token — each run its own instance,
     /// one peg between them.
     function test_runsSharingAPrefixResolveToTheSameContracts() public {
-        HarborDeployRun first = new HarborDeployRun(RUN_OWNER, RUN_TREASURY, "run_shared", "mainnet");
-        HarborDeployRun second = new HarborDeployRun(RUN_OWNER, RUN_TREASURY, "run_shared", "mainnet");
+        HarborDeployRun first = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_shared",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        HarborDeployRun second = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_shared",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
 
         assertEq(first.peggedTokenAddress(market), second.peggedTokenAddress(market), "one pegged token");
         assertEq(first.minterAddress(market), second.minterAddress(market), "one minter for one market");
@@ -90,7 +130,13 @@ contract ComposedHarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
         forkMainnetWithBaoFactory();
 
         address runOwner = makeAddr("composedRunOwner");
-        HarborDeployRun run = new HarborDeployRun(runOwner, makeAddr("composedRunTreasury"), "composed", "mainnet");
+        HarborDeployRun run = new HarborDeployRun(
+            runOwner,
+            makeAddr("composedRunTreasury"),
+            "composed",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
 
         // The run registers ITSELF rather than the test doing it for the run: `ensureFactory` is public and
         // inlines the library, so `address(this)` inside it is the run.
@@ -122,7 +168,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
             makeAddr("reportsRunOwner"),
             makeAddr("reportsRunTreasury"),
             "reports",
-            "mainnet"
+            "mainnet",
+            HarborDeployRun.Cut.Whole
         );
         deployRun.ensureFactory();
 
@@ -140,7 +187,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
                 makeAddr("undeployedRunOwner"),
                 makeAddr("undeployedRunTreasury"),
                 "reports_undeployed",
-                "mainnet"
+                "mainnet",
+                HarborDeployRun.Cut.Whole
             );
     }
 
@@ -241,5 +289,162 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
             abi.encodeWithSelector(HarborDeployRun.MinterReadsAnotherOracle.selector, minter, elsewhere, predicted)
         );
         deployRun.installMockPriceOracle(config);
+    }
+}
+
+/// The cut a run is made with: each deploys exactly the contracts it names, where the run predicts them, and no others.
+/// @dev Forked, deploying ETH::fxUSD through the mainnet BaoFactory as the composed test does. What a cut put down is
+///      read from the factory's own `Deployed` events rather than from the run: a contract the run deployed without
+///      naming it would never show through the run's address resolvers, and the factory reports everything it deploys.
+contract HarborDeployRunCutsTest is BaoTest, Deploy_ETH_Minter {
+    /// @dev A contract a cut should deploy, named for the failure that reports it missing.
+    struct Expected {
+        string name;
+        address at;
+    }
+
+    ConfigPeg private peg;
+    Config_MinterMarket[] private ethMarkets;
+    Config_MinterMarket private market;
+
+    function setUp() public {
+        forkMainnetWithBaoFactory();
+        Config_MinterMarket[] memory mktConfigs;
+        (peg, mktConfigs) = createETHMintersConfig();
+        ethMarkets = mktConfigs;
+        market = mktConfigs[0];
+    }
+
+    /// The minter's cut is the minter and what it is built from: the pegged and leveraged tokens and the reserve pool.
+    function test_minterCut_deploysTheTokensTheReservePoolAndTheMinter() public {
+        (HarborDeployRun run, address[] memory deployed) = _deployCut(HarborDeployRun.Cut.Minter);
+        _assertDeployedExactly(deployed, _theMinterAndWhatItNeeds(run));
+    }
+
+    /// Genesis needs only the minter, so its cut adds Genesis and none of the stability pools or their manager.
+    function test_minterAndGenesisCut_addsGenesisAndNoPool() public {
+        (HarborDeployRun run, address[] memory deployed) = _deployCut(HarborDeployRun.Cut.MinterAndGenesis);
+        _assertDeployedExactly(deployed, _and(_theMinterAndWhatItNeeds(run), "genesis", run.genesisAddress(market)));
+    }
+
+    /// The collateral pool's cut adds the stability pool that takes wrapped collateral.
+    function test_collateralPoolCut_addsTheCollateralPool() public {
+        (HarborDeployRun run, address[] memory deployed) = _deployCut(HarborDeployRun.Cut.CollateralPool);
+        _assertDeployedExactly(deployed, _withTheCollateralPool(run));
+    }
+
+    /// Both pools' cut adds the one that takes the leveraged token.
+    function test_bothPoolsCut_addsBothPools() public {
+        (HarborDeployRun run, address[] memory deployed) = _deployCut(HarborDeployRun.Cut.BothPools);
+        _assertDeployedExactly(deployed, _withBothPools(run));
+    }
+
+    /// The market's cut adds the manager that coordinates the two pools.
+    function test_marketCut_addsTheManager() public {
+        (HarborDeployRun run, address[] memory deployed) = _deployCut(HarborDeployRun.Cut.Market);
+        _assertDeployedExactly(deployed, _withTheManager(run));
+    }
+
+    /// Production's deploy is the market and its genesis. Stated, not derived from the cuts, so that production's
+    /// deploy growing a contract none of them names fails here, naming that contract's address.
+    function test_wholeCut_isTheMarketAndGenesis() public {
+        (HarborDeployRun run, address[] memory deployed) = _deployCut(HarborDeployRun.Cut.Whole);
+        _assertDeployedExactly(deployed, _and(_withTheManager(run), "genesis", run.genesisAddress(market)));
+    }
+
+    /// @dev Deploys the market with a run made with `cut`, returning the run and every address the factory deployed to
+    ///      while it ran.
+    function _deployCut(HarborDeployRun.Cut cut) private returns (HarborDeployRun run, address[] memory deployed) {
+        run = new HarborDeployRun(makeAddr("cutsRunOwner"), makeAddr("cutsRunTreasury"), "cuts", "mainnet", cut);
+        run.ensureFactory();
+        Config_MinterMarket[] memory marketsToDeploy = new Config_MinterMarket[](1);
+        marketsToDeploy[0] = market;
+
+        vm.recordLogs();
+        run.deploy(peg, ethMarkets, true, marketsToDeploy);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        address factory = run.baoFactory();
+        uint256 count;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == factory && logs[i].topics[0] == IBaoFactory.Deployed.selector) {
+                count++;
+            }
+        }
+        deployed = new address[](count);
+        count = 0;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == factory && logs[i].topics[0] == IBaoFactory.Deployed.selector) {
+                deployed[count] = address(uint160(uint256(logs[i].topics[1])));
+                count++;
+            }
+        }
+    }
+
+    /// @dev What every cut deploys: the peg's pegged token, which each deploy here asks for, and the minter with what
+    ///      it is built from.
+    function _theMinterAndWhatItNeeds(HarborDeployRun run) private returns (Expected[] memory expected) {
+        expected = new Expected[](4);
+        expected[0] = Expected("pegged token", run.peggedTokenAddress(market));
+        expected[1] = Expected("leveraged token", run.leveragedTokenAddress(market));
+        expected[2] = Expected("reserve pool", run.reservePoolAddress(market));
+        expected[3] = Expected("minter", run.minterAddress(market));
+    }
+
+    function _withTheCollateralPool(HarborDeployRun run) private returns (Expected[] memory) {
+        return
+            _and(
+                _theMinterAndWhatItNeeds(run),
+                "collateral pool",
+                run.stabilityPoolAddress(market, StabilityPoolType.Collateral)
+            );
+    }
+
+    function _withBothPools(HarborDeployRun run) private returns (Expected[] memory) {
+        return
+            _and(
+                _withTheCollateralPool(run),
+                "leveraged pool",
+                run.stabilityPoolAddress(market, StabilityPoolType.Leveraged)
+            );
+    }
+
+    function _withTheManager(HarborDeployRun run) private returns (Expected[] memory) {
+        return _and(_withBothPools(run), "stability pool manager", run.stabilityPoolManagerAddress(market));
+    }
+
+    /// @dev `expected` with one more contract.
+    function _and(
+        Expected[] memory expected,
+        string memory name,
+        address at
+    ) private pure returns (Expected[] memory more) {
+        more = new Expected[](expected.length + 1);
+        for (uint256 i = 0; i < expected.length; i++) {
+            more[i] = expected[i];
+        }
+        more[expected.length] = Expected(name, at);
+    }
+
+    /// @dev The factory deployed every expected contract, and nothing else.
+    function _assertDeployedExactly(address[] memory deployed, Expected[] memory expected) private pure {
+        for (uint256 i = 0; i < expected.length; i++) {
+            bool found = false;
+            for (uint256 j = 0; j < deployed.length; j++) {
+                if (deployed[j] == expected[i].at) {
+                    found = true;
+                }
+            }
+            assertTrue(found, string.concat("the cut deploys the ", expected[i].name));
+        }
+        for (uint256 j = 0; j < deployed.length; j++) {
+            bool named = false;
+            for (uint256 i = 0; i < expected.length; i++) {
+                if (expected[i].at == deployed[j]) {
+                    named = true;
+                }
+            }
+            assertTrue(named, string.concat("and nothing else, but it deployed ", vm.toString(deployed[j])));
+        }
     }
 }

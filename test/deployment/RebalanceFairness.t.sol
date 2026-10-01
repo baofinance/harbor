@@ -58,7 +58,13 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
     function setUp() public virtual {
         // Fork mainnet so real token contracts (fxSAVE, fxUSD, etc.) exist; the run stands the factory up on it
         forkMainnet();
-        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "fairness_test", "mainnet");
+        deployRun = new HarborDeployRun(
+            HARBOR_MULTISIG,
+            HARBOR_MULTISIG,
+            "fairness_test",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
         deployRun.ensureFactory();
 
         // Deploy a fresh ETH::fxUSD market via the production deployment scripts
@@ -121,8 +127,9 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
 
         // Mint via zero-fee — this test contract has owner privileges from deployment
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        vm.prank(IBaoOwnable(minter).owner());
+        vm.startPrank(IBaoOwnable(minter).owner());
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
 
         peggedMinted = IMinter(minter).freeMintPeggedToken(collateralAmount, to);
     }
@@ -132,8 +139,9 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         IERC20(wrappedCollateral).approve(minter, collateralAmount);
 
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        vm.prank(IBaoOwnable(minter).owner());
+        vm.startPrank(IBaoOwnable(minter).owner());
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
 
         levMinted = IMinter(minter).freeMintLeveragedToken(collateralAmount, to);
     }
@@ -143,18 +151,21 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
     // ═══════════════════════════════════════════════════════════════
 
     function _deposit(address pool, address who, uint256 amount) internal {
-        vm.prank(who);
+        vm.startPrank(who);
         IStabilityPool(pool).deposit(amount, who, 0);
+        vm.stopPrank();
     }
 
     function _withdrawAll(address pool, address who) internal {
         // Use request + window to avoid early withdrawal fee
-        vm.prank(who);
+        vm.startPrank(who);
         IStabilityPool(pool).requestWithdrawal();
+        vm.stopPrank();
         (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(who);
         vm.warp(uint256(start) + 1);
-        vm.prank(who);
+        vm.startPrank(who);
         IStabilityPool(pool).withdraw(type(uint256).max, who, 0);
+        vm.stopPrank();
     }
 
     /// @notice Bump the oracle rate by 0.1% (~5.2% APY weekly equivalent) and trigger a harvest.

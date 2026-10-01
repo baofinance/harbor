@@ -33,7 +33,13 @@ abstract contract DeployEURSetUp is BaoTest {
 
     function setUp() public virtual {
         forkMainnet();
-        deployRun = new HarborDeployRun(HARBOR_MULTISIG, HARBOR_MULTISIG, "test_eur", "mainnet");
+        deployRun = new HarborDeployRun(
+            HARBOR_MULTISIG,
+            HARBOR_MULTISIG,
+            "test_eur",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
         deployRun.ensureFactory();
 
         (ConfigPeg peg_, Config_MinterMarket[] memory mktConfigs) = eurMintersConfig();

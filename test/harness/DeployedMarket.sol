@@ -89,7 +89,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         _requireHoldersOutsidePools(collateralPoolShare, leveragedPoolShare);
         vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         // After the fork is selected, which would otherwise discard it.
-        productionRun = new HarborDeployRun(address(0), address(0), SALT_PREFIX, "mainnet");
+        productionRun = new HarborDeployRun(address(0), address(0), SALT_PREFIX, "mainnet", HarborDeployRun.Cut.Whole);
 
         (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
         Config_MinterMarket config = markets[0]; // MCAP::fxUSD
