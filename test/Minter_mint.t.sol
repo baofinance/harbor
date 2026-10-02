@@ -214,9 +214,9 @@ contract TestMinterOverflow is TestMinterMint {
 }
 
 /// @notice A mint must never take collateral and hand back nothing.
-/// @dev The minter floors the pegged tokens it mints, so a mint small enough to buy less than one whole
-///      pegged token yields zero — while the collateral and the fee for it are still consumed. At a
-///      collateral price of 1e-9 pegged per token that is any mint under about a billion wei, which is
+/// @dev The minter floors the pegged tokens it mints, so the band walk prices a mint small enough to buy
+///      less than one whole pegged token at zero - while still charging it the collateral and the fee. At
+///      a collateral price of 1e-9 pegged per token that is any mint under about a billion wei, which is
 ///      what these tests use. Redeeming pegged, minting leveraged and redeeming leveraged all already
 ///      refuse this with ReturnZeroAmount; minting pegged is held to the same rule.
 contract TestMinterMintZeroOutput is TestMinterMint {
@@ -245,8 +245,7 @@ contract TestMinterMintZeroOutput is TestMinterMint {
     }
 
     function test_mintPegged_revertsWhenOutputRoundsToZero() public {
-        (, , uint256 collateralUsed, uint256 peggedOut, , ) = IMinter(minter).mintPeggedTokenDryRun(DUST);
-        assertGt(collateralUsed, 0, "precondition: this mint would consume collateral");
+        (, , , uint256 peggedOut, , ) = IMinter(minter).mintPeggedTokenDryRun(DUST);
         assertEq(peggedOut, 0, "precondition: this mint would yield no pegged tokens");
 
         uint256 senderWrapped = IERC20(wrappedCollateralToken).balanceOf(sender);
@@ -261,6 +260,25 @@ contract TestMinterMintZeroOutput is TestMinterMint {
         assertEq(IERC20(wrappedCollateralToken).balanceOf(sender), senderWrapped, "sender keeps their collateral");
         assertEq(IERC20(wrappedCollateralToken).balanceOf(minter), minterWrapped, "minter takes nothing");
         assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), feeWrapped, "no fee is charged");
+    }
+
+    /// @dev A dry run says what its call does. This offer buys no whole pegged token, so the plain mint refuses
+    ///      it and the capped one consumes nothing: both dry runs report nothing used, no fee, nothing minted,
+    ///      and the ratio of the band the market is in.
+    function test_mintPeggedDryRun_forAnOfferTooSmallForOneToken_reportsNothingUsed() public view {
+        int256 bandRatio = config.mintPeggedIncentiveConfig.incentiveRatios[1]; // the market is above the peg
+        (int256 ratio, uint256 fee, uint256 used, uint256 minted, , ) = IMinter(minter).mintPeggedTokenDryRun(DUST);
+        assertEq(used, 0, "nothing used");
+        assertEq(fee, 0, "no fee");
+        assertEq(minted, 0, "nothing minted");
+        assertEq(ratio, bandRatio, "the band's ratio");
+
+        // a 100% fee cap cannot bind, so only the zero-output rule decides this
+        (ratio, fee, used, minted, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(DUST, 1 ether);
+        assertEq(used, 0, "capped: nothing used");
+        assertEq(fee, 0, "capped: no fee");
+        assertEq(minted, 0, "capped: nothing minted");
+        assertEq(ratio, bandRatio, "capped: the band's ratio");
     }
 
     /// @dev The guard rejects only what rounds away: the smallest mint that does buy a whole pegged

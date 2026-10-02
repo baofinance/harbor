@@ -430,8 +430,9 @@ contract Minter_v3 is
     // ----------------
 
     /// @dev The incentive ratio of the band the market sits in now, judged at the middle of the price band as every
-    /// measure of the market is. A dry run that uses nothing reports this same figure, from its own reading.
-
+    /// measure of the market is. On a bound, an action that raises the ratio - redeeming pegged, minting leveraged - is
+    /// priced in the band above, where its walk starts, and one that lowers it in the band below: each reports the band
+    /// it trades in. A dry run that uses nothing reports this same figure, from its own reading.
     function _lookupIncentiveRatio(
         uint action, // solhint-disable-line explicit-types
         OracleReading memory reading
@@ -444,7 +445,7 @@ contract Minter_v3 is
             $.underlyingCollateral,
             _midPrice(reading),
             $.peggedTokenBalance,
-            false
+            action == Config_v2.REDEEM_PEGGED || action == Config_v2.MINT_LEVERAGED
         );
         incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
     }
@@ -498,12 +499,7 @@ contract Minter_v3 is
         return mintPeggedTokenDryRun(wrappedCollateralIn, type(uint256).max);
     }
 
-    /// @notice Dry run of a capped mint: the outcome when the fee, as a ratio of the collateral USED,
-    /// is held within maxFeeRatio. With an offer larger than the market can absorb at that price this
-    /// reports the capacity to mint at it — the collateral taken is bounded by the price, not by the
-    /// size of the offer.
-    /// @param wrappedCollateralIn The proposed amount of wrapped collateral.
-    /// @param maxFeeRatio The maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
+    /// @inheritdoc IMinter_v3
     function mintPeggedTokenDryRun(
         uint256 wrappedCollateralIn,
         uint256 maxFeeRatio
@@ -537,10 +533,15 @@ contract Minter_v3 is
                 ),
                 maxFeeRatio
             );
-        // slither-disable-next-line incorrect-equality
-        incentiveRatio = wrappedCollateralUsed == 0
-            ? _lookupIncentiveRatio(Config_v2.MINT_PEGGED, reading)
-            : int256(Math.mulDiv(wrappedFee, 1 ether, wrappedCollateralUsed));
+        if (peggedMinted > 0) {
+            incentiveRatio = int256(Math.mulDiv(wrappedFee, 1 ether, wrappedCollateralUsed));
+        } else {
+            // The call takes nothing from a mint that buys no whole pegged token - the plain mint refuses it, the
+            // capped one reports nothing consumed - and its dry run says the same: nothing used, no fee, and the
+            // ratio of the band the market is in.
+            (wrappedFee, wrappedCollateralUsed) = (0, 0);
+            incentiveRatio = _lookupIncentiveRatio(Config_v2.MINT_PEGGED, reading);
+        }
     }
 
     /// @inheritdoc IMinter_v3
@@ -566,23 +567,24 @@ contract Minter_v3 is
         OracleReading memory reading = _readOracle($.priceOracle);
         (price, rate) = (reading.maxPrice, reading.maxRate); // the edges the redeem reads
         peggedRedeemed = peggedIn;
-        uint256 peggedPriceE36;
         // slither-disable-next-line unused-return a dry run does not touch the backing record
-        (wrappedFee, wrappedSubsidy, wrappedCollateralReturned, , peggedPriceE36) = MinterAdjustments_v1
-            .redeemPeggedAdjustments(
-                $.incentiveConfig[Config_v2.REDEEM_PEGGED],
-                peggedIn,
-                MinterValuationLib.CollateralRatioData(
-                    $.underlyingCollateral,
-                    price,
-                    rate,
-                    peggedTokenBalance_,
-                    _leveragedTokenBalance()
-                ),
-                IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
-            );
+        (wrappedFee, wrappedSubsidy, wrappedCollateralReturned, ) = MinterAdjustments_v1.redeemPeggedAdjustments(
+            $.incentiveConfig[Config_v2.REDEEM_PEGGED],
+            peggedIn,
+            MinterValuationLib.CollateralRatioData(
+                $.underlyingCollateral,
+                price,
+                rate,
+                peggedTokenBalance_,
+                _leveragedTokenBalance()
+            ),
+            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
+        );
+        // The ratio is measured against the wrapped the redemption takes from the backing: what it pays, less the
+        // reserve's subsidy, plus the fee.
+        uint256 wrappedRedeemedFor = wrappedCollateralReturned + wrappedFee - wrappedSubsidy;
         // slither-disable-next-line incorrect-equality
-        if (peggedRedeemed == 0) {
+        if (wrappedRedeemedFor == 0) {
             incentiveRatio = _lookupIncentiveRatio(Config_v2.REDEEM_PEGGED, reading);
         } else {
             uint256 incentive;
@@ -594,8 +596,7 @@ contract Minter_v3 is
                 incentive = wrappedSubsidy - wrappedFee;
                 sign = -1;
             }
-            incentiveRatio =
-                sign * int256(Math.mulDiv(incentive * 1e18, price * rate, peggedRedeemed * peggedPriceE36));
+            incentiveRatio = sign * int256(Math.mulDiv(incentive, 1 ether, wrappedRedeemedFor));
         }
     }
 
@@ -927,8 +928,7 @@ contract Minter_v3 is
         uint256 wrappedSubsidy;
         uint256 underlyingCollateralRemoved;
         // Redeeming pegged reads the high edge of both bands, which pays the fewest wrapped tokens per pegged.
-        // slither-disable-next-line unused-return the pegged price is only reported by the dry run
-        (wrappedFee, wrappedSubsidy, wrappedCollateralOut, underlyingCollateralRemoved, ) = MinterAdjustments_v1
+        (wrappedFee, wrappedSubsidy, wrappedCollateralOut, underlyingCollateralRemoved) = MinterAdjustments_v1
             .redeemPeggedAdjustments(
                 $.incentiveConfig[Config_v2.REDEEM_PEGGED],
                 peggedIn,
@@ -1132,14 +1132,21 @@ contract Minter_v3 is
         if (peggedPriceE36 < MinterValuationLib.MIN_REPORTABLE_PEGGED_PRICE_E36) {
             revert ZeroPeggedTokenPrice();
         }
-        peggedOut = Math.mulDiv(underlyingCollateralInE36, price, peggedPriceE36);
+        // minted against the collateral the record gains, as the fee-paying mint is
+        uint256 underlyingCollateralAdded = underlyingCollateralInE36 / 1 ether;
+        peggedOut = MinterValuationLib.peggedForCollateral(
+            underlyingCollateralAdded,
+            peggedTokenBalance_,
+            underlyingCollateral_,
+            price
+        );
 
         // transfer and mint
         _mintPeggedToken(wrappedCollateralIn, peggedOut, receiver);
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
-        $.underlyingCollateral += underlyingCollateralInE36 / 1 ether;
+        $.underlyingCollateral += underlyingCollateralAdded;
     }
 
     // @inheritdoc IMinter
@@ -1291,7 +1298,7 @@ contract Minter_v3 is
                 peggedTokenBalance_,
                 underlyingCollateral_,
                 _midPrice(reading),
-                MinterValuationLib.round(reading.minRate + reading.maxRate, 2),
+                (reading.minRate + reading.maxRate + 1) / 2, // the middle rate, rounded half up
                 _leveragedTokenBalance()
             );
     }
@@ -1587,9 +1594,9 @@ contract Minter_v3 is
             .latestAnswer();
     }
 
-    /// @notice The middle of the collateral price band: the rounded average of its two edges.
+    /// @notice The middle of the collateral price band: the average of its two edges, rounded half up.
     function _midPrice(OracleReading memory reading) private pure returns (uint256 price) {
-        price = MinterValuationLib.round(reading.minPrice + reading.maxPrice, 2);
+        price = (reading.minPrice + reading.maxPrice + 1) / 2;
     }
 
     // Harvesting support

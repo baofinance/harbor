@@ -366,7 +366,8 @@ interface IMinter_v3 is IToken {
     /// @return fee The amount deducted from `collateralIn` as a fee.
     /// @return collateralTaken The amount of collateral used in the exchange.
     /// This is usually the same as `collateralIn` but at certain collateral ratio levels minting pegged tokens may be
-    /// disallowed by configuration.
+    /// disallowed by configuration. None is taken from an offer too small to buy a whole pegged token, which the call
+    /// refuses: the fee is then zero and the incentive ratio the band's.
     /// @return peggedMinted The amount of pegged tokens that would be minted, given the 'collateralTaken' value and 'fee'.
     /// @return price The price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
@@ -643,7 +644,8 @@ interface IMinter_v3 is IToken {
     /// @notice Dry run of a capped mint: the outcome when the fee, as a ratio of the collateral USED,
     /// is held within maxFeeRatio. With an offer larger than the market can absorb at that price this
     /// reports the capacity to mint at it — the collateral taken is bounded by the price, not by the
-    /// size of the offer.
+    /// size of the offer. An offer too small to buy a whole pegged token takes nothing, as the capped
+    /// call reports: no collateral, no fee, and the band's incentive ratio.
     /// @param collateralIn The proposed amount of wrapped collateral.
     /// @param maxFeeRatio The maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
     function mintPeggedTokenDryRun(

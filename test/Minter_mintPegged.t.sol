@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
@@ -15,6 +16,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 import {console2} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterMintPegged is TestMinterMint {
     using SafeERC20 for IERC20;
@@ -764,6 +766,172 @@ contract TestMinterMintPegged is TestMinterMint {
             IMinter(minter).leveragedTokenPrice(),
             leveragedPriceBefore,
             "a collateral price move must move the sail price, or the assertion above proves nothing"
+        );
+    }
+}
+
+/// @notice A pegged mint never mints more than the collateral it credits to the record buys - every rounding on the
+/// way from the offer to the tokens goes the protocol's way.
+contract TestMinterMintPeggedCredit is TestMinterSetUp {
+    address user;
+
+    /// @dev One fee in every band, either side of the peg, so a mint walking across bounds is priced alike throughout.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// The pegged minted is never more than the credited collateral buys: its value at the price while the backing
+    /// covers the pegged supply, otherwise its share of that supply - each pegged token a claim on backing / supply -
+    /// across rates, offers, and collateral ratios from below the peg to far above it.
+    function testFuzz_mintPegged_mintsNoMoreThanTheCreditedCollateralBuys(
+        uint256 wrappedIn,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 0.3 ether, 100 ether); // the ratio from 0.45 to 150
+        wrappedIn = bound(wrappedIn, 1e9, 100 ether);
+        user = makeAddr("user");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1 ether, rate);
+        setUp_collateral(100 ether, 50 ether); // a ratio of 1.5 at a price of one
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        deal(wrappedCollateralToken, user, wrappedIn);
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 supply = IMinter(minter).peggedTokenBalance();
+
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        uint256 minted = IMinter(minter).mintPeggedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        uint256 credited = IMinter(minter).collateralTokenBalance() - backing;
+        uint256 buys = backing * price >= supply * 1 ether
+            ? Math.mulDiv(credited, price, 1 ether)
+            : Math.mulDiv(credited, supply, backing);
+        assertLe(minted, buys, "no more pegged than the credited collateral buys");
+    }
+}
+
+/// @notice A pegged mint charges the trader the collateral its slices use, rounded up once from their exact sum, and
+/// mints the pegged those slices buy, rounded down once - never more than the collateral credited buys; the backing
+/// absorbs the remainder of the fee's rounding.
+contract TestMinterMintPeggedRoundedOnce is TestMinterSetUp {
+    address user;
+
+    /// @dev Minting pegged is disallowed below a ratio of 1.3, charges 1.2% up to 1.5 and 0.7% above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(130, 150), ia(disallow, 120, 70)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.8 a mint pays 0.7% down to 1.5 and 1.2% down to 1.3, where the disallow stops it with the
+    /// offer part used. Each slice is cut where the ratio reaches its band's lower bound and its fee is exact on the
+    /// collateral it takes. The trader pays the slices' sum rounded up once and is minted the pegged their net collateral
+    /// buys, priced once and rounded down once, capped at what the collateral credited buys.
+    function testFuzz_mintPegged_acrossAFeeToADisallow_chargesAndMintsTheExactSumsRoundedOnce(
+        uint256 extra,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        user = makeAddr("user");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+
+        uint256 usedE36; // the collateral the slices use, their fees included
+        uint256 feeE54;
+        {
+            uint256 collateralE36 = IMinter(minter).collateralTokenBalance() * 1 ether;
+            uint256 peggedHeldE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
+            for (uint256 band = 2; band > 0; band--) {
+                uint256 lowerBound = config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[band - 1];
+                uint256 feeRatio = uint256(config.mintPeggedIncentiveConfig.incentiveRatios[band]);
+                // the collateral, its fee included, whose mint brings the ratio down to the band's lower bound
+                uint256 sliceE36 = Math.mulDiv(
+                    collateralE36 * price - lowerBound * peggedHeldE36,
+                    1e36,
+                    price * (lowerBound - 1 ether) * (1 ether - feeRatio)
+                );
+                usedE36 += sliceE36;
+                feeE54 += sliceE36 * feeRatio;
+                // the state the next band is cut from, at 1e36: the net collateral held and, a pegged unit being worth
+                // one above the peg, the pegged it buys
+                uint256 netE54 = sliceE36 * 1 ether - sliceE36 * feeRatio;
+                collateralE36 += netE54 / 1 ether;
+                peggedHeldE36 += Math.mulDiv(netE54, price, 1e36);
+            }
+        }
+        uint256 payment = Math.ceilDiv(usedE36, rate);
+        uint256 credited = Math.mulDiv(payment - feeE54 / (rate * 1 ether), rate, 1 ether);
+        // the walk's pegged: the slices' net collateral, priced once
+        uint256 expectedMinted = Math.min(
+            Math.mulDiv(usedE36 * 1 ether - feeE54, price, 1e54),
+            Math.mulDiv(credited, price, 1 ether)
+        );
+        uint256 wrappedIn = payment + bound(extra, 1e9, 50 ether); // more than the slices use
+
+        deal(wrappedCollateralToken, user, wrappedIn);
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        uint256 minted = IMinter(minter).mintPeggedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        assertEq(wrappedIn - IERC20(wrappedCollateralToken).balanceOf(user), payment, "the payment, rounded up once");
+        assertEq(minted, expectedMinted, "the pegged, rounded down once, capped at what the credited collateral buys");
+    }
+}
+
+/// @notice A pegged mint charges each band's fee exactly on the collateral it takes there, so a mint whose exact outcome
+/// is a whole number of wei is minted exactly that, whatever bounds it crosses.
+contract TestMinterMintPeggedAcrossEqualFees is TestMinterSetUp {
+    address user;
+
+    /// @dev Minting pegged is disallowed below the peg and charges 0.5% either side of a bound at 1.5.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100, 150), ia(disallow, 50, 50)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.8 an offer of 100 crosses 1.5 into the second band. At a wrapped-to-underlying rate of one and
+    /// a price of 2000 the offer less 0.5%, at the price, is a whole number of pegged wei, and it is minted exactly.
+    function test_mintPegged_acrossABoundBetweenEqualFees_mintsExactlyTheOfferLessTheFee() public {
+        uint256 price = 2000 ether;
+        uint256 rate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        user = makeAddr("user");
+        uint256 wrappedIn = 100 ether;
+        deal(wrappedCollateralToken, user, wrappedIn);
+        uint256 feeRatio = uint256(config.mintPeggedIncentiveConfig.incentiveRatios[1]);
+
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        uint256 minted = IMinter(minter).mintPeggedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        assertLt(
+            IMinter(minter).collateralRatio(),
+            config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[1],
+            "the mint crossed the bound"
+        );
+        assertEq(
+            minted,
+            (((wrappedIn * rate) / 1 ether) * (1 ether - feeRatio) * price) / 1e36,
+            "the offer less the fee, at the price"
         );
     }
 }

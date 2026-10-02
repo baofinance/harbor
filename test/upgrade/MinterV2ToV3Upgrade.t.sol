@@ -226,6 +226,32 @@ contract MinterV2ToV3UpgradeTest is TestMinterSetUp {
         assertEq(IERC20(stray).balanceOf(harvester), 1 ether, "the harvester role granted under v2 sweeps under v3");
     }
 
+    /// A schedule v2 stored with a subsidy in its highest band - one the v3 loader refuses, carried across the upgrade
+    /// unchecked - pays no subsidy there under v3: above the last bound a subsidy would have no end.
+    function test_legacyHighestBandSubsidy_paysNothingAfterTheUpgrade() public {
+        IMinter.Config memory legacy = marketConfig.minterConfig();
+        legacy.mintLeveragedIncentiveConfig = ic(ua(100), ia(0, -50));
+        vm.startPrank(owner());
+        IMinter(minter).updateConfig(legacy);
+        vm.stopPrank();
+        setUp_collateral(5 ether, 5 ether);
+
+        _upgradeToV3();
+
+        deal(wrappedCollateralToken, reservePool, 1 ether);
+        address minterUser = makeAddr("minterUser");
+        deal(wrappedCollateralToken, minterUser, 1 ether);
+        vm.startPrank(minterUser);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        IMinter(minter).mintLeveragedToken(1 ether, minterUser, 0);
+        vm.stopPrank();
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(reservePool),
+            1 ether,
+            "no subsidy drawn above the last bound"
+        );
+    }
+
     /// Mint, redeem across both token types, then upgrade - the state a live market would actually be in.
     function test_upgradeFromV2_mixedOperations() public {
         setUp_collateral(5 ether, 5 ether);

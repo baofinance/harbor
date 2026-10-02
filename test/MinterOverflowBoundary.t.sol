@@ -13,6 +13,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {RevertReason} from "@harbor-test/RevertReason.sol";
+import {Envelope, EnvelopeLib} from "@harbor-test/StabilityPoolEnvelope.t.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 
 /// @notice Where the minter's arithmetic stops working, found by calling it rather than by deriving it.
@@ -47,17 +48,9 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// large supply has already thinned. The conversion this whole investigation is about mints sail with no
 /// collateral behind it at all, so a supply reached without minting is not a hypothetical.
 contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, RevertReason {
-    /// @dev The declared envelope's largest pool, in dollars, 1e18-scaled - the same figure the stability
-    ///      pool's envelope carries, because it is the same market being sized.
-    uint256 private constant MAX_POOL_VALUE_USD = 1e10 ether;
-
-    /// @dev The declared envelope's dearest collateral, in dollars. Paired with the cheapest peg below it
-    ///      gives the largest oracle price the envelope admits.
-    uint256 private constant MAX_COLLATERAL_USD = 1e6 ether;
-
-    /// @dev The wrapped-to-underlying rate held at one throughout. It is an axis of the envelope in its
-    ///      own right and not of this measurement: it multiplies the collateral, which these products are
-    ///      the least sensitive to, and letting it move would confound the two.
+    /// @dev The wrapped-to-underlying rate held at one throughout, so a wrapped token and the underlying it
+    ///      counts are the same number: the collateral count is swept by the collateral price instead, and
+    ///      moving the rate as well would confound the two.
     uint256 private constant WRAP_RATE = 1 ether;
 
     /// @dev The collateral ratio every row is measured at - the proportions a market is deployed at, with
@@ -65,34 +58,30 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     ///      so the rows differ in the peg alone.
     uint256 private constant BUILD_COLLATERAL_RATIO = 2 ether;
 
-    /// @dev The peg prices swept, in dollars, 1e18-scaled: the envelope's declared range from a
-    ///      hyperinflated unit at a millionth of a cent to an appreciated one worth a trillion dollars,
-    ///      two orders of magnitude apart. The oracle price and the anchor token count both scale with
-    ///      this, in opposite directions - a cheaper peg means more anchor tokens each worth less, and a
+    /// @dev Two orders of magnitude between the peg prices swept.
+    uint256 private constant PEG_PRICE_STEP = 100;
+
+    /// @dev The peg prices swept, in dollars, 1e18-scaled: the envelope's declared range, from a hyperinflated
+    ///      unit to an appreciated one, a step apart. The oracle price and the anchor token count both scale
+    ///      with this, in opposite directions - a cheaper peg means more anchor tokens each worth less, and a
     ///      collateral token worth more of them.
-    function _pegPrices() private pure returns (uint256[] memory prices) {
-        prices = new uint256[](13);
-        prices[0] = 1e-12 ether;
-        prices[1] = 1e-10 ether;
-        prices[2] = 1e-8 ether;
-        prices[3] = 1e-6 ether;
-        prices[4] = 1e-4 ether;
-        prices[5] = 1e-2 ether;
-        prices[6] = 1 ether;
-        prices[7] = 1e2 ether;
-        prices[8] = 1e4 ether;
-        prices[9] = 1e6 ether;
-        prices[10] = 1e8 ether;
-        prices[11] = 1e10 ether;
-        prices[12] = 1e12 ether;
+    function _pegPrices(Envelope memory envelope) private pure returns (uint256[] memory prices) {
+        uint256 count = 0;
+        for (uint256 price = envelope.minPegPriceUSD; price <= envelope.maxPegPriceUSD; price *= PEG_PRICE_STEP) {
+            count++;
+        }
+        prices = new uint256[](count);
+        uint256 next = envelope.minPegPriceUSD;
+        for (uint256 i = 0; i < count; i++) {
+            prices[i] = next;
+            next *= PEG_PRICE_STEP;
+        }
     }
 
     /// @dev The top of the sail-supply ladder, as a power of two. 2^200 is about 1.6e60 - far past any
     ///      supply the envelope's own dollar figures reach, so a column that never overflows below it has
     ///      genuinely not been shown a boundary rather than merely not been pushed far enough.
     uint256 private constant TOP_RUNG = 200;
-
-    string private file;
 
     /// @dev The production volatility configs refuse an anchor mint below a collateral ratio of about
     ///      1.31. That band table is policy and this measurement is about arithmetic, so a market stood up
@@ -113,27 +102,6 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
         vm.stopPrank();
-
-        file = openFile(
-            "minter_overflow_boundary",
-            sa(
-                "peg price in dollars",
-                "anchor supply (wei)",
-                "oracle collateral price",
-                "collateral ratio",
-                "sail supply the search reached (wei)",
-                "mintAnchor",
-                "mintAnchorWithFeeCap",
-                "redeemAnchor",
-                "mintSail",
-                "redeemSail",
-                "freeMintAnchor",
-                "freeRedeemAnchorForCollateral",
-                "freeRedeemAnchorForSail",
-                "freeMintSail",
-                "freeRedeemSail"
-            )
-        );
     }
 
     /// @dev Every external way in and out of the minter, each offered the largest input its caller could
@@ -175,16 +143,36 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         calls[9] = abi.encodeWithSignature("freeRedeemLeveragedToken(uint256,address)", sailIn, me);
     }
 
-    /// @dev Make one external call and say how it ended, leaving no trace of it behind.
-    function _probe(bytes memory callData) private returns (bool overflowed, string memory reason) {
-        uint256 snapshot = vm.snapshotState();
+    /// @dev How a probe's call ended, carried out of the frame whose revert undoes it.
+    error ProbeOutcome(bool succeeded, bytes returned);
+
+    /// @dev Make the call, then revert with how it ended: the revert undoes everything the call did, so a probe
+    ///      leaves no trace without a snapshot of the whole (forked) state for every one of them. External only so
+    ///      `_probe` can call it in a frame of its own.
+    function probeAndUndo(bytes calldata callData) external {
         // solhint-disable-next-line avoid-low-level-calls
         (bool succeeded, bytes memory returned) = minter.call(callData);
-        vm.revertToStateAndDelete(snapshot);
-        if (succeeded) {
-            return (false, "ok");
+        revert ProbeOutcome(succeeded, returned);
+    }
+
+    /// @dev Make one external call and say how it ended, leaving no trace of it behind.
+    function _probe(bytes memory callData) private returns (bool overflowed, string memory reason) {
+        try this.probeAndUndo(callData) {
+            revert("probeAndUndo returned instead of reverting");
+        } catch (bytes memory outcome) {
+            require(bytes4(outcome) == ProbeOutcome.selector, "the probe failed before reporting its call");
+            bytes memory encoded;
+            assembly ("memory-safe") {
+                // the outcome past its 4-byte selector, viewed in place: its length written over the selector
+                encoded := add(outcome, 4)
+                mstore(encoded, sub(mload(outcome), 4))
+            }
+            (bool succeeded, bytes memory returned) = abi.decode(encoded, (bool, bytes));
+            if (succeeded) {
+                return (false, "ok");
+            }
+            return (_isPanic(returned, PANIC_ARITHMETIC_OVERFLOW), _revertReason(returned));
         }
-        return (_isPanic(returned, PANIC_ARITHMETIC_OVERFLOW), _revertReason(returned));
     }
 
     /// @dev Give the market backing until it reports `targetRatio`, taking nothing in return. Permissionless
@@ -202,10 +190,11 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         }
     }
 
-    /// @dev Stand up a market holding the envelope's largest pool at `pegPriceUSD`, and report the anchor
-    ///      supply it reached. The anchor count and the oracle price both follow from the peg: a pool of a
-    ///      fixed dollar value is more tokens when each is worth less, and a collateral token is worth more
-    ///      of them.
+    /// @dev Stand up a market holding the envelope's largest pool, a collateral token worth `collateralUSD`
+    ///      and the peg at `pegPriceUSD`, and report the anchor supply it reached. The anchor count follows
+    ///      from the peg - a pool of a fixed dollar value is more tokens when each is worth less - and the
+    ///      oracle price from the two together: a collateral token is worth more anchor the dearer it is and
+    ///      the cheaper the peg.
     ///
     ///      The price is moved before the market is grown, which leaves the tranche the deployment minted
     ///      either far over- or far under-collateralised - eighteen orders of magnitude of price have to go
@@ -213,13 +202,13 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     ///      at `min(1, collateral ratio)`, so minting into an insolvent market mints a multiple of what was
     ///      asked for), and again afterwards, because minting anchor against its own backing pulls the
     ///      collateral ratio towards one.
-    function _buildMarketAtPeg(uint256 pegPriceUSD) private returns (uint256 anchorSupply) {
-        uint256 oraclePrice = Math.mulDiv(MAX_COLLATERAL_USD, 1 ether, pegPriceUSD);
+    function _buildMarketAt(uint256 collateralUSD, uint256 pegPriceUSD) private returns (uint256 anchorSupply) {
+        uint256 oraclePrice = Math.mulDiv(collateralUSD, 1 ether, pegPriceUSD);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(oraclePrice, WRAP_RATE);
         deal(address(wrappedCollateralToken), address(this), type(uint128).max);
 
         _donateToCollateralRatio(BUILD_COLLATERAL_RATIO);
-        uint256 target = Math.mulDiv(MAX_POOL_VALUE_USD, 1 ether, pegPriceUSD);
+        uint256 target = Math.mulDiv(EnvelopeLib.ethFxUSD().maxPoolValueUSD, 1 ether, pegPriceUSD);
         uint256 held = IMinter(minter).peggedTokenBalance();
         if (target > held) {
             // The collateral that mints the shortfall, where one wrapped token is worth `oraclePrice`
@@ -246,6 +235,9 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     ///      resolution - a factor of two - is a fixed small distance on the logarithmic axis this is drawn
     ///      on. `NaN` where a column was never shown a boundary, which gnuplot leaves as a gap rather than
     ///      drawing a zero that would read as a measurement.
+    ///
+    ///      Nothing needs restoring between rungs: each probe undoes itself, and each rung's `deal` sets the
+    ///      sail balance outright and moves the supply by the difference, replacing the rung before.
     function _sailSupplyCeilings() private returns (int256[] memory ceilings) {
         bytes[] memory probeCalls = _entryPointCalls();
         ceilings = new int256[](probeCalls.length);
@@ -256,7 +248,6 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         uint256 remaining = ceilings.length;
         for (uint256 rung = 0; rung <= TOP_RUNG && remaining > 0; rung++) {
             uint256 sailSupply = uint256(1) << rung;
-            uint256 snapshot = vm.snapshotState();
             deal(address(leveragedToken), address(this), sailSupply, true);
 
             probeCalls = _entryPointCalls();
@@ -271,8 +262,6 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
                     remaining--;
                 }
             }
-
-            vm.revertToStateAndDelete(snapshot);
         }
     }
 
@@ -292,7 +281,8 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     /// at their largest - which is one corner, not two, because a pool of a fixed dollar value is more
     /// tokens exactly when each collateral token is worth more of them.
     function test_aMarketWithAsMuchSailAsAnchorCanConvert() public {
-        uint256 anchorSupply = _buildMarketAtPeg(1e-12 ether);
+        Envelope memory envelope = EnvelopeLib.ethFxUSD();
+        uint256 anchorSupply = _buildMarketAt(envelope.maxCollateralUSD, envelope.minPegPriceUSD);
         deal(address(leveragedToken), address(this), anchorSupply, true);
 
         (bool overflowed, string memory reason) = _probe(
@@ -322,11 +312,48 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     }
 
     /// @notice The sail supply each entry point stops working at, across the envelope's declared range of
-    /// peg prices. The peg decides both the anchor count and the oracle price, so this is the boundary in
+    /// peg prices, at its dearest collateral - a collateral token worth the most anchor, the oracle price at
+    /// its largest. The peg decides both the anchor count and the oracle price, so this is the boundary in
     /// the one variable a director does not choose - the relationship between the supplies and the price
     /// that a market arrives at rather than declares.
-    function test_whereTheArithmeticStops() public {
-        uint256[] memory pegPrices = _pegPrices();
+    function test_whereTheArithmeticStops_atTheDearestCollateral() public {
+        _writeWhereTheArithmeticStops("minter_overflow_boundary", EnvelopeLib.ethFxUSD().maxCollateralUSD);
+    }
+
+    /// @notice The same at the envelope's cheapest collateral: the most collateral tokens a pool of its size
+    /// holds, where the arithmetic that scales with the collateral count, rather than with its price, is at
+    /// its largest.
+    function test_whereTheArithmeticStops_atTheCheapestCollateral() public {
+        _writeWhereTheArithmeticStops(
+            "minter_overflow_boundary_cheapest_collateral",
+            EnvelopeLib.ethFxUSD().minCollateralUSD
+        );
+    }
+
+    /// @dev One row per peg price, written to `name`: the market built there with a collateral token worth
+    ///      `collateralUSD`, and the sail supply each entry point survives in it.
+    function _writeWhereTheArithmeticStops(string memory name, uint256 collateralUSD) private {
+        string memory file = openFile(
+            name,
+            sa(
+                "peg price in dollars",
+                "anchor supply (wei)",
+                "oracle collateral price",
+                "collateral ratio",
+                "sail supply the search reached (wei)",
+                "mintAnchor",
+                "mintAnchorWithFeeCap",
+                "redeemAnchor",
+                "mintSail",
+                "redeemSail",
+                "freeMintAnchor",
+                "freeRedeemAnchorForCollateral",
+                "freeRedeemAnchorForSail",
+                "freeMintSail",
+                "freeRedeemSail"
+            )
+        );
+        uint256[] memory pegPrices = _pegPrices(EnvelopeLib.ethFxUSD());
         uint8[] memory decimals = new uint8[](15);
         decimals[0] = 18; // peg price in dollars
         decimals[1] = 0; // anchor supply, a count of wei
@@ -339,7 +366,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         for (uint256 p = 0; p < pegPrices.length; p++) {
             uint256 snapshot = vm.snapshotState();
 
-            uint256 anchorSupply = _buildMarketAtPeg(pegPrices[p]);
+            uint256 anchorSupply = _buildMarketAt(collateralUSD, pegPrices[p]);
             (uint256 oraclePrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
             int256[] memory ceilings = _sailSupplyCeilings();
 

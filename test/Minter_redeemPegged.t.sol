@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
@@ -12,7 +13,9 @@ import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
+import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterRedeemPegged is TestMinterMint {
     using SafeERC20 for IERC20;
@@ -869,5 +872,186 @@ contract TestMinterRedeemPegged is TestMinterMint {
             leveragedPriceBefore,
             "a collateral price move must move the sail price, or the assertion above proves nothing"
         );
+    }
+}
+
+/// @notice A pegged redemption never pays more than the exact formula: the collateral the pegged is worth - a pegged
+/// unit's worth each at the peg, its share of the backing below it - converted at the rate, less the fee or plus the
+/// subsidy. Every rounding on the way goes the protocol's way.
+abstract contract TestMinterRedeemPeggedExact is TestMinterSetUp {
+    address user;
+
+    /// @dev The schedule's one ratio, a fee when positive and a subsidy when negative.
+    function _ratio() internal view virtual returns (int256);
+
+    /// @dev A market founded at a price of one at a ratio of 1.5, `user` holding the pegged, then priced at `price`.
+    function _redeem(uint256 pegged, uint256 rate, uint256 price) internal returns (uint256 paid, uint256 exact) {
+        user = makeAddr("user");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1 ether, rate);
+        setUp_collateral(100 ether, 50 ether, user);
+        deal(wrappedCollateralToken, reservePool, 1e30); // a subsidy is never capped
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 supply = IMinter(minter).peggedTokenBalance();
+        pegged = bound(pegged, 1e9, supply / 2);
+        uint256 keptPerUnit = uint256(1 ether - _ratio()); // what is left of each unit after the fee or subsidy
+        exact = backing * price >= supply * 1 ether
+            ? Math.mulDiv(pegged * keptPerUnit, 1 ether, price * rate)
+            : Math.mulDiv(pegged * keptPerUnit, backing, supply * rate);
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, pegged);
+        paid = IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        vm.stopPrank();
+    }
+
+    /// Never more than the exact formula, across rates, prices from below the peg to far above it, and amounts.
+    function testFuzz_redeemPegged_neverPaysMoreThanTheExactFormula(
+        uint256 pegged,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 0.3 ether, 100 ether); // the ratio from 0.45 to 150
+        (uint256 paid, uint256 exact) = _redeem(pegged, rate, price);
+        assertLe(paid, exact, "no more than the exact formula pays");
+    }
+}
+
+/// @notice ... charging one fee in every band.
+contract TestMinterRedeemPeggedExactFee is TestMinterRedeemPeggedExact {
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    function _ratio() internal view override returns (int256) {
+        return config.redeemPeggedIncentiveConfig.incentiveRatios[0];
+    }
+}
+
+/// @notice A pegged redemption pays the redeemer the collateral the pegged is worth, less the fee, plus the subsidy,
+/// rounded down once from the exact figure - but never more than the whole wei the backing releases and the reserve
+/// sends; the fee receiver absorbs the remainder.
+contract TestMinterRedeemPeggedRoundedOnce is TestMinterSetUp {
+    address user;
+
+    /// @dev A subsidy up to a ratio of 1.5 and a fee above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 150), ia(-50, -50, 70)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.3 a redemption takes the subsidy up to 1.5 and pays the fee past it. The collateral is priced
+    /// once, each slice's subsidy and fee are exact on the collateral it takes, and the redeemer is paid their sum rounded
+    /// down once, within what is released and sent in whole wei.
+    function testFuzz_redeemPegged_acrossASubsidyIntoAFee_paysTheExactNetRoundedOnce(
+        uint256 extra,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        user = makeAddr("user");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 30 ether, user); // a ratio of 1.3
+        deal(wrappedCollateralToken, reservePool, 1e30); // the subsidy is never capped
+
+        uint256 pegged;
+        uint256 expected;
+        {
+            uint256 bound15 = config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds[1];
+            uint256 supply = IMinter(minter).peggedTokenBalance();
+            // the pegged whose redemption brings the ratio from 1.3 to 1.5, at a pegged price of one
+            uint256 toTheBoundE36 = (bound15 * (supply * 1 ether) -
+                (IMinter(minter).collateralTokenBalance() * 1 ether) * price) / (bound15 - 1 ether);
+            pegged = Math.ceilDiv(toTheBoundE36, 1 ether) + bound(extra, 1e9, supply / 4);
+            uint256 subsidyE54;
+            uint256 feeE54;
+            uint256 collateralE36;
+            {
+                // the collateral the pegged redeems for, at a pegged unit's worth each, and the part of it below the bound
+                collateralE36 = Math.mulDiv(pegged * 1 ether, 1e36, price) / 1 ether;
+                uint256 subsidisedE36 = Math.mulDiv(toTheBoundE36, 1e36, price) / 1 ether;
+                subsidyE54 = subsidisedE36 * uint256(-config.redeemPeggedIncentiveConfig.incentiveRatios[1]);
+                feeE54 =
+                    (collateralE36 - subsidisedE36) * uint256(config.redeemPeggedIncentiveConfig.incentiveRatios[2]);
+            }
+            expected = Math.min(
+                (collateralE36 * 1 ether - feeE54 + subsidyE54) / (rate * 1 ether),
+                collateralE36 / rate + subsidyE54 / (rate * 1 ether)
+            );
+        }
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, pegged);
+        uint256 paid = IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        vm.stopPrank();
+
+        assertEq(paid, expected, "the collateral less the fee plus the subsidy, rounded down once");
+    }
+}
+
+/// @notice ... subsidising at one rate up to the widest bound the storage holds, beyond every ratio reached here.
+contract TestMinterRedeemPeggedExactSubsidy is TestMinterRedeemPeggedExact {
+    function setUpConfig() internal virtual override {
+        IMinter.IncentiveConfig memory redeemPegged = ic(ua(100, 110), ia(-50, -50, 0));
+        redeemPegged.collateralRatioBandUpperBounds[1] = ConfigIncentiveLib.MAX_COLLATERAL_RATIO_BOUND;
+        setUp_config(ic(ua(100), ia(0, 0)), redeemPegged, ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)));
+    }
+
+    function _ratio() internal view override returns (int256) {
+        return config.redeemPeggedIncentiveConfig.incentiveRatios[0];
+    }
+}
+
+/// @notice A pegged redemption is worth the collateral its pegged redeems for, priced once, and each band's fee is
+/// charged exactly on the collateral it takes there - so a redemption whose exact payout is a whole number of wei is paid
+/// exactly that, whatever bounds it crosses.
+contract TestMinterRedeemPeggedAcrossEqualFees is TestMinterSetUp {
+    address user;
+
+    /// @dev Redeeming pegged charges 0.5% in every band, either side of bounds at the peg and at 1.45 - where the pegged
+    ///      that brings the ratio up from 1.3 is a fraction of a wei, so each slice's collateral and fee are fractions too.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 145), ia(50, 50, 50)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.3 a redemption of 50 collateral's worth crosses 1.45. At a wrapped-to-underlying rate of one
+    /// and a price of 2000 the collateral less 0.5% is a whole number of wei, and it is paid exactly.
+    function test_redeemPegged_acrossABoundBetweenEqualFees_paysExactlyTheCollateralLessTheFee() public {
+        uint256 price = 2000 ether;
+        uint256 rate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        user = makeAddr("user");
+        setUp_collateral(100 ether, 30 ether, user); // a ratio of 1.3
+        uint256 collateral = 50 ether;
+        uint256 pegged = (collateral * price) / 1 ether;
+        uint256 feeRatio = uint256(config.redeemPeggedIncentiveConfig.incentiveRatios[1]);
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, pegged);
+        uint256 paid = IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        vm.stopPrank();
+
+        assertGt(
+            IMinter(minter).collateralRatio(),
+            config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds[1],
+            "the redemption crossed the bound"
+        );
+        assertEq(paid, (collateral * (1 ether - feeRatio)) / rate, "the collateral less the fee");
     }
 }

@@ -710,3 +710,147 @@ contract TestMinterFreeMintLeveraged is TestMinterSetUp {
         assertEq(freeCredited, paidCredited, "and credits the same backing");
     }
 }
+
+/// @notice A fee-paying leveraged mint charges the schedule's fee in full: every rounding of the fee goes the
+/// protocol's way.
+contract TestMinterMintLeveragedFee is TestMinterSetUp {
+    /// @dev One fee in every band, so the exact fee of any mint is the offer times that ratio, however many bands the
+    ///      walk crosses.
+    function setUpConfig() internal virtual override {
+        setUp_config_flatWide();
+    }
+
+    /// The fee taken is never less than the exact fee - the offer times the ratio - and exceeds that fee's ceiling by
+    /// at most a wei, across rates, prices and offers that walk through several bands.
+    function testFuzz_mintLeveraged_neverChargesLessThanTheExactFee(
+        uint256 wrappedIn,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        wrappedIn = bound(wrappedIn, 1e9, 100 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 5 ether); // a ratio of 1.05, so a large offer walks through every bound to 1.6
+        address minterUser = makeAddr("minterUser");
+        deal(wrappedCollateralToken, minterUser, wrappedIn);
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+
+        vm.startPrank(minterUser);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter(minter).mintLeveragedToken(wrappedIn, minterUser, 0);
+        vm.stopPrank();
+
+        uint256 fee = IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore;
+        uint256 ratio = uint256(config.mintLeveragedIncentiveConfig.incentiveRatios[0]);
+        assertGe(fee * 1 ether, wrappedIn * ratio, "the fee is never less than the exact fee");
+        // Each band's share is rounded up at 1e-36 of a collateral unit and the total once to a wrapped wei, so the
+        // charge passes the exact fee's ceiling only where those shares carry it over a whole wei: by one at most.
+        assertLe(fee, Math.ceilDiv(wrappedIn * ratio, 1 ether) + 1, "and at most a wei over its ceiling");
+    }
+}
+
+/// @notice A leveraged mint keeps for the trader the offer plus the subsidy less the fee, rounded down once from the
+/// exact figure; the fee receiver absorbs the remainder.
+contract TestMinterMintLeveragedRoundedOnce is TestMinterSetUp {
+    /// @dev A subsidy up to a ratio of 1.5 and a fee above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 150), ia(-50, -50, 70)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.3 a mint takes the subsidy up to 1.5 and pays the fee past it. Each slice's subsidy and fee are
+    /// exact on the collateral it takes, and the wrapped kept for the trader is their sum with the offer, rounded down
+    /// once.
+    function testFuzz_mintLeveraged_acrossASubsidyIntoAFee_keepsTheExactNetRoundedOnce(
+        uint256 extra,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 30 ether); // a ratio of 1.3
+        deal(wrappedCollateralToken, reservePool, 1e30); // the subsidy is never capped
+
+        uint256 wrappedIn;
+        uint256 expectedKept;
+        {
+            uint256 subsidyRatio = uint256(-config.mintLeveragedIncentiveConfig.incentiveRatios[1]);
+            uint256 bound15 = config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds[1];
+            // the collateral that, with its subsidy, brings the ratio from 1.3 to 1.5
+            uint256 toTheBoundE36 = Math.mulDiv(
+                bound15 * (IMinter(minter).peggedTokenBalance() * 1 ether) -
+                    (IMinter(minter).collateralTokenBalance() * 1 ether) * price,
+                1 ether,
+                price * (1 ether + subsidyRatio)
+            );
+            wrappedIn = Math.ceilDiv(toTheBoundE36, rate) + bound(extra, 1e9, 50 ether);
+            // the offer, plus the subsidy on the collateral below the bound, less the fee on the rest
+            uint256 netE54 = wrappedIn * rate * 1 ether +
+                toTheBoundE36 * subsidyRatio -
+                (wrappedIn * rate - toTheBoundE36) * uint256(config.mintLeveragedIncentiveConfig.incentiveRatios[2]);
+            expectedKept = netE54 / (rate * 1 ether);
+        }
+
+        address minterUser = makeAddr("minterUser");
+        deal(wrappedCollateralToken, minterUser, wrappedIn);
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
+        vm.startPrank(minterUser);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter(minter).mintLeveragedToken(wrappedIn, minterUser, 0);
+        vm.stopPrank();
+
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(minter) - heldBefore,
+            expectedKept,
+            "the wrapped kept: the offer plus the subsidy less the fee, rounded down once"
+        );
+    }
+}
+
+/// @notice A leveraged mint charges each band's fee exactly on the collateral it takes there, so a mint whose exact kept
+/// collateral is a whole number of wei keeps exactly that, whatever bounds it crosses.
+contract TestMinterMintLeveragedAcrossEqualFees is TestMinterSetUp {
+    /// @dev Minting leveraged charges 0.5% in every band, either side of bounds at the peg and at 1.5.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 150), ia(50, 50, 50)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.3 an offer of 100 crosses 1.5. At a wrapped-to-underlying rate of one the offer less 0.5% is a
+    /// whole number of wei, and the minter keeps exactly that for the trader.
+    function test_mintLeveraged_acrossABoundBetweenEqualFees_keepsExactlyTheOfferLessTheFee() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 30 ether); // a ratio of 1.3
+        uint256 wrappedIn = 100 ether;
+        uint256 feeRatio = uint256(config.mintLeveragedIncentiveConfig.incentiveRatios[1]);
+
+        address minterUser = makeAddr("minterUser");
+        deal(wrappedCollateralToken, minterUser, wrappedIn);
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
+        vm.startPrank(minterUser);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter(minter).mintLeveragedToken(wrappedIn, minterUser, 0);
+        vm.stopPrank();
+
+        assertGt(
+            IMinter(minter).collateralRatio(),
+            config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds[1],
+            "the mint crossed the bound"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(minter) - heldBefore,
+            (wrappedIn * (1 ether - feeRatio)) / 1 ether,
+            "the offer less the fee"
+        );
+    }
+}

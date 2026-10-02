@@ -21,6 +21,16 @@ reference, validates upgrade preserves state.
 - `test-deploy` — deployment dry-run script
 - [test-deploy.md](minter-v2-upgrade/test-deploy.md), [upgrade-Minter_v2.md](minter-v2-upgrade/upgrade-Minter_v2.md)
 
+### [minter-v3-upgrade/](minter-v3-upgrade/)
+
+Minter v2→v3 upgrade verification. An upgrade carries each minter's stored incentive config across unchecked, and v3's
+loader refuses schedules v2's accepted (a subsidy in the highest band, a bound too wide for its field) - v3's band
+walks rely on that.
+
+- `MinterUpgradePreflight.t.sol` — loads every deployed minter's config through a fresh Minter_v3's `updateConfig` on
+  a mainnet fork; fails naming any minter whose config is refused or would read back differently
+- `run-preflight` — runs it (needs `MAINNET_RPC_URL`); run before upgrading
+
 ### [sp-v2-upgrade/](sp-v2-upgrade/)
 
 StabilityPool v1→v2 upgrade verification and bug fix documentation.

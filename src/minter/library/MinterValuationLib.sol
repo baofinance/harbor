@@ -87,12 +87,12 @@ library MinterValuationLib {
     /// @notice Calculates the raw collateral ratio without any flooring.
     /// @dev This returns the actual mathematical ratio (collateralValue / peggedValue) which may be < 1 in depegged scenarios.
     /// Semantics:
-    /// - Hot path (pegged > 0): single branch then mulDiv; zero collateral naturally yields 0.
+    /// - Hot path (pegged > 0): single branch then mulDiv; zero collateral, or a zero price, naturally yields 0.
     /// - If pegged == 0:
     ///     - If collateral == 0 => 1e18 (define 0/0 as 1.0)
     ///     - Else => +infinity encoded as 1e36
-    /// The price is never zero: every caller sources it from a fetch helper that rejects a faulty oracle, so there
-    /// is no zero-price case to define.
+    /// A zero price is legitimate - the oracle gives one only when it is - and needs no case of its own: the backing
+    /// is then worth nothing, and so is the ratio.
     /// @param collateralTokenBalance_ The amount of collateral tokens
     /// @param collateralPrice The price of collateral in terms of the pegged token
     /// @param peggedTokenBalance_ The amount of pegged tokens
@@ -155,6 +155,41 @@ library MinterValuationLib {
     }
 
     // the price of a pegged token taking into account de-peg rate
+    /// @notice The pegged tokens `collateral` buys, floored: its value at `collateralPrice` while the backing covers
+    /// the pegged supply, otherwise the share of that supply it matches - each pegged token being a claim on
+    /// backing / supply.
+    /// @dev A mint is refused before it gets here whenever the pegged price is too small to report, so the backing is
+    /// never zero below the peg.
+    function peggedForCollateral(
+        uint256 collateral,
+        uint256 peggedTokenBalance_,
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice
+    ) internal pure returns (uint256) {
+        if (collateralTokenBalance_ * collateralPrice >= peggedTokenBalance_ * 1 ether) {
+            return Math.mulDiv(collateral, collateralPrice, 1 ether);
+        }
+        return Math.mulDiv(collateral, peggedTokenBalance_, collateralTokenBalance_);
+    }
+
+    /// @notice The collateral `pegged` redeems for before any fee or subsidy, floored, at 1e18 times `pegged`'s scale:
+    /// a pegged unit's worth each while the backing covers the pegged supply, otherwise each pegged token's share of
+    /// the backing.
+    /// @dev The share needs no price - below the peg the pegged holders own the backing, whatever it is worth - so a
+    /// zero price, which covers nothing, still has an answer. Covering the supply needs a price above zero, so the
+    /// first case never divides by zero.
+    function collateralForPegged(
+        uint256 pegged,
+        uint256 peggedTokenBalance_,
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice
+    ) internal pure returns (uint256) {
+        if (collateralTokenBalance_ * collateralPrice >= peggedTokenBalance_ * 1 ether) {
+            return Math.mulDiv(pegged, 1e36, collateralPrice);
+        }
+        return Math.mulDiv(pegged, collateralTokenBalance_ * 1 ether, peggedTokenBalance_);
+    }
+
     function peggedTokenPriceE36(
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
@@ -201,17 +236,6 @@ library MinterValuationLib {
             // rises as the collateral falls, and that is what the token is. What is bounded is the leverage
             // SOLD, by the minter's refusal to mint below its floor.
             ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
-        }
-    }
-
-    function round(uint256 numerator, uint256 denominator) internal pure returns (uint256 result) {
-        unchecked {
-            result = numerator / denominator;
-            uint256 remainder = numerator % denominator;
-
-            uint256 halfDenominator = denominator >> 1;
-
-            if (remainder >= halfDenominator) result += 1;
         }
     }
 }

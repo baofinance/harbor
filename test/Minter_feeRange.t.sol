@@ -5,8 +5,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console2} from "forge-std/console2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -97,8 +97,6 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     uint256 mintLeveragedBands;
     uint256 redeemLeveragedBands;
 
-    bool areSubsidies;
-    bool areDisallows;
     bool reverseDirection;
     uint256 subsidyLimitRatio;
 
@@ -117,8 +115,6 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         mintLeveragedBands = 7;
         redeemLeveragedBands = 7;
 
-        areSubsidies = false;
-        areDisallows = false;
         reverseDirection = false;
         subsidyLimitRatio = 0;
     }
@@ -181,12 +177,12 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         _redeemLeveraged(w);
     }
 
-    // Put near top of test contract (inside the contract)
     struct LeveragedSpanCtx {
         uint256[] bounds;
         uint256 feePerc;
         uint256 subsidyPerc;
-        uint256 oneMinusFee;
+        // the collateral the record gains per unit of collateral offered: less the fee, or plus the subsidy
+        uint256 collateralPerInput;
         uint256 price;
         uint256 rate;
         uint256 pBase;
@@ -228,7 +224,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
             }
         }
         assertLt(C.feePerc, 1e18, "fee < 1e18");
-        C.oneMinusFee = 1e18 - C.feePerc;
+        C.collateralPerInput = 1e18 - C.feePerc + C.subsidyPerc;
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
         C.price = measurePrice;
@@ -307,50 +303,21 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
 
                     if (C.underlyingTarget > C.underlyingCurrent && C.rate != 0) {
                         C.deltaUnderlying = C.underlyingTarget - C.underlyingCurrent;
-
-                        // CRITICAL FIX: Handle subsidies properly for zero-span cases
-                        if (C.subsidyPerc > 0) {
-                            // Check if we have an inexhaustible reserve pool
-                            uint256 reservePoolAmount = IERC20(wrappedCollateralToken).balanceOf(reservePool);
-                            uint256 reserveUnderlyingCapacity = (reservePoolAmount * C.rate) / 1e18;
-
-                            // For inexhaustible reserve pools, we need an extremely aggressive scaling factor
-                            if (reserveUnderlyingCapacity > 1e40) {
-                                // This is an inexhaustible reserve test - use a tiny fraction of the target
-                                // The scaling factor must be much more aggressive for zero-span tests
-                                C.deltaUnderlying = C.deltaUnderlying / 1e20;
-                            } else {
-                                // For normal reserve pools, use a more moderate scaling
-                                C.deltaUnderlying = C.deltaUnderlying / 100;
-                            }
-
-                            // With a significant subsidy, calculate user contribution
-                            uint256 userContribution = (C.deltaUnderlying * (1e18 - C.subsidyPerc)) / 1e18;
-                            C.wNeeded = _ceilDiv(userContribution * 1e36, C.rate) + 1;
-                        } else if (C.oneMinusFee != 0) {
-                            C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.oneMinusFee) + 5;
-                        } else {
-                            C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate) + 5;
-                        }
+                        // The wrapped whose collateral, net of the fee or with the subsidy added, raises the record
+                        // by the delta. A capped or empty reserve pays less subsidy, landing short of the target.
+                        C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.collateralPerInput) + 5;
 
                         if (IMinter(minter).leveragedTokenPrice() != 0) {
                             _mintLeveraged(C.wNeeded);
                             uint256 postCR0 = IMinter(minter).collateralRatio();
                             assertGt(postCR0, bandLower, "zero-span lower");
-                            if (areSubsidies) {
-                                // For inexhaustible reserve tests, we only check that CR has increased but don't enforce strict upper bound
-                                assertGt(postCR0, C.preCR, "zero-span CR should increase");
-                            } else {
-                                assertLe(postCR0, bandUpper, "zero-span upper");
-                            }
+                            assertLe(postCR0, bandUpper, "zero-span upper");
                             C.crossings = 0;
                             for (C.bi = 0; C.bi < C.bounds.length; C.bi++) {
                                 uint256 b0 = C.bounds[C.bi];
                                 if (b0 > C.preCR && b0 <= postCR0) C.crossings++;
                             }
-                            if (!areSubsidies) {
-                                assertEq(C.crossings, 0, "zero-span crossings");
-                            }
+                            assertEq(C.crossings, 0, "zero-span crossings");
                         }
                     }
                     continue;
@@ -377,27 +344,8 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                 C.deltaUnderlying = C.underlyingTarget - C.underlyingCurrent;
                 if (C.rate == 0) continue;
 
-                // CRITICAL FIX: For cross-band tests, handle subsidies properly
-                if (C.subsidyPerc > 0) {
-                    // Calculate how much underlying we really need to request
-                    uint256 reservePoolAmount = IERC20(wrappedCollateralToken).balanceOf(reservePool);
-                    uint256 reserveUnderlyingCapacity = (reservePoolAmount * C.rate) / 1e18;
-
-                    // For the inexhaustible reserve pool test, we need to be careful about the amount
-                    // of collateral we request, as the reserve pool can contribute enormously
-                    if (reserveUnderlyingCapacity > 1e40) {
-                        // This is an inexhaustible reserve test - use a fraction of the target
-                        C.deltaUnderlying = C.deltaUnderlying / 10;
-                    }
-
-                    // User only needs to provide the portion not covered by subsidy
-                    uint256 userContribution = (C.deltaUnderlying * (1e18 - C.subsidyPerc)) / 1e18;
-                    C.wNeeded = _ceilDiv(userContribution * 1e36, C.rate) + 10;
-                } else if (C.oneMinusFee != 0) {
-                    C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.oneMinusFee) + 10;
-                } else {
-                    C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate) + 10;
-                }
+                // as for the zero span: the collateral net of the fee or with the subsidy raises the record by delta
+                C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.collateralPerInput) + 10;
 
                 if (IMinter(minter).leveragedTokenPrice() == 0) continue;
 
@@ -412,21 +360,14 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                     continue;
                 }
 
-                // Normal end-band assertions
                 assertGt(postCR, _bandLower(C.e, C.bounds), "end lower");
-                if (areSubsidies) {
-                    // For inexhaustible reserve tests, we only check that CR has increased but don't enforce strict upper bound
-                    assertGt(postCR, preCRLocal, "end CR should increase");
-                } else {
-                    assertLe(postCR, C.bounds[C.e], "end upper");
-                    // Count crossings
-                    C.crossings = 0;
-                    for (C.bi = 0; C.bi < C.bounds.length; C.bi++) {
-                        uint256 b = C.bounds[C.bi];
-                        if (b > preCRLocal && b <= postCR) C.crossings++;
-                    }
-                    assertEq(C.crossings, (C.e - C.s), "cross count");
+                assertLe(postCR, C.bounds[C.e], "end upper");
+                C.crossings = 0;
+                for (C.bi = 0; C.bi < C.bounds.length; C.bi++) {
+                    uint256 b = C.bounds[C.bi];
+                    if (b > preCRLocal && b <= postCR) C.crossings++;
                 }
+                assertEq(C.crossings, (C.e - C.s), "cross count");
             }
         }
 
@@ -447,6 +388,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         uint256 peggedPrice;
         uint256 leveragedPrice;
         int256 incentiveRatio; // not filled by _measure
+        uint256 incentiveMeasure; // not filled by _measure: the wrapped a dry run measures its incentive ratio against
     }
 
     function _measure() internal view returns (Measures memory m) {
@@ -486,21 +428,22 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     /// @dev Two zero outcomes are legitimate: the config can forbid minting at the current collateral ratio,
     ///      so nothing can be taken at all, or the amount offered can be too small to buy a whole pegged
     ///      token, so nothing would be produced. Each is tolerated only against its own precondition, read
-    ///      from the dry run beforehand, so any other revert — or a zero the dry run did not predict — still
-    ///      fails the test. Returns 0 for both, having consumed nothing.
+    ///      from the dry run beforehand - which reports nothing minted for both, with the band's ratio, 100%
+    ///      where the config forbids minting - so any other revert, or a zero the dry run did not predict,
+    ///      still fails the test. Returns 0 for both, having consumed nothing.
     ///      Owns its own prank: the dry run has to happen before the mint, and a one-shot `vm.prank` at the
     ///      call site would bind to that view call instead of the mint it was meant for.
     function mintPeggedIgnoreZeroMint(uint256 wrapped, address user) internal returns (uint256 minted) {
-        (, , uint256 predictedUsed, uint256 predictedMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
+        (int256 predictedRatio, , , uint256 predictedMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
         vm.startPrank(user);
         try IMinter(minter).mintPeggedToken(wrapped, user, 0) returns (uint256 m) {
             minted = m;
         } catch (bytes memory reason) {
-            if (predictedUsed == 0) {
+            if (predictedRatio == 1 ether) {
                 require(
                     keccak256(reason) ==
                         keccak256(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, peggedToken)),
-                    "MintZeroAmount is the only permitted revert when no collateral can be taken"
+                    "MintZeroAmount is the only permitted revert where the band forbids minting"
                 );
             } else {
                 require(
@@ -540,13 +483,11 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         Measures memory pre = _measure();
         uint256 feeRatio = uint256(initial(config.mintPeggedIncentiveConfig.incentiveRatios));
         {
-            // The dry-run's effective fee ratio is the flat band ratio recomputed from the (rounded) fee, so it
-            // deviates from the exact band ratio by at most 1 (the fee's single-wei rounding). Derived, not blanket.
-            // The dry-run reports the effective ratio as floor(wrappedFee * 1e18 / wrappedCollateralUsed). The
-            // fee's sub-wei rounding is amplified by 1e18/collateral in that ratio, so it can sit up to
-            // ~1e18/wrapped below the nominal band ratio (plus a wei of fee-vs-band rounding). Derived, per-run.
+            // The dry run's ratio is its fee over the collateral used - the whole offer, which a flat schedule mints
+            // with. The fee is the exact one rounded down - within a wei below it - and a wei moves the ratio by
+            // 1e18 / `wrapped`; its floor adds under a unit.
             (int256 dryRunFeeRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
-            assertApprox(dryRunFeeRatio, int256(feeRatio), 1e18 / wrapped + 2, 0, "mp dry run fee ratio");
+            assertApprox(dryRunFeeRatio, int256(feeRatio), 1e18 / wrapped + 1, 0, "mp dry run fee ratio");
         }
         // note that this is looking up the first incentive ratio, so only works for fixed fees
         uint256 minted = mintPeggedIgnoreZeroMint(wrapped, user);
@@ -647,25 +588,47 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             int256 incentiveRatio = initial(config.redeemPeggedIncentiveConfig.incentiveRatios); // assume flat
             if (incentiveRatio < 0) {
                 fee = 0;
-                subsidy = (uint256(-incentiveRatio) * wrapped) / 1e18; // assume inexhaustable reserve pool (TODO: for now)
+                // the whole subsidy; capped by a limited reserve after the redemption
+                subsidy = (uint256(-incentiveRatio) * wrapped) / 1e18;
             } else {
                 fee = (uint256(incentiveRatio) * wrapped) / 1e18;
                 subsidy = 0;
             }
         }
-        // console2.log("fee=%s", fee);
-        // console2.log("subsidy=%s", subsidy);
+
+        // A schedule whose highest band charges otherwise is flat only below its last bound - a subsidy has to end
+        // somewhere - so the flat expectation covers a redemption that ends below it, judged by this test's own
+        // arithmetic: the record less the collateral the pegged is worth, against the pegged left.
+        {
+            IMinter.IncentiveConfig memory schedule = config.redeemPeggedIncentiveConfig;
+            uint256 highest = schedule.incentiveRatios.length - 1;
+            if (schedule.incentiveRatios[highest] != schedule.incentiveRatios[0]) {
+                uint256 peggedAfter = pre.minterPegged - pegged;
+                vm.assume(
+                    peggedAfter > 0 &&
+                        Math.mulDiv(pre.minterUnderlying - (wrapped * r) / 1e18, p, peggedAfter) <
+                            schedule.collateralRatioBandUpperBounds[highest - 1]
+                );
+            }
+        }
 
         if (subsidyLimitRatio > 0) {
-            // use the max subsidy to determine a reserve pool capacity that should be exhasted by this redeem
+            // a reserve holding a share of the flat subsidy, so this redemption exhausts it
             pre.reservePoolWrapped = (subsidy * subsidyLimitRatio) / 1e18;
-            // console2.log("pre.reservePoolWrapped=%s", pre.reservePoolWrapped);
             deal(address(wrappedCollateralToken), reservePool, pre.reservePoolWrapped);
         }
 
-        (pre.incentiveRatio, , , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(pegged);
-        vm.prank(user);
+        {
+            uint256 dryRunFee;
+            uint256 dryRunSubsidy;
+            (pre.incentiveRatio, dryRunFee, dryRunSubsidy, , pre.incentiveMeasure, , ) = IMinter(minter)
+                .redeemPeggedTokenDryRun(pegged);
+            // what the redemption takes from the backing: what it pays, plus the fee, less the reserve's subsidy
+            pre.incentiveMeasure = pre.incentiveMeasure + dryRunFee - dryRunSubsidy;
+        }
+        vm.startPrank(user);
         uint256 wrappedReturned = IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        vm.stopPrank();
         // -------------------------------------------------------------------------
         Measures memory post = _measure();
         _dump(post, "post");
@@ -674,21 +637,27 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertEq(post.reservePoolWrapped, 0, "rp reserve not exhausted");
         }
 
-        // adjust subsidy
         subsidy = Math.min(subsidy, pre.reservePoolWrapped);
 
-        // console2.log("fee=%s", fee);
-        // console2.log("subsidy=%s", subsidy);
         assertApprox(post.feeWrapped, pre.feeWrapped + fee, 3, 4, "rp fee wrapped");
         assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - subsidy, 0, 0, "rp subsidy wrapped");
 
-        assertApprox(
-            pre.incentiveRatio,
-            ((int256(fee) - int256(subsidy)) * 1e18) / int256(wrapped),
-            100,
-            0,
-            "rp dry run incentive ratio"
-        );
+        {
+            // The dry run's ratio is its fee or subsidy over its measure; this test's is its own flat figure, floored, over
+            // its own estimate of that wrapped. The dry run's figure is the exact one rounded once - within a wei of it -
+            // and its measure is the exact wrapped floored, which lifts the ratio by under |ratio| over it; this test's
+            // figure is within a wei below the exact. A wei moves a ratio by 1e18 over the wrapped it is measured
+            // against, and the two ratios' floors add under a unit.
+            assertApprox(
+                pre.incentiveRatio,
+                ((int256(fee) - int256(subsidy)) * 1e18) / int256(wrapped),
+                (2e18 + SignedMath.abs(initial(config.redeemPeggedIncentiveConfig.incentiveRatios))) /
+                    Math.min(pre.incentiveMeasure, wrapped) +
+                    1,
+                0,
+                "rp dry run incentive ratio"
+            );
+        }
 
         assertEq(post.userPegged, pre.userPegged - pegged, "rp user pegged");
         uint256 qPR = _qPR(p, r);
@@ -764,17 +733,33 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 }
             }
 
+            // A schedule whose highest band charges otherwise is flat only below its last bound - a subsidy has to end
+            // somewhere - so the flat expectation covers a mint that ends below it, judged by this test's own
+            // arithmetic: the record grown by the input net of the fee, with the whole subsidy.
+            {
+                IMinter.IncentiveConfig memory schedule = config.mintLeveragedIncentiveConfig;
+                uint256 highest = schedule.incentiveRatios.length - 1;
+                if (schedule.incentiveRatios[highest] != schedule.incentiveRatios[0]) {
+                    uint256 collateralAfter = IMinter(minter).collateralTokenBalance() +
+                        ((wrapped - fee + subsidy) * r) / 1e18;
+                    vm.assume(
+                        Math.mulDiv(collateralAfter, p, IMinter(minter).peggedTokenBalance()) <
+                            schedule.collateralRatioBandUpperBounds[highest - 1]
+                    );
+                }
+            }
+
             if (subsidyLimitRatio > 0) {
-                // use the max subsidy to determine a reserve pool capacity that should be exhasted by this redeem
+                // a reserve holding a share of the flat subsidy, so this mint exhausts it
                 pre.reservePoolWrapped = (subsidy * subsidyLimitRatio) / 1e18;
-                // console2.log("pre.reservePoolWrapped=%s", pre.reservePoolWrapped);
                 deal(address(wrappedCollateralToken), reservePool, pre.reservePoolWrapped);
             }
 
             pre = _measure();
             (pre.incentiveRatio, , , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(wrapped);
-            vm.prank(user);
+            vm.startPrank(user);
             uint256 minted = IMinter(minter).mintLeveragedToken(wrapped, user, 0);
+            vm.stopPrank();
             // ------------------------------------------------------------------
             Measures memory post = _measure();
             uint256 q = r / 1e18; // how many 1e18-scale “chunks” in rate
@@ -792,10 +777,15 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             // with a single truncating division, so the two differ by at most 1 wei (same as "ml minter wrapped").
             assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - subsidy, 1, "ml subsidy wrapped");
 
+            // The dry run's ratio is its fee or subsidy over the collateral used - the whole offer, which a leveraged
+            // mint always takes; this test's is its own flat figure, floored, over the offer. The dry run's fee is the
+            // exact one rounded up - the remainder of the wrapped kept, rounded down once - and its subsidy the exact one
+            // rounded down; this test's figure is the same exact one rounded down. So the two are at most a wei apart, a
+            // wei moves the ratio by 1e18 / `wrapped`, and the two ratios' floors add under a unit.
             assertApprox(
                 pre.incentiveRatio,
                 ((int256(fee) - int256(subsidy)) * 1e18) / int256(wrapped),
-                100,
+                1e18 / wrapped + 1,
                 0,
                 "ml dry run fee ratio"
             );
@@ -894,9 +884,16 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             // TODO: vvv set this to max of leveraged .pre-minterLeveraged, not an if
             if (leveraged <= pre.minterLeveraged) {
                 // console2.log("underlying=%s", (wrapped * r) / 1e18);
-                (pre.incentiveRatio, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(leveraged);
-                vm.prank(user);
+                {
+                    uint256 dryRunFee;
+                    (pre.incentiveRatio, dryRunFee, , pre.incentiveMeasure, , ) = IMinter(minter)
+                        .redeemLeveragedTokenDryRun(leveraged);
+                    // the dry run measures its ratio against the wrapped the redemption is for: its payout and its fee
+                    pre.incentiveMeasure += dryRunFee;
+                }
+                vm.startPrank(user);
                 uint256 wrappedReturned = IMinter(minter).redeemLeveragedToken(leveraged, user, 0);
+                vm.stopPrank();
                 // -------------------------------------------------------------------------------
                 Measures memory post = _measure();
                 // TODO: why do we ignore depegged redeeming leveraged?
@@ -905,7 +902,17 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                     uint256 fee;
                     {
                         int256 incentiveRatio = initial(config.redeemLeveragedIncentiveConfig.incentiveRatios);
-                        assertApprox(pre.incentiveRatio, incentiveRatio, 100, 0, "rl dry run fee ratio");
+                        // The dry run's ratio is its fee over its measure. The fee is the remainder of a payout rounded
+                        // down once from the exact figure, so within a wei of the exact fee, and the measure is the exact
+                        // wrapped floored, which lifts the ratio by under the ratio over it. A wei moves the ratio by 1e18
+                        // over the measure, and its floor adds under a unit.
+                        assertApprox(
+                            pre.incentiveRatio,
+                            incentiveRatio,
+                            (1e18 + uint256(incentiveRatio)) / pre.incentiveMeasure + 1,
+                            0,
+                            "rl dry run fee ratio"
+                        );
                         fee = (uint256(incentiveRatio) * wrapped) / 1 ether;
                         assertApprox(post.feeWrapped, pre.feeWrapped + fee, 1, 0, "rl fee wrapped"); // fee won't be more that 10%
 
@@ -1051,7 +1058,6 @@ contract TestMinterFixedFeeRangeSubsidyInexhaustableReserve_ is TestMinterFixedF
     function setUp() public virtual override {
         super.setUp();
         deal(address(wrappedCollateralToken), reservePool, 1e50);
-        areSubsidies = true;
     }
 
     function setUpConfig() internal virtual override {
@@ -1060,11 +1066,6 @@ contract TestMinterFixedFeeRangeSubsidyInexhaustableReserve_ is TestMinterFixedF
 }
 
 contract TestMinterFixedFeeRangeSubsidyNoReserve_ is TestMinterFixedFeeRange_ {
-    function setUp() public virtual override {
-        super.setUp();
-        areSubsidies = true;
-    }
-
     function setUpConfig() internal virtual override {
         setUp_config_flatSubsidyWide();
     }
@@ -1397,8 +1398,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 if (part > 0) {
                     sumpart += part;
 
-                    vm.prank(user);
+                    vm.startPrank(user);
                     wrappedReturnedSteps += IMinter(minter).redeemPeggedToken(part, user, 0);
+                    vm.stopPrank();
                     // -----------------------------------------------------------------
                 }
             }
@@ -1407,8 +1409,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         Measures memory postSteps = _measure();
         vm.revertToState(snap);
 
-        vm.prank(user);
+        vm.startPrank(user);
         uint256 wrappedReturned = IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        vm.stopPrank();
         // -------------------------------------------------------------------------
 
         Measures memory post = _measure();
@@ -1467,10 +1470,28 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         // we don't allow minting leveragedTokens when it's not economically sensible to do so
         if (IMinter(minter).collateralRatio() > 1 ether) {
             if (subsidyLimitRatio > 0) {
-                // use the wrapped to determine a reserve pool capacity that should be exhasted by this redeem
+                // a reserve sized as a share of the input, so the cap binds on a walk that stays in the subsidy bands
                 uint256 reservePoolWrapped = (wrapped * subsidyLimitRatio) / 1e18;
-                // console2.log("pre.reservePoolWrapped=%s", reservePoolWrapped);
                 deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
+            }
+
+            // How far the steps' subsidy can drift from the single mint's. Each step credits the record with its
+            // collateral rounded down to a whole collateral unit, so the steps run behind the single mint by under one
+            // unit per step - at most `steps` units. Where the walk crosses a bound, that lag is filled at the lower
+            // band's subsidy rate instead of the upper's: the drift there is at most lag x the rate's change. Summed
+            // over every crossing that is `steps` x the schedule's total subsidy variation, in collateral units,
+            // which is that / rate in wrapped. Plus the `steps` wrapped wei each step's own subsidy floors away.
+            uint256 subsidyDrift;
+            {
+                int256[] memory ratios = config.mintLeveragedIncentiveConfig.incentiveRatios;
+                uint256 variation = 0;
+                for (uint256 i = 1; i < ratios.length; i++) {
+                    int256 below = ratios[i - 1] < 0 ? -ratios[i - 1] : int256(0);
+                    int256 above = ratios[i] < 0 ? -ratios[i] : int256(0);
+                    variation += below > above ? uint256(below - above) : uint256(above - below);
+                }
+                (, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+                subsidyDrift = steps + Math.ceilDiv(steps * variation, r);
             }
 
             uint256 snap = vm.snapshotState();
@@ -1490,8 +1511,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                     uint256 part = base + bump;
                     if (part > 0) {
                         sumpart += part;
-                        vm.prank(user);
+                        vm.startPrank(user);
                         mintedSteps += IMinter(minter).mintLeveragedToken(part, user, 0);
+                        vm.stopPrank();
                         // ------------------------------------------------------------------
                     }
                 }
@@ -1499,18 +1521,17 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
             }
 
             Measures memory postSteps = _measure();
-            // _dump(postSteps, "steps");
             vm.revertToState(snap);
-            vm.prank(user);
+            vm.startPrank(user);
             uint256 minted = IMinter(minter).mintLeveragedToken(wrapped, user, 0);
+            vm.stopPrank();
             // ------------------------------------------------------------------
 
             Measures memory post = _measure();
-            // _dump(post, "all");
             assertApprox(
                 post.reservePoolWrapped,
                 postSteps.reservePoolWrapped,
-                steps,
+                subsidyDrift,
                 0,
                 "ml integral subsidy wrapped"
             );
@@ -1542,10 +1563,11 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 (_mlTransitions() + 1) * steps * 10,
                 "ml integral minter leveraged"
             );
+            // the minter holds the subsidy it drew, so its wrapped drifts with that subsidy
             assertApprox(
                 post.minterWrapped,
                 postSteps.minterWrapped,
-                2 * steps,
+                2 * steps + subsidyDrift,
                 (_mlTransitions() + 1) * steps * 10,
                 "ml integral minter wrapped"
             );
@@ -1555,6 +1577,14 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 steps,
                 steps,
                 "ml integral minter underlying"
+            );
+            // Splitting never credits more than the single mint: each step's credit is rounded down, and the lag that
+            // leaves is only ever scaled - by the ratio of the collateral per input either side of each bound - so it
+            // cannot change sign, and the split walk ends at or behind the single one.
+            assertLe(
+                postSteps.minterUnderlying,
+                post.minterUnderlying,
+                "ml integral split credits no more than the single mint"
             );
         }
     }
@@ -1603,8 +1633,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                         if (part > 0) {
                             sumpart += part;
 
-                            vm.prank(user);
+                            vm.startPrank(user);
                             wrappedReturnedSteps += redeemLeveragedIgnoreReturnZeroAmount(part, user);
+                            vm.stopPrank();
                             // ---------------------------------------------------------------------------------
                             // console2.log("lp (after step %s) = %s", i, IMinter(minter).leveragedTokenPrice());
                         }
@@ -1614,8 +1645,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
                 Measures memory postSteps = _measure();
                 vm.revertToState(snap);
-                vm.prank(user);
+                vm.startPrank(user);
                 uint256 wrappedReturned = redeemLeveragedIgnoreReturnZeroAmount(leveraged, user);
+                vm.stopPrank();
                 // -----------------------------------------------------------------------------
                 // console2.log("lp (after single step) = %s", IMinter(minter).leveragedTokenPrice());
 
@@ -1713,23 +1745,12 @@ contract TestMinterIntegralFixedFees is TestMinterIntegralFees {
 }
 
 contract TestMinterIntegralDisallowSubsidyNoReserve is TestMinterIntegralFees {
-    function setUp() public virtual override {
-        super.setUp();
-        areSubsidies = true;
-        areDisallows = true;
-    }
-
     function setUpConfig() internal virtual override {
         setUp_config_flatDisallowSubsidyWide();
     }
 }
 
 contract TestMinterIntegralSubsidyNoReserve is TestMinterIntegralFees {
-    function setUp() public virtual override {
-        super.setUp();
-        areSubsidies = true;
-    }
-
     function setUpConfig() internal virtual override {
         setUp_config_flatSubsidyWide();
     }
@@ -1742,36 +1763,24 @@ contract TestMinterIntegralSubsidyLimitedReserve is TestMinterIntegralSubsidyNoR
     }
 }
 
-contract TestMinterIntegralSubsidyDisallowForwardLimitedReserve is TestMinterIntegralSubsidyNoReserve {
-    function setUp() public virtual override {
-        super.setUp();
-        areSubsidies = true;
-        areDisallows = true;
-    }
-
+contract TestMinterIntegralSubsidyDisallowForwardLimitedReserve is TestMinterIntegralSubsidyLimitedReserve {
     function setUpConfig() internal virtual override {
         setUp_config_directionalDisallowSubsidyWide();
     }
 }
 
-contract TestMinterIntegralSubsidyDisallowReverseLimitedReserve is TestMinterIntegralSubsidyNoReserve {
+contract TestMinterIntegralSubsidyDisallowReverseLimitedReserve is TestMinterIntegralSubsidyLimitedReserve {
     function setUp() public virtual override {
         super.setUp();
-        areSubsidies = true;
-        areDisallows = true;
+        reverseDirection = true;
     }
+
     function setUpConfig() internal virtual override {
         setUp_config_reverseDirectionalDisallowSubsidyWide();
     }
 }
 
 contract TestMinterIntegralDisallowSubsidyVariableNoReserve is TestMinterIntegralFees {
-    function setUp() public virtual override {
-        super.setUp();
-        areSubsidies = true;
-        areDisallows = true;
-    }
-
     function setUpConfig() internal virtual override {
         setUp_config_directionalDisallowSubsidyWide();
     }
@@ -1780,8 +1789,6 @@ contract TestMinterIntegralDisallowSubsidyVariableNoReserve is TestMinterIntegra
 contract TestMinterIntegralDisallowSubsidyReverseVariableNoReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areSubsidies = true;
-        areDisallows = true;
         reverseDirection = true;
     }
 
@@ -1794,8 +1801,6 @@ contract TestMinterIntegralDisallowSubsidyInexhaustableReserve is TestMinterInte
     function setUp() public virtual override {
         super.setUp();
         deal(address(wrappedCollateralToken), reservePool, 1e50);
-        areSubsidies = true;
-        areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
@@ -1843,8 +1848,6 @@ contract TestMinterIntegralReverseVariableFees is TestMinterIntegralFees {
 contract TestMinterIntegralDisallowSubsidyForwardLimitedReserveRate1Million is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areSubsidies = true;
-        areDisallows = true;
         subsidyLimitRatio = 0.005 ether;
 
         // p=1e18, r=1e12
@@ -1869,8 +1872,6 @@ contract TestMinterIntegralDisallowSubsidyForwardLimitedReserveRate1MillionCount
 contract TestMinterIntegralDisallowSubsidyReverseLimitedReservePrice1Billionth is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
-        areSubsidies = true;
-        areDisallows = true;
         subsidyLimitRatio = 0.005 ether;
 
         // p = 1e9, r = 1e18

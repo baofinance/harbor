@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
@@ -13,6 +14,7 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterRedeemLeveraged is TestMinterMint {
     using SafeERC20 for IERC20;
@@ -638,5 +640,114 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             "out correct"
         );
         assertEq(IERC20(leveragedToken).balanceOf(sender), 0, "transferred it all");
+    }
+}
+
+/// @notice A leveraged redemption never pays more than the exact formula: the leveraged's share of the collateral
+/// above what the pegged supply is worth, converted at the rate, less the fee. Every rounding on the way goes the
+/// protocol's way.
+contract TestMinterRedeemLeveragedExact is TestMinterSetUp {
+    address user;
+
+    /// @dev Redeeming leveraged is disallowed below the peg and charges 0.5% in every band above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(disallow, 50, 50, 50, 50, 50, 50, 50))
+        );
+    }
+
+    /// Never more than the exact formula, across rates, ratios from just above the peg to far above it, and amounts up
+    /// to the whole balance.
+    function testFuzz_redeemLeveraged_neverPaysMoreThanTheExactFormula(
+        uint256 leveragedIn,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 0.7 ether, 100 ether); // the ratio from 1.05 to 150
+        user = makeAddr("user");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1 ether, rate);
+        setUp_collateral(100 ether, 50 ether, user); // a ratio of 1.5
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        leveragedIn = bound(leveragedIn, 1e9, IERC20(leveragedToken).balanceOf(user));
+        uint256 exact = Math.mulDiv(
+            IMinter(minter).collateralTokenBalance() * price - IMinter(minter).peggedTokenBalance() * 1 ether,
+            leveragedIn * uint256(1 ether - config.redeemLeveragedIncentiveConfig.incentiveRatios[1]),
+            price * IMinter(minter).leveragedTokenBalance() * rate
+        );
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, leveragedIn);
+        uint256 paid = IMinter(minter).redeemLeveragedToken(leveragedIn, user, 0);
+        vm.stopPrank();
+
+        assertLe(paid, exact, "no more than the exact formula pays");
+    }
+}
+
+/// @notice A leveraged redemption pays the redeemer the collateral the leveraged is worth less the fee, rounded down
+/// once from the exact figure; the fee receiver absorbs the remainder.
+contract TestMinterRedeemLeveragedRoundedOnce is TestMinterSetUp {
+    address user;
+
+    /// @dev Redeeming leveraged is disallowed below the peg, charges 1.2% up to a ratio of 1.5 and 0.7% above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 150), ia(disallow, 120, 70))
+        );
+    }
+
+    /// From a ratio of 1.8 a redemption pays 0.7% down to 1.5 and 1.2% past it, staying above the peg. Each slice is
+    /// cut where the ratio reaches its band's lower bound - the collateral there rounded up, so the cheaper slice is
+    /// never overstated - the fee is exact, and the redeemer is paid the collateral less the fee, rounded down once.
+    function testFuzz_redeemLeveraged_acrossTwoFees_paysTheExactNetRoundedOnce(
+        uint256 leveragedIn,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        user = makeAddr("user");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        uint256 supply = IMinter(minter).leveragedTokenBalance();
+        // 45% to 85% of the residual: past 1.5 (37.5% of it) and short of the peg
+        leveragedIn = bound(leveragedIn, (supply * 45) / 100, (supply * 85) / 100);
+
+        uint256 expected;
+        {
+            uint256 backing = IMinter(minter).collateralTokenBalance();
+            uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
+            // the collateral the leveraged is a claim on: its share of the residual
+            uint256 redeemedForE36 = Math.mulDiv(
+                backing * price - peggedSupply * 1 ether,
+                leveragedIn * 1 ether,
+                price * supply
+            );
+            // the collateral that brings the ratio down to 1.5, its lower-bound collateral rounded up
+            uint256 aboveE36 = backing * 1 ether -
+                Math.mulDiv(
+                    config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds[1] * 1 ether,
+                    peggedSupply,
+                    price,
+                    Math.Rounding.Ceil
+                );
+            uint256 feeE54 = aboveE36 * uint256(config.redeemLeveragedIncentiveConfig.incentiveRatios[2]) +
+                (redeemedForE36 - aboveE36) * uint256(config.redeemLeveragedIncentiveConfig.incentiveRatios[1]);
+            expected = (redeemedForE36 * 1 ether - feeE54) / (rate * 1 ether);
+        }
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, leveragedIn);
+        uint256 paid = IMinter(minter).redeemLeveragedToken(leveragedIn, user, 0);
+        vm.stopPrank();
+
+        assertEq(paid, expected, "the collateral less the fee, rounded down once");
     }
 }

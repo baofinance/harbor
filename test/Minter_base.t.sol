@@ -19,6 +19,7 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
+import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -165,11 +166,24 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
     }
 
+    /// @dev Redeeming pegged and minting leveraged are subsidised at one flat rate in every band up to the widest bound
+    ///      the storage holds, and free above it, where no subsidy may run: a walk that stays below that bound sees a
+    ///      single rate across six close crossings.
     function setUp_config_flatSubsidyWide() internal {
+        IMinter.IncentiveConfig memory redeemPegged = ic(
+            ua(100, 110, 120, 130, 140, 150, 160),
+            ia(-80, -80, -80, -80, -80, -80, -80, 0)
+        );
+        redeemPegged.collateralRatioBandUpperBounds[6] = ConfigIncentiveLib.MAX_COLLATERAL_RATIO_BOUND;
+        IMinter.IncentiveConfig memory mintLeveraged = ic(
+            ua(100, 110, 120, 130, 140, 150, 160),
+            ia(-70, -70, -70, -70, -70, -70, -70, 0)
+        );
+        mintLeveraged.collateralRatioBandUpperBounds[6] = ConfigIncentiveLib.MAX_COLLATERAL_RATIO_BOUND;
         setUp_config(
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, -70)),
+            redeemPegged,
+            mintLeveraged,
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
         );
     }
@@ -177,8 +191,8 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
     function setUp_config_flatDisallowSubsidyWide() internal {
         setUp_config(
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 50, 50, 50, 50, 50, 50)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, -70)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, 0)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, 0)),
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 120, 120, 120, 120, 120, 120))
         );
     }
@@ -213,8 +227,8 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
     function setUp_config_directionalDisallowSubsidyWide() internal {
         setUp_config(
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 110, 100, 90, 80, 70, 60)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, -50)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, -50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, 0)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, 0)),
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 110, 100, 90, 80, 70, 60))
         );
     }
@@ -222,8 +236,8 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
     function setUp_config_reverseDirectionalDisallowSubsidyWide() internal {
         setUp_config(
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 60, 70, 80, 90, 100, 110)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, -120)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, -120)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, 0)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, 0)),
             ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 60, 70, 80, 90, 100, 110))
         );
     }
@@ -925,5 +939,4 @@ contract TestMinterBasics is TestMinterSetUp {
         ); // minted some leveraged
         assertEq(IMinter(minter).collateralTokenBalance(), 20 ether, "post leveraged mint collateral token balance"); // updated collateral balance
     }
-
 }
