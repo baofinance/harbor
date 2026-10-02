@@ -9,6 +9,7 @@ import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -933,5 +934,330 @@ contract TestMinterMintPeggedAcrossEqualFees is TestMinterSetUp {
             (((wrappedIn * rate) / 1 ether) * (1 ether - feeRatio) * price) / 1e36,
             "the offer less the fee, at the price"
         );
+    }
+}
+
+/// @notice A pegged mint that reaches a band where minting is disallowed fills only to that band's bound: it takes the
+/// collateral that brings the ratio down to the bound, and the caller keeps the rest of the offer.
+contract TestMinterMintPeggedIntoADisallow is TestMinterSetUp {
+    address user;
+
+    /// @dev Minting pegged is disallowed below a ratio of 1.3 and charges 0.5% above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(130), ia(disallow, 50)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.8 an offer of 200 would take the ratio far below 1.3. The mint takes only what brings it to
+    /// 1.3 and the caller keeps the rest; the event and the dry run report the partial fill, and the ratio ends on the
+    /// bound.
+    function test_mintPegged_intoTheDisallowBand_fillsToTheBoundaryAndLeavesTheRest() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        user = makeAddr("user");
+        uint256 offer = 200 ether;
+        deal(wrappedCollateralToken, user, offer);
+        (, , uint256 dryRunUsed, uint256 dryRunMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(offer);
+        assertLt(dryRunUsed, offer, "precondition: the offer is more than the band can take");
+
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, offer);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter_v3.MintPeggedToken(user, user, dryRunUsed, dryRunMinted);
+        uint256 minted = IMinter(minter).mintPeggedToken(offer, user, 0);
+        vm.stopPrank();
+
+        assertEq(minted, dryRunMinted, "minted what the dry run reports");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(user), offer - dryRunUsed, "the caller keeps the rest");
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[0],
+            "the ratio ends on the bound"
+        );
+    }
+}
+
+/// @notice A pegged mint walks down through the bands it crosses, each slice charged at its own band's rate; the record
+/// it credits is valued at the low edge of the rate band; and its dry run reads the sentinel as the mint does.
+contract TestMinterMintPeggedAcrossBands is TestMinterSetUp {
+    address user;
+
+    /// @dev Minting pegged charges 0.3% above a ratio of 1.6, 0.7% from 1.4 to 1.6, and 1.2% from the peg to 1.4.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100, 140, 160), ia(disallow, 120, 70, 30)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    /// From a ratio of 1.8 a mint to about 1.5 crosses one bound and a mint to about 1.2 crosses two. Each pays the sum
+    /// of its slices' fees - every slice cut where the ratio reaches its band's lower bound and charged its band's rate
+    /// exactly - rounded down once.
+    function test_mintPegged_acrossOneAndTwoBandBounds_chargesEachSliceAtItsBandsRate(
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8, in the top band
+        user = makeAddr("user");
+        uint256[] memory bounds = config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds;
+
+        uint256 snapshot = vm.snapshotState();
+        uint256 wrappedIn = _wrappedToReach(1.5 ether);
+        _mintAndCheckFee(wrappedIn, _expectedFee(wrappedIn), bounds[1], bounds[2]); // one bound crossed
+        vm.revertToState(snapshot);
+        wrappedIn = _wrappedToReach(1.2 ether);
+        _mintAndCheckFee(wrappedIn, _expectedFee(wrappedIn), bounds[0], bounds[1]); // two bounds crossed
+    }
+
+    /// @dev The wrapped collateral whose mint takes the ratio to about `targetRatio`, by the ratio's definition and
+    ///      leaving the fee aside: (C + x) p / (P + x p) = T, so x = (C p - T P) / (p (T - 1)).
+    function _wrappedToReach(uint256 targetRatio) private view returns (uint256) {
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        return
+            Math.mulDiv(
+                IMinter(minter).collateralTokenBalance() * 1 ether * price -
+                    targetRatio * IMinter(minter).peggedTokenBalance() * 1 ether,
+                1 ether,
+                price * (targetRatio - 1 ether) * rate
+            );
+    }
+
+    /// @dev The schedule's fee on a mint of `wrappedIn`: walking down from the top band, each band takes the collateral
+    ///      that brings the ratio to its lower bound and the last band entered takes the rest, each slice's fee exact on
+    ///      the collateral it takes; the fee paid is their sum rounded down. Above the peg a pegged unit is worth one, so
+    ///      each slice adds its net collateral's value to the pegged held.
+    function _expectedFee(uint256 wrappedIn) private view returns (uint256) {
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        MintWalk memory w = MintWalk(
+            wrappedIn * rate,
+            IMinter(minter).collateralTokenBalance() * 1 ether,
+            IMinter(minter).peggedTokenBalance() * 1 ether,
+            0
+        );
+        for (uint256 band = config.mintPeggedIncentiveConfig.incentiveRatios.length - 1; w.leftE36 > 0; band--) {
+            uint256 feeRatio = uint256(config.mintPeggedIncentiveConfig.incentiveRatios[band]);
+            uint256 lowerBound = config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[band - 1];
+            uint256 sliceE36 = w.leftE36;
+            if (lowerBound > 1 ether) {
+                sliceE36 = Math.min(
+                    sliceE36,
+                    Math.mulDiv(
+                        w.heldE36 * price - lowerBound * w.peggedHeldE36,
+                        1e36,
+                        price * (lowerBound - 1 ether) * (1 ether - feeRatio)
+                    )
+                );
+            }
+            w.feeE54 += sliceE36 * feeRatio;
+            w.leftE36 -= sliceE36;
+            w.heldE36 += (sliceE36 * (1 ether - feeRatio)) / 1 ether;
+            w.peggedHeldE36 += Math.mulDiv(sliceE36 * (1 ether - feeRatio), price, 1e36);
+        }
+        return w.feeE54 / (rate * 1 ether);
+    }
+
+    /// @dev What the fee walk carries from band to band, at 1e36: the collateral still to place, the collateral and the
+    ///      pegged held, and the fee charged so far, exact.
+    struct MintWalk {
+        uint256 leftE36;
+        uint256 heldE36;
+        uint256 peggedHeldE36;
+        uint256 feeE54;
+    }
+
+    /// @dev Mints `wrappedIn`, and checks the mint ended between `lowerRatio` and `upperRatio` - the band the scenario
+    ///      aims for - with the fee receiver paid exactly `expectedFee`.
+    function _mintAndCheckFee(
+        uint256 wrappedIn,
+        uint256 expectedFee,
+        uint256 lowerRatio,
+        uint256 upperRatio
+    ) private {
+        deal(wrappedCollateralToken, user, wrappedIn);
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter(minter).mintPeggedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        assertGt(IMinter(minter).collateralRatio(), lowerRatio, "the mint ends in the band aimed for");
+        assertLt(IMinter(minter).collateralRatio(), upperRatio, "the mint ends in the band aimed for");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore,
+            expectedFee,
+            "each slice charged at its band's rate"
+        );
+    }
+
+    /// Under a band of rates the record is credited at its low edge: the collateral taken less the fee, converted at the
+    /// minimum rate - the maximum would credit more than the wrapped held may be worth.
+    function test_mintPegged_creditsTheRecordAtTheMinRate() public {
+        uint256 minRate = 1 ether;
+        uint256 maxRate = 1.02 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 2000 ether, minRate, maxRate);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        user = makeAddr("user");
+        uint256 wrappedIn = 10 ether;
+        deal(wrappedCollateralToken, user, wrappedIn);
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter(minter).mintPeggedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(user), 0, "precondition: the whole offer is taken");
+        uint256 kept = wrappedIn - (IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore);
+        assertDiscriminates(
+            IMinter(minter).collateralTokenBalance() - recordBefore,
+            (kept * minRate) / 1 ether,
+            0,
+            (kept * maxRate) / 1 ether,
+            "the record gains what stays behind at the minimum rate"
+        );
+    }
+
+    /// The dry run reads the sentinel as the caller's whole balance, as the mint does: asked to price the maximum it
+    /// reports exactly what an offer of the caller's balance would.
+    function test_mintPeggedDryRun_withTheMaxSentinel_pricesTheCallersWholeBalance() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        user = makeAddr("user");
+        uint256 balance = 7 ether;
+        deal(wrappedCollateralToken, user, balance);
+        (int256 ratio, uint256 fee, uint256 used, uint256 minted, , ) = IMinter(minter).mintPeggedTokenDryRun(balance);
+        assertGt(minted, 0, "precondition: the balance buys pegged");
+
+        vm.startPrank(user);
+        (int256 sentinelRatio, uint256 sentinelFee, uint256 sentinelUsed, uint256 sentinelMinted, , ) = IMinter(minter)
+            .mintPeggedTokenDryRun(type(uint256).max);
+        vm.stopPrank();
+
+        assertEq(sentinelUsed, used, "the caller's whole balance is priced");
+        assertEq(sentinelMinted, minted, "minting what the balance buys");
+        assertEq(sentinelFee, fee, "for the balance's fee");
+        assertEq(sentinelRatio, ratio, "at the balance's ratio");
+    }
+}
+
+/// @notice A capped pegged mint holds its fee, as a ratio of the collateral it uses, within the cap: past a bound into a
+/// dearer band it takes only as much of that band as the cheaper band's headroom pays for.
+contract TestMinterMintPeggedCapped is TestMinterSetUp {
+    address user;
+
+    /// @dev The cap the mints here are given: between the two bands' rates.
+    uint256 constant FEE_CAP = 0.01 ether;
+
+    /// @dev Minting pegged charges 0.5% above a ratio of 1.5 and 2% from the peg to 1.5.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100, 150), ia(disallow, 200, 50)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    function setUp() public virtual override {
+        super.setUp();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        user = makeAddr("user");
+        deal(wrappedCollateralToken, user, 400 ether);
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// The fee, read from what the fee receiver is paid, is never more than the cap on the collateral used, and within a
+    /// wei of it - where the cap measured against the offer would charge far more.
+    function test_cappedMint_acrossBands_keepsTheFeeWithinTheCapOfTheCollateralUsed() public {
+        uint256 offer = 200 ether;
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        vm.startPrank(user);
+        (, uint256 used) = IMinter_v3(minter).mintPeggedToken(offer, user, 0, FEE_CAP);
+        vm.stopPrank();
+        uint256 fee = IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore;
+
+        assertLt(used, offer, "precondition: the cap stops the mint short of the offer");
+        assertLe(fee, (FEE_CAP * used) / 1 ether, "never more than the cap on the collateral used");
+        // Within a wei below it: the walk stops the dearer band's slice where the exact fee meets the cap, short of it by
+        // under a 1e-36 unit of collateral at the dearer rate; the payment rounds the collateral up to the wei, which
+        // lifts the cap's figure by under a hundredth of a wei, and the fee rounds down, by under a wei.
+        assertDiscriminates(
+            fee,
+            (FEE_CAP * used) / 1 ether,
+            1,
+            (FEE_CAP * offer) / 1 ether,
+            "within a wei of the cap on the collateral used"
+        );
+    }
+
+    /// Two offers, both past what the cap allows, use and mint the same: the cap is a ceiling on the average rate paid,
+    /// so a larger offer buys no budget to spend on more of the dearer band.
+    function test_cappedMint_aLargerOfferBuysNoMoreOfTheDearerBand() public {
+        uint256 snapshot = vm.snapshotState();
+        vm.startPrank(user);
+        (uint256 minted, uint256 used) = IMinter_v3(minter).mintPeggedToken(100 ether, user, 0, FEE_CAP);
+        vm.stopPrank();
+        vm.revertToState(snapshot);
+        vm.startPrank(user);
+        (uint256 largerMinted, uint256 largerUsed) = IMinter_v3(minter).mintPeggedToken(200 ether, user, 0, FEE_CAP);
+        vm.stopPrank();
+
+        assertLt(used, 100 ether, "precondition: the smaller offer is already past what the cap allows");
+        assertEq(largerUsed, used, "the larger offer uses no more");
+        assertEq(largerMinted, minted, "and mints no more");
+    }
+
+    /// The fee a capped mint charges is paid to the fee receiver, to the wei, and the minter keeps the rest of what it
+    /// takes.
+    function test_cappedMint_paysItsFeeToTheFeeReceiver() public {
+        (, uint256 dryRunFee, , , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(200 ether, FEE_CAP);
+        assertGt(dryRunFee, 0, "precondition: the mint charges a fee");
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        uint256 minterBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
+
+        vm.startPrank(user);
+        (, uint256 used) = IMinter_v3(minter).mintPeggedToken(200 ether, user, 0, FEE_CAP);
+        vm.stopPrank();
+
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore,
+            dryRunFee,
+            "the fee is paid to the fee receiver"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(minter) - minterBefore,
+            used - dryRunFee,
+            "the minter keeps the rest"
+        );
+    }
+
+    /// Where the pegged price is too small to report - the backing worth half the floor's share of the pegged supply - a
+    /// capped mint is refused by name, as the plain mint is, rather than priced at a price no consumer can see.
+    function test_cappedMint_belowTheReportablePeggedPrice_isRefused() public {
+        uint256 price = Math.mulDiv(
+            MinterValuationLib.MIN_REPORTABLE_PEGGED_PRICE_E36,
+            IMinter(minter).peggedTokenBalance(),
+            2 * IMinter(minter).collateralTokenBalance() * 1 ether
+        );
+        assertGt(price, 0, "precondition: the price is not zero");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1 ether);
+
+        vm.startPrank(user);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ZeroPeggedTokenPrice.selector));
+        IMinter_v3(minter).mintPeggedToken(1 ether, user, 0, FEE_CAP);
+        vm.stopPrank();
     }
 }

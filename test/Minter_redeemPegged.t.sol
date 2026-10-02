@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
@@ -1053,5 +1054,240 @@ contract TestMinterRedeemPeggedAcrossEqualFees is TestMinterSetUp {
             "the redemption crossed the bound"
         );
         assertEq(paid, (collateral * (1 ether - feeRatio)) / rate, "the collateral less the fee");
+    }
+}
+
+/// @notice A pegged redemption walks up through the bands it crosses, each slice priced at its own band's fee or
+/// subsidy; it redeems no more than this minter minted, and reads the sentinel as the caller's whole balance.
+contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
+    address user;
+
+    /// @dev What a redemption moves: what the redeemer is paid, the fee receiver is paid, and the reserve sends.
+    struct Outcome {
+        uint256 paid;
+        uint256 fee;
+        uint256 subsidy;
+    }
+
+    /// @dev What the walk carries from band to band, at 1e36: the pegged still to redeem, the pegged held, the pegged
+    ///      redeemed so far and the collateral it is worth, and the fee and the subsidy accrued, exact.
+    struct RedeemWalk {
+        uint256 leftE36;
+        uint256 peggedHeldE36;
+        uint256 redeemedE36;
+        uint256 collateralRedeemedE36;
+        uint256 feeE54;
+        uint256 subsidyE54;
+    }
+
+    /// @dev Redeeming pegged is subsidised 0.5% below the peg and 0.3% from the peg to 1.2, and charges 0.3% from 1.2
+    ///      to 1.5 and 0.8% above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 120, 150), ia(-50, -30, 30, 80)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    function setUp() public virtual override {
+        super.setUp();
+        user = makeAddr("user");
+        deal(wrappedCollateralToken, reservePool, 1e30); // a subsidy is never capped
+    }
+
+    /// The sentinel redeems the caller's whole balance - here only part of the minter's supply - paying what a
+    /// redemption of exactly that balance pays.
+    function test_redeemPegged_withTheMaxSentinel_redeemsTheCallersWholeBalance() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8, its pegged held by another
+        setUp_collateral(10 ether, 0, user); // the caller's part of the supply
+        uint256 balance = IERC20(peggedToken).balanceOf(user);
+        assertLt(balance, IMinter(minter).peggedTokenBalance(), "precondition: the caller holds part of the supply");
+        (, , , , uint256 dryRunPaid, , ) = IMinter(minter).redeemPeggedTokenDryRun(balance);
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        uint256 paid = IMinter(minter).redeemPeggedToken(type(uint256).max, user, 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(peggedToken).balanceOf(user), 0, "the caller's whole balance is redeemed");
+        assertEq(paid, dryRunPaid, "paid as a redemption of exactly that balance");
+    }
+
+    /// A3: a caller holding pegged minted elsewhere as well as all this minter minted redeems exactly what this minter
+    /// minted; the rest stays with them, beyond the reach of this market's collateral.
+    function test_redeemPegged_redeemsNoMoreThanThisMinterMinted() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether, user); // the caller holds all this minter minted
+        uint256 mintedHere = IMinter(minter).peggedTokenBalance();
+        uint256 mintedElsewhere = 5000 ether;
+        _mintPegged(user, mintedElsewhere);
+        (, , , uint256 dryRunRedeemed, uint256 dryRunPaid, , ) = IMinter(minter).redeemPeggedTokenDryRun(
+            mintedHere + mintedElsewhere
+        );
+        assertEq(dryRunRedeemed, mintedHere, "the dry run redeems only what this minter minted");
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter_v3.RedeemPeggedToken(user, user, mintedHere, dryRunPaid, 0);
+        IMinter(minter).redeemPeggedToken(mintedHere + mintedElsewhere, user, 0);
+        vm.stopPrank();
+
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "exactly what this minter minted is redeemed");
+        assertEq(IERC20(peggedToken).balanceOf(user), mintedElsewhere, "the pegged minted elsewhere stays");
+    }
+
+    /// Below the peg a pegged token redeems for its share of the backing, and the band's subsidy is paid on top from
+    /// the reserve - exactly, with the event reporting the subsidised payout.
+    function test_redeemPegged_belowThePeg_paysTheConfiguredSubsidy() public {
+        uint256 rate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, rate);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1000 ether, rate); // a ratio of 0.9, below the peg
+        uint256 pegged = 10_000 ether;
+        uint256 expectedSubsidy;
+        uint256 expectedPaid;
+        {
+            // the share of the backing the pegged is a claim on, and the band's subsidy on it, exact
+            uint256 shareE36 = Math.mulDiv(
+                pegged * 1 ether,
+                IMinter(minter).collateralTokenBalance() * 1 ether,
+                IMinter(minter).peggedTokenBalance()
+            ) / 1 ether;
+            uint256 subsidyE54 = shareE36 * uint256(-config.redeemPeggedIncentiveConfig.incentiveRatios[0]);
+            expectedSubsidy = subsidyE54 / (rate * 1 ether);
+            expectedPaid = Math.min(
+                (shareE36 * 1 ether + subsidyE54) / (rate * 1 ether),
+                shareE36 / rate + expectedSubsidy
+            );
+        }
+        assertGt(expectedSubsidy, 0, "precondition: the band subsidises");
+        uint256 reserveBefore = IERC20(wrappedCollateralToken).balanceOf(reservePool);
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user);
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, pegged);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter_v3.RedeemPeggedToken(user, user, pegged, expectedPaid, 0);
+        IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        vm.stopPrank();
+
+        assertEq(
+            reserveBefore - IERC20(wrappedCollateralToken).balanceOf(reservePool),
+            expectedSubsidy,
+            "the reserve sends exactly the band's subsidy"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(user) - heldBefore,
+            expectedPaid,
+            "the redeemer is paid the share and the subsidy"
+        );
+    }
+
+    /// From a ratio of 1.1 a redemption to about 1.35 crosses one bound and one to about 1.8 crosses two. The collateral
+    /// is priced once and split where the ratio reaches each band's upper bound, each slice's subsidy or fee exact on its
+    /// collateral; the redeemer, the fee receiver and the reserve each move by exactly their part.
+    function test_redeemPegged_acrossOneAndTwoBandBounds_pricesEachSliceAtItsBand(uint256 rate, uint256 price) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 10 ether, user); // a ratio of 1.1
+        uint256[] memory bounds = config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds;
+        assertGt(IMinter(minter).collateralRatio(), bounds[0], "precondition: the walk starts above the peg");
+        assertLt(IMinter(minter).collateralRatio(), bounds[1], "precondition: and below the band's upper bound");
+
+        uint256 snapshot = vm.snapshotState();
+        uint256 pegged = _peggedToReach(1.35 ether);
+        _redeemAndCheck(pegged, _expectedRedemption(pegged), bounds[1], bounds[2]); // one bound crossed
+        vm.revertToState(snapshot);
+        pegged = _peggedToReach(1.8 ether);
+        _redeemAndCheck(pegged, _expectedRedemption(pegged), bounds[2], type(uint256).max); // two bounds crossed
+    }
+
+    /// @dev The pegged whose redemption at a pegged unit's worth takes the ratio to about `targetRatio`, by the ratio's
+    ///      definition and leaving the incentives aside: (C p - x) / (P - x) = T, so x = (T P - C p) / (T - 1).
+    function _peggedToReach(uint256 targetRatio) private view returns (uint256) {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        return
+            (targetRatio * IMinter(minter).peggedTokenBalance() - IMinter(minter).collateralTokenBalance() * price) /
+            (targetRatio - 1 ether);
+    }
+
+    /// @dev What a redemption of `pegged` moves, by the schedule. Walking up from the band at index 1, where the market
+    ///      here starts, each band takes the pegged that brings the ratio to its upper bound and the last band the rest;
+    ///      what the pegged redeemed so far is worth is priced once at a pegged unit's worth, and each slice's subsidy or
+    ///      fee is exact on the collateral it takes. The redeemer is paid the collateral less the fee plus the subsidy,
+    ///      rounded down once, within the whole wei released and sent; the reserve sends the subsidy's whole wei, and the
+    ///      fee receiver the rest.
+    function _expectedRedemption(uint256 pegged) private view returns (Outcome memory expected) {
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 backingE36 = IMinter(minter).collateralTokenBalance() * 1 ether;
+        RedeemWalk memory w = RedeemWalk(pegged * 1 ether, IMinter(minter).peggedTokenBalance() * 1 ether, 0, 0, 0, 0);
+        for (uint256 band = 1; w.leftE36 > 0; band++) {
+            uint256 inBandE36 = w.leftE36;
+            if (band < config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds.length) {
+                uint256 upperBound = config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds[band];
+                inBandE36 = Math.min(
+                    inBandE36,
+                    (upperBound * w.peggedHeldE36 - (backingE36 - w.collateralRedeemedE36) * price) /
+                        (upperBound - 1 ether)
+                );
+            }
+            w.leftE36 -= inBandE36;
+            w.redeemedE36 += inBandE36;
+            w.peggedHeldE36 -= inBandE36;
+            uint256 sliceE36 = Math.mulDiv(w.redeemedE36, 1e36, price) / 1 ether - w.collateralRedeemedE36;
+            w.collateralRedeemedE36 += sliceE36;
+            int256 ratio = config.redeemPeggedIncentiveConfig.incentiveRatios[band];
+            if (ratio < 0) {
+                w.subsidyE54 += sliceE36 * uint256(-ratio);
+            } else {
+                w.feeE54 += sliceE36 * uint256(ratio);
+            }
+        }
+        expected.subsidy = w.subsidyE54 / (rate * 1 ether);
+        expected.paid = Math.min(
+            (w.collateralRedeemedE36 * 1 ether - w.feeE54 + w.subsidyE54) / (rate * 1 ether),
+            w.collateralRedeemedE36 / rate + expected.subsidy
+        );
+        expected.fee = w.collateralRedeemedE36 / rate + expected.subsidy - expected.paid;
+    }
+
+    /// @dev Redeems `pegged` and checks it ended between `lowerRatio` and `upperRatio` - the band the scenario aims for -
+    ///      with the redeemer, the fee receiver and the reserve each moved by exactly what `expected` gives them.
+    function _redeemAndCheck(
+        uint256 pegged,
+        Outcome memory expected,
+        uint256 lowerRatio,
+        uint256 upperRatio
+    ) private {
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user);
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        uint256 reserveBefore = IERC20(wrappedCollateralToken).balanceOf(reservePool);
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, pegged);
+        IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        vm.stopPrank();
+
+        assertGt(IMinter(minter).collateralRatio(), lowerRatio, "the redemption ends in the band aimed for");
+        assertLt(IMinter(minter).collateralRatio(), upperRatio, "the redemption ends in the band aimed for");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(user) - heldBefore,
+            expected.paid,
+            "the redeemer is paid each slice at its band"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore,
+            expected.fee,
+            "the fee receiver is paid the fee"
+        );
+        assertEq(
+            reserveBefore - IERC20(wrappedCollateralToken).balanceOf(reservePool),
+            expected.subsidy,
+            "the reserve sends the subsidy"
+        );
     }
 }
