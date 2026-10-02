@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
@@ -36,14 +37,14 @@ contract TestMinterMintMechanics is TestMinterMint {
         super.setUp();
 
         deal(wrappedCollateralToken, sender, 10 ether);
-        vm.prank(sender);
+        vm.startPrank(sender);
         IERC20(wrappedCollateralToken).approve(minter, 10 ether);
+        vm.stopPrank();
 
-        // (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(3 ether, 1 ether); // CR = 4/3 = 1.33
 
         int256 incentiveRatio = IMinter(minter).mintLeveragedTokenIncentiveRatio();
-        assertEq(incentiveRatio, 70e14, "incentive ratio wrong");
+        assertEq(incentiveRatio, config.mintLeveragedIncentiveConfig.incentiveRatios[1], "the band above the peg");
     }
 
     function test_freeLeveragedMechanics() public {
@@ -54,12 +55,14 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100), ia(35, 70)),
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
 
         deal(wrappedCollateralToken, zeroFee, 10 ether);
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 10 ether);
+        vm.stopPrank();
 
         // how much can I get for 2 eth
         (, uint256 fee2, , , uint256 leveragedFor2, uint256 price, ) = IMinter(minter).mintLeveragedTokenDryRun(
@@ -68,17 +71,15 @@ contract TestMinterMintMechanics is TestMinterMint {
         leveragedFor2 += (fee2 * price) / 1 ether;
         (, uint256 fee1a, , , uint256 leveragedFor1a, , ) = IMinter(minter).mintLeveragedTokenDryRun(1 ether);
         leveragedFor1a += (fee1a * price) / 1 ether;
-        // uint256 leveragedFor2 = IMinter(minter).leveragedTokensForCollateral(2 ether);
-        // uint256 leveragedFor1a = IMinter(minter).leveragedTokensForCollateral(1 ether);
 
         uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         uint256 actualMinted1a = IMinter(minter).freeMintLeveragedToken(1 ether, receiver);
+        vm.stopPrank();
         assertEq(leveragedPrice, IMinter(minter).leveragedTokenPrice(), "leveraged price doesn't change");
 
         assertEq(actualMinted1a, leveragedFor1a, "actual minted is as predicted");
 
-        // uint256 leveragedFor1b = IMinter(minter).leveragedTokensForCollateral(1 ether);
         (, uint256 fee1b, , , uint256 leveragedFor1b, , ) = IMinter(minter).mintLeveragedTokenDryRun(1 ether);
         leveragedFor1b += (fee1b * price) / 1 ether;
         assertEq(leveragedFor1a + leveragedFor1b, leveragedFor2, "1 + 1 = 2");
@@ -90,15 +91,13 @@ contract TestMinterMintMechanics is TestMinterMint {
         uint256 leveragedExpected;
         (incentiveRatio, fee, , , leveragedExpected, , ) = IMinter(minter).mintLeveragedTokenDryRun(collateral);
 
-        // check that the fees match the reported value, both emit and that transferred
+        // check that the mint matches its dry run, in what it returns, what it emits and the fee it transfers
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
-        // uint256 leveragedCalculated = IMinter(minter).leveragedTokensForCollateral(collateral - fee);
-        vm.expectEmit(true, true, true, false, minter);
-        emit IMinter.MintLeveragedToken(sender, sender, collateral, 0);
-        // console2.log("expected leveraged minted=%s", leveragedCalculated);
-        vm.prank(sender);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter.MintLeveragedToken(sender, sender, collateral, leveragedExpected);
+        vm.startPrank(sender);
         uint256 leveragedMinted = IMinter(minter).mintLeveragedToken(collateral, sender, 0);
-        // 1 ----------------------------------------------------------------------------
+        vm.stopPrank();
         assertEq(leveragedMinted, leveragedExpected, "mint vs dry run matches");
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + fee);
     }
@@ -110,11 +109,11 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100), ia(35, 70)),
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
 
         _mintLeveraged(1 ether);
-        // assertTrue(false);
     }
 
     function test_mintLeveraged1Band2Mints() public {
@@ -124,16 +123,21 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100), ia(35, 70)),
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
 
-        // this should do the same as the 2BandSameLevel (the number below was taken from its logs)
-        uint256 collateralIfWeHadABoundary140 = 201409869083585095;
-        // expect emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 201409869083585095 [2.014e17], leveragedOut: 400000000000000002000 [4e20])
-        // actual emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 201409869083585095 [2.014e17], leveragedOut: 400000000000000000000 [4e20])
+        // split where 2BandSameLevel puts a bound: the collateral that, net of the band's fee, takes the ratio from
+        // 4/3 to 1.40 - from the ratio's definition, (C + x (1 - f)) p / P = 1.40
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 collateralIfWeHadABoundary140 = Math.mulDiv(
+            1.4 ether * IMinter(minter).peggedTokenBalance() * 1 ether -
+                IMinter(minter).collateralTokenBalance() * 1 ether * price,
+            1 ether,
+            price * (1 ether - uint256(config.mintLeveragedIncentiveConfig.incentiveRatios[1])) * rate
+        );
         _mintLeveraged(collateralIfWeHadABoundary140);
         _mintLeveraged(1 ether - collateralIfWeHadABoundary140);
-        // assertTrue(false);
     }
 
     function test_mintLeveraged2Band() public {
@@ -144,12 +148,11 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100, 140), ia(35, 70, 100)), // <--
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
 
         // mint 1 ether, we get CR = 5/3 = 1.66, so crosses the 140 boundary
-        // expect emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 1000000000000000000 [1e18], leveragedOut: 1981208459214501512000 [1.981e21])
-        // actual emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 1000000000000000000 [1e18], leveragedOut: 1755321536469572726717 [1.755e21])
         _mintLeveraged(1 ether);
     }
 
@@ -161,12 +164,11 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100, 140), ia(35, 70, 70)), // <--
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
+        vm.stopPrank();
 
         // mint 1 ether, we get CR = 5/3 = 1.66, so crosses the 140 boundary
-        // expect emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 1000000000000000000 [1e18], leveragedOut: 1986000000000000002000 [1.986e21])
-        // actual emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 1000000000000000000 [1e18], leveragedOut: 1759428571428571432433 [1.759e21])
         _mintLeveraged(1 ether);
     }
 }

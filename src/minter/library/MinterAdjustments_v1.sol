@@ -20,6 +20,17 @@ import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol"
 ///      It holds no storage and reads no immutables. The Minter resolves its own state, its oracle and its token
 ///      balances and passes primitives, which is what an external library requires - under `DELEGATECALL` it
 ///      shares the caller's storage but cannot see immutables, which live in the caller's code.
+///
+///      Each walk prices an order band by band, cutting a slice where the collateral ratio reaches a band's bound.
+///      Its running state - the collateral and pegged held, the cuts - is kept in underlying collateral at 1e36, so
+///      no cut loses precision to a division by the wrapped-to-underlying rate. Each slice's fee and subsidy is kept
+///      exact at 1e54 - the slice's collateral at 1e36 times its band's incentive ratio - and summed exactly. A
+///      pegged redemption's collateral is priced once, cumulatively, so its slices sum to what the whole redemption
+///      is worth; a pegged mint's pegged is priced once, from its exact net collateral. The trader's amount is then
+///      rounded once from the exact figure, the protocol's way - collateral taken up, collateral returned and tokens
+///      minted down - and the protocol's parties (the fee receiver, the reserve, the backing) absorb the remainder,
+///      so an order that crosses many bounds is rounded no more than one that crosses none. The 1e54 figures limit
+///      an order to about 1.16e41 wei of underlying collateral (2^256 / 1e36).
 library MinterAdjustments_v1 {
     using MinterValuationLib for MinterValuationLib.CollateralRatioData;
 
@@ -65,11 +76,6 @@ library MinterAdjustments_v1 {
             uint256 underlyingCollateralAdded
         )
     {
-        // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        // slither-disable-next-line incorrect-equality
-        // if (cr.peggedTokenBalance == 0) {
-        //     revert IMinter_v3.ActionPaused();
-        // }
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         MintPeggedWorkspace memory w;

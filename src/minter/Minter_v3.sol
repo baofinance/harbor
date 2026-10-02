@@ -1500,19 +1500,6 @@ contract Minter_v3 is
         amountOut = Math.min(amountIn, tokenBalance_);
     }
 
-    // Adjustments - fees, subsidies and disallows
-    // -----------------------------------------
-    // Each of the algorithms simulates the operation {mint/redeem}/{Pegged/Leveraged} in a loop covering each fee band
-    // Much of the operations are performed and some results are returned at 1e36 precision.
-    // This is because, particularly for collateral based results, the result is transformed into a wrapped collateral basis,
-    // which can reduce precision through dividing before multiplying across function call boundaries.
-    // The fee calculation also takes into account truncations due to divisions such that each iteration of the loop
-    // adds back truncations from previous iterations to the current iteration. This is an adaption of the Kahan–Babuška summation
-    // algorithm, which is used to reduce numerical errors in floating point arithmetic, to integer arithmetic in solidity.
-    // Although it is anticipated that few fee calculations will cross more than one boundary, we should still handle the case well,
-    // and fairly, where, say a large deposit is made in the face of a relatively small collateral balance or when fee boundaries
-    // are placed closely together to create the correct incentives for investors.
-
     /// @notice The wrapped collateral held, converted to collateral tokens at the min rate.
     /// @dev The one statement of what the holding stands up, read by the guard, by `recogniseImpairment` and by
     /// `impairment()`, so the three cannot disagree about whether the record is covered.
