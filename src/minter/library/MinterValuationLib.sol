@@ -60,28 +60,50 @@ library MinterValuationLib {
         return Math.mulDiv(wrappedAmount, rate, 1 ether, Math.Rounding.Ceil);
     }
 
-    /// @notice The leveraged tokens that `collateralAdded` buys in a market that already has them: its value's share
-    /// of the residual, counted in leveraged tokens.
-    /// @dev Floored, so a mint never takes more of the residual than it brings. The one definition every leveraged
-    /// mint into such a market uses, fee-paying or free. `collateralAdded` is what the record is credited with -
-    /// through `wrappedAsCollateral` - not the unrounded figure it was converted from: minting against more than was
-    /// credited buys a share of a residual that never arrived.
+    /// @notice The leveraged tokens that `collateralAdded` buys: the one definition every leveraged mint uses,
+    /// fee-paying or free.
+    /// @dev Into a market that already has leveraged tokens, the added value's share of the residual, counted in
+    /// leveraged tokens - none where the residual is gone. A founding - no leveraged tokens yet - buys the residual its
+    /// deposit leaves: the backing after it, at the price, less the whole pegged claim, uncapped. So below the peg the
+    /// deposit first makes the pegged holders whole and one too small to do so buys nothing, and a credit of nothing
+    /// buys nothing, whatever the backing already holds.
+    ///
+    /// Floored, so a mint never takes more of the residual than it brings. `collateralAdded` is what the record is
+    /// credited with - through `wrappedAsCollateral` - not the unrounded figure it was converted from: minting against
+    /// more than was credited buys a share of a residual that never arrived.
     /// @param collateralAdded The collateral credited to the record for this mint.
+    /// @param backing The collateral backing before the mint.
     /// @param price The collateral price the mint is valued at.
+    /// @param peggedTokenBalance_ The pegged supply.
     /// @param leveragedTokenBalance The leveraged supply before the mint.
-    /// @param residualE36 The collateral's value less the pegged claim before the mint, scaled to 1e36.
     function leveragedForCollateral(
         uint256 collateralAdded,
+        uint256 backing,
         uint256 price,
-        uint256 leveragedTokenBalance,
-        uint256 residualE36
-    ) internal pure returns (uint256) {
-        // `collateralAdded x price x supply / residual`, floored, without forming a product of three: the value added
-        // divided by the residual, its whole part and its remainder, each scaled by the supply. Exact, and only a
-        // result too large for a word can overflow.
-        uint256 wholeResiduals = Math.mulDiv(collateralAdded, price, residualE36);
-        uint256 remainderE36 = mulmod(collateralAdded, price, residualE36);
-        return wholeResiduals * leveragedTokenBalance + Math.mulDiv(remainderE36, leveragedTokenBalance, residualE36);
+        uint256 peggedTokenBalance_,
+        uint256 leveragedTokenBalance
+    ) internal pure returns (uint256 leveragedMinted) {
+        if (leveragedTokenBalance > 0) {
+            (uint256 collateralValueE36, uint256 peggedValueE36) = tokenValuesE36(peggedTokenBalance_, backing, price);
+            if (collateralValueE36 > peggedValueE36) {
+                // `collateralAdded x price x supply / residual`, floored, without forming a product of three: the value
+                // added divided by the residual, its whole part and its remainder, each scaled by the supply. Exact,
+                // and only a result too large for a word can overflow.
+                uint256 residualE36 = collateralValueE36 - peggedValueE36;
+                uint256 wholeResiduals = Math.mulDiv(collateralAdded, price, residualE36);
+                uint256 remainderE36 = mulmod(collateralAdded, price, residualE36);
+                leveragedMinted =
+                    wholeResiduals *
+                    leveragedTokenBalance +
+                    Math.mulDiv(remainderE36, leveragedTokenBalance, residualE36);
+            }
+        } else if (collateralAdded > 0) {
+            uint256 postDepositValueE36 = (backing + collateralAdded) * price;
+            uint256 peggedClaimE36 = peggedTokenBalance_ * 1 ether;
+            if (postDepositValueE36 > peggedClaimE36) {
+                leveragedMinted = (postDepositValueE36 - peggedClaimE36) / 1 ether;
+            }
+        }
     }
 
     /// @notice Calculates the raw collateral ratio without any flooring.

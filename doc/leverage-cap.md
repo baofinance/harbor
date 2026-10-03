@@ -76,6 +76,9 @@ there, reports zero on both legs, because the call refuses the whole redeem; ask
 judged, and neither is the call. So no forecast shows a trade that will revert.
 
 The first sail token of a market with no sail supply is not judged. That is how a market is founded.
+The founder's deposit buys the whole residual the backing holds after it - the collateral at the price, less the
+whole anchor claim - so at or below the peg the deposit first makes the anchor holders whole, and one too small
+to do so mints nothing.
 
 Minting reopens by itself once the ratio is back above the floor: through a price rise, through anchor
 redemptions, or through a rebalance, whose first step stops exactly at the floor.

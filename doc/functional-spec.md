@@ -1197,7 +1197,10 @@ residual, times the sail supply. The collateral counted is what the backing reco
 rounded down too, so a mint never takes more of the residual than it brings and the value behind
 each sail token already held never falls. The fee-paying and the zero-fee mint share this one
 definition: with no incentive in force they are the same trade. The first sail tokens of a market
-take the whole residual their own deposit creates (§5.1).
+(§5.1) take the whole residual the backing holds after their deposit — its collateral at the high
+price, less the whole anchor claim — so at or below the peg the deposit first makes the anchor
+holders whole, and one too small to do so mints nothing; a deposit credited with nothing mints
+nothing, whatever the backing holds.
 
 ### 5.5 Stability-pool deposit and withdrawal
 

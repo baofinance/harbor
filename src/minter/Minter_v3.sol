@@ -1314,43 +1314,21 @@ contract Minter_v3 is
         _requireRecordIsCovered(backing, reading.minRate);
         _requireLeveragedMintable(backing, reading, $.peggedTokenBalance);
 
-        // The fee-paying mint's edges: the high price and the low rate.
-        uint256 price = reading.maxPrice;
-        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
-            $.peggedTokenBalance,
-            backing,
-            price
-        );
         // What the record is credited with, and so what the mint is priced against: the wrapped offered, valued at
         // the low rate by the conversion the holding is valued by, rounded down.
         uint256 underlyingCollateralAdded = MinterValuationLib.wrappedAsCollateral(
             wrappedCollateralIn,
             reading.minRate
         );
-        uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
-        // Leveraged is the residual claim, so there must be a residual for a mint to buy into. Left at zero,
-        // `_mintLeveragedToken` turns the caller away by name - matching the fee-paying path, whose adjustments
-        // return zero in the same state.
-        if (leveragedTokenBalance_ > 0) {
-            if (collateralValueE36 > peggedValueE36) {
-                // The fee-paying mint's own definition, so the two routes price the same trade the same.
-                leveragedOut = MinterValuationLib.leveragedForCollateral(
-                    underlyingCollateralAdded,
-                    price,
-                    leveragedTokenBalance_,
-                    collateralValueE36 - peggedValueE36
-                );
-            }
-        } else {
-            // The first leveraged minted takes the residual this deposit itself creates, so it is the balance AFTER the
-            // deposit that must cover the pegged claim - which is why the test is not the one above. The claim is
-            // taken unclamped: `tokenValuesE36` caps it at the collateral value, and the shortfall is the point here.
-            uint256 postDepositValueE36 = collateralValueE36 + underlyingCollateralAdded * price;
-            uint256 peggedClaimE36 = $.peggedTokenBalance * 1e18;
-            if (postDepositValueE36 > peggedClaimE36) {
-                leveragedOut = (postDepositValueE36 - peggedClaimE36) / 1e18;
-            }
-        }
+        // The fee-paying mint's own definition, at its edges - the high price and the low rate - so the two routes
+        // price the same trade the same. Where it buys nothing, `_mintLeveragedToken` turns the caller away by name.
+        leveragedOut = MinterValuationLib.leveragedForCollateral(
+            underlyingCollateralAdded,
+            backing,
+            reading.maxPrice,
+            $.peggedTokenBalance,
+            _leveragedTokenBalance()
+        );
 
         // mint the tokens to the receiver
         _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);

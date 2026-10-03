@@ -349,7 +349,6 @@ library MinterAdjustments_v1 {
         uint256 underlyingSubsidyE54; // Σ(collateralInBandE36 * subsidyRatio), within the reserve's capacity
         uint256 bandFeeRatio;
         uint256 bandSubsidyRatio;
-        uint256 leveragedTokenBalance;
         uint256 collateralValueE36;
         uint256 peggedValueE36;
     }
@@ -395,12 +394,13 @@ library MinterAdjustments_v1 {
             cr.underlyingCollateral,
             cr.price
         );
-        // leveraged tokens have no value (we may not have quite depegged, though)
-        if (w.collateralValueE36 <= w.peggedValueE36) {
+        // Leveraged tokens outstanding at or below the peg are worth nothing, so a mint of more has no price. An empty
+        // supply founds wherever the rule allows, below the peg too: there the deposit first makes the pegged holders
+        // whole (`MinterValuationLib.leveragedForCollateral`).
+        if (cr.leveragedTokenBalance > 0 && w.collateralValueE36 <= w.peggedValueE36) {
             return (0, 0, 0, 0, 0);
         }
         maxWrappedCollateralIn = wrappedCollateralIn;
-        w.leveragedTokenBalance = cr.leveragedTokenBalance;
 
         // simulate minting leveaged tokens from current collateral ratio upwards,
         // applying the incentive at the correct ratio as we go.
@@ -493,21 +493,13 @@ library MinterAdjustments_v1 {
         // The tokens are minted against the collateral the record actually gained, not against the unrounded
         // figure the band walk accumulated. Minting against more than was credited buys the holder a share of a
         // residual that never arrived, which shows up as the leveraged price moving on a mint that should not move it.
-        if (w.leveragedTokenBalance > 0) {
-            leveragedMinted = MinterValuationLib.leveragedForCollateral(
-                underlyingCollateralAdded,
-                cr.price,
-                w.leveragedTokenBalance,
-                w.collateralValueE36 - w.peggedValueE36
-            );
-        } else if (underlyingCollateralAdded > 0) {
-            uint256 addedE36 = underlyingCollateralAdded * 1 ether;
-            // Floored: a mint never mints more than the exact formula gives.
-            leveragedMinted =
-                (Math.mulDiv((cr.underlyingCollateral * 1 ether) + addedE36, cr.price, 1e18) - w.peggedValueE36) / 1e18;
-        } else {
-            leveragedMinted = 0;
-        }
+        leveragedMinted = MinterValuationLib.leveragedForCollateral(
+            underlyingCollateralAdded,
+            cr.underlyingCollateral,
+            cr.price,
+            cr.peggedTokenBalance,
+            cr.leveragedTokenBalance
+        );
     }
 
     struct RedeemLeveragedWorkspace {

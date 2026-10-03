@@ -639,7 +639,18 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         subsidy = Math.min(subsidy, pre.reservePoolWrapped);
 
-        assertApprox(post.feeWrapped, pre.feeWrapped + fee, 3, 4, "rp fee wrapped");
+        {
+            // The fee paid against this test's flat figure. The contract's fee is the wrapped the pegged redeems for
+            // less what the redeemer keeps, each rounded down once: within a wei of the exact fee on that wrapped. The
+            // figure is the flat ratio of this test's own estimate of that wrapped, floored: within a wei below. The
+            // estimate is rounded to nearest, and goes through the reported pegged price - exact at or above the peg,
+            // below it rounded down, short of the pegged's share by under one part in the price's 1e18-scaled figure,
+            // so the estimate and the fee on it fall short by under that part (the exact fee over the figure, bounded
+            // by the test's fee plus two over the figure less one). So the fee paid is at most a wei below the figure
+            // and above it by under two and a half wei, plus that part below the peg.
+            uint256 belowThePeg = pre.collateralRatio < 1 ether ? Math.ceilDiv(fee + 2, pre.peggedPrice - 1) : 0;
+            assertApproxEqAbs(post.feeWrapped, pre.feeWrapped + fee, 2 + belowThePeg, "rp fee wrapped");
+        }
         assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - subsidy, 0, 0, "rp subsidy wrapped");
 
         {

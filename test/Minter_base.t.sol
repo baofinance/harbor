@@ -11,6 +11,7 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -685,12 +686,15 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);
     }
 
+    /// A market that has minted nothing has nothing to redeem. Its first pegged mint leaves it exactly at the peg,
+    /// where the founding leveraged mint is served and buys the whole residual its deposit creates.
     function test_firstMintRedeem1() public {
         setUp_config_feeIsCR();
         vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
         vm.stopPrank();
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        // the pegged mint reads the low price, the leveraged mint the high
+        (uint256 minPrice, uint256 maxPrice, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
@@ -710,20 +714,28 @@ contract TestMinterBasics is TestMinterSetUp {
         IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
 
         IMinter(minter).mintPeggedToken(1 ether, user, 0);
-        assertEq(IMinter(minter).peggedTokenBalance(), ((1 ether - 0.01 ether) * price) / 1e18, "pegged minted");
+        // priced in the band just above the peg, whose fee comes exactly off a whole-token deposit
+        uint256 peggedFee = Math.mulDiv(1 ether, uint256(config.mintPeggedIncentiveConfig.incentiveRatios[1]), 1 ether);
+        assertEq(
+            IMinter(minter).peggedTokenBalance(),
+            Math.mulDiv(1 ether - peggedFee, minPrice, 1 ether),
+            "pegged minted"
+        );
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "the pegged mint leaves the market exactly at the peg");
 
-        // even though there are pegged tokens, leveraged tokens are worthless
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
-        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
-
-        // shift the price a tad to make them have some value, also only mint a tiny amount of leveraged
-        // if we minted 1 ether that would shift CR from 1 to 2 passing all the bands
-        price = (price * 1000) / 999;
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price);
-        IMinter(minter).mintLeveragedToken(0.001 ether, user, 0);
-        assertApprox(IMinter(minter).leveragedTokenBalance(), 4 ether, 0, 0.1 ether, "leveraged minted");
+        // At the peg the backing covers the pegged claim and nothing more, so the founding leveraged mint buys the
+        // residual its deposit creates: the backing after it, at the high price, less the pegged claim.
+        uint256 founded = IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        assertEq(
+            founded,
+            Math.mulDiv(IMinter(minter).collateralTokenBalance(), maxPrice, 1 ether) -
+                IMinter(minter).peggedTokenBalance(),
+            "the founder holds the whole residual after its deposit"
+        );
     }
 
+    /// Into an empty market - no pegged, no leveraged - a founding leveraged mint is served and buys the whole
+    /// residual its deposit creates, which with no pegged claim is all the collateral it credits, at the price.
     function test_firstMintRedeem2() public {
         setUp_config_feeIsCR();
         vm.startPrank(owner());
@@ -741,9 +753,14 @@ contract TestMinterBasics is TestMinterSetUp {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
 
-        // at this point leveraged tokens are worthless, so we don't return any
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
-        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        // the high price, the one the leveraged mint reads
+        (, uint256 price, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 founded = IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        assertEq(
+            founded,
+            Math.mulDiv(IMinter(minter).collateralTokenBalance(), price, 1 ether),
+            "the founder holds the whole residual it created"
+        );
     }
 
     function test_depegBoundary() public {
