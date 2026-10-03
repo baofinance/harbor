@@ -42,6 +42,7 @@ library MinterAdjustments_v1 {
         uint256 peggedTokenHeldE36;
         uint256 underlyingFeeE54; // Σ(collateralInBandE36 * feeRatio)
         bool feeCapped;
+        bool reachesTheMinimum; // the band being walked reaches down to the min CR, so it is the last
         uint256 peggedTokenPriceE36;
     }
 
@@ -56,16 +57,22 @@ library MinterAdjustments_v1 {
     ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
     ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
+    /// @param maxFeeRatio The most the fee may be of the collateral used, as a ratio: the mint is cut where a dearer
+    /// band would take the average past it.
+    /// @param minimumCollateralRatio The min CR, above one: the mint is cut where the collateral ratio reaches it,
+    /// whatever the config's bands allow below.
     /// @return wrappedFee The pro-rated fee, in wrapped collateral terms.
     /// @return peggedMinted the amount of pegged tokens minted after fees are taken into account
-    /// @return maxWrappedCollateralIn the amount of wrapped collateral that is allowed, according to the config
+    /// @return maxWrappedCollateralIn the amount of wrapped collateral that is allowed, by the config, the fee cap
+    /// and the min CR
     /// @return underlyingCollateralAdded the amount of underlying collateral added to the backing of the pegged tokens
 
     function mintPeggedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 wrappedCollateralIn,
         MinterValuationLib.CollateralRatioData memory cr,
-        uint256 maxFeeRatio
+        uint256 maxFeeRatio,
+        uint256 minimumCollateralRatio
     )
         external
         pure
@@ -109,12 +116,13 @@ library MinterAdjustments_v1 {
 
             uint256 collateralInBandE36; // includes the fee
             uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, w.band);
-            if (bandLowerBound <= 1 ether) {
-                // We can never mint enough pegged tokens such that we de-peg and
-                // if we have already de-pegged, we can use all the collateral given
-                collateralInBandE36 = w.underlyingCollateralInLeftE36;
-            } else {
-                // here we can assume pegged tokens are not de-pegged
+            // The min CR is the lowest bound of all, whatever the config's bands: a band that reaches down to it is
+            // cut at it, and is the last the walk enters.
+            w.reachesTheMinimum = bandLowerBound <= minimumCollateralRatio;
+            if (w.reachesTheMinimum) {
+                bandLowerBound = minimumCollateralRatio;
+            }
+            {
                 // we have collateral ratio R = C.p / Z
                 // where p = price of collateral in pegged tokens, C = collateral balance and Z = pegged token balance
                 // adding fee ratio, f, change in collateral, dC, and change in pegged, dZ, we have
@@ -123,12 +131,17 @@ library MinterAdjustments_v1 {
                 // now, dZ = dC * p and solving for dC gives us
                 //   dC = (C * p - R * Z) / (p * phi)
                 // where phi = R * (1 - f) - 1 + f = (R - 1) * (1 - f)
-                uint256 phiE36 = (bandLowerBound - 1e18) * (1e18 - bandFeeRatio);
-                collateralInBandE36 = Math.mulDiv(
-                    w.underlyingCollateralHeldE36 * cr.price - bandLowerBound * w.peggedTokenHeldE36,
-                    1e36,
-                    cr.price * phiE36
-                );
+                // The bound is above one - the min CR is - so the pegged are not de-pegged here and phi is not zero.
+                // Nothing fits where the ratio at this price is already at or below the bound, which a price band can
+                // leave it: the min CR is judged at the middle price, and this walk reads the low one.
+                uint256 heldValue = w.underlyingCollateralHeldE36 * cr.price;
+                if (heldValue > bandLowerBound * w.peggedTokenHeldE36) {
+                    collateralInBandE36 = Math.mulDiv(
+                        heldValue - bandLowerBound * w.peggedTokenHeldE36,
+                        1e36,
+                        cr.price * ((bandLowerBound - 1e18) * (1e18 - bandFeeRatio))
+                    );
+                }
                 collateralInBandE36 = Math.min(w.underlyingCollateralInLeftE36, collateralInBandE36);
             }
             // Cap collateral so the fee RATIO over the collateral used stays within maxFeeRatio.
@@ -158,8 +171,8 @@ library MinterAdjustments_v1 {
             w.underlyingCollateralInLeftE36 -= collateralInBandE36;
 
             // slither-disable-next-line incorrect-equality
-            if (w.feeCapped || w.underlyingCollateralInLeftE36 == 0 || w.band == 0) {
-                // we have hit the fee cap, run out of collateral, or are in the lowest band
+            if (w.feeCapped || w.underlyingCollateralInLeftE36 == 0 || w.reachesTheMinimum) {
+                // we have hit the fee cap, run out of collateral, or reached the min CR - which the lowest band does
                 break;
             }
             // still some collateral left and we're allowed to mint, so move on the state the next band is cut from,
@@ -394,9 +407,9 @@ library MinterAdjustments_v1 {
             cr.underlyingCollateral,
             cr.price
         );
-        // Leveraged tokens outstanding at or below the peg are worth nothing, so a mint of more has no price. An empty
-        // supply founds wherever the rule allows, below the peg too: there the deposit first makes the pegged holders
-        // whole (`MinterValuationLib.leveragedForCollateral`).
+        // Leveraged tokens outstanding at or below the peg are worth nothing, so a mint of more has no price. With no
+        // leveraged tokens yet the first mint is priced wherever the caller's rule lets it through
+        // (`MinterValuationLib.leveragedForCollateral`).
         if (cr.leveragedTokenBalance > 0 && w.collateralValueE36 <= w.peggedValueE36) {
             return (0, 0, 0, 0, 0);
         }

@@ -112,28 +112,34 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
     //////////////////////////////////////////////////////////////*/
 
     /// With nothing behind an outstanding anchor supply the anchor is worth nothing, so the mint has
-    /// no price to divide by. It must say so by name — the zero-fee mint already does — rather than
-    /// reaching the band walk and panicking on the division. Whether the band table happens to
-    /// disallow minting at this ratio must not be what decides it.
+    /// no price to divide by. It must revert by name rather than reaching the band walk and panicking
+    /// on the division: the market's ratio is zero, under the min CR, and the mint says so. Whether
+    /// the band table happens to disallow minting at this ratio must not be what decides it.
     function test_noBacking_mintPeggedIsRefusedByNameRatherThanPanicking() public {
         _setUpMarketHolding(0);
         assertEq(IMinter(minter).collateralTokenBalance(), 0, "nothing stands behind the anchor claim");
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            0,
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
 
         address anchorMinter = makeAddr("anchorMinter");
         deal(wrappedCollateralToken, anchorMinter, 1 ether);
         vm.startPrank(anchorMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(IMinter_v3.ZeroPeggedTokenPrice.selector);
+        vm.expectRevert(belowMinimum);
         IMinter(minter).mintPeggedToken(1 ether, anchorMinter, 0);
         vm.stopPrank();
     }
 
-    /// The dry run divides by the same price as the call, so it must refuse on the same condition.
-    function test_noBacking_mintPeggedDryRunIsRefusedByName() public {
+    /// The dry run reports the mint its call makes: nothing used, no fee, nothing minted - without
+    /// dividing by the price of nothing.
+    function test_noBacking_mintPeggedDryRunReportsNothing() public {
         _setUpMarketHolding(0);
 
-        vm.expectRevert(IMinter_v3.ZeroPeggedTokenPrice.selector);
-        IMinter_v3(minter).mintPeggedTokenDryRun(1 ether);
+        (, uint256 fee, uint256 used, uint256 minted, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(1 ether);
+        assertEq(fee + used + minted, 0, "the dry run reports nothing");
     }
 }
 

@@ -598,13 +598,20 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
         assertEq(sailPrice, 0, "the sail claim is worthless at this cover");
-        uint256 ratio = IMinter(minter).collateralRatio();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        // the zero-fee mint is judged on the market it leaves: the record with the deposit credited at the low rate
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 ratioLeft = Math.mulDiv(
+            IMinter(minter).collateralTokenBalance() + Math.mulDiv(1 ether, minRate, 1 ether),
+            (minPrice + maxPrice + 1) / 2,
+            IMinter(minter).peggedTokenBalance()
+        );
+        assertLt(ratioLeft, floor, "precondition: the deposit does not lift the market to the min CR");
 
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioLeft, floor));
         IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
         vm.stopPrank();
     }
@@ -640,11 +647,16 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         _impair(3_000);
         _recogniseImpairment();
 
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            IMinter(minter).collateralRatio(),
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
         address anchorMinter = makeAddr("anchorMinter");
         deal(wrappedCollateralToken, anchorMinter, 1 ether);
         vm.startPrank(anchorMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.MintZeroAmount.selector, peggedToken));
+        vm.expectRevert(belowMinimum);
         IMinter(minter).mintPeggedToken(1 ether, anchorMinter, 0);
         vm.stopPrank();
     }
@@ -664,8 +676,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     }
 
     /// The fee-capped overload takes only as much collateral as it can mint within the cap. Below the
-    /// disallow bound there is no band cheap enough, so it must take nothing — and report that as
-    /// zero rather than reverting, since a cap was supplied.
+    /// min CR nothing may be minted, so it must take nothing — and report that as zero rather than
+    /// reverting, since a cap was supplied.
     function test_impairedBacking_cappedAnchorMintingTakesNothing() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
@@ -675,7 +687,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
             1 ether,
             0.05 ether
         );
-        assertEq(forecastTaken, 0, "no band is cheap enough to mint in");
+        assertEq(forecastTaken, 0, "nothing is taken below the min CR");
         assertEq(forecastMinted, 0, "so nothing is minted");
 
         address anchorMinter = makeAddr("cappedAnchorMinter");
@@ -870,9 +882,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         uint256 ratioBefore = IMinter(minter).collateralRatio();
 
-        address donor = makeAddr("donor");
-        deal(wrappedCollateralToken, donor, 50 ether);
-        vm.startPrank(donor);
+        deal(wrappedCollateralToken, zeroFee, 50 ether);
+        vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 50 ether);
         IMinter_v3(minter).donateWrappedCollateral(50 ether);
         vm.stopPrank();

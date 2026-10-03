@@ -119,6 +119,9 @@ contract Minter_v3 is
     /// @notice The role that allows access to the sweep function.
     uint256 public constant HARVESTER_ROLE = _ROLE_1;
 
+    /// @notice The role that, with the owner and the zero-fee role, may donate wrapped collateral as backing.
+    uint256 public constant DONOR_ROLE = _ROLE_2;
+
     ////////////////
     // Immutables //
     ////////////////
@@ -313,40 +316,54 @@ contract Minter_v3 is
         (mintable, ) = _leveragedMintable($.underlyingCollateral, reading, $.peggedTokenBalance);
     }
 
-    /// @notice Whether leverage may be sold against a pre-trade state, and the collateral ratio it was judged at.
+    /// @notice Whether leverage may be sold against a market state, and the collateral ratio it was judged at.
     /// @dev THE RULE, in one place. A leveraged token is a claim on the residual, whose sensitivity to the
-    /// collateral price is `CR/(CR-1)`, so a cap `K` on the leverage sold is a floor `K/(K-1)` on the ratio at
-    /// which any is sold. Judged against the snapshot the caller priced its amounts from - never storage the
-    /// caller may have part-updated - and always at the middle of the price band, whatever edge the caller's
-    /// amounts are priced at: the ratio is computed exactly as `collateralRatio()` computes it, so a caller that
-    /// `leveragedMintable()` let through is not turned away here. The dry runs judge by it too, so no forecast shows
-    /// a mint its call refuses.
+    /// collateral price is `CR/(CR-1)`, so a cap `K` on the leverage sold is a minimum `K/(K-1)` on the ratio at
+    /// which any is sold: the min CR. Judged against the backing the caller passes - never storage the caller may
+    /// have part-updated - which is the snapshot it priced its amounts from for the retail mint and the conversion,
+    /// judged before the trade, and that snapshot with the deposit credited for the zero-fee mint, judged on the
+    /// market it leaves. Always at the middle of the price band, whatever edge the caller's amounts are priced at:
+    /// the ratio is computed exactly as `collateralRatio()` computes it, so a retail caller that `leveragedMintable()`
+    /// let through is not turned away here. The dry runs judge by it too, so no forecast shows a mint its call
+    /// reverts.
     ///
-    /// NOT APPLIED TO THE FIRST LEVERAGED TOKEN. A market is founded by minting pegged, which puts the ratio at
-    /// exactly one, and then leveraged; judged against that state the founding mint is always refused. On an
-    /// empty supply there is nothing the cap protects - no existing price to diverge, no existing holder to
-    /// dilute - and the deposit creates the residual it buys. Every later mint is judged against a state
-    /// that includes it.
+    /// The first leveraged token is judged like every other. A market with no pegged and no collateral reads a ratio
+    /// of exactly one, below the min CR, so a retail mint cannot open it; a genesis does, its leveraged mint judged
+    /// on the market it leaves.
     function _leveragedMintable(
         uint256 backing,
         OracleReading memory reading,
         uint256 peggedTokenBalance_
-    ) private view returns (bool mintable, uint256 collateralRatio_) {
+    ) private pure returns (bool mintable, uint256 collateralRatio_) {
         collateralRatio_ = MinterValuationLib.collateralRatio(backing, _midPrice(reading), peggedTokenBalance_);
-        mintable = _leveragedTokenBalance() == 0 || collateralRatio_ >= MINIMUM_COLLATERAL_RATIO;
+        mintable = collateralRatio_ >= MINIMUM_COLLATERAL_RATIO;
     }
 
-    /// @dev The refusal, at every point leveraged is minted - both retail mints and the conversion - before the
-    /// amounts are computed, so a zero-price market reports the rule's own reason rather than a rounding one.
-    /// Reverts with the ratio it judged and the floor it wanted, so a caller turned away knows by how much.
+    /// @notice Whether a retail pegged mint may start from a market state, and the collateral ratio it was judged at.
+    /// @dev A pegged mint lowers the collateral ratio, so from at or below the min CR it could only leave the market
+    /// below it: it needs the market above. Judged at the middle price, as `collateralRatio()` computes it; the walk
+    /// then cuts the mint where the ratio reaches the min CR. The incentive config may forbid minting higher up; it
+    /// cannot allow it lower.
+    function _peggedMintable(
+        uint256 backing,
+        OracleReading memory reading,
+        uint256 peggedTokenBalance_
+    ) private pure returns (bool mintable, uint256 collateralRatio_) {
+        collateralRatio_ = MinterValuationLib.collateralRatio(backing, _midPrice(reading), peggedTokenBalance_);
+        mintable = collateralRatio_ > MINIMUM_COLLATERAL_RATIO;
+    }
+
+    /// @dev The revert, at every point leveraged is minted - both retail mints, the zero-fee mint and the conversion
+    /// - so a zero-price market reports the rule's own reason rather than a rounding one. Reverts with the ratio it
+    /// judged and the min CR, so a caller turned away knows by how much.
     function _requireLeveragedMintable(
         uint256 backing,
         OracleReading memory reading,
         uint256 peggedTokenBalance_
-    ) private view {
+    ) private pure {
         (bool mintable, uint256 collateralRatio_) = _leveragedMintable(backing, reading, peggedTokenBalance_);
         if (!mintable) {
-            revert LeverageAboveCap(collateralRatio_, MINIMUM_COLLATERAL_RATIO);
+            revert BelowMinimumCollateralRatio(collateralRatio_, MINIMUM_COLLATERAL_RATIO);
         }
     }
 
@@ -519,9 +536,12 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
         (price, rate) = (reading.minPrice, reading.minRate); // the edges the mint reads
-        uint256 underlyingCollateralAdded;
-        (wrappedFee, peggedMinted, wrappedCollateralUsed, underlyingCollateralAdded) = MinterAdjustments_v1
-            .mintPeggedAdjustments(
+        // At or below the min CR the call reverts, so nothing would be minted: the amounts stay zero, and the
+        // incentive ratio below falls back to the band's, as it does wherever nothing is used.
+        (bool mintable, ) = _peggedMintable($.underlyingCollateral, reading, $.peggedTokenBalance);
+        if (mintable) {
+            // slither-disable-next-line unused-return a dry run does not touch the backing record
+            (wrappedFee, peggedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1.mintPeggedAdjustments(
                 $.incentiveConfig[Config_v2.MINT_PEGGED],
                 wrappedCollateralIn,
                 MinterValuationLib.CollateralRatioData(
@@ -531,12 +551,14 @@ contract Minter_v3 is
                     $.peggedTokenBalance,
                     _leveragedTokenBalance()
                 ),
-                maxFeeRatio
+                maxFeeRatio,
+                MINIMUM_COLLATERAL_RATIO
             );
+        }
         if (peggedMinted > 0) {
             incentiveRatio = int256(Math.mulDiv(wrappedFee, 1 ether, wrappedCollateralUsed));
         } else {
-            // The call takes nothing from a mint that buys no whole pegged token - the plain mint refuses it, the
+            // The call takes nothing from a mint that buys no whole pegged token - the plain mint reverts, the
             // capped one reports nothing consumed - and its dry run says the same: nothing used, no fee, and the
             // ratio of the band the market is in.
             (wrappedFee, wrappedCollateralUsed) = (0, 0);
@@ -724,7 +746,9 @@ contract Minter_v3 is
     //////////////////////////////
 
     /// @inheritdoc IMinter_v3
-    function donateWrappedCollateral(uint256 wrappedAmount) external nonReentrant {
+    function donateWrappedCollateral(
+        uint256 wrappedAmount
+    ) external onlyOwnerOrRoles(ZERO_FEE_ROLE | DONOR_ROLE) nonReentrant {
         if (wrappedAmount == 0) {
             revert ZeroInputBalance(WRAPPED_COLLATERAL_TOKEN);
         }
@@ -844,6 +868,24 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = $.underlyingCollateral;
         _requireRecordIsCovered(underlyingCollateral_, reading.minRate);
+        {
+            (bool mintable, uint256 collateralRatio_) = _peggedMintable(
+                underlyingCollateral_,
+                reading,
+                peggedTokenBalance_
+            );
+            if (!mintable) {
+                if (maxFeeRatio == type(uint256).max) {
+                    revert BelowMinimumCollateralRatio(collateralRatio_, MINIMUM_COLLATERAL_RATIO);
+                }
+                // A capped mint at or below the min CR takes nothing, as where no band fits its cap: (0, 0) to a
+                // caller that asked for no minimum, and the minimum missed to one that named it.
+                if (minPeggedOut == 0) {
+                    return (0, 0);
+                }
+                revert MintInsufficientAmount(PEGGED_TOKEN, 0, minPeggedOut);
+            }
+        }
 
         uint256 wrappedFee;
         uint256 underlyingCollateralAdded;
@@ -859,7 +901,8 @@ contract Minter_v3 is
                     peggedTokenBalance_,
                     _leveragedTokenBalance()
                 ),
-                maxFeeRatio
+                maxFeeRatio,
+                MINIMUM_COLLATERAL_RATIO
             );
 
         // The pegged tokens minted are floored, so a mint too small to buy a whole one yields nothing.
@@ -1312,7 +1355,6 @@ contract Minter_v3 is
         OracleReading memory reading = _readOracle($.priceOracle);
         uint256 backing = $.underlyingCollateral;
         _requireRecordIsCovered(backing, reading.minRate);
-        _requireLeveragedMintable(backing, reading, $.peggedTokenBalance);
 
         // What the record is credited with, and so what the mint is priced against: the wrapped offered, valued at
         // the low rate by the conversion the holding is valued by, rounded down.
@@ -1320,6 +1362,10 @@ contract Minter_v3 is
             wrappedCollateralIn,
             reading.minRate
         );
+        // Judged on the market the mint leaves: with no fee to walk, that is the backing with the deposit credited.
+        // So a genesis may start anywhere - an empty minter, or one its own pegged mint has just left at the peg -
+        // and may not end below the min CR.
+        _requireLeveragedMintable(backing + underlyingCollateralAdded, reading, $.peggedTokenBalance);
         // The fee-paying mint's own definition, at its edges - the high price and the low rate - so the two routes
         // price the same trade the same. Where it buys nothing, `_mintLeveragedToken` turns the caller away by name.
         leveragedOut = MinterValuationLib.leveragedForCollateral(

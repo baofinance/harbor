@@ -324,17 +324,24 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         assertEq(IMinter(minter).peggedTokenBalance(), price);
+        // pegged alone: a ratio of exactly one, under the min CR, where no leveraged is minted on any route, so the
+        // swap reverts and burns nothing
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            1 ether,
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
         vm.startPrank(zeroFee);
-        vm.expectEmit(minter);
-        emit IMinter.RedeemPeggedToken(zeroFee, receiver, price, 0, price);
+        vm.expectRevert(belowMinimum);
         IMinter(minter).freeRedeemPeggedToken(0, price, receiver);
         vm.stopPrank();
         // 6 ----------------------------------------------------------------
-        assertEq(IMinter(minter).peggedTokenBalance(), 0);
-        assertEq(IERC20(leveragedToken).balanceOf(receiver), price);
+        assertEq(IMinter(minter).peggedTokenBalance(), price);
+        assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
-        // first normal swap
+        // first normal swap: with a leveraged supply, and the market above the min CR
         vm.startPrank(zeroFee);
+        IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
         IMinter(minter).freeMintPeggedToken(6 ether, zeroFee);
         vm.stopPrank();
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1242,12 +1249,7 @@ contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
 
     /// @dev Redeems `pegged` and checks it ended between `lowerRatio` and `upperRatio` - the band the scenario aims for -
     ///      with the redeemer, the fee receiver and the reserve each moved by exactly what `expected` gives them.
-    function _redeemAndCheck(
-        uint256 pegged,
-        Outcome memory expected,
-        uint256 lowerRatio,
-        uint256 upperRatio
-    ) private {
+    function _redeemAndCheck(uint256 pegged, Outcome memory expected, uint256 lowerRatio, uint256 upperRatio) private {
         uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user);
         uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
         uint256 reserveBefore = IERC20(wrappedCollateralToken).balanceOf(reservePool);

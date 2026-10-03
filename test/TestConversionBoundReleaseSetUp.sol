@@ -49,7 +49,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
     /// @dev Convert one anchor token at `collateralRatio` and report the conversion rate it was given,
     ///      then put the market back. Measured through the conversion rather than recomputed, so the
     ///      answer is the contract's and not this test's.
-    /// @dev Zero where the market refuses to sell - `LeverageAboveCap`, which is the rule's own answer and the
+    /// @dev Zero where the market refuses to sell - `BelowMinimumCollateralRatio`, which is the rule's own answer and the
     ///      reading this helper exists to take. Anything else propagates unchanged.
     function appliedConversionRateAt(uint256 collateralRatio) internal returns (uint256 applied) {
         uint256 snapshot = vm.snapshotState();
@@ -57,7 +57,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
         try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 sailOut) {
             applied = (sailOut * 1 ether) / ANCHOR_IN;
         } catch (bytes memory err) {
-            if (bytes4(err) != IMinter_v3.LeverageAboveCap.selector) {
+            if (bytes4(err) != IMinter_v3.BelowMinimumCollateralRatio.selector) {
                 // solhint-disable-next-line no-inline-assembly
                 assembly {
                     revert(add(err, 0x20), mload(err))

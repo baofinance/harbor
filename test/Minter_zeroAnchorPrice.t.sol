@@ -186,7 +186,7 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         deal(wrappedCollateralToken, sailMinter, 1 ether);
         vm.startPrank(sailMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter(minter).mintLeveragedToken(1 ether, sailMinter, 0);
         vm.stopPrank();
 
@@ -197,17 +197,23 @@ contract MinterZeroAnchorPriceTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    /// Neither anchor mint may mint against a price the protocol cannot report. Both refuse on the
-    /// same threshold, so which one is called — and whether the band table happens to disallow
-    /// minting at this ratio — makes no difference to the answer.
+    /// Neither anchor mint may mint against a price the protocol cannot report, and both revert by
+    /// name: the fee-paying mint at the min CR, which the market is far below, and the zero-fee mint,
+    /// which is not judged against it, on the reportable price itself. Whether the band table happens
+    /// to disallow minting at this ratio makes no difference to either answer.
     function test_zeroAnchorPrice_neitherAnchorMintWillMint() public {
         _setUpMarketHolding(_LAST_ZERO_HOLDING);
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            IMinter(minter).collateralRatio(),
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
 
         address anchorMinter = makeAddr("anchorMinter");
         deal(wrappedCollateralToken, anchorMinter, 1 ether);
         vm.startPrank(anchorMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(IMinter_v3.ZeroPeggedTokenPrice.selector);
+        vm.expectRevert(belowMinimum);
         IMinter(minter).mintPeggedToken(1 ether, anchorMinter, 0);
         vm.stopPrank();
 

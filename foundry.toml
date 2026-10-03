@@ -9,12 +9,6 @@ optimizer = true
 
 optimizer_runs = 700 # 500 builds & tests but 200 deploys
 
-# Off because forge's dynamic test linking loses edits to contracts outside src (foundry-rs/foundry#16901), which
-# is how harbor's tests reach bao-base - see lib/bao-base/bin/test. Set here, and not only as bin/test's flag, so
-# that every build - the IDE's included - shares `yarn test`'s cache: the flag is part of the cache key, and a
-# build without it recompiles the whole project and invalidates the next `yarn test`.
-dynamic_test_linking = false
-
 # via_ir = true   # makes the compiler run 7-10 times slower, is good at reducing code size or lower gas usage
 deny = "warnings"                                    # enable to stop compilations if there are warnings
 ignored_error_codes = [4591]

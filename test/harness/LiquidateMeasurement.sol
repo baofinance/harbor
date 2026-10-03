@@ -113,7 +113,7 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
             // behaviour, recorded as a point where nothing moved, exactly as `ReturnZeroAmount` is.
             if (
                 bytes4(err) != IMinter_v3.ReturnZeroAmount.selector &&
-                bytes4(err) != IMinter_v3.LeverageAboveCap.selector
+                bytes4(err) != IMinter_v3.BelowMinimumCollateralRatio.selector
             ) {
                 assembly {
                     revert(add(err, 0x20), mload(err))

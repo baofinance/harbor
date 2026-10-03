@@ -163,11 +163,13 @@ interface IMinter_v3 is IToken {
     /// call, or the rate recovering, is what clears this.
     error UnrecognisedImpairment(uint256 recorded, uint256 held);
 
-    /// @dev Thrown where a leveraged mint is refused because the market's collateral ratio is below the
-    /// floor at which the leverage sold would exceed the cap: `beta = CR/(CR-1)`, so a cap `K` is the floor
-    /// `K/(K-1)`. Reports the ratio the sale was priced at and the floor it needed, so a caller turned away
-    /// knows by how much. Thrown on every route alike - both retail mints and the conversion.
-    error LeverageAboveCap(uint256 collateralRatio, uint256 minimumCollateralRatio);
+    /// @dev Thrown where the market's collateral ratio, judged against the min CR `MINIMUM_COLLATERAL_RATIO`, does not
+    /// allow a mint. A leveraged mint from below it would sell leverage above the cap (`beta = CR/(CR-1)`, so a cap
+    /// `K` is a min CR of `K/(K-1)`); a retail pegged mint from at or below it could only take the market further
+    /// below; a zero-fee leveraged mint may not leave the market below it. Reports the ratio judged - before the
+    /// trade for the retail mints and the conversion, after it for the zero-fee leveraged mint - and the minimum,
+    /// so a caller turned away knows by how much.
+    error BelowMinimumCollateralRatio(uint256 collateralRatio, uint256 minimumCollateralRatio);
 
     /// @dev Thrown when a pegged token is worth nothing - no collateral stands behind an outstanding supply - so an
     /// operation priced against that value has no answer.
@@ -199,6 +201,10 @@ interface IMinter_v3 is IToken {
     /// @notice returns the role needed to access the harvesting function
     // solhint-disable-next-line func-name-mixedcase
     function HARVESTER_ROLE() external view returns (uint256);
+
+    /// @notice returns the role that, with the owner and the zero-fee role, may donate wrapped collateral as backing
+    // solhint-disable-next-line func-name-mixedcase
+    function DONOR_ROLE() external view returns (uint256);
 
     /// @notice Return the address of the collateral token
     // solhint-disable-next-line func-name-mixedcase
@@ -238,22 +244,27 @@ interface IMinter_v3 is IToken {
     function leverageRatio() external view returns (uint256);
 
     /// @notice The most leverage this market will sell, 1e18-scaled. A cap on the leverage of every leveraged
-    ///         token at the moment it is minted, applied by refusing to mint below `MINIMUM_COLLATERAL_RATIO`
-    ///         on every route alike - the retail mints and the conversion a rebalance performs.
+    ///         token at the moment it is minted, applied by minting none below `MINIMUM_COLLATERAL_RATIO`: the
+    ///         retail mint and the conversion a rebalance performs revert where the market stands below it, and
+    ///         the zero-fee mint where it would leave the market below it.
     function MAX_LEVERAGE_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
-    /// @notice `K / (K - 1)` for `K = MAX_LEVERAGE_RATIO`, rounded up to its 1e18 scale: the lowest collateral
-    ///         ratio at which the residual's sensitivity to the collateral price is no more than the cap. Since
-    ///         that sensitivity is `CR / (CR - 1)`, `beta <= K` if and only if `CR >= K / (K - 1)`, so refusing
-    ///         every mint below this collateral ratio bounds the leverage of every token ever sold without
-    ///         capping a count or moving any collateral.
+    /// @notice The min CR: `K / (K - 1)` for `K = MAX_LEVERAGE_RATIO`, rounded up to its 1e18 scale - the lowest
+    ///         collateral ratio at which the residual's sensitivity to the collateral price is no more than the
+    ///         cap. Since that sensitivity is `CR / (CR - 1)`, `beta <= K` if and only if `CR >= K / (K - 1)`, so
+    ///         minting no leveraged below this collateral ratio bounds the leverage of every token ever sold
+    ///         without capping a count or moving any collateral. Below it the market is closed to retail mints of
+    ///         pegged as well, which would lower the ratio further: a retail pegged mint reverts at or below it and
+    ///         is cut where it would cross it, whatever the incentive config allows. A market with no collateral
+    ///         and no pegged reads a collateral ratio of exactly one, so no retail mint can open it.
     function MINIMUM_COLLATERAL_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Whether the market will sell leverage at the ratio it stands at: true at or above
-    ///         `MINIMUM_COLLATERAL_RATIO` and false below it, on every route alike; and true on an empty
-    ///         leveraged supply, where the first token has nothing to dilute and creates the residual it buys.
-    ///         The refusal itself reverts `LeverageAboveCap`; this is the same judgement as a view, for a
-    ///         caller that would rather not ask by trying.
+    /// @notice Whether a retail leveraged mint, or a rebalance's conversion, is served at the ratio the market
+    ///         stands at: true at or above `MINIMUM_COLLATERAL_RATIO` and false below it, whether or not any
+    ///         leveraged token exists yet. Where it is false those calls revert `BelowMinimumCollateralRatio`;
+    ///         this is the same judgement as a view, for a caller that would rather not ask by trying. The
+    ///         zero-fee leveraged mint is judged on the market it leaves instead, so it may be served where this
+    ///         is false.
     function leveragedMintable() external view returns (bool);
 
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying (18 decimals).
@@ -365,9 +376,10 @@ interface IMinter_v3 is IToken {
     /// a fee ratio; a negative number indicates a subsidy.
     /// @return fee The amount deducted from `collateralIn` as a fee.
     /// @return collateralTaken The amount of collateral used in the exchange.
-    /// This is usually the same as `collateralIn` but at certain collateral ratio levels minting pegged tokens may be
-    /// disallowed by configuration. None is taken from an offer too small to buy a whole pegged token, which the call
-    /// refuses: the fee is then zero and the incentive ratio the band's.
+    /// This is usually the same as `collateralIn`, but a mint is cut where the collateral ratio would cross
+    /// `MINIMUM_COLLATERAL_RATIO`, or reach a band the configuration disallows minting in. None is taken where the
+    /// market stands at or below `MINIMUM_COLLATERAL_RATIO`, or from an offer too small to buy a whole pegged token -
+    /// both of which the call reverts for: the fee is then zero and the incentive ratio the band's.
     /// @return peggedMinted The amount of pegged tokens that would be minted, given the 'collateralTaken' value and 'fee'.
     /// @return price The price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
@@ -420,7 +432,7 @@ interface IMinter_v3 is IToken {
         );
 
     /// @notice Returns values that will be used if an actual `mintLeveragedToken` function call is made.
-    /// Where the call would be refused with `LeverageAboveCap` - below `MINIMUM_COLLATERAL_RATIO`, see
+    /// Where the call would revert `BelowMinimumCollateralRatio` - below `MINIMUM_COLLATERAL_RATIO`, see
     /// `leveragedMintable` - it reports that nothing would be minted: every amount zero, and the incentive ratio of
     /// the band the market sits in, as it reports wherever nothing would be used.
     /// @param collateralIn The amount of collateral to be exchanged for leveraged tokens.
@@ -496,6 +508,9 @@ interface IMinter_v3 is IToken {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Mint some pegged tokens in exchange for collateral tokens.
+    /// @dev Reverts `BelowMinimumCollateralRatio` where the market stands at or below `MINIMUM_COLLATERAL_RATIO`,
+    /// and takes only as much of the offer as brings the collateral ratio down to it - or to a band the
+    /// configuration disallows minting in, if that is higher - leaving the rest with the caller.
     /// @param collateralIn The amount of wrapped value of collateral token supplied.
     /// @param receiver The address of receiver for peggedToken.
     /// @param minPeggedOut The minimum amount of peggedToken should be received. 0 means no check is made.
@@ -509,8 +524,9 @@ interface IMinter_v3 is IToken {
     /// @notice Mint pegged tokens whose fee, taken as a ratio of the collateral actually USED, stays
     /// within maxFeeRatio. Takes only as much of the offer as that allows: the amount offered does not
     /// buy a proportional fee budget to spend on a smaller amount at a steeper rate. Returns (0, 0)
-    /// gracefully when even the cheapest band on offer costs more than the cap - unless minPeggedOut
-    /// was given, which that zero cannot meet, so it reverts MintInsufficientAmount like any other path.
+    /// gracefully when even the cheapest band on offer costs more than the cap, or the market stands at
+    /// or below `MINIMUM_COLLATERAL_RATIO` - unless minPeggedOut was given, which that zero cannot meet,
+    /// so it reverts MintInsufficientAmount like any other path.
     /// @param collateralIn The amount of wrapped collateral to post.
     /// @param receiver The address to receive minted pegged tokens.
     /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.
@@ -564,10 +580,12 @@ interface IMinter_v3 is IToken {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Give wrapped collateral to the protocol as backing, raising the collateral ratio.
-    /// @dev Permissionless: the caller supplies the collateral in the same call and receives nothing, so the only
-    /// power it grants is the power to give. It cannot reach collateral already held — the surplus of the holding
-    /// over the recorded backing is the harvestable yield, which belongs to the stability pools, and a donation
-    /// adds only itself.
+    /// @dev For the owner, the zero-fee role and the donor role. The caller supplies the collateral in the same call
+    /// and receives nothing, but giving is still a power: it moves the collateral ratio, and with it every rule
+    /// judged on that ratio - a market with no collateral and no pegged reads a ratio of one, where it is closed to
+    /// retail mints, and a single wei given would lift that to infinity. A donation cannot reach collateral already
+    /// held — the surplus of the holding over the recorded backing is the harvestable yield, which belongs to the
+    /// stability pools, and a donation adds only itself.
     ///
     /// This is the one way to contribute collateral as *cover*. Transferring wrapped collateral to this contract
     /// instead leaves the record untouched, so it becomes harvestable yield for the stability pools and moves
@@ -668,9 +686,9 @@ interface IMinter_v3 is IToken {
     ///         tokens or writing state. Intended for contract-to-contract callers (the StabilityPoolManager's
     ///         rebalance) that must know the redeemed proceeds before acting, e.g. to bound a pool's liquidation
     ///         reward to what its reward accounting can absorb.
-    ///         Where the call would be refused - a conversion asked for below `MINIMUM_COLLATERAL_RATIO`, which the
-    ///         call refuses with `LeverageAboveCap` together with any collateral leg beside it - both legs report
-    ///         zero. A redeem with no conversion is not judged.
+    ///         Where the call would revert - a conversion asked for below `MINIMUM_COLLATERAL_RATIO`, which the
+    ///         call reverts `BelowMinimumCollateralRatio` for together with any collateral leg beside it - both legs
+    ///         report zero. A redeem with no conversion is not judged.
     /// @param peggedForCollateral The pegged amount redeemed for wrapped collateral.
     /// @param peggedForLeveraged The pegged amount redeemed for leveraged tokens.
     /// @return wrappedCollateralOut The wrapped collateral that `peggedForCollateral` would return.

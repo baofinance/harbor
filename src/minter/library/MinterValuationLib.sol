@@ -63,10 +63,10 @@ library MinterValuationLib {
     /// @notice The leveraged tokens that `collateralAdded` buys: the one definition every leveraged mint uses,
     /// fee-paying or free.
     /// @dev Into a market that already has leveraged tokens, the added value's share of the residual, counted in
-    /// leveraged tokens - none where the residual is gone. A founding - no leveraged tokens yet - buys the residual its
-    /// deposit leaves: the backing after it, at the price, less the whole pegged claim, uncapped. So below the peg the
-    /// deposit first makes the pegged holders whole and one too small to do so buys nothing, and a credit of nothing
-    /// buys nothing, whatever the backing already holds.
+    /// leveraged tokens - none where the residual is gone. The first leveraged mint - no leveraged tokens yet - buys
+    /// the residual its deposit leaves: the backing after it, at the price, less the whole pegged claim, uncapped. So
+    /// below the peg the deposit first makes the pegged holders whole and one too small to do so buys nothing, and a
+    /// credit of nothing buys nothing, whatever the backing already holds.
     ///
     /// Floored, so a mint never takes more of the residual than it brings. `collateralAdded` is what the record is
     /// credited with - through `wrappedAsCollateral` - not the unrounded figure it was converted from: minting against
@@ -93,8 +93,7 @@ library MinterValuationLib {
                 uint256 wholeResiduals = Math.mulDiv(collateralAdded, price, residualE36);
                 uint256 remainderE36 = mulmod(collateralAdded, price, residualE36);
                 leveragedMinted =
-                    wholeResiduals *
-                    leveragedTokenBalance +
+                    wholeResiduals * leveragedTokenBalance +
                     Math.mulDiv(remainderE36, leveragedTokenBalance, residualE36);
             }
         } else if (collateralAdded > 0) {

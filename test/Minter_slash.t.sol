@@ -11,6 +11,8 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
@@ -88,6 +90,9 @@ contract MinterSlashTest is TestMinterSetUp {
         uint256 makeGood = (14 ether * 1 ether) / ((rate * 9) / 10);
 
         address donor = makeAddr("donor");
+        vm.startPrank(owner());
+        IBaoRoles(minter).grantRoles(donor, IMinter_v3(minter).DONOR_ROLE());
+        vm.stopPrank();
         deal(wrappedCollateralToken, donor, makeGood);
         vm.startPrank(donor);
         IERC20(wrappedCollateralToken).approve(minter, makeGood);
@@ -128,6 +133,9 @@ contract MinterSlashTest is TestMinterSetUp {
         assertGt(surplus, 0, "a surplus must exist for this to test anything");
 
         address donor = makeAddr("donor");
+        vm.startPrank(owner());
+        IBaoRoles(minter).grantRoles(donor, IMinter_v3(minter).DONOR_ROLE());
+        vm.stopPrank();
         deal(wrappedCollateralToken, donor, 1 ether);
         vm.startPrank(donor);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
@@ -142,21 +150,47 @@ contract MinterSlashTest is TestMinterSetUp {
         );
     }
 
-    function test_donateWrappedCollateral_isPermissionless() public {
+    /// Donating is for the owner, the zero-fee role and the donor role. Anyone else reverts, so no stranger can move a
+    /// market's collateral ratio - or lift an empty minter's from one, where it is closed to retail, to infinity.
+    function test_donateWrappedCollateral_withoutARole_reverts() public {
         setUp_collateral(100 ether, 40 ether);
 
         address anyone = makeAddr("anyone");
         deal(wrappedCollateralToken, anyone, 1 ether);
         vm.startPrank(anyone);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         IMinter_v3(minter).donateWrappedCollateral(1 ether);
         vm.stopPrank();
     }
 
+    /// The owner, the zero-fee role and the donor role each donate, and each donation is taken as backing.
+    function test_donateWrappedCollateral_asOwnerZeroFeeOrDonor_isServed() public {
+        setUp_collateral(100 ether, 40 ether);
+        address donor = makeAddr("donor");
+        vm.startPrank(owner());
+        IBaoRoles(minter).grantRoles(donor, IMinter_v3(minter).DONOR_ROLE());
+        vm.stopPrank();
+
+        address[3] memory donors = [owner(), zeroFee, donor];
+        for (uint256 i = 0; i < donors.length; i++) {
+            uint256 backingBefore = IMinter(minter).collateralTokenBalance();
+            deal(wrappedCollateralToken, donors[i], 1 ether);
+            vm.startPrank(donors[i]);
+            IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+            IMinter_v3(minter).donateWrappedCollateral(1 ether);
+            vm.stopPrank();
+            assertGt(IMinter(minter).collateralTokenBalance(), backingBefore, "the donation is taken as backing");
+        }
+    }
+
+    /// A donation of nothing reverts by name, for a caller allowed to donate.
     function test_donateWrappedCollateral_refusesZero() public {
         setUp_collateral(100 ether, 40 ether);
 
+        vm.startPrank(zeroFee);
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, wrappedCollateralToken));
         IMinter_v3(minter).donateWrappedCollateral(0);
+        vm.stopPrank();
     }
 }

@@ -83,9 +83,10 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
     }
 
     function test_harvestPriceChange(uint256 startPrice, uint256 startRate) public {
-        // We need reasonable min amounts for rate & price, otherwise minting pegged tokens rounds down to 0
-        startPrice = bound(startPrice, 1e8, 10000 ether);
-        startRate = bound(startRate, 1e8, 5 ether);
+        // Each of the fixture's 50-token mints must be worth a wei, or it mints nothing: 50e18 x rate x price / 1e36
+        // >= 1 needs rate x price >= 2e16, which floors of 2e8 each meet twice over
+        startPrice = bound(startPrice, 2e8, 10000 ether);
+        startRate = bound(startRate, 2e8, 5 ether);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, startRate);
         setUp_collateral(50 ether, 50 ether); // 100 collateral
@@ -109,9 +110,10 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
     }
 
     function test_harvestRateChange(uint256 startPrice, uint256 startRate) public {
-        // We need reasonable min amounts for rate & price, otherwise minting pegged tokens rounds down to 0
-        startPrice = bound(startPrice, 1e8, 10000 ether);
-        startRate = bound(startRate, 1e8, 5 ether);
+        // Each of the fixture's 50-token mints must be worth a wei, or it mints nothing: 50e18 x rate x price / 1e36
+        // >= 1 needs rate x price >= 2e16, which floors of 2e8 each meet twice over
+        startPrice = bound(startPrice, 2e8, 10000 ether);
+        startRate = bound(startRate, 2e8, 5 ether);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, startRate);
         {

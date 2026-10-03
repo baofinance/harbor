@@ -268,11 +268,20 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         DeltaHoldings memory deltas;
         uint256 snap;
 
-        // mint pegged
+        // mint pegged: at or below the min CR the market mints none, whatever the config allows, and the mint
+        // reverts naming the ratio it judged and the minimum
         (data.incentiveRatio, data.fee, data.collateralUsed, data.peggedMinted, , ) = IMinter(minter)
             .mintPeggedTokenDryRun(1 ether);
 
-        if (data.incentiveRatio < 1 ether) {
+        if (collateralRatio <= IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()) {
+            bytes memory belowMinimum = abi.encodeWithSelector(
+                IMinter_v3.BelowMinimumCollateralRatio.selector,
+                collateralRatio,
+                IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+            );
+            vm.expectRevert(belowMinimum);
+            IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        } else if (data.incentiveRatio < 1 ether) {
             // minting pegged is allowed
             snap = vm.snapshotState();
             beforeHolding = readHoldings();
@@ -355,7 +364,11 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             vm.revertToState(snap);
         } else {
             vm.expectRevert(
-                abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, collateralRatio, minimumCollateralRatio)
+                abi.encodeWithSelector(
+                    IMinter_v3.BelowMinimumCollateralRatio.selector,
+                    collateralRatio,
+                    minimumCollateralRatio
+                )
             );
             IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
         }
@@ -503,18 +516,24 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         else s = "unknown";
     }
 
-    /// @dev `collateralRatio` is the one the market was placed at, which decides whether a leveraged action applies.
+    /// @dev `collateralRatio` is the one the market was placed at, which decides whether a leveraged action applies;
+    ///      `peggedMintFits` says whether the whole pegged mint fits above the min CR from there.
     function doOne(
         Action action,
         uint multiple,
         DeltaHoldings memory changesSoFar,
-        uint256 collateralRatio
+        uint256 collateralRatio,
+        bool peggedMintFits
     ) internal returns (DeltaHoldings memory withNewChanges) {
         // before
         Holdings memory antes = readHoldings();
         // do it
         if (action == Action.MintPegged) {
-            IMinter(minter).mintPeggedToken(multiple * 1 ether, address(this), 0);
+            // at or below the min CR the market mints no pegged, and a mint the min CR cuts is not `repeats` equal
+            // parts of one, so there is nothing to compare
+            if (peggedMintFits) {
+                IMinter(minter).mintPeggedToken(multiple * 1 ether, address(this), 0);
+            }
         } else if (action == Action.RedeemPegged) {
             IMinter(minter).redeemPeggedToken(multiple * 1000 ether, address(this), 0);
         } else if (action == Action.MintLeveraged) {
@@ -540,16 +559,19 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         DeltaHoldings memory largeChanges;
         DeltaHoldings memory smallChanges;
         uint256 snap;
+        // the dry run uses the whole offer only where the market is above the min CR and the mint is not cut at it
+        (, , uint256 peggedMintUsed, , , ) = IMinter(minter).mintPeggedTokenDryRun(repeats * 1 ether);
+        bool peggedMintFits = peggedMintUsed == repeats * 1 ether;
 
         for (uint a = 0; a <= uint(type(Action).max); a++) {
             snap = vm.snapshotState();
-            largeChanges = doOne(Action(a), repeats, largeChanges, collateralRatio);
+            largeChanges = doOne(Action(a), repeats, largeChanges, collateralRatio, peggedMintFits);
             // console2.log("in one go:");
             // logDeltaHoldings(largeChanges);
             vm.revertToState(snap);
             snap = vm.snapshotState();
             for (uint i = 0; i < repeats; i++) {
-                smallChanges = doOne(Action(a), 1, smallChanges, collateralRatio);
+                smallChanges = doOne(Action(a), 1, smallChanges, collateralRatio, peggedMintFits);
                 // console2.log("%s th iteration", i + 1);
                 // logDeltaHoldings(smallChanges);
             }

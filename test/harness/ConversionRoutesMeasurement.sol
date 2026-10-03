@@ -73,7 +73,7 @@ abstract contract ConversionRoutesMeasurement is GraphTestBase, Array, RevertRea
         } catch (bytes memory err) {
             if (
                 bytes4(err) != IMinter_v3.ReturnZeroAmount.selector &&
-                bytes4(err) != IMinter_v3.LeverageAboveCap.selector &&
+                bytes4(err) != IMinter_v3.BelowMinimumCollateralRatio.selector &&
                 !_isPanic(err, PANIC_DIVIDE_BY_ZERO)
             ) {
                 assembly {

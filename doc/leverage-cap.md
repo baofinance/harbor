@@ -59,26 +59,40 @@ The cap limits one thing: **minting sail**. Everything else is uncapped.
 
 ## Minting sail
 
-Below the floor every route that mints sail is refused with `LeverageAboveCap(ratio, floor)`:
+Every route that mints sail reverts `BelowMinimumCollateralRatio(ratio, floor)` where the floor does not allow it:
 
-- `mintLeveragedToken`, the fee-paying mint;
-- `freeMintLeveragedToken`, the zero-fee mint;
-- the conversion leg of `freeRedeemPeggedToken`, which mints sail for a stability pool's anchor.
+- `mintLeveragedToken`, the fee-paying mint, where the market is below the floor before the trade;
+- the conversion leg of `freeRedeemPeggedToken`, which mints sail for a stability pool's anchor, likewise;
+- `freeMintLeveragedToken`, the zero-fee mint, where the market would be below the floor after the trade.
 
-The ratio is judged at the middle of the oracle's price band, the same figure `collateralRatio()` reports, on
-the state before the trade. `leveragedMintable()` answers the same question in advance, and a front end should
-read it rather than compare `leverageRatio()` against the cap itself: the floor is `K/(K-1)` rounded up, so
-the two comparisons can differ by a wei.
+The ratio is judged at the middle of the oracle's price band, the same figure `collateralRatio()` reports.
+`leveragedMintable()` answers the retail mint's question in advance, and a front end should read it rather than
+compare `leverageRatio()` against the cap itself: the floor is `K/(K-1)` rounded up, so the two comparisons can
+differ by a wei.
+
+The zero-fee mint is judged on the market it leaves because a genesis needs it: its own anchor mint leaves a new
+market exactly at the peg, below the floor, and its sail mint then lifts the market to about two. A later genesis
+on a live market below the floor is served the same way, once it brings enough collateral to reach the floor.
 
 The dry runs agree with the calls. Below the floor `mintLeveragedTokenDryRun` reports nothing minted: every
 amount zero, with the incentive ratio of the band the market is in. `freeRedeemDryRun`, asked for a conversion
 there, reports zero on both legs, because the call refuses the whole redeem; asked only for collateral, it is not
 judged, and neither is the call. So no forecast shows a trade that will revert.
 
-The first sail token of a market with no sail supply is not judged. That is how a market is founded.
-The founder's deposit buys the whole residual the backing holds after it - the collateral at the price, less the
-whole anchor claim - so at or below the peg the deposit first makes the anchor holders whole, and one too small
-to do so mints nothing.
+The first sail token of a market is judged like every other. It buys the whole residual the backing holds after
+its deposit - the collateral at the price, less the whole anchor claim - so from at or below the peg the deposit
+first makes the anchor holders whole.
+
+## Minting anchor, and donating
+
+The floor closes the market to retail anchor mints as well, in code, whatever the incentive config allows. A
+retail anchor mint lowers the ratio, so from at or below the floor it reverts `BelowMinimumCollateralRatio`, and
+one that would cross the floor is cut where the ratio reaches it, the rest of the offer left with the caller.
+The fee-capped mint reports nothing taken instead of reverting. The zero-fee anchor mint is not judged.
+
+A market with no collateral and no anchor reads a ratio of exactly one, so no retail mint can open it: that is a
+genesis's job. `donateWrappedCollateral` is for the owner, the zero-fee role and the donor role only, because a
+donation moves the ratio - an empty market's from one to infinity.
 
 Minting reopens by itself once the ratio is back above the floor: through a price rise, through anchor
 redemptions, or through a rebalance, whose first step stops exactly at the floor.

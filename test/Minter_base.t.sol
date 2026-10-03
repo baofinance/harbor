@@ -433,7 +433,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         assertEq(
             reason,
             abi.encodeWithSelector(
-                IMinter_v3.LeverageAboveCap.selector,
+                IMinter_v3.BelowMinimumCollateralRatio.selector,
                 IMinter_v3(minter).collateralRatio(),
                 IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
             ),
@@ -465,11 +465,16 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
         vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, totalAmount);
-        if (collateralForPegged > 0) {
-            peggedTokens = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
-        }
+        // Leveraged first: a zero-fee leveraged mint is judged on the market it leaves, which with no pegged yet is
+        // a ratio of infinity, and the zero-fee pegged mint after it is not judged - so any ratio can be set up,
+        // the min CR included and below. Minted in either order the amounts are the same: with no pegged claim the
+        // first leveraged tokens are a token per unit of collateral value, and a pegged mint at or above the peg
+        // leaves the residual as it found it.
         if (collateralForLeveraged > 0) {
             leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
+        }
+        if (collateralForPegged > 0) {
+            peggedTokens = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
         }
         vm.stopPrank();
     }
@@ -686,15 +691,13 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);
     }
 
-    /// A market that has minted nothing has nothing to redeem. Its first pegged mint leaves it exactly at the peg,
-    /// where the founding leveraged mint is served and buys the whole residual its deposit creates.
+    /// A market that has minted nothing has nothing to redeem, and reads a collateral ratio of exactly one - under the
+    /// min CR - so retail mints of pegged and of leveraged both revert there, whatever the incentive config allows.
     function test_firstMintRedeem1() public {
         setUp_config_feeIsCR();
         vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
         vm.stopPrank();
-        // the pegged mint reads the low price, the leveraged mint the high
-        (uint256 minPrice, uint256 maxPrice, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
@@ -713,56 +716,68 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
         IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
 
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "an empty market reads exactly one");
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            1 ether,
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
+        vm.expectRevert(belowMinimum);
         IMinter(minter).mintPeggedToken(1 ether, user, 0);
-        // priced in the band just above the peg, whose fee comes exactly off a whole-token deposit
-        uint256 peggedFee = Math.mulDiv(1 ether, uint256(config.mintPeggedIncentiveConfig.incentiveRatios[1]), 1 ether);
-        assertEq(
-            IMinter(minter).peggedTokenBalance(),
-            Math.mulDiv(1 ether - peggedFee, minPrice, 1 ether),
-            "pegged minted"
-        );
-        assertEq(IMinter(minter).collateralRatio(), 1 ether, "the pegged mint leaves the market exactly at the peg");
-
-        // At the peg the backing covers the pegged claim and nothing more, so the founding leveraged mint buys the
-        // residual its deposit creates: the backing after it, at the high price, less the pegged claim.
-        uint256 founded = IMinter(minter).mintLeveragedToken(1 ether, user, 0);
-        assertEq(
-            founded,
-            Math.mulDiv(IMinter(minter).collateralTokenBalance(), maxPrice, 1 ether) -
-                IMinter(minter).peggedTokenBalance(),
-            "the founder holds the whole residual after its deposit"
-        );
+        vm.expectRevert(belowMinimum);
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
     }
 
-    /// Into an empty market - no pegged, no leveraged - a founding leveraged mint is served and buys the whole
-    /// residual its deposit creates, which with no pegged claim is all the collateral it credits, at the price.
+    /// Minted pegged alone by the zero-fee route, a market sits exactly at the peg: a retail leveraged mint reverts
+    /// there, and a zero-fee one is served where its deposit lifts the market to the min CR - a wei short reverts
+    /// naming the ratio it would leave - its tokens then holding the whole residual after the deposit.
     function test_firstMintRedeem2() public {
         setUp_config_feeIsCR();
         vm.startPrank(owner());
         IMinter(minter).updateConfig(config);
         vm.stopPrank();
+        setUp_collateral(1 ether, 0);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "pegged alone reads exactly one");
+        uint256 minimum = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
 
-        assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
-        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
-
-        // make sure we have it all
         deal(wrappedCollateralToken, address(this), 10 ether);
-        deal(peggedToken, address(this), 10 ether);
-        deal(leveragedToken, address(this), 10 ether);
-        IERC20(peggedToken).approve(minter, type(uint256).max);
-        IERC20(leveragedToken).approve(minter, type(uint256).max);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, 1 ether, minimum));
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
 
-        // the high price, the one the leveraged mint reads
-        (, uint256 price, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        uint256 founded = IMinter(minter).mintLeveragedToken(1 ether, user, 0);
-        assertEq(
-            founded,
-            Math.mulDiv(IMinter(minter).collateralTokenBalance(), price, 1 ether),
-            "the founder holds the whole residual it created"
+        // the zero-fee mint credits at the low rate - one here, so a wei of wrapped is a wei of collateral - and is
+        // judged at the middle price; it prices the tokens at the high price
+        (uint256 minPrice, uint256 maxPrice, uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        assertEq(rate, 1 ether, "precondition: a wei of wrapped is a wei of collateral");
+        uint256 midPrice = (minPrice + maxPrice + 1) / 2;
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 pegged = IMinter(minter).peggedTokenBalance();
+        uint256 lift = Math.mulDiv(minimum, pegged, midPrice, Math.Rounding.Ceil) - backing;
+        deal(wrappedCollateralToken, zeroFee, lift);
+        bytes memory wouldLeave = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            Math.mulDiv(backing + lift - 1, midPrice, pegged),
+            minimum
         );
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, lift);
+        vm.expectRevert(wouldLeave);
+        IMinter(minter).freeMintLeveragedToken(lift - 1, user);
+        uint256 minted = IMinter(minter).freeMintLeveragedToken(lift, user);
+        vm.stopPrank();
+
+        assertEq(
+            minted,
+            Math.mulDiv(IMinter(minter).collateralTokenBalance(), maxPrice, 1 ether) -
+                IMinter(minter).peggedTokenBalance(),
+            "the first leveraged tokens hold the whole residual after the deposit"
+        );
+        assertEq(IMinter(minter).collateralRatio(), minimum, "the market is left exactly at the min CR");
     }
 
+    /// At the peg and below it a retail pegged mint reverts at the min CR, though the incentive config allows it. The
+    /// zero-fee pegged mint is not judged: below the peg it mints at the depressed pegged price, leaving the price a
+    /// pegged token redeems at unchanged, and the record equal to the holding.
     function test_depegBoundary() public {
         // simple config that has a fee and a subsidy
         _checkConfig(
@@ -784,21 +799,11 @@ contract TestMinterBasics is TestMinterSetUp {
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         deal(wrappedCollateralToken, reservePool, 1 ether);
 
-        // mint some then redeem it
-        uint256 depeggedCollateral = 1 ether - uint256(config.mintPeggedIncentiveConfig.incentiveRatios[0]);
-        uint256 collateral = 1 ether - uint256(config.mintPeggedIncentiveConfig.incentiveRatios[1]);
-
+        // At the peg and below it a retail pegged mint reverts at the min CR, though the incentive config allows it.
+        uint256 minimum = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "CR is 1");
-        uint256 firstMinted = IMinter(minter).mintPeggedToken(3 ether, address(this), 0);
-        //--------------------------------------------------
-        assertEq(IERC20(peggedToken).balanceOf(address(this)), firstMinted, "returned equals actual");
-        assertEq(firstMinted, (collateral * 3 * startPrice) / 1 ether, "fee not correct");
-        assertEq(IMinter(minter).collateralTokenBalance(), 1 ether + collateral * 3, "collaterals should be 4");
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            IERC20(address(Deployed.wstETH)).balanceOf(minter),
-            "collaterals balance after mint"
-        );
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, 1 ether, minimum));
+        IMinter(minter).mintPeggedToken(3 ether, address(this), 0);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer((startPrice * 9) / 10);
         (uint256 lowerPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -806,20 +811,24 @@ contract TestMinterBasics is TestMinterSetUp {
 
         uint256 peggedNav = IMinter(minter).peggedTokenPrice();
         assertLt(peggedNav, 1 ether);
-        assertLt(IMinter(minter).collateralRatio(), 1 ether, "CR is < 1");
-        uint256 secondMinted = IMinter(minter).mintPeggedToken(2 ether, address(this), 0);
+        uint256 ratio = IMinter(minter).collateralRatio();
+        assertLt(ratio, 1 ether, "CR is < 1");
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, minimum));
+        IMinter(minter).mintPeggedToken(2 ether, address(this), 0);
+
+        // The zero-fee pegged mint is not judged: below the peg it mints at the depressed pegged price - each
+        // collateral token buying the pegged that one already backs - so the price a pegged token redeems at is
+        // unchanged.
+        uint256 peggedBefore = IMinter(minter).peggedTokenBalance();
+        deal(wrappedCollateralToken, zeroFee, 2 ether);
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, 2 ether);
+        uint256 secondMinted = IMinter(minter).freeMintPeggedToken(2 ether, address(this));
+        vm.stopPrank();
         //-----------------------------------------------------
-        assertEq(
-            IERC20(peggedToken).balanceOf(address(this)),
-            firstMinted + secondMinted,
-            "returned equals actual after depegged mint"
-        );
+        assertEq(secondMinted, 2 * peggedBefore, "two collateral buy what two already back");
         assertEq(IMinter(minter).peggedTokenPrice(), peggedNav, "pegged NAV hasn't changed");
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            1 ether + collateral * 3 + depeggedCollateral * 2,
-            "collaterals should be 6"
-        );
+        assertEq(IMinter(minter).collateralTokenBalance(), 3 ether, "collaterals should be 3");
         assertEq(
             IMinter(minter).collateralTokenBalance(),
             IERC20(address(Deployed.wstETH)).balanceOf(minter),

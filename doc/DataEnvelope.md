@@ -59,7 +59,7 @@ widths, not a limit itself.
 
 Leveraged tokens are minted only at or above the **leverage floor**, `MINIMUM_COLLATERAL_RATIO` =
 `K/(K−1)` for the leverage cap `K = MAX_LEVERAGE_RATIO` (functional specification §2.3). Below it every
-route that mints leveraged refuses with `LeverageAboveCap`, so there is no mint to measure there.
+route that mints leveraged refuses with `BelowMinimumCollateralRatio`, so there is no mint to measure there.
 
 `test/Minter_feeRange.t.sol` therefore drives leveraged mints across the bands at or above the floor: the
 fuzz assumes a market that mints leverage (`leveragedMintable()`), and the band sweep skips a starting band

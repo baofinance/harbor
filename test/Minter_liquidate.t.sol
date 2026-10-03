@@ -17,8 +17,9 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
     function setUp() public virtual override {
         super.setUp();
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         IERC20(peggedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
     }
 
     /// @dev The two line intercepts to reach `targetCR` - the unconstrained (no headroom caps, no holdings split)
@@ -35,8 +36,9 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
 
         (uint256 peggedTokens, ) = _intercepts(11 ether / 10);
         assertEq(peggedTokens, IMinter(minter).peggedTokenBalance(), "should be all tokens");
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         IMinter(minter).freeRedeemPeggedToken(peggedTokens, 0, zeroFee);
+        vm.stopPrank();
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "should have liquidated all");
     }
 
@@ -54,12 +56,13 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
             peggedForCollateral,
             peggedForLeveraged
         );
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         (uint256 actualCollateral, uint256 actualLeveraged) = IMinter(minter).freeRedeemPeggedToken(
             peggedForCollateral,
             peggedForLeveraged,
             zeroFee
         );
+        vm.stopPrank();
 
         assertEq(previewCollateral, actualCollateral, "dry-run wrapped-collateral out matches the actual redeem");
         assertEq(previewLeveraged, actualLeveraged, "dry-run leveraged out matches the actual redeem");
@@ -113,8 +116,9 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         uint256 startCR = IMinter(minter).collateralRatio();
         (uint256 peggedTokens, ) = _intercepts(targetCR);
         if (peggedTokens > 0) {
-            vm.prank(zeroFee);
+            vm.startPrank(zeroFee);
             IMinter(minter).freeRedeemPeggedToken(peggedTokens, 0, zeroFee);
+            vm.stopPrank();
             if (targetCR < startCR) {
                 assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");
             } else {
@@ -144,8 +148,9 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         (, uint256 pegged) = _intercepts(targetCR);
         if (pegged > 0) {
             uint256 startPegged = IERC20(peggedToken).balanceOf(zeroFee);
-            vm.prank(zeroFee);
+            vm.startPrank(zeroFee);
             (, uint256 actualPegged) = IMinter(minter).freeRedeemPeggedToken(0, pegged, zeroFee);
+            vm.stopPrank();
             assertApproxEqAbs(actualPegged, pegged, 2e4, "swapped requested");
             assertEq(startPegged - IERC20(peggedToken).balanceOf(zeroFee), pegged, "gave up correct pegged");
 
@@ -157,9 +162,24 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         }
     }
 
+    /// A market of pegged alone sits at a ratio of exactly one, under the min CR, where no leveraged is minted on
+    /// any route: a swap of pegged for leveraged reverts naming the ratio and the minimum, and burns nothing.
     function test_liquidateSwap0() public {
         setUp_collateral(10 ether, 0 ether); // cr=10/10 = 100%
-        _liquidateSwapToCR(12 ether / 10); // 120%
+        (, uint256 pegged) = _intercepts(12 ether / 10); // towards 120%
+        assertGt(pegged, 0, "precondition: there is a swap to ask for");
+        uint256 startPegged = IERC20(peggedToken).balanceOf(zeroFee);
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            1 ether,
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
+
+        vm.startPrank(zeroFee);
+        vm.expectRevert(belowMinimum);
+        IMinter(minter).freeRedeemPeggedToken(0, pegged, zeroFee);
+        vm.stopPrank();
+        assertEq(IERC20(peggedToken).balanceOf(zeroFee), startPegged, "no pegged is burned");
     }
 
     function test_liquidateSwapSame100() public {

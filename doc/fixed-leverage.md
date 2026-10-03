@@ -206,7 +206,7 @@ lender, which has no meaning here. The margin keeps the variable token a leverag
 
 Two operations can raise `D` and both are capped by it: a fixed mint, and a re-lever after a price
 rise. A mint that would cross is refused (it is a user's trade, and they are told why, as
-`LeverageAboveCap` tells a leveraged minter). A re-lever that would cross is **capped**, not refused:
+`BelowMinimumCollateralRatio` tells a leveraged minter). A re-lever that would cross is **capped**, not refused:
 the token is set to the most leverage the capacity allows and runs under its target until capacity
 returns through pegged mints, fixed redeems or a price fall. "Fixed" therefore honestly means
 "target", and the GUI should show realised leverage beside the target.

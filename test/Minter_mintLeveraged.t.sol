@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -108,10 +109,11 @@ contract TestMinterMintLeveraged is TestMinterMint {
         }
     }
 
-    /// The zero-fee leveraged mint: refused to a caller without the zero-fee role, by name for an offer of nothing and
-    /// by the collateral token for an offer the caller does not hold; served into the empty market and into one with
-    /// pegged outstanding, each mint adding exactly its collateral's value in leveraged tokens at an unchanged
-    /// leveraged price and raising the collateral ratio.
+    /// The zero-fee leveraged mint: reverts for a caller without the zero-fee role; for an offer of nothing into the
+    /// empty market, which that offer leaves at a ratio of one, under the min CR; and in the collateral token for an
+    /// offer the caller does not hold. It is served into the empty market and into one with pegged outstanding, each
+    /// mint adding exactly its collateral's value in leveraged tokens at an unchanged leveraged price and raising the
+    /// collateral ratio.
     function test_freeMintLeveraged() public {
         // mint noaccess
         assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole));
@@ -121,10 +123,15 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.stopPrank();
         // 1 ----------------------------------------------------
 
-        // zero input, when none
+        // zero input, when none: the market it would leave is the empty one, at a ratio of one
         assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            1 ether,
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, IMinter(minter).LEVERAGED_TOKEN()));
+        vm.expectRevert(belowMinimum);
         IMinter(minter).freeMintLeveragedToken(0, receiver);
         vm.stopPrank();
         // 2 ----------------------------------------------
@@ -144,7 +151,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
         // zero input, when some
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, IMinter(minter).LEVERAGED_TOKEN()));
+        vm.expectRevert(belowMinimum);
         IMinter(minter).freeMintLeveragedToken(0, receiver);
         vm.stopPrank();
         // 4 ----------------------------------------------
@@ -185,8 +192,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         // 7 ---------------------------
-        // exact: the founding priced each leveraged token at one, the free pegged mint left the residual it found, and
-        // a free leveraged mint keeps the leveraged price, so both mints bought their collateral's value at one each
+        // exact: the first leveraged mint priced each token at one, the free pegged mint left the residual it found,
+        // and a free leveraged mint keeps the leveraged price, so both mints bought their collateral's value at one each
         assertEq(
             IERC20(leveragedToken).balanceOf(receiver),
             (2 ether * price) / IMinter(minter).leveragedTokenPrice(),
@@ -357,10 +364,11 @@ contract TestMinterMintLeveraged is TestMinterMint {
             });
     }
 
-    /// The fee-paying leveraged mint: a zero offer, or an offer from an empty balance, is refused by name; a founding
-    /// mint - into an empty market, or one holding only pegged - is served, its founder holding the whole residual its
-    /// deposit leaves, and is refused by the collateral token until the minter is paid and approved. The dry run
-    /// forecasts each mint exactly, and the schedule's flat fee comes exactly off a whole-token offer.
+    /// The retail leveraged mint: a zero offer, or an offer from an empty balance, reverts by name; into the empty
+    /// market, which reads a ratio of exactly one, it reverts at the min CR; into a market of pegged alone lifted above
+    /// the min CR by price, the first leveraged mint is served, holding the whole residual its deposit leaves, once the
+    /// minter is paid and approved - the collateral token reverts it until then. The dry run forecasts each mint
+    /// exactly, and the incentive config's flat fee comes exactly off a whole-token offer.
     function test_mintLeveragedBasic() public {
         // the edges the mint reads
         (, uint256 price, uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -398,17 +406,19 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // 2 -------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
-        // some input, into the empty market: a founding, served - its founder holding the residual its deposit creates,
-        // which with no pegged claim is all it credits, at the price
+        // some input, into the empty market: it reads a ratio of exactly one, under the min CR, so the dry run reports
+        // nothing and the mint reverts before anything is taken
         expected = zeros();
         expected.incentiveRatio = incentiveRatio;
-        expected.wrappedFee = fee;
-        expected.wrappedCollateralUsed = 1 ether;
-        expected.leveragedMinted = Math.mulDiv(credited, price, 1 ether);
         _testMintLeveragedDryRun(1 ether, expected, sender);
 
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            1 ether,
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
         vm.startPrank(sender);
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(belowMinimum);
         IMinter(minter).mintLeveragedToken(1 ether, receiver, 0);
         vm.stopPrank();
         // 3 ---------------------------------------------------
@@ -416,11 +426,11 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
         // some input, when none
         setUp_collateral(1 ether, 0); // make collateral ratio 1.0
-        // make the CR > 1
-        price = price + 2 ether;
+        // put the ratio above the min CR, at 1.02
+        price = (price * 102) / 100;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price);
-        // the founding's residual: the backing after its deposit, at the price, less the pegged claim
-        uint256 foundingMinted = Math.mulDiv(IMinter(minter).collateralTokenBalance() + credited, price, 1 ether) -
+        // the first leveraged mint's residual: the backing after its deposit, at the price, less the pegged claim
+        uint256 firstMintMinted = Math.mulDiv(IMinter(minter).collateralTokenBalance() + credited, price, 1 ether) -
             IMinter(minter).peggedTokenBalance();
 
         expected = zeros();
@@ -429,7 +439,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
         expected.wrappedFee = fee;
         expected.wrappedCollateralUsed = 1 ether;
-        expected.leveragedMinted = foundingMinted;
+        expected.leveragedMinted = firstMintMinted;
         _testMintLeveragedDryRun(1 ether, expected, sender);
 
         vm.startPrank(sender);
@@ -462,7 +472,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         expected.incentiveRatio = incentiveRatio;
         expected.wrappedFee = fee;
         expected.wrappedCollateralUsed = 1 ether;
-        expected.leveragedMinted = foundingMinted;
+        expected.leveragedMinted = firstMintMinted;
         _testMintLeveragedDryRun(1 ether, expected, sender);
 
         vm.startPrank(sender);
@@ -495,7 +505,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         expected.incentiveRatio = incentiveRatio;
         expected.wrappedFee = fee;
         expected.wrappedCollateralUsed = 1 ether;
-        expected.leveragedMinted = foundingMinted;
+        expected.leveragedMinted = firstMintMinted;
         _testMintLeveragedDryRun(1 ether, expected, sender);
 
         vm.startPrank(sender);

@@ -517,7 +517,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
 
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratioAtMiddle, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioAtMiddle, floor));
         IMinter_v3(minter).freeRedeemPeggedToken(0, 1_000 ether, zeroFee);
         vm.stopPrank();
     }
@@ -528,19 +528,29 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
 
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratioAtMiddle, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioAtMiddle, floor));
         IMinter_v3(minter).mintLeveragedToken(1 ether, zeroFee, 0);
         vm.stopPrank();
     }
 
-    /// The free leveraged mint is refused at the middle of the band, although its amounts are priced at the high edge.
+    /// The zero-fee leveraged mint is judged at the middle of the band, on the market it leaves, although its amounts
+    /// are priced at the high edge: a deposit too small to lift the middle-price ratio to the min CR reverts naming
+    /// the ratio it would leave there, though at the high edge the market is already above the min CR.
     function test_leverageCap_freeMintLeveragedJudgesAtTheMidPrice() public {
-        uint256 ratioAtMiddle = _belowTheFloorOnlyAtTheMiddle();
+        _belowTheFloorOnlyAtTheMiddle();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        uint256 deposit = 1e9;
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 ratioLeft = Math.mulDiv(
+            IMinter_v3(minter).collateralTokenBalance() + Math.mulDiv(deposit, minRate, 1 ether),
+            (minPrice + maxPrice + 1) / 2,
+            IMinter_v3(minter).peggedTokenBalance()
+        );
+        assertLt(ratioLeft, floor, "precondition: the deposit leaves the market below the min CR at the middle");
 
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratioAtMiddle, floor));
-        IMinter_v3(minter).freeMintLeveragedToken(1 ether, zeroFee);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioLeft, floor));
+        IMinter_v3(minter).freeMintLeveragedToken(deposit, zeroFee);
         vm.stopPrank();
     }
 

@@ -69,7 +69,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
             uint256 anchorSupply = IMinter(minter).peggedTokenBalance();
             vm.expectRevert(
                 abi.encodeWithSelector(
-                    IMinter_v3.LeverageAboveCap.selector,
+                    IMinter_v3.BelowMinimumCollateralRatio.selector,
                     IMinter(minter).collateralRatio(),
                     releaseCollateralRatio()
                 )
@@ -101,7 +101,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
 
         marketActions.setCollateralRatioByPrice(release - nudge);
         uint256 ratioBelow = IMinter(minter).collateralRatio();
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratioBelow, release));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioBelow, release));
         IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this));
 
         (uint256 bounded, uint256 released) = ratesAcrossTheRelease();
@@ -131,14 +131,20 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
             // at the ratio it finds.
             uint256 release = releaseCollateralRatio();
             vm.expectRevert(
-                abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, IMinter(minter).collateralRatio(), release)
+                abi.encodeWithSelector(
+                    IMinter_v3.BelowMinimumCollateralRatio.selector,
+                    IMinter(minter).collateralRatio(),
+                    release
+                )
             );
             IMinter_v3(minter).freeRedeemPeggedToken(0, anchorIn, address(this));
 
             uint256 collateralOut = IMinter_v3(minter).redeemPeggedToken(anchorIn, address(this), 0);
             uint256 ratioAtTheMint = IMinter(minter).collateralRatio();
             vm.assume(ratioAtTheMint < release);
-            vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratioAtTheMint, release));
+            vm.expectRevert(
+                abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioAtTheMint, release)
+            );
             IMinter_v3(minter).mintLeveragedToken(collateralOut, address(this), 0);
             return;
         }
@@ -207,7 +213,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         if (!IMinter_v3(minter).leveragedMintable()) {
             vm.expectRevert(
                 abi.encodeWithSelector(
-                    IMinter_v3.LeverageAboveCap.selector,
+                    IMinter_v3.BelowMinimumCollateralRatio.selector,
                     IMinter(minter).collateralRatio(),
                     releaseCollateralRatio()
                 )
@@ -258,7 +264,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
             uint256 ratio = IMinter(minter).collateralRatio();
             assertLt(ratio, release, "every ratio here is below the floor");
 
-            vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, release));
+            vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, release));
             IMinter_v3(minter).freeRedeemPeggedToken(0, 1 ether, address(this));
 
             assertEq(IMinter(minter).peggedTokenBalance(), anchorSupply, "the anchor stays with its holder");

@@ -153,14 +153,17 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint {
         downward = freeDownward + _price() + twoWrappedWei;
     }
 
-    /// @dev A fee-paying mint is the free one less the fee, which is taken from the collateral coming in
-    ///      and sent to the fee receiver, so the market is credited with - and mints anchor against -
-    ///      what is left. One more wrapped amount is floored than on the free path.
-    function _feeMintResidualBounds() private view returns (uint256 upward, uint256 downward) {
-        (uint256 freeUpward, uint256 freeDownward) = _mintResidualBounds();
-        uint256 oneWrappedWei = Math.mulDiv(_price(), _rate(), 1 ether);
-        upward = freeUpward + oneWrappedWei;
-        downward = freeDownward + oneWrappedWei;
+    /// @dev The most a fee-paying mint above a ratio of 1 credits the leveraged residual with, for the number of
+    ///      wrapped amounts it rounds. It never debits it: the pegged minted is capped at what the collateral the
+    ///      record gains buys. The record gains what the wrapped taken, less the wrapped fee, converts to, while the
+    ///      pegged is minted against the exact collateral the bands add - so the residual keeps what rounding those
+    ///      wrapped amounts leaves behind, under a wrapped wei each. The fee is floored on every mint: one rounding.
+    ///      The wrapped taken is the offer exactly where the whole offer is taken, and where the mint is cut short of
+    ///      it is rounded up to cover what the bands used: a second. The pegged minted is floored as well, short of
+    ///      exact by under one pegged wei. Valuing those: one wrapped wei is `price * rate / 1e18`, rounded up so the
+    ///      bound is never itself short; one pegged wei is 1e18.
+    function _feeMintResidualCredit(uint256 wrappedRoundings) private view returns (uint256 upward) {
+        upward = wrappedRoundings * Math.mulDiv(_price(), _rate(), 1 ether, Math.Rounding.Ceil) + 1 ether;
     }
 
     function _feeRedeem(uint256 anchorIn) private {
@@ -284,26 +287,29 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint {
     // ─── the same, with a fee paid ───
 
     /// A fee dilutes only the person paying it: the fee goes to the fee receiver out of what that person
-    /// would have received, so the sail residual is left where it was.
+    /// would have received, so the leveraged residual is left where it was - never lower, and higher only by the
+    /// mint's rounding. From a ratio of 1.02 up: far enough above the min CR, where a fee-paying mint is cut short, for
+    /// the mint to take enough to pay a whole wei of fee. Some runs are taken whole and some cut short, so the bound
+    /// is the cut mint's two wrapped roundings.
     function testFuzz_mintPeggedToken_conservesTheSailResidual_whenFeePaid(
         uint256 ratioSeed,
         uint256 rateBps,
         uint256 collateralIn
     ) public {
-        _moveTo(bound(ratioSeed, 1.0001 ether, 3 ether), bound(rateBps, 5_000, 20_000));
+        _moveTo(bound(ratioSeed, 1.02 ether, 3 ether), bound(rateBps, 5_000, 20_000));
         collateralIn = bound(collateralIn, 1e6, 5 ether);
 
         (, uint256 fee, , , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn);
         assertGt(fee, 0, "a fee of zero would make this the free path under another name");
 
         uint256 residualBefore = _sailResidual();
-        (uint256 upward, uint256 downward) = _feeMintResidualBounds();
+        uint256 upward = _feeMintResidualCredit(2);
 
         _feeMint(collateralIn);
 
         uint256 residualAfter = _sailResidual();
-        assertLe(residualAfter, residualBefore + upward, "fee'd mint credited the sail residual beyond rounding");
-        assertGe(residualAfter + downward, residualBefore, "fee'd mint took from the sail residual beyond rounding");
+        assertLe(residualAfter, residualBefore + upward, "fee'd mint credited the leveraged residual beyond rounding");
+        assertGe(residualAfter, residualBefore, "fee'd mint took from the leveraged residual");
 
         _raiseCollateralPrice();
         assertGt(
@@ -313,36 +319,48 @@ contract MinterAnchorOperationsConserveHolderClaimsTest is TestMinterMint {
         );
     }
 
-    /// The same while depegged, where the anchor price is the live quantity.
-    function testFuzz_depegged_mintPeggedToken_conservesTheAnchorPrice_whenFeePaid(
+    /// A mint cut short of its offer - by the min CR, as this configuration disallows nothing - conserves the
+    /// leveraged residual too, and is where the second wrapped rounding shows: at this ratio, rate and offer the
+    /// residual gains more than the one wrapped rounding of a mint taken whole can leave, and no more than the two.
+    function test_mintPeggedToken_cutShort_conservesTheLeveragedResidual() public {
+        _moveTo(1.02 ether + 3, 15_024);
+        uint256 collateralIn = 5 ether - 9_252;
+
+        (, , uint256 collateralUsed, , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn);
+        assertLt(collateralUsed, collateralIn, "precondition: the mint is cut short of the offer");
+
+        uint256 residualBefore = _sailResidual();
+        uint256 takenWhole = _feeMintResidualCredit(1);
+        uint256 cutShort = _feeMintResidualCredit(2);
+
+        _feeMint(collateralIn);
+
+        uint256 residualAfter = _sailResidual();
+        assertGt(residualAfter, residualBefore + takenWhole, "the cut rounds a second wrapped amount");
+        assertLe(residualAfter, residualBefore + cutShort, "and the residual gains no more than the two leave");
+    }
+
+    /// While depegged there is no fee-paying mint to conserve anything: at or below the min CR it reverts, naming the
+    /// ratio and the minimum, at every ratio and rate, and so moves neither the pegged price nor a wei of collateral.
+    function testFuzz_depegged_mintPeggedToken_reverts_whenFeePaid(
         uint256 ratioSeed,
         uint256 rateBps,
         uint256 collateralIn
     ) public {
         _moveTo(bound(ratioSeed, 0.01 ether, 1 ether), bound(rateBps, 5_000, 20_000));
         collateralIn = bound(collateralIn, 1e6, 5 ether);
-
-        uint256 anchorPriceBefore = IMinter_v3(minter).peggedTokenPrice();
-        assertGt(anchorPriceBefore, 0, "the anchor needs a price for this to assert anything");
-        (uint256 upward, ) = _feeMintResidualBounds();
-
-        _feeMint(collateralIn);
-
-        uint256 tolerance = _perToken(upward, IMinter_v3(minter).peggedTokenBalance());
-        uint256 anchorPriceAfter = IMinter_v3(minter).peggedTokenPrice();
-        assertLe(anchorPriceAfter, anchorPriceBefore + tolerance, "fee'd mint raised the anchor price beyond rounding");
-        assertGe(
-            anchorPriceAfter + tolerance,
-            anchorPriceBefore,
-            "fee'd mint diluted the anchor price beyond rounding"
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            IMinter_v3(minter).collateralRatio(),
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
         );
 
-        _lowerCollateralPrice();
-        assertGt(
-            anchorPriceAfter - IMinter_v3(minter).peggedTokenPrice(),
-            tolerance,
-            "a collateral price move must exceed the tolerance, or the bounds above prove nothing"
-        );
+        deal(wrappedCollateralToken, sender, collateralIn);
+        vm.startPrank(sender);
+        IERC20(wrappedCollateralToken).approve(minter, collateralIn);
+        vm.expectRevert(belowMinimum);
+        IMinter_v3(minter).mintPeggedToken(collateralIn, sender, 0);
+        vm.stopPrank();
     }
 
     /// A fee-paying redeem likewise leaves the sail residual alone, whether the incentive is a fee taken

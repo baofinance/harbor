@@ -306,9 +306,11 @@ $9.9 \times 10^{-19}$ — so the two could disagree about whether the anchor is 
 They are not allowed to. **No operation may price the anchor below what the protocol can report.**
 The threshold is `MinterValuationLib.MIN_REPORTABLE_PEGGED_PRICE_E36` ($10^{18}$ in E36 terms, one wei of
 the reported price), and both anchor mints refuse below it. This is a floor on *reportability*, not
-on solvency: a depegged anchor well above the floor is still minted at its depressed price, which is
-deliberate — at a ratio of 0.98 the price is $0.98 \times 10^{36}$, eighteen orders of magnitude
-clear of it.
+on solvency: a depegged anchor well above the floor is still minted at its depressed price by the
+zero-fee mint, which is deliberate — at a ratio of 0.98 the price is $0.98 \times 10^{36}$, eighteen
+orders of magnitude clear of it. The retail mint never gets that far: it reverts at or below the
+leverage floor (§5.4), and reaches this check only under a price band wide enough to put the low
+price it reads below the reportable floor while the middle price stays above the leverage floor.
 
 The floor matters because the mint *divides* by the price: it mints $10^{36} / p$ anchor per unit
 of collateral value, which grows without bound as $p$ falls. Left unfloored, a mint at
@@ -318,11 +320,11 @@ $p = 10^{-18}$ multiplies the anchor supply by $10^{18}$ while every reported pr
 
 | Entry point | Backing 0 | Backing 99 wei |
 |---|---|---|
-| `mintPeggedToken` | `ZeroPeggedTokenPrice` | `ZeroPeggedTokenPrice` |
+| `mintPeggedToken` | `BelowMinimumCollateralRatio` | `BelowMinimumCollateralRatio` |
 | `freeMintPeggedToken` | `ZeroPeggedTokenPrice` | `ZeroPeggedTokenPrice` |
 | `redeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
 | `freeRedeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
-| `mintLeveragedToken` | `LeverageAboveCap` | `LeverageAboveCap` |
+| `mintLeveragedToken` | `BelowMinimumCollateralRatio` | `BelowMinimumCollateralRatio` |
 | `redeemLeveragedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
 
 Every path now refuses, and each refuses by name. Three properties hold across the table, and each
@@ -331,7 +333,8 @@ is worth stating separately because each was once false:
 1. **The refusal does not depend on configuration.** The fee band table may disallow anchor minting
    below some ratio, and every production config does — but that is market policy, and a market
    whose bands permitted it used to reach a division by zero. The floor is enforced in the
-   arithmetic, so the band table's correctness is not load-bearing for safety.
+   arithmetic, and the retail anchor mint stops at the leverage floor in code (§5.4), so the band
+   table's correctness is not load-bearing for safety.
 2. **Nothing is burned for nothing.** A redeem that would return no collateral refuses rather than
    taking the anchor against it. On the zero-fee path this is the rebalance: without the guard a
    rebalance consumed the stability pool's deposit and returned it nothing.
@@ -341,8 +344,9 @@ is worth stating separately because each was once false:
 
 One bound remains open. The reportable floor caps the per-mint supply multiplier at $10^{18}$ rather
 than at 1, so the anchor supply can still grow far faster than the collateral behind it. Choosing a
-tighter floor is a policy question — how far below par may the anchor be minted at all — and is not
-settled here.
+tighter floor is a policy question — how far below par may the anchor be minted at all. For the
+retail mint it is settled: not below the leverage floor (§5.4). For the zero-fee mint, a trusted
+route a genesis uses, it is not settled here.
 
 **The invariant a test could assert.** For any market with anchor tokens outstanding:
 
@@ -686,7 +690,7 @@ Acceptance criteria:
 3. The position dilutes toward zero only if the collateral ratio reaches 1; it is never seized.
 4. Minting attracts a **subsidy** when the system is unhealthy, because minting sail tokens adds
    collateral without adding anchor claims and so raises the ratio.
-5. Minting is **refused below the leverage floor** (§2.3), with `LeverageAboveCap`, so nobody buys in
+5. Minting is **refused below the leverage floor** (§2.3), with `BelowMinimumCollateralRatio`, so nobody buys in
    at a leverage above the cap. `leveragedMintable()` reports whether a mint would be served, and
    the mint's dry run reports nothing minted wherever it would not (US-2.5).
 
@@ -969,8 +973,10 @@ Acceptance criteria:
 > the collateral ratio and the sail price recover.*
 
 Acceptance criteria:
-1. A permissionless call takes a **stated amount** of wrapped collateral and credits it to the
-   recorded backing, atomically with the transfer.
+1. A call by the owner, the zero-fee role or the donor role takes a **stated amount** of wrapped
+   collateral and credits it to the recorded backing, atomically with the transfer. Anyone else
+   reverts: a contribution moves the collateral ratio — an empty market's from one, where it is
+   closed to retail, to infinity — so it is not open to strangers.
 2. The collateral ratio rises and the sail price rises with it; anchor coverage improves.
 3. `harvestable` is **unchanged**. Only the amount supplied in the same call is credited, so a
    contribution can never absorb surplus that was already there and owed to depositors.
@@ -993,8 +999,10 @@ Each flow states its trigger, its preconditions, the sequence, and its outcome.
 
 **Trigger:** market launch. **Precondition:** the market has no collateral and no tokens minted.
 
-A new market cannot mint on demand — with no collateral there is no meaningful collateral ratio and
-no fee band to price against. Genesis solves this by pooling collateral first and minting once.
+A new market cannot mint on demand. With no collateral and no anchor its collateral ratio reads
+exactly one, below the leverage floor, where every retail mint reverts (§5.4), and only the owner,
+the zero-fee role and the donor role can add collateral to it. Genesis opens it by pooling collateral
+first and minting once, through the zero-fee mints.
 
 ```mermaid
 sequenceDiagram
@@ -1154,7 +1162,7 @@ sequenceDiagram
     U->>M: mintLeveragedToken(collateralIn, receiver, minOut)
     M->>O: latestAnswer()
     alt collateral ratio below the leverage floor
-        M-->>U: revert — LeverageAboveCap(ratio, floor)
+        M-->>U: revert — BelowMinimumCollateralRatio(ratio, floor)
     end
     M->>R: request subsidy (if configured at this ratio)
     R-->>M: subsidy, or as much as is left
@@ -1184,11 +1192,20 @@ has no residual value to claim at all, so permitting the exit would pay sail hol
 holders' backing. Blocking it is the protection.
 
 **Why the cap applies only to minting.** Below the leverage floor a sail token carries more leverage
-than the cap, so minting one would sell that leverage; the cap refuses the sale, on the fee-paying
-mint, the zero-fee mint and a rebalance's conversion alike, judged at the middle of the price band on
-the state before the trade. Redeeming sells nothing — it lets a holder leave — so the cap never
+than the cap, so minting one would sell that leverage; the cap refuses the sale, at the middle of the
+price band: on the fee-paying mint and a rebalance's conversion judged on the state before the trade,
+and on the zero-fee mint judged on the state it leaves. So a genesis, whose own anchor mint leaves a
+new market exactly at the peg, is served where its sail mint lifts the market to the leverage floor,
+and reverts where it would not. Redeeming sells nothing — it lets a holder leave — so the cap never
 applies to it. Minting reopens by itself once the ratio is back above the leverage floor. The first
-sail token of a market with no sail supply is not judged, which is how a market is founded.
+sail token of a market is judged like every other.
+
+**Anchor mints stop at the leverage floor too.** A retail anchor mint lowers the ratio, pushing every
+sail holder's leverage up. From at or below the leverage floor it reverts
+`BelowMinimumCollateralRatio`, and one that would cross the floor is cut where the ratio reaches it,
+the rest of the offer left with the caller — in code, whatever the configuration allows. The
+fee-capped mint reports nothing taken there instead of reverting. The zero-fee anchor mint is not
+judged.
 
 **How many sail tokens a mint gives.** Into a market that already has sail tokens, a mint buys its
 share of the residual: the collateral it adds, valued at the high price, as a fraction of the
@@ -1198,9 +1215,8 @@ rounded down too, so a mint never takes more of the residual than it brings and 
 each sail token already held never falls. The fee-paying and the zero-fee mint share this one
 definition: with no incentive in force they are the same trade. The first sail tokens of a market
 (§5.1) take the whole residual the backing holds after their deposit — its collateral at the high
-price, less the whole anchor claim — so at or below the peg the deposit first makes the anchor
-holders whole, and one too small to do so mints nothing; a deposit credited with nothing mints
-nothing, whatever the backing holds.
+price, less the whole anchor claim — so from at or below the peg the deposit first makes the anchor
+holders whole.
 
 ### 5.5 Stability-pool deposit and withdrawal
 
@@ -2037,7 +2053,7 @@ very different assurance.
 | **A3** | The protocol never redeems more anchor tokens than **it** minted. | By check — what it mints is tracked independently of token supply |
 | **A4** | Sail token supply equals exactly what the protocol minted. | By construction — the protocol is the only minter and burner |
 | **A5** | Rounding always favours the protocol: a mint never mints more than the exact formula, a redeem never returns more. | By check — verified per band slice, not merely in aggregate |
-| **A7** | No sail token is minted below the leverage floor `MINIMUM_COLLATERAL_RATIO`, on any route, except the first of a market with no sail supply. | By check — every route refuses with `LeverageAboveCap`, judged at the middle price on the state before the trade |
+| **A7** | No retail mint, of sail or of anchor, is served below the leverage floor `MINIMUM_COLLATERAL_RATIO`, a retail anchor mint is cut at it, and no zero-fee sail mint leaves the market below it. The zero-fee anchor mint is not judged. | By check — at the middle price: the retail mints and the conversion on the state before the trade, the zero-fee sail mint on the state it leaves; each reverts `BelowMinimumCollateralRatio` |
 | **A6** | No operation **creates** a shortfall of the holding under the **recorded** backing, and none **acts** on one. Trading never takes the record above the collateral held; a fall in the rate can, and while it does every updating operation reverts `UnrecognisedImpairment`, until the rate recovers or the owner recognises the loss. | By check — every mint credits the record with the collateral that arrived, and every redeem debits it with the collateral that left, through the same conversion the holding is valued by; and every updater compares the record with the holding at the low edge of the rate band before acting |
 
 **A2 is the strongest claim in the document** and deserves emphasis: this is exact conservation, not

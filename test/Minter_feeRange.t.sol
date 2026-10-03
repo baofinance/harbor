@@ -425,21 +425,37 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         console2.log("%s.leveragedPrice:    %s", name, m.leveragedPrice);
     }
 
-    /// @dev Two zero outcomes are legitimate: the config can forbid minting at the current collateral ratio,
-    ///      so nothing can be taken at all, or the amount offered can be too small to buy a whole pegged
-    ///      token, so nothing would be produced. Each is tolerated only against its own precondition, read
-    ///      from the dry run beforehand - which reports nothing minted for both, with the band's ratio, 100%
-    ///      where the config forbids minting - so any other revert, or a zero the dry run did not predict,
-    ///      still fails the test. Returns 0 for both, having consumed nothing.
+    /// @dev Three zero outcomes are legitimate: the market can stand at or below the min CR, where no pegged is
+    ///      minted whatever the config says; the config can forbid minting at the current collateral ratio, so
+    ///      nothing can be taken at all; or the amount offered can be too small to buy a whole pegged token, so
+    ///      nothing would be produced. Each is tolerated only against its own precondition, read beforehand -
+    ///      the collateral ratio against the min CR, and the dry run, which reports nothing minted for all three,
+    ///      with the band's ratio, 100% where the config forbids minting - so any other revert, or a zero that
+    ///      was not predicted, still fails the test. Returns 0 for each, having consumed nothing.
     ///      Owns its own prank: the dry run has to happen before the mint, and a one-shot `vm.prank` at the
     ///      call site would bind to that view call instead of the mint it was meant for.
     function mintPeggedIgnoreZeroMint(uint256 wrapped, address user) internal returns (uint256 minted) {
         (int256 predictedRatio, , , uint256 predictedMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
+        uint256 collateralRatio = IMinter(minter).collateralRatio();
+        uint256 minimum = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         vm.startPrank(user);
         try IMinter(minter).mintPeggedToken(wrapped, user, 0) returns (uint256 m) {
             minted = m;
         } catch (bytes memory reason) {
-            if (predictedRatio == 1 ether) {
+            if (collateralRatio <= minimum) {
+                require(
+                    predictedMinted == 0 &&
+                        keccak256(reason) ==
+                            keccak256(
+                                abi.encodeWithSelector(
+                                    IMinter_v3.BelowMinimumCollateralRatio.selector,
+                                    collateralRatio,
+                                    minimum
+                                )
+                            ),
+                    "BelowMinimumCollateralRatio is the only permitted revert at or below the min CR"
+                );
+            } else if (predictedRatio == 1 ether) {
                 require(
                     keccak256(reason) ==
                         keccak256(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, peggedToken)),
@@ -482,12 +498,21 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         Measures memory pre = _measure();
         uint256 feeRatio = uint256(initial(config.mintPeggedIncentiveConfig.incentiveRatios));
+        uint256 used;
         {
-            // The dry run's ratio is its fee over the collateral used - the whole offer, which a flat schedule mints
-            // with. The fee is the exact one rounded down - within a wei below it - and a wei moves the ratio by
-            // 1e18 / `wrapped`; its floor adds under a unit.
-            (int256 dryRunFeeRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
-            assertApprox(dryRunFeeRatio, int256(feeRatio), 1e18 / wrapped + 1, 0, "mp dry run fee ratio");
+            // The dry run's ratio is its fee over the collateral used - the whole offer, which a flat incentive
+            // config mints with, or what the min CR leaves of it. The fee is the exact one rounded down - within a
+            // wei below it - and a wei moves the ratio by 1e18 over the collateral used; its floor adds under a
+            // unit. Where nothing is used the dry run reports the band's ratio, exactly.
+            int256 dryRunFeeRatio;
+            (dryRunFeeRatio, , used, , , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
+            assertApprox(
+                dryRunFeeRatio,
+                int256(feeRatio),
+                1e18 / (used == 0 ? wrapped : used) + 1,
+                0,
+                "mp dry run fee ratio"
+            );
         }
         // note that this is looking up the first incentive ratio, so only works for fixed fees
         uint256 minted = mintPeggedIgnoreZeroMint(wrapped, user);
@@ -495,14 +520,16 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         Measures memory post = _measure();
 
         if (minted == 0) {
-            // The offer was too small to buy a whole pegged token, so the minter refused it rather than
-            // charging for nothing. There is no fee to measure against a mint that did not happen; what
-            // must hold is that the refusal cost the caller nothing.
+            // The market stood at or below the min CR, or the offer was too small to buy a whole pegged token, so
+            // the minter reverted rather than charging for nothing. There is no fee to measure against a mint
+            // that did not happen; what must hold is that it cost the caller nothing.
             assertEq(post.userWrapped, pre.userWrapped, "mp refused mint leaves the user's collateral alone");
             assertEq(post.feeWrapped, pre.feeWrapped, "mp refused mint charges no fee");
             assertEq(post.userPegged, pre.userPegged, "mp refused mint delivers no pegged tokens");
             return;
         }
+        // What the mint took: the whole offer, or what the min CR left of it, as the dry run reported.
+        wrapped = used;
 
         uint256 fee = (feeRatio * wrapped) / 1 ether;
         assertApprox(post.feeWrapped, pre.feeWrapped + fee, 1, "mp fee wrapped");
@@ -1149,44 +1176,39 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         minToken *= steps; // to ensure the mintoken works for each step
     }
 
-    /// @dev The collateral ratio below which the config forbids minting pegged tokens: the upper bound of
-    ///      the disallow band. Minting pegged tokens lowers the collateral ratio, so this is the boundary
-    ///      the minter's band walk terminates on. Zero when minting is permitted at every collateral ratio.
-    ///      Read back from the minter so it carries the same truncation the minter's config storage applies.
-    function _mintPeggedDisallowBound() internal view returns (uint256 bound) {
+    /// @dev The collateral ratio a pegged mint stops at: the min CR, or the upper bound of the config's disallow
+    ///      band where it has one above that. Minting pegged tokens lowers the collateral ratio, so this is the
+    ///      boundary the minter's band walk terminates on. The config's bound is read back from the minter so it
+    ///      carries the same truncation the minter's config storage applies.
+    function _mintPeggedStopBound() internal view returns (uint256 bound) {
+        bound = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         IMinter.IncentiveConfig memory mintPegged = IMinter(minter).config().mintPeggedIncentiveConfig;
-        if (mintPegged.incentiveRatios[0] == 1 ether) {
+        if (mintPegged.incentiveRatios[0] == 1 ether && mintPegged.collateralRatioBandUpperBounds[0] > bound) {
             bound = mintPegged.collateralRatioBandUpperBounds[0];
         }
     }
 
-    /// @dev Assert a mint that the disallow band cut short stopped just the allowed side of the boundary.
-    ///      The minter takes exactly the collateral that brings the collateral ratio down to the boundary,
-    ///      then floors the pegged tokens it mints and rounds the collateral it adds to nearest. Flooring
-    ///      the pegged balance Z raises the resulting C*p/Z, so the end state sits at or above the boundary,
-    ///      short of it by less than one whole pegged token — minting one more would reach or cross it. That
-    ///      pins the end state from BOTH sides against a known constant, with no reference to how the mint
-    ///      was divided up, which is what makes it hold across price regimes where no fixed tolerance can.
-    /// @param calls how many mint calls built this state: rounding the added collateral to nearest is the
-    ///      only rounding that can carry the collateral ratio DOWN, by at most half a wei of collateral per
-    ///      call, so the allowance for it scales with the number of calls. The trailing wei on the lower
-    ///      side is this function's own mulDiv floor, matching the one in the minter's collateralRatio().
-    function _assertStoppedAtMintPeggedDisallow(
-        Measures memory m,
-        uint256 bound,
-        uint256 calls,
-        string memory name
-    ) internal view {
-        (uint256 p, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+    /// @dev Assert a mint that the boundary cut short stopped just the allowed side of it.
+    ///      The call that reaches the boundary takes the collateral that brings the collateral ratio down to it,
+    ///      rounded UP to a whole wrapped wei, keeps a fee rounded DOWN to one, and mints the pegged the unrounded
+    ///      amount buys, floored. Each rounding raises the resulting C*p/Z - the two of collateral by under a wrapped
+    ///      wei's worth each, the pegged by under a pegged wei - so the end state sits at or above the boundary, and
+    ///      above it by less than two wrapped wei of collateral and one pegged wei. A call made after that one finds
+    ///      under that much room and leaves under that much again, so the allowance does not grow with the calls.
+    ///      That pins the end state from BOTH sides against a known constant, with no reference to how the mint was
+    ///      divided up, which is what makes it hold across price regimes where no fixed tolerance can. The trailing
+    ///      unit on the lower side is this function's own mulDiv floor, matching the minter's collateralRatio().
+    function _assertStoppedAtMintPeggedBound(Measures memory m, uint256 bound, string memory name) internal view {
+        (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         assertGe(
-            Math.mulDiv(m.minterUnderlying + calls, p, m.minterPegged) + 1,
+            Math.mulDiv(m.minterUnderlying, p, m.minterPegged) + 1,
             bound,
-            string.concat(name, " minted past the mint pegged disallow")
+            string.concat(name, " minted past the mint pegged boundary")
         );
         assertLe(
-            Math.mulDiv(m.minterUnderlying - calls, p, m.minterPegged + 1),
+            Math.mulDiv(m.minterUnderlying - 2 * Math.ceilDiv(r, 1 ether), p, m.minterPegged + 1),
             bound,
-            string.concat(name, " stopped more than one pegged token short of the mint pegged disallow")
+            string.concat(name, " stopped more than its roundings short of the mint pegged boundary")
         );
     }
 
@@ -1256,22 +1278,18 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertEq(post.minterLeveraged, postSteps.minterLeveraged, "mp integral minter leveraged");
         assertApprox(post.userLeveraged, postSteps.userLeveraged, 0, 0, "mp integral user leveraged");
 
-        uint256 disallowBound = _mintPeggedDisallowBound();
-        // A mint that consumed everything it was offered ran out of collateral before reaching the disallow,
-        // and one that minted nothing started below it — neither is pinned by the boundary. Only a mint that
-        // took some of the offer and left the rest was stopped by it.
-        bool allStopped = disallowBound != 0 &&
-            post.userPegged > pre.userPegged &&
-            pre.userWrapped - post.userWrapped < wrapped;
-        bool stepsStopped = disallowBound != 0 &&
-            postSteps.userPegged > pre.userPegged &&
-            pre.userWrapped - postSteps.userWrapped < wrapped;
+        uint256 stopBound = _mintPeggedStopBound();
+        // A mint that consumed everything it was offered ran out of collateral before reaching the boundary,
+        // and one that minted nothing started at or below it — neither is pinned by the boundary. Only a mint
+        // that took some of the offer and left the rest was stopped by it.
+        bool allStopped = post.userPegged > pre.userPegged && pre.userWrapped - post.userWrapped < wrapped;
+        bool stepsStopped = postSteps.userPegged > pre.userPegged && pre.userWrapped - postSteps.userWrapped < wrapped;
 
         if (allStopped) {
-            _assertStoppedAtMintPeggedDisallow(post, disallowBound, 1, "mp integral all");
+            _assertStoppedAtMintPeggedBound(post, stopBound, "mp integral all");
         }
         if (stepsStopped) {
-            _assertStoppedAtMintPeggedDisallow(postSteps, disallowBound, steps, "mp integral steps");
+            _assertStoppedAtMintPeggedBound(postSteps, stopBound, "mp integral steps");
         }
 
         // Once the boundary stops a path, its end state is set by the boundary rather than by how the mint

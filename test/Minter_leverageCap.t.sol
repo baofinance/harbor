@@ -12,10 +12,10 @@ import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.so
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-/// @notice The leverage cap: the minter refuses to sell leverage below `K/(K-1)`, on every route alike, judged
-///         on the state the sale is priced at; above the floor it sells at the residual's price, uncapped.
+/// @notice The leverage cap: the minter sells no leverage below the min CR `K/(K-1)`, on every route alike, judged
+///         on the state the sale is priced at; above it it sells at the residual's price, uncapped.
 ///
-/// The market is the one the liquidate graph measures - `0.4` of the founding pegged in EACH stability pool -
+/// The market is the one the liquidate graph measures - `0.4` of the opening pegged in EACH stability pool -
 /// because a rebalance with both legs is the case that separates "the state the sale is priced at" from "the
 /// record as the redeem has so far updated it". With only a leveraged pool the two never differ.
 contract MinterLeverageCapTest is LocalMarket {
@@ -91,27 +91,33 @@ contract MinterLeverageCapTest is LocalMarket {
         assertGt(held, 0, "precondition: there is pegged to convert");
         IERC20(market.pegged).approve(market.minter, held);
 
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter(market.minter).freeRedeemPeggedToken(0, held, address(this));
 
         assertEq(IERC20(market.pegged).balanceOf(address(this)), held, "refusing takes nothing");
     }
 
-    /// Below the floor BOTH retail routes are refused, by the same name and with the same figures as the
-    /// conversion - the rule is a fact about the market, not about who asked.
-    function test_retailMintBelowTheFloorIsRefused_onBothRoutesByTheSameName() public {
+    /// Below the min CR both mint routes revert by the same name: the retail mint naming the ratio the market stands
+    /// at, where it is judged, and the zero-fee mint the ratio its deposit would leave, short of the min CR.
+    function test_mintBelowTheMinimum_reverts_onBothRoutesByTheSameName() public {
         actions.setCollateralRatioByPrice(actions.collateralRatioBandsAboveThePeg(0.5 ether));
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
-        assertLt(ratio, floor, "precondition: the market is below the floor");
-        // The harness approved the minter for everything at founding; only the collateral itself is needed.
+        assertLt(ratio, floor, "precondition: the market is below the min CR");
+        (uint256 minPrice, uint256 maxPrice, uint256 rate, ) = IWrappedPriceOracle(market.oracle).latestAnswer();
+        uint256 ratioLeft = Math.mulDiv(
+            IMinter(market.minter).collateralTokenBalance() + Math.mulDiv(1 ether, rate, 1 ether),
+            (minPrice + maxPrice + 1) / 2,
+            IMinter(market.minter).peggedTokenBalance()
+        );
+        assertLt(ratioLeft, floor, "precondition: the deposit does not lift the market to the min CR");
+        // The harness approved the minter for everything when it opened the market; only the collateral is needed.
         deal(market.wrappedCollateral, address(this), 2 ether);
-        bytes memory refusal = abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor);
 
-        vm.expectRevert(refusal);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioLeft, floor));
         IMinter(market.minter).freeMintLeveragedToken(1 ether, address(this));
 
-        vm.expectRevert(refusal);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter_v3(market.minter).mintLeveragedToken(1 ether, address(this), 0);
     }
 
@@ -138,11 +144,54 @@ contract MinterLeverageCapTest is LocalMarket {
         MockWrappedPriceOracle(market.oracle).setLatestAnswer(priceAtTheFloor - 1);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         assertLt(ratio, floor, "precondition: just below the floor");
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter_v3(market.minter).mintLeveragedToken(1 ether, address(this), 0);
     }
 
-    /// Above the floor a retail mint is served: the refusal is a floor, not a closure.
+    /// A zero-fee leveraged mint is judged on the market it leaves: from between the peg and the min CR, a deposit
+    /// that lifts the market to the min CR is served and leaves it exactly there; one a wei short reverts naming the
+    /// ratio it would leave.
+    function test_freeMintLeveraged_fromBelowTheMinimum_isServedWhenItLiftsTheMarketToIt() public {
+        actions.setCollateralRatioByPrice(actions.collateralRatioBandsAboveThePeg(0.5 ether));
+        uint256 minimum = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        uint256 ratio = IMinter(market.minter).collateralRatio();
+        assertGt(ratio, 1 ether, "precondition: above the peg");
+        assertLt(ratio, minimum, "precondition: below the min CR");
+        (uint256 minPrice, uint256 maxPrice, uint256 rate, ) = IWrappedPriceOracle(market.oracle).latestAnswer();
+        assertEq(rate, 1 ether, "precondition: a wei of wrapped is a wei of collateral");
+        uint256 midPrice = (minPrice + maxPrice + 1) / 2;
+        uint256 backing = IMinter(market.minter).collateralTokenBalance();
+        uint256 pegged = IMinter(market.minter).peggedTokenBalance();
+        // the backing that puts the ratio, floored, at the min CR: `minimum x pegged / price`, rounded up
+        uint256 lift = Math.mulDiv(minimum, pegged, midPrice, Math.Rounding.Ceil) - backing;
+        deal(market.wrappedCollateral, address(this), lift);
+        bytes memory revertData = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            Math.mulDiv(backing + lift - 1, midPrice, pegged),
+            minimum
+        );
+
+        vm.expectRevert(revertData);
+        IMinter(market.minter).freeMintLeveragedToken(lift - 1, address(this));
+
+        uint256 minted = IMinter(market.minter).freeMintLeveragedToken(lift, address(this));
+        assertGt(minted, 0, "the deposit that reaches the min CR is served");
+        assertEq(IMinter(market.minter).collateralRatio(), minimum, "and leaves the market exactly at it");
+    }
+
+    /// At or below the peg with leveraged outstanding there is no residual to share, so a zero-fee mint that would
+    /// lift the market to the min CR still mints nothing, and reverts as such.
+    function test_freeMintLeveraged_atOrBelowThePegWithLeveragedOutstanding_mintsNothing() public {
+        actions.setCollateralRatioByPrice(0.9 ether);
+        assertGt(IERC20(market.leveraged).totalSupply(), 0, "precondition: leveraged outstanding");
+        uint256 deposit = IMinter(market.minter).collateralTokenBalance() / 4; // lifts the market to about 1.125
+        deal(market.wrappedCollateral, address(this), deposit);
+
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, market.leveraged));
+        IMinter(market.minter).freeMintLeveragedToken(deposit, address(this));
+    }
+
+    /// Above the min CR a retail mint is served: the rule is a floor, not a closure.
     function test_retailMintAboveTheFloorIsServed() public {
         actions.setCollateralRatioByPrice(1.1 ether);
         assertGe(
@@ -157,8 +206,8 @@ contract MinterLeverageCapTest is LocalMarket {
         assertGt(leveragedOut, 0, "the mint is served");
     }
 
-    /// `leveragedMintable()` is the refusal as a view: true exactly where a mint is served, false exactly where
-    /// it is refused, well either side of the leverage floor and a tenth of the peg-to-floor band either side of it.
+    /// `leveragedMintable()` is the retail mint's rule as a view: true exactly where a retail mint is served, false
+    /// exactly where it reverts, well either side of the min CR and a tenth of the peg-to-min-CR band either side of it.
     function test_leveragedMintableAgreesWithTheRefusal() public {
         uint256[6] memory ratios = [
             uint256(0.9 ether),
@@ -177,10 +226,10 @@ contract MinterLeverageCapTest is LocalMarket {
             bool mintable = IMinter_v3(market.minter).leveragedMintable();
             assertEq(mintable, ratio >= floor, "the view is the comparison with the floor");
             if (mintable) {
-                assertGt(IMinter(market.minter).freeMintLeveragedToken(1 ether, address(this)), 0, "served");
+                assertGt(IMinter_v3(market.minter).mintLeveragedToken(1 ether, address(this), 0), 0, "served");
             } else {
-                vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
-                IMinter(market.minter).freeMintLeveragedToken(1 ether, address(this));
+                vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
+                IMinter_v3(market.minter).mintLeveragedToken(1 ether, address(this), 0);
             }
         }
     }
@@ -253,7 +302,7 @@ contract MinterLeverageCapTest is LocalMarket {
             IMinter_v3(market.minter).mintLeveragedTokenIncentiveRatio(),
             "the incentive ratio of the band the market sits in"
         );
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter_v3(market.minter).mintLeveragedToken(1 ether, address(this), 0);
     }
 
@@ -293,7 +342,7 @@ contract MinterLeverageCapTest is LocalMarket {
         assertEq(leveragedOut, 0, "beside a collateral leg: nothing converted");
         assertEq(collateralOut, 0, "beside a collateral leg: nothing redeemed either");
 
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.LeverageAboveCap.selector, ratio, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter_v3(market.minter).freeRedeemPeggedToken(half, half, address(this));
     }
 
@@ -334,14 +383,12 @@ contract MinterLeverageCapTest is LocalMarket {
     }
 }
 
-/// @notice The founding exception: the FIRST leveraged token is not judged, every later one is.
-///
-/// A market is founded by minting pegged first, which puts the ratio at exactly one, and then leveraged. Judged
-/// against that pre-deposit state the founding mint is always refused. On an empty leveraged supply there is
-/// nothing the cap protects - no existing price to diverge, no existing holder to dilute - so the first mint
-/// is served and the deposit creates the residual it buys. The next mint, at the same ratio, is judged.
-contract MinterLeverageCapFoundingTest is LocalMarket {
-    /// @dev Pegged only: the leveraged supply is left empty for the tests to found.
+/// @notice The first leveraged mint is judged like every other: a retail mint needs the market at or above the min CR
+///         before it, a zero-fee mint needs the market at or above the min CR after it. A market holding pegged alone
+///         reads a ratio of exactly one, so a retail mint reverts there, and a zero-fee mint is served only where its
+///         deposit lifts the market to the min CR - the first leveraged tokens then holding the whole residual after it.
+contract MinterFirstLeveragedMintTest is LocalMarket {
+    /// @dev Pegged only: the leveraged supply is left empty for the tests to mint the first of.
     function _foundMarket() internal override {
         deal(address(wrappedCollateralToken), address(this), 2 * FOUNDING_TRANCHE);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
@@ -350,39 +397,63 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
 
     function setUp() public override {
         super.setUp();
-        standUpMarket(0, 0, string.concat(marketLabel(), "_leverageCapFoundingUnitTest"));
+        standUpMarket(0, 0, string.concat(marketLabel(), "_firstLeveragedMintUnitTest"));
     }
 
-    function test_theFirstLeveragedTokenIsNotJudged_theSecondIs() public {
+    /// @dev The wrapped a zero-fee first mint must bring to lift the market to the min CR: the collateral that puts
+    ///      the backing at `minimum x pegged / price`, rounded up, at the rate the mint credits by - which this market
+    ///      quotes as one, so a wei less wrapped is a wei less collateral.
+    function _wrappedToReachTheMinimum() internal view returns (uint256) {
+        (uint256 minPrice, uint256 maxPrice, uint256 rate, ) = IWrappedPriceOracle(market.oracle).latestAnswer();
+        assertEq(rate, 1 ether, "precondition: a wei of wrapped is a wei of collateral");
+        uint256 midPrice = (minPrice + maxPrice + 1) / 2;
+        return
+            Math.mulDiv(
+                IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(),
+                IMinter(market.minter).peggedTokenBalance(),
+                midPrice,
+                Math.Rounding.Ceil
+            ) - IMinter(market.minter).collateralTokenBalance();
+    }
+
+    /// @dev The ratio the market would read with `collateral` more backing, as the minter computes it.
+    function _ratioWith(uint256 collateral) internal view returns (uint256) {
+        (uint256 minPrice, uint256 maxPrice, , ) = IWrappedPriceOracle(market.oracle).latestAnswer();
+        return
+            Math.mulDiv(
+                IMinter(market.minter).collateralTokenBalance() + collateral,
+                (minPrice + maxPrice + 1) / 2,
+                IMinter(market.minter).peggedTokenBalance()
+            );
+    }
+
+    /// At exactly the peg - where a market's first pegged mint leaves it - a zero-fee first leveraged mint is judged
+    /// on the market it leaves: a deposit a wei short of lifting it to the min CR reverts naming the ratio it would
+    /// leave; one that reaches it is served, holds the whole residual after it, and leaves the market exactly at the
+    /// min CR. The view, which reads the market before a trade, says no throughout.
+    function test_freeMintLeveraged_firstMintAtThePeg_isServedWhereItLiftsTheMarketToTheMinimum() public {
         assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
         assertEq(IMinter(market.minter).collateralRatio(), 1 ether, "precondition: pegged alone, at exactly one");
-        assertTrue(
-            IMinter_v3(market.minter).leveragedMintable(),
-            "a ratio of one is below the floor, and the empty supply is mintable regardless"
+        assertFalse(IMinter_v3(market.minter).leveragedMintable(), "the view reads the market before a trade");
+        uint256 lift = _wrappedToReachTheMinimum();
+        uint256 minimum = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        bytes memory revertData = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            _ratioWith(lift - 1),
+            minimum
         );
 
-        uint256 founded = IMinter(market.minter).freeMintLeveragedToken(FOUNDING_TRANCHE / 2, address(this));
+        vm.expectRevert(revertData);
+        IMinter(market.minter).freeMintLeveragedToken(lift - 1, address(this));
 
-        assertGt(founded, 0, "the founding mint is served");
-        // The founding deposit lifted the ratio well above the floor. Put it back at one - the same state the
-        // first mint was served in - so that the only thing that differs for the second is that a holder now
-        // exists.
-        actions.setCollateralRatioByPrice(1 ether);
-        uint256 ratio = IMinter(market.minter).collateralRatio();
-        assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "back below the floor");
-        assertFalse(IMinter_v3(market.minter).leveragedMintable(), "and now there is a holder to protect");
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IMinter_v3.LeverageAboveCap.selector,
-                ratio,
-                IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO()
-            )
-        );
-        IMinter(market.minter).freeMintLeveragedToken(FOUNDING_TRANCHE / 2, address(this));
+        uint256 minted = IMinter(market.minter).freeMintLeveragedToken(lift, address(this));
+        assertGt(minted, 0, "the deposit that reaches the min CR is served");
+        assertEq(minted, _residual(), "the first leveraged tokens hold the whole residual after the deposit");
+        assertEq(IMinter(market.minter).collateralRatio(), minimum, "and the market is left exactly at the min CR");
     }
 
     /// @dev The residual the market holds, counted at one leveraged token a unit: the backing at the price a leveraged
-    ///      mint reads, less the pegged claim - what a founder's tokens are a claim on.
+    ///      mint reads, less the pegged claim - what the first leveraged tokens are a claim on.
     function _residual() internal view returns (uint256) {
         (, uint256 price, , ) = IWrappedPriceOracle(market.oracle).latestAnswer();
         return
@@ -390,62 +461,124 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
             IMinter(market.minter).peggedTokenBalance();
     }
 
-    /// At exactly the peg - where a market's first pegged mint leaves it - the backing covers the pegged claim and
-    /// nothing more, so a founding retail mint is served and buys the whole residual its deposit creates: the backing
-    /// after it, at the price, less the pegged claim, one leveraged token a unit.
-    function test_mintLeveraged_foundingAtThePeg_mintsTheDeposit() public {
+    /// At exactly the peg - where a market's first pegged mint leaves it - a retail first leveraged mint reverts: the
+    /// market is below the min CR before the trade, and that is where a retail mint is judged. Nothing is taken.
+    function test_mintLeveraged_firstMintAtThePeg_reverts() public {
         assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
         assertEq(IMinter(market.minter).collateralRatio(), 1 ether, "precondition: pegged alone, at exactly one");
+        uint256 held = IERC20(market.wrappedCollateral).balanceOf(address(this));
+        bytes memory revertData = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            1 ether,
+            IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO()
+        );
 
-        uint256 founded = IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
-
-        assertGt(founded, 0, "the founding mint is served");
-        assertEq(founded, _residual(), "the founder holds the whole residual after its deposit");
+        vm.expectRevert(revertData);
+        IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
+        assertEq(IERC20(market.wrappedCollateral).balanceOf(address(this)), held, "nothing is taken");
     }
 
-    /// Below the peg the backing falls short of the pegged claim, so a founding deposit first makes the pegged holders
-    /// whole and buys only what is left: one a wei short of the shortfall buys nothing and is refused as such, taking
-    /// nothing; one that covers it is served and holds the residual after it.
-    function test_mintLeveraged_foundingBelowThePeg_makesThePeggedWholeFirst() public {
+    /// Placed exactly at the min CR by price, a retail first leveraged mint is served and holds the whole residual
+    /// after its deposit: the backing after it, at the price, less the pegged claim, one leveraged token a unit.
+    function test_mintLeveraged_firstMintAtTheMinimum_isServedAndHoldsTheWholeResidual() public {
+        assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
+        uint256 minimum = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        // the least price that reaches the min CR: `minimum x pegged / backing`, rounded up
+        MockWrappedPriceOracle(market.oracle).setLatestAnswer(
+            Math.mulDiv(
+                minimum,
+                IMinter(market.minter).peggedTokenBalance(),
+                IMinter(market.minter).collateralTokenBalance(),
+                Math.Rounding.Ceil
+            )
+        );
+        assertEq(IMinter(market.minter).collateralRatio(), minimum, "precondition: exactly at the min CR");
+        assertTrue(IMinter_v3(market.minter).leveragedMintable(), "the view agrees");
+
+        uint256 minted = IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
+
+        assertGt(minted, 0, "the first leveraged mint is served");
+        assertEq(minted, _residual(), "and holds the whole residual after its deposit");
+    }
+
+    /// Below the peg a retail first leveraged mint reverts, as any retail leveraged mint does below the min CR, whatever
+    /// its deposit would cover. Nothing is taken.
+    function test_mintLeveraged_firstMintBelowThePeg_reverts() public {
+        actions.setCollateralRatioByPrice(0.9 ether);
+        uint256 ratio = IMinter(market.minter).collateralRatio();
+        assertLt(ratio, 1 ether, "precondition: below the peg");
+        assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
+        uint256 held = IERC20(market.wrappedCollateral).balanceOf(address(this));
+        bytes memory revertData = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            ratio,
+            IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO()
+        );
+
+        vm.expectRevert(revertData);
+        IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE, address(this), 0);
+        assertEq(IERC20(market.wrappedCollateral).balanceOf(address(this)), held, "nothing is taken");
+    }
+
+    /// Below the peg a zero-fee first leveraged mint must cover the pegged claim and lift the market to the min CR: a
+    /// wei short reverts naming the ratio it would leave; enough is served and holds the whole residual after it - the
+    /// deposit having first made the pegged holders whole - leaving the market exactly at the min CR.
+    function test_freeMintLeveraged_firstMintBelowThePeg_coversThePeggedClaimAndReachesTheMinimum() public {
         actions.setCollateralRatioByPrice(0.9 ether);
         assertLt(IMinter(market.minter).collateralRatio(), 1 ether, "precondition: below the peg");
         assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
-        (, uint256 price, uint256 rate, ) = IWrappedPriceOracle(market.oracle).latestAnswer();
-        // The collateral that makes the pegged holders whole, and an offer whose credit - at most the offer at the
-        // rate, before any fee - falls a wei short of it.
-        uint256 shortfall = Math.mulDiv(
-            IMinter(market.minter).peggedTokenBalance(),
-            1 ether,
-            price,
-            Math.Rounding.Ceil
-        ) - IMinter(market.minter).collateralTokenBalance();
-        uint256 shortOffer = Math.mulDiv(shortfall - 1, 1 ether, rate);
-        uint256 held = IERC20(market.wrappedCollateral).balanceOf(address(this));
+        uint256 lift = _wrappedToReachTheMinimum();
+        uint256 minimum = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
+        deal(market.wrappedCollateral, address(this), lift);
+        bytes memory revertData = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            _ratioWith(lift - 1),
+            minimum
+        );
 
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, market.leveraged));
-        IMinter_v3(market.minter).mintLeveragedToken(shortOffer, address(this), 0);
-        assertEq(IERC20(market.wrappedCollateral).balanceOf(address(this)), held, "nothing is taken");
+        vm.expectRevert(revertData);
+        IMinter(market.minter).freeMintLeveragedToken(lift - 1, address(this));
 
-        uint256 founded = IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
-        assertGt(founded, 0, "a deposit that covers the shortfall is served");
-        assertEq(founded, _residual(), "and holds the residual after it");
+        uint256 minted = IMinter(market.minter).freeMintLeveragedToken(lift, address(this));
+        assertGt(minted, 0, "the deposit that covers the claim and reaches the min CR is served");
+        assertEq(minted, _residual(), "and holds the whole residual after it");
+        assertEq(IMinter(market.minter).collateralRatio(), minimum, "the market is left exactly at the min CR");
     }
 
-    /// On an empty leveraged supply the view says a mint is served at any ratio, and the retail mint agrees with it, as
-    /// the free mint does: given a deposit that covers any shortfall it founds, at the peg and below it.
+    /// On an empty leveraged supply the view and the retail mint agree: at the peg and below it both say no, and at
+    /// the min CR both say yes.
     function test_leveragedMintable_agreesWithTheRetailMint() public {
+        uint256 minimum = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         uint256[2] memory ratios = [uint256(1 ether), 0.9 ether];
         for (uint256 i = 0; i < ratios.length; i++) {
             uint256 snapshot = vm.snapshotState();
             actions.setCollateralRatioByPrice(ratios[i]);
-            assertTrue(IMinter_v3(market.minter).leveragedMintable(), "the view serves an empty supply");
-            assertGt(
-                IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0),
-                0,
-                "and so does the retail mint"
+            uint256 ratio = IMinter(market.minter).collateralRatio();
+            assertFalse(IMinter_v3(market.minter).leveragedMintable(), "the view says no below the min CR");
+            bytes memory revertData = abi.encodeWithSelector(
+                IMinter_v3.BelowMinimumCollateralRatio.selector,
+                ratio,
+                minimum
             );
+            vm.expectRevert(revertData);
+            IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
             vm.revertToState(snapshot);
         }
+        MockWrappedPriceOracle(market.oracle).setLatestAnswer(
+            Math.mulDiv(
+                minimum,
+                IMinter(market.minter).peggedTokenBalance(),
+                IMinter(market.minter).collateralTokenBalance(),
+                Math.Rounding.Ceil
+            )
+        );
+        assertEq(IMinter(market.minter).collateralRatio(), minimum, "precondition: exactly at the min CR");
+        assertTrue(IMinter_v3(market.minter).leveragedMintable(), "the view says yes at the min CR");
+        assertGt(
+            IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0),
+            0,
+            "and so does the retail mint"
+        );
     }
 
     /// A free mint that credits nothing buys nothing, as a fee-paying one does - even into an empty leveraged supply
@@ -459,19 +592,30 @@ contract MinterLeverageCapFoundingTest is LocalMarket {
         IMinter(market.minter).freeMintLeveragedToken(0, address(this));
     }
 
-    /// On an empty leveraged supply the leveraged mint's dry run reports the founding mint the call serves, below the
-    /// floor as it would above it: the founding exemption holds for the forecast as it does for the call.
-    function test_theFoundingMintsDryRun_reportsTheMintTheCallServes() public {
+    /// On an empty leveraged supply below the min CR the retail mint's dry run reports nothing minted - every amount
+    /// zero and the band's incentive ratio - as the call reverts: no forecast shows a mint the call reverts.
+    function test_mintLeveraged_firstMintDryRunBelowTheMinimum_reportsNothing() public {
         actions.setCollateralRatioByPrice(actions.collateralRatioBandsAboveThePeg(0.5 ether));
         assertEq(IERC20(market.leveraged).totalSupply(), 0, "precondition: no leveraged token exists");
         uint256 ratio = IMinter(market.minter).collateralRatio();
         assertGt(ratio, 1 ether, "precondition: there is a residual to buy");
-        assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "precondition: below the floor");
+        assertLt(ratio, IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO(), "precondition: below the min CR");
 
-        (, , , , uint256 forecast, , ) = IMinter_v3(market.minter).mintLeveragedTokenDryRun(FOUNDING_TRANCHE / 2);
-        uint256 founded = IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
-
-        assertGt(founded, 0, "the founding mint is served");
-        assertEq(forecast, founded, "the dry run reports it");
+        (int256 incentiveRatio, uint256 fee, uint256 subsidy, uint256 used, uint256 forecast, , ) = IMinter_v3(
+            market.minter
+        ).mintLeveragedTokenDryRun(FOUNDING_TRANCHE / 2);
+        assertEq(fee + subsidy + used + forecast, 0, "the dry run reports nothing");
+        assertEq(
+            incentiveRatio,
+            IMinter_v3(market.minter).mintLeveragedTokenIncentiveRatio(),
+            "and the band's incentive ratio"
+        );
+        bytes memory revertData = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            ratio,
+            IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO()
+        );
+        vm.expectRevert(revertData);
+        IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
     }
 }
