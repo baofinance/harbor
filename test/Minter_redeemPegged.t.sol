@@ -1049,7 +1049,8 @@ contract TestMinterRedeemPeggedAcrossEqualFees is TestMinterSetUp {
 }
 
 /// @notice A pegged redemption walks up through the bands it crosses, each slice priced at its own band's fee or
-/// subsidy; it redeems no more than this minter minted, and reads the sentinel as the caller's whole balance.
+/// subsidy; it redeems no more than this minter minted, reads the sentinel as the caller's whole balance, and reverts as
+/// paying nothing wherever it would pay nothing, whatever minimum the caller set.
 contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
     address user;
 
@@ -1086,6 +1087,21 @@ contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
         super.setUp();
         user = makeAddr("user");
         deal(wrappedCollateralToken, reservePool, 1e30); // a subsidy is never capped
+    }
+
+    /// A redemption that pays nothing reverts as paying nothing, whatever minimum the caller set: a wei of pegged,
+    /// worth a two-thousandth of a collateral wei, with a minimum of one.
+    function test_redeemPegged_aPayoutOfNothingWithAMinimumSet_revertsAsReturningNothing() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        (, , , , uint256 dryRunPaid, , ) = IMinter(minter).redeemPeggedTokenDryRun(1);
+        assertEq(dryRunPaid, 0, "precondition: a wei of pegged pays nothing");
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, 1);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).redeemPeggedToken(1, user, 1);
+        vm.stopPrank();
     }
 
     /// The sentinel redeems the caller's whole balance - here only part of the minter's supply - paying what a

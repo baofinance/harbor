@@ -986,13 +986,14 @@ contract Minter_v3 is
                 ),
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
             );
-        // make sure it meets the minimum requirements
-        if (wrappedCollateralOut < minWrappedCollateralOut) {
-            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
-        }
+        // A payout of nothing is reported as that, whatever minimum was asked for, as the leveraged redemption does.
         // slither-disable-next-line incorrect-equality
         if (wrappedCollateralOut == 0) {
             revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
+        }
+        // make sure it meets the minimum requirements
+        if (wrappedCollateralOut < minWrappedCollateralOut) {
+            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
         }
 
         // do the fee (feeReceiver) / subsidy (reservePool)
@@ -1185,6 +1186,12 @@ contract Minter_v3 is
             underlyingCollateral_,
             price
         );
+        // A deposit too small to buy a whole pegged token buys none, and is not taken for nothing: the fee-paying
+        // mint refuses on the same condition, by the same name.
+        // slither-disable-next-line incorrect-equality
+        if (peggedOut == 0) {
+            revert ReturnZeroAmount(PEGGED_TOKEN);
+        }
 
         // transfer and mint
         _mintPeggedToken(wrappedCollateralIn, peggedOut, receiver);
@@ -1413,26 +1420,30 @@ contract Minter_v3 is
             backing,
             price
         );
-        if (collateralValueE36 <= peggedValueE36) {
-            collateralOut = 0;
-        } else {
-            uint256 underlyingCollateralOutE36;
-            if (leveragedTokenBalance_ == 0) {
-                underlyingCollateralOutE36 = leveragedIn * price;
-            } else {
-                underlyingCollateralOutE36 = Math.mulDiv(
-                    leveragedIn * 1 ether,
-                    collateralValueE36 - peggedValueE36,
-                    price * leveragedTokenBalance_
-                );
-            }
-            collateralOut = underlyingCollateralOutE36 / reading.maxRate;
-
-            _redeemLeveragedToken(leveragedIn, collateralOut, receiver);
-
-            // update our records - ceiled, so the record gives up at least what the holding did
-            $.underlyingCollateral -= Math.ceilDiv(underlyingCollateralOutE36, 1 ether);
+        // The offer's share of the residual: nothing at the peg or below it, where the residual is gone. The supply
+        // is not zero here - `_redeemable` has refused an empty one - and the price is not either, as the residual
+        // is worth something.
+        uint256 underlyingCollateralOutE36;
+        if (collateralValueE36 > peggedValueE36) {
+            underlyingCollateralOutE36 = Math.mulDiv(
+                leveragedIn * 1 ether,
+                collateralValueE36 - peggedValueE36,
+                price * leveragedTokenBalance_
+            );
         }
+        collateralOut = underlyingCollateralOutE36 / reading.maxRate;
+        // A redemption that would pay nothing burns nothing and debits nothing, whether the residual is gone or the
+        // offer's share of it rounds to nothing: the fee-paying redemption refuses on the same condition, by the same
+        // name.
+        // slither-disable-next-line incorrect-equality
+        if (collateralOut == 0) {
+            revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
+        }
+
+        _redeemLeveragedToken(leveragedIn, collateralOut, receiver);
+
+        // update our records - ceiled, so the record gives up at least what the holding did
+        $.underlyingCollateral -= Math.ceilDiv(underlyingCollateralOutE36, 1 ether);
     }
 
     ///////////////////////

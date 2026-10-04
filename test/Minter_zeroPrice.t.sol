@@ -241,3 +241,52 @@ contract TestMinterZeroPrice is TestMinterSetUp {
         );
     }
 }
+
+/// @notice In a market of leveraged tokens alone, priced at zero, the leveraged has no residual to claim, so a leveraged
+/// mint buys nothing: it reverts by name and takes nothing, and its dry run says so. With no pegged claim the collateral
+/// ratio reads as unbounded whatever the price, so the min CR does not turn the mint away first.
+contract TestMinterZeroPriceLeveragedAlone is TestMinterSetUp {
+    address user;
+
+    /// @dev Minting leveraged charges 0.5% below the peg and 0.3% above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)), ic(ua(100), ia(50, 30)), ic(ua(100), ia(0, 0)));
+    }
+
+    /// @dev Ten collateral behind leveraged tokens alone, at a rate of one, then priced at zero; the user holds one
+    ///      collateral token, approved to the minter.
+    function setUp() public virtual override {
+        super.setUp();
+        user = makeAddr("user");
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1 ether, 1 ether);
+        setUp_collateral(0, 10 ether, user);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(0, 1 ether);
+        deal(wrappedCollateralToken, user, 1 ether);
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// A leveraged mint reverts by name and takes nothing; its dry run reports nothing used, charged, subsidised or
+    /// minted, at the ratio of the band an unbounded collateral ratio is in.
+    function test_mintLeveraged_inAMarketOfLeveragedAloneAtAZeroPrice_revertsAndItsDryRunReportsNothing() public {
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "precondition: no pegged supply");
+        assertGt(IMinter(minter).leveragedTokenBalance(), 0, "precondition: leveraged outstanding");
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "precondition: the min CR lets the mint through");
+
+        (int256 ratio, uint256 fee, uint256 subsidy, uint256 used, uint256 minted, , ) = IMinter(minter)
+            .mintLeveragedTokenDryRun(1 ether);
+        assertEq(used, 0, "the dry run uses nothing");
+        assertEq(fee, 0, "charges nothing");
+        assertEq(subsidy, 0, "draws no subsidy");
+        assertEq(minted, 0, "mints nothing");
+        assertEq(ratio, config.mintLeveragedIncentiveConfig.incentiveRatios[1], "and reports the band's ratio");
+
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user);
+        vm.startPrank(user);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        vm.stopPrank();
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(user), heldBefore, "nothing is taken");
+    }
+}

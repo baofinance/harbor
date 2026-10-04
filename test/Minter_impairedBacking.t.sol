@@ -723,19 +723,22 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertApproxEqAbs(minted, expected, 1, "a depegged anchor is minted at its depressed price");
     }
 
-    /// The zero-fee sail redemption returns what the residual is worth. Once cover is gone that is
-    /// nothing, and it must return nothing rather than paying out of the senior claim's backing.
-    function test_impairedBacking_freeSailRedemptionReturnsNothing() public {
-        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
+    /// The zero-fee leveraged redemption pays what the residual is worth. Once cover is gone that is nothing, and it
+    /// reverts by name rather than paying out of the pegged claim's backing or burning the leveraged for nothing.
+    function test_impairedBacking_freeLeveragedRedemptionWithNoResidual_reverts() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
         _recogniseImpairment();
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
 
         vm.startPrank(zeroFee);
-        IERC20(leveragedToken).approve(minter, sailTokens);
-        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(sailTokens / 10, zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).freeRedeemLeveragedToken(leveragedTokens / 10, zeroFee);
         vm.stopPrank();
 
-        assertEq(returned, 0, "a worthless residual returns nothing");
+        assertEq(IERC20(leveragedToken).balanceOf(zeroFee), leveragedTokens, "nothing is burned");
+        assertEq(IMinter(minter).collateralTokenBalance(), recordBefore, "and the record is unchanged");
     }
 
     /*//////////////////////////////////////////////////////////////

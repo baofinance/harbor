@@ -843,9 +843,58 @@ contract TestMinterRedeemLeveragedIntoADisallow is TestMinterSetUp {
     }
 }
 
+/// @notice The zero-fee leveraged redemption pays the leveraged's share of the residual with no fee, and reverts by name
+/// where it would pay nothing, as the fee-paying redemption does: for an offer whose payout rounds to nothing, and at
+/// the peg or below it, where the leveraged has no residual to claim.
+contract TestMinterFreeRedeemLeveraged is TestMinterSetUp {
+    /// @dev A market at a ratio of two, at a price of 2000 and a rate of one, its leveraged held by the zero-fee actor
+    ///      and approved to the minter: each leveraged token is worth a pegged unit.
+    function setUp() public virtual override {
+        super.setUp();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 100 ether); // a ratio of 2
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// @dev Expects the zero-fee redemption of `leveragedIn` to revert as paying nothing, leaving the leveraged supply
+    ///      and the record as they were.
+    function _expectNothingRedeemed(uint256 leveragedIn) private {
+        uint256 supplyBefore = IMinter(minter).leveragedTokenBalance();
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
+
+        vm.startPrank(zeroFee);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).freeRedeemLeveragedToken(leveragedIn, zeroFee);
+        vm.stopPrank();
+
+        assertEq(IMinter(minter).leveragedTokenBalance(), supplyBefore, "nothing is burned");
+        assertEq(IMinter(minter).collateralTokenBalance(), recordBefore, "and the record is unchanged");
+    }
+
+    /// An offer whose payout rounds to nothing - a wei of leveraged, worth a two-thousandth of a collateral wei -
+    /// reverts by name: nothing is burned, and the record is not debited.
+    function test_freeRedeemLeveraged_aPayoutThatRoundsToNothing_reverts() public {
+        _expectNothingRedeemed(1);
+    }
+
+    /// At the peg and below it the leveraged has no residual to claim, so the zero-fee redemption reverts by name and
+    /// nothing is burned.
+    function test_freeRedeemLeveraged_withNoResidual_reverts() public {
+        uint256 offer = IERC20(leveragedToken).balanceOf(zeroFee) / 2;
+        uint256[2] memory prices = [uint256(1000 ether), 900 ether]; // a ratio of exactly one, and of 0.9
+        for (uint256 i = 0; i < prices.length; i++) {
+            MockWrappedPriceOracle(priceOracle).setLatestAnswer(prices[i], 1 ether);
+            assertLe(IMinter(minter).collateralRatio(), 1 ether, "precondition: at the peg or below it");
+            _expectNothingRedeemed(offer);
+        }
+    }
+}
+
 /// @notice A leveraged redemption walks down through the bands it crosses, each slice charged at its own band's rate; it
 /// is served wherever the leveraged has value - below the min CR as above it - and reverts at the peg and below it,
-/// whatever the incentive config says there.
+/// whatever the incentive config says there, and wherever it would pay nothing, whatever minimum the caller set.
 contract TestMinterRedeemLeveragedAcrossBands is TestMinterSetUp {
     address user;
 
@@ -961,6 +1010,21 @@ contract TestMinterRedeemLeveragedAcrossBands is TestMinterSetUp {
         IERC20(leveragedToken).approve(minter, offer);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
         IMinter(minter).redeemLeveragedToken(offer, user, 0);
+        vm.stopPrank();
+    }
+
+    /// A redemption that pays nothing reverts as paying nothing, whatever minimum the caller set: a wei of leveraged,
+    /// worth a two-thousandth of a collateral wei, with a minimum of one.
+    function test_redeemLeveraged_aPayoutOfNothingWithAMinimumSet_revertsAsReturningNothing() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        (, , , uint256 dryRunPaid, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1);
+        assertEq(dryRunPaid, 0, "precondition: a wei of leveraged pays nothing");
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, 1);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).redeemLeveragedToken(1, user, 1);
         vm.stopPrank();
     }
 

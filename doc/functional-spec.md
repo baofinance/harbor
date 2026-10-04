@@ -326,6 +326,7 @@ $p = 10^{-18}$ multiplies the anchor supply by $10^{18}$ while every reported pr
 | `freeRedeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
 | `mintLeveragedToken` | `BelowMinimumCollateralRatio` | `BelowMinimumCollateralRatio` |
 | `redeemLeveragedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
+| `freeRedeemLeveragedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
 
 Every path now refuses, and each refuses by name. Three properties hold across the table, and each
 is worth stating separately because each was once false:
@@ -336,11 +337,11 @@ is worth stating separately because each was once false:
    arithmetic, and the retail anchor mint stops at the leverage floor in code (§5.4), so the band
    table's correctness is not load-bearing for safety.
 2. **Nothing is burned for nothing.** A redeem that would return no collateral refuses rather than
-   taking the anchor against it. On the zero-fee path this is the rebalance: without the guard a
-   rebalance consumed the stability pool's deposit and returned it nothing.
+   taking the anchor or the sail against it. On the zero-fee path this is the rebalance: without the
+   guard a rebalance consumed the stability pool's deposit and returned it nothing.
 3. **Both sail paths refuse long before the anchor price approaches zero.** The mint is refused by
-   the leverage cap anywhere below the leverage floor (§2.3); the redeem tests
-   `collateralValue <= peggedValue` and returns nothing for *any* undercollateralisation.
+   the leverage cap anywhere below the leverage floor (§2.3); each redeem, retail and zero-fee, tests
+   `collateralValue <= peggedValue` and reverts, paying nothing, for *any* undercollateralisation.
 
 One bound remains open. The reportable floor caps the per-mint supply multiplier at $10^{18}$ rather
 than at 1, so the anchor supply can still grow far faster than the collateral behind it. Choosing a

@@ -362,8 +362,6 @@ library MinterAdjustments_v1 {
         uint256 underlyingSubsidyE54; // Σ(collateralInBandE36 * subsidyRatio), within the reserve's capacity
         uint256 bandFeeRatio;
         uint256 bandSubsidyRatio;
-        uint256 collateralValueE36;
-        uint256 peggedValueE36;
     }
 
     /// @notice Perform a dry run of a mint leveraged to calculate the various transfers of tokens.
@@ -371,7 +369,8 @@ library MinterAdjustments_v1 {
     /// in proportion, in collateral space, to the amount spent within each collateral ratio boundary.
     /// It essentially performs a definite integral of the fee function.
     /// @dev Where the offer would mint no token every output is nothing: the mint reverts there, and its dry run
-    /// reports what the mint does.
+    /// reports what the mint does. That includes a market whose residual is gone, where leveraged tokens outstanding
+    /// have no price to mint more at (`MinterValuationLib.leveragedForCollateral`).
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for minting leveraged tokens.
     /// @param wrappedCollateralIn The proposed amount of wrapped collateral being posted in exchange for leveraged tokens
@@ -404,17 +403,6 @@ library MinterAdjustments_v1 {
         )
     {
         MintLeveragedWorkspace memory w;
-        (w.collateralValueE36, w.peggedValueE36) = MinterValuationLib.tokenValuesE36(
-            cr.peggedTokenBalance,
-            cr.underlyingCollateral,
-            cr.price
-        );
-        // Leveraged tokens outstanding at or below the peg are worth nothing, so a mint of more has no price. With no
-        // leveraged tokens yet the first mint is priced wherever the caller's rule lets it through
-        // (`MinterValuationLib.leveragedForCollateral`).
-        if (cr.leveragedTokenBalance > 0 && w.collateralValueE36 <= w.peggedValueE36) {
-            return (0, 0, 0, 0, 0);
-        }
 
         // simulate minting leveaged tokens from current collateral ratio upwards,
         // applying the incentive at the correct ratio as we go.

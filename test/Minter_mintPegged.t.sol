@@ -24,15 +24,11 @@ contract TestMinterMintPegged is TestMinterMint {
     // Free Mint Pegged
     //---------------------------------------------------------------------------------------------
 
-    function _freeMintPeggedToken(uint256 collateralIn) private {
+    /// @dev Mints pegged for `ownerCollateralDecrease` of the zero-fee actor's collateral by the zero-fee route and
+    ///      checks every balance it moves: the collateral's value at the price, in pegged tokens, at the
+    ///      wrapped-to-underlying rate of one this suite's oracle gives.
+    function _freeMintPeggedToken(uint256 ownerCollateralDecrease) private {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-
-        uint256 ownerCollateralDecrease;
-        if (collateralIn == type(uint256).max) {
-            ownerCollateralDecrease = IERC20(Deployed.wstETH).balanceOf(zeroFee);
-        } else {
-            ownerCollateralDecrease = collateralIn;
-        }
         uint256 receiverBaoUSDIncrease = (price * ownerCollateralDecrease) / 1 ether;
 
         uint256 ownerCollateralBefore = IERC20(Deployed.wstETH).balanceOf(zeroFee);
@@ -52,7 +48,7 @@ contract TestMinterMintPegged is TestMinterMint {
         vm.startPrank(zeroFee);
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintPeggedToken(zeroFee, receiver, ownerCollateralDecrease, receiverBaoUSDIncrease);
-        uint256 minted = IMinter(minter).freeMintPeggedToken(collateralIn, receiver);
+        uint256 minted = IMinter(minter).freeMintPeggedToken(ownerCollateralDecrease, receiver);
         vm.stopPrank();
         assertEq(
             IMinter(minter).collateralTokenBalance(),
@@ -81,6 +77,9 @@ contract TestMinterMintPegged is TestMinterMint {
         assertEq(IERC20(peggedToken).totalSupply(), peggedSupplyBefore + receiverBaoUSDIncrease);
     }
 
+    /// The zero-fee pegged mint: reverts for a caller without the zero-fee role; for an offer of nothing, which buys no
+    /// pegged token, by name, whether or not the caller holds collateral; and in the collateral token for an offer the
+    /// caller does not hold. Served, it mints the collateral's value at the price in pegged tokens, with no fee.
     function test_freeMintPegged() public {
         // mint noaccess
         assertFalse(IHarborRoles(minter).hasAllRoles(receiver, zeroFeeRole));
@@ -90,10 +89,11 @@ contract TestMinterMintPegged is TestMinterMint {
         vm.stopPrank();
         //-------------------------------------------------------------
 
-        // zero input, when none: a mint of nothing mints nothing
+        // zero input, when none: a mint of nothing buys no pegged token
         assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
         vm.startPrank(zeroFee);
-        assertEq(IMinter(minter).freeMintPeggedToken(0, receiver), 0, "nothing minted for nothing");
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, peggedToken));
+        IMinter(minter).freeMintPeggedToken(0, receiver);
         vm.stopPrank();
         //-------------------------------------------------------
 
@@ -110,9 +110,10 @@ contract TestMinterMintPegged is TestMinterMint {
         IERC20(Deployed.wstETH).approve(minter, 10 ether);
         vm.stopPrank();
 
-        // zero input, when some: still nothing
+        // zero input, when some: still no pegged token to buy
         vm.startPrank(zeroFee);
-        assertEq(IMinter(minter).freeMintPeggedToken(0, receiver), 0, "nothing minted for nothing");
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, peggedToken));
+        IMinter(minter).freeMintPeggedToken(0, receiver);
         vm.stopPrank();
         //-----------------------------------------------------------
 
@@ -1472,5 +1473,42 @@ contract TestMinterMintPeggedConfigCutAboveTheMinimum is TestMinterSetUp {
             IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO(),
             "which is above the min CR"
         );
+    }
+}
+
+/// @notice The zero-fee pegged mint reverts by name for a deposit too small to buy one pegged token, as the fee-paying
+/// mint does, rather than taking the deposit for nothing.
+contract TestMinterFreeMintPegged is TestMinterSetUp {
+    /// @dev Expects the zero-fee pegged mint of `wrappedIn` to revert by name, leaving the zero-fee actor's wrapped
+    ///      collateral, the record and the pegged supply as they were.
+    function _expectNothingMinted(uint256 wrappedIn) private {
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(zeroFee);
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
+        uint256 supplyBefore = IMinter(minter).peggedTokenBalance();
+
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, peggedToken));
+        IMinter(minter).freeMintPeggedToken(wrappedIn, zeroFee);
+        vm.stopPrank();
+
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(zeroFee), heldBefore, "nothing is taken");
+        assertEq(IMinter(minter).collateralTokenBalance(), recordBefore, "the record is unchanged");
+        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore, "and so is the pegged supply");
+    }
+
+    /// A deposit too small to buy one pegged token reverts by name and nothing is taken - one that credits no
+    /// collateral, at a wrapped-to-underlying rate below one, and one whose collateral is worth less than a pegged
+    /// wei, at a collateral price below one pegged unit (as a BTC-pegged market of ETH collateral has).
+    function test_freeMintPegged_aDepositTooSmallForOneToken_reverts() public {
+        uint256 snapshot = vm.snapshotState();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 0.5 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        _expectNothingMinted(1); // half a collateral wei, credited as none
+
+        vm.revertToState(snapshot);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(0.03 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        _expectNothingMinted(33); // worth 0.99 of a pegged wei
     }
 }
