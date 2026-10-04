@@ -264,8 +264,9 @@ contract TestMinterMintLeveraged is TestMinterMint {
         (, , , , uint256 leveragedForecast, , ) = IMinter(minter).mintLeveragedTokenDryRun(senderCollateralDecrease);
         vm.expectEmit(minter);
         emit IMinter.MintLeveragedToken(sender, receiver, senderCollateralDecrease, leveragedForecast);
-        uint256 minted = IMinter(minter).mintLeveragedToken(senderCollateralDecrease, receiver, 0);
-        //               --------------------------------------------------------------------------
+        // the sentinel is passed on as given, for the minter to read as the sender's whole balance
+        uint256 minted = IMinter(minter).mintLeveragedToken(collateralIn, receiver, 0);
+        //               ----------------------------------------------------------
         vm.stopPrank();
         assertEq(minted, leveragedForecast, "minted as the dry run forecast");
         assertEq(
@@ -869,6 +870,315 @@ contract TestMinterMintLeveragedAcrossEqualFees is TestMinterSetUp {
             IERC20(wrappedCollateralToken).balanceOf(minter) - heldBefore,
             (wrappedIn * (1 ether - feeRatio)) / 1 ether,
             "the offer less the fee"
+        );
+    }
+}
+
+/// @notice A leveraged mint walks up through the bands it crosses, each slice subsidised or charged at its own band's
+/// rate, the subsidy only as far as the reserve holds; the tokens it mints leave the leveraged price where it was; it
+/// reads the sentinel as the caller's whole balance, and reverts for a deposit that buys no token.
+contract TestMinterMintLeveragedAcrossBands is TestMinterSetUp {
+    address user;
+
+    /// @dev What a mint moves: what the reserve sends, what the fee receiver is paid, and what the minter keeps - the
+    ///      offer plus the subsidy less the fee.
+    struct Outcome {
+        uint256 subsidy;
+        uint256 fee;
+        uint256 kept;
+    }
+
+    /// @dev What the walk carries from band to band: the collateral still to place and the collateral held, at 1e36;
+    ///      and what the reserve can still fund, the subsidy and the fee accrued, at 1e54, exact.
+    struct MintWalk {
+        uint256 leftE36;
+        uint256 heldE36;
+        uint256 capacityE54;
+        uint256 subsidyE54;
+        uint256 feeE54;
+    }
+
+    /// @dev Minting leveraged is subsidised 0.5% from the peg to 1.2 and 0.3% from 1.2 to 1.5, and charges 0.7% above
+    ///      it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 120, 150), ia(-50, -50, -30, 70)),
+            ic(ua(100), ia(0, 0))
+        );
+    }
+
+    function setUp() public virtual override {
+        super.setUp();
+        user = makeAddr("user");
+    }
+
+    /// The sentinel spends the caller's whole balance: the mint takes all of it, mints what an offer of exactly that
+    /// balance mints, and reports the balance taken in its event.
+    function test_mintLeveraged_withTheMaxSentinel_spendsTheCallersWholeBalance() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        uint256 balance = 7 ether;
+        deal(wrappedCollateralToken, user, balance);
+        (, , , , uint256 dryRunMinted, , ) = IMinter(minter).mintLeveragedTokenDryRun(balance);
+        assertGt(dryRunMinted, 0, "precondition: the balance buys leveraged");
+
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, balance);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter_v3.MintLeveragedToken(user, user, balance, dryRunMinted);
+        uint256 minted = IMinter(minter).mintLeveragedToken(type(uint256).max, user, 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(user), 0, "the caller's whole balance is spent");
+        assertEq(minted, dryRunMinted, "minting what an offer of exactly that balance mints");
+    }
+
+    /// The dry run reads the sentinel as the caller's whole balance, as the mint does: asked to price the maximum it
+    /// reports exactly what an offer of the caller's balance would.
+    function test_mintLeveragedDryRun_withTheMaxSentinel_pricesTheCallersWholeBalance() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        uint256 balance = 7 ether;
+        deal(wrappedCollateralToken, user, balance);
+        (int256 ratio, uint256 fee, , uint256 used, uint256 minted, , ) = IMinter(minter).mintLeveragedTokenDryRun(
+            balance
+        );
+        assertGt(minted, 0, "precondition: the balance buys leveraged");
+
+        vm.startPrank(user);
+        (int256 sentinelRatio, uint256 sentinelFee, , uint256 sentinelUsed, uint256 sentinelMinted, , ) = IMinter(
+            minter
+        ).mintLeveragedTokenDryRun(type(uint256).max);
+        vm.stopPrank();
+
+        assertEq(sentinelUsed, used, "the caller's whole balance is priced");
+        assertEq(sentinelMinted, minted, "minting what the balance buys");
+        assertEq(sentinelFee, fee, "for the balance's fee");
+        assertEq(sentinelRatio, ratio, "at the balance's ratio");
+    }
+
+    /// A deposit whose fee leaves nothing to credit buys no token: the mint reverts by name, and nothing is taken.
+    function test_mintLeveraged_aDepositTooSmallForOneToken_reverts() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8
+        assertGt(
+            IMinter(minter).collateralRatio(),
+            ultimate(config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds),
+            "precondition: in the top band, which charges a fee"
+        );
+        uint256 wrappedIn = 1; // one wei: less its fee, rounded down, it leaves nothing to credit
+        deal(wrappedCollateralToken, user, wrappedIn);
+
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).mintLeveragedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(user), wrappedIn, "nothing is taken");
+    }
+
+    /// From a ratio of 1.1 a mint to about 1.35 crosses one bound and one to about 1.8 crosses two. Each slice is cut
+    /// where the ratio reaches its band's upper bound - the subsidy it draws counted in - and subsidised or charged at
+    /// its band's rate exactly; the reserve, the fee receiver and the minter each move by exactly their part.
+    function test_mintLeveraged_acrossOneAndTwoBandBounds_subsidisesEachSliceAtItsBandsRate(
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 10 ether); // a ratio of 1.1
+        deal(wrappedCollateralToken, reservePool, 1e30); // a subsidy is never capped
+        uint256[] memory bounds = config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds;
+
+        uint256 snapshot = vm.snapshotState();
+        uint256 wrappedIn = _wrappedToReach(1.35 ether);
+        _mintAndCheck(wrappedIn, _expectedMint(wrappedIn), bounds[1], bounds[2]); // one bound crossed
+        vm.revertToState(snapshot);
+        wrappedIn = _wrappedToReach(1.8 ether);
+        _mintAndCheck(wrappedIn, _expectedMint(wrappedIn), bounds[2], type(uint256).max); // two bounds crossed
+    }
+
+    /// With a reserve that runs out part-way through the second slice, the mint is subsidised only by what the reserve
+    /// holds, and empties it: the trader's own collateral makes up the rest of the way to the band's bound, so less of
+    /// the offer is left to be charged above it.
+    function test_mintLeveraged_withAReserveThatRunsOutInTheSecondSlice_subsidisesOnlyWhatItHolds(
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 10 ether); // a ratio of 1.1
+        deal(wrappedCollateralToken, reservePool, 1e30);
+        // what a funded mint that ends inside the second band draws: the first slice's subsidy and part of the second's
+        uint256 reserve = _expectedMint(_wrappedToReach(1.35 ether)).subsidy;
+        uint256 wrappedIn = _wrappedToReach(1.8 ether);
+        Outcome memory funded = _expectedMint(wrappedIn);
+        assertLt(reserve, funded.subsidy, "precondition: less than the mint draws from a funded reserve");
+        deal(wrappedCollateralToken, reservePool, reserve);
+
+        Outcome memory expected = _expectedMint(wrappedIn);
+        assertEq(expected.subsidy, reserve, "precondition: the subsidy due is all the reserve holds");
+        assertLt(expected.fee, funded.fee, "precondition: and less of the offer is left to charge above the bound");
+        _mintAndCheck(
+            wrappedIn,
+            expected,
+            config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds[2],
+            type(uint256).max
+        );
+    }
+
+    /// A subsidised leveraged mint, at a wrapped-to-underlying rate away from one, leaves the leveraged price
+    /// unchanged: its tokens are priced at the price before the mint against the collateral the record gains - the
+    /// offer and the subsidy, at the rate, rounded down - so the residual grows in proportion to the supply.
+    function test_mintLeveraged_withASubsidyAtARateAwayFromOne_leavesTheLeveragedPriceUnchanged(
+        uint256 wrappedIn,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        wrappedIn = bound(wrappedIn, 1e9, 20 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 10 ether); // a ratio of 1.1, and an offer that stays in the subsidised bands
+        deal(wrappedCollateralToken, reservePool, 1e30); // the subsidy is never capped
+        deal(wrappedCollateralToken, user, wrappedIn);
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
+        uint256 supplyBefore = IMinter(minter).leveragedTokenBalance();
+        uint256 residualBeforeE36 = recordBefore * price - IMinter(minter).peggedTokenBalance() * 1 ether;
+        uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
+        uint256 reserveBefore = IERC20(wrappedCollateralToken).balanceOf(reservePool);
+
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        uint256 minted = IMinter(minter).mintLeveragedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        assertLt(
+            IERC20(wrappedCollateralToken).balanceOf(reservePool),
+            reserveBefore,
+            "precondition: the mint is subsidised"
+        );
+        assertEq(
+            minted,
+            Math.mulDiv(
+                (IMinter(minter).collateralTokenBalance() - recordBefore) * price,
+                supplyBefore,
+                residualBeforeE36
+            ),
+            "minted at the price before, against the collateral the record gained"
+        );
+        // Rounding the tokens down raises the residual behind each one, by less than the square of the leveraged price
+        // over the residual - a fraction of a wei of the reported price here - so the price reported does not move.
+        assertEq(IMinter(minter).leveragedTokenPrice(), leveragedPriceBefore, "the leveraged price is unchanged");
+    }
+
+    /// @dev The wrapped collateral whose mint takes the ratio to about `targetRatio`, by the ratio's definition and
+    ///      leaving the incentives aside: (C + x) p / P = T, so x = (T P - C p) / p.
+    function _wrappedToReach(uint256 targetRatio) private view returns (uint256) {
+        // the edges the mint reads
+        (, uint256 price, uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        return
+            Math.mulDiv(
+                targetRatio * IMinter(minter).peggedTokenBalance() - IMinter(minter).collateralTokenBalance() * price,
+                1 ether,
+                price * rate
+            );
+    }
+
+    /// @dev What a mint of `wrappedIn` moves, by the incentive config and the reserve's balance. Walking up from the
+    ///      band at index 1, where the market here starts, each subsidised band takes the collateral that, with the
+    ///      subsidy it draws, brings the ratio to the band's upper bound, and the top band, which charges, takes the
+    ///      rest; each slice's subsidy or fee is exact on its collateral. Where the reserve cannot fund a slice's
+    ///      subsidy it gives what it holds and the trader's own collateral makes up the difference to the bound. The
+    ///      reserve sends the subsidy's whole wei; the minter keeps the offer plus the subsidy less the fee, rounded
+    ///      down once; and the fee receiver is paid the rest.
+    function _expectedMint(uint256 wrappedIn) private view returns (Outcome memory expected) {
+        // the edges the mint reads
+        (, uint256 price, uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 peggedHeldE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
+        MintWalk memory w = MintWalk(
+            wrappedIn * rate,
+            IMinter(minter).collateralTokenBalance() * 1 ether,
+            IERC20(wrappedCollateralToken).balanceOf(reservePool) * rate * 1 ether,
+            0,
+            0
+        );
+        uint256 topBand = config.mintLeveragedIncentiveConfig.incentiveRatios.length - 1;
+        for (uint256 band = 1; w.leftE36 > 0; band++) {
+            uint256 sliceE36 = w.leftE36;
+            uint256 sliceSubsidyE54 = 0;
+            uint256 sliceFeeE54 = 0;
+            if (band < topBand) {
+                uint256 subsidyRatio = uint256(-config.mintLeveragedIncentiveConfig.incentiveRatios[band]);
+                sliceE36 = Math.min(
+                    sliceE36,
+                    Math.mulDiv(
+                        config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds[band] *
+                            peggedHeldE36 -
+                            w.heldE36 *
+                            price,
+                        1 ether,
+                        price * (1 ether + subsidyRatio)
+                    )
+                );
+                sliceSubsidyE54 = sliceE36 * subsidyRatio;
+                if (sliceSubsidyE54 > w.capacityE54) {
+                    sliceE36 = Math.min(w.leftE36, sliceE36 + (sliceSubsidyE54 - w.capacityE54) / 1 ether);
+                    sliceSubsidyE54 = w.capacityE54;
+                }
+            } else {
+                sliceFeeE54 = sliceE36 * uint256(config.mintLeveragedIncentiveConfig.incentiveRatios[band]);
+            }
+            w.feeE54 += sliceFeeE54;
+            w.subsidyE54 += sliceSubsidyE54;
+            w.capacityE54 -= sliceSubsidyE54;
+            w.leftE36 -= sliceE36;
+            w.heldE36 += (sliceE36 * 1 ether + sliceSubsidyE54 - sliceFeeE54) / 1 ether;
+        }
+        expected.subsidy = w.subsidyE54 / (rate * 1 ether);
+        expected.kept = (wrappedIn * rate * 1 ether + w.subsidyE54 - w.feeE54) / (rate * 1 ether);
+        expected.fee = wrappedIn + expected.subsidy - expected.kept;
+    }
+
+    /// @dev Mints `wrappedIn` and checks the mint ended between `lowerRatio` and `upperRatio` - the band the scenario
+    ///      aims for - with the reserve, the fee receiver and the minter each moved by exactly what `expected` gives
+    ///      them.
+    function _mintAndCheck(
+        uint256 wrappedIn,
+        Outcome memory expected,
+        uint256 lowerRatio,
+        uint256 upperRatio
+    ) private {
+        deal(wrappedCollateralToken, user, wrappedIn);
+        uint256 reserveBefore = IERC20(wrappedCollateralToken).balanceOf(reservePool);
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
+        vm.startPrank(user);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter(minter).mintLeveragedToken(wrappedIn, user, 0);
+        vm.stopPrank();
+
+        assertGt(IMinter(minter).collateralRatio(), lowerRatio, "the mint ends in the band aimed for");
+        assertLt(IMinter(minter).collateralRatio(), upperRatio, "the mint ends in the band aimed for");
+        assertEq(
+            reserveBefore - IERC20(wrappedCollateralToken).balanceOf(reservePool),
+            expected.subsidy,
+            "the reserve sends each slice's subsidy"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore,
+            expected.fee,
+            "the fee receiver is paid the fee"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(minter) - heldBefore,
+            expected.kept,
+            "the minter keeps the offer plus the subsidy less the fee"
         );
     }
 }

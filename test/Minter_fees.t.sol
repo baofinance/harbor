@@ -412,27 +412,16 @@ contract TestMinterFees is TestMinterFeeSetUp {
             0,
             string.concat("collateral used calc in step", LibString.toString(step))
         );
-        // Minting the whole amount in one call versus as sequential 1-ether mints diverges only by the per-band
-        // fee/subsidy rounding that the leverage ratio amplifies (a reserve-pool subsidy, applied per sub-mint,
-        // is the driver). It is exactly zero for a flat config and grows with the number of fee-band transitions
-        // the mint straddles, not the sub-mint count. Bound it relative to the leveraged total, scaled by that
-        // transition count; the worst adversarial drift observed here is ~1.6e-17 at 3 transitions, and the
-        // per-transition unit (1e-16) leaves ample headroom for higher-leverage regimes while staying >1e12x
-        // below any economically-meaningful discrepancy. A flat config (0 transitions) keeps this exact.
-        assertApprox(
-            all.leveragedMinted,
-            leveragedMinted,
-            0,
-            _bandTransitions(config.mintLeveragedIncentiveConfig.incentiveRatios) * 100,
-            "leveragedMinted: all = sigma one"
-        );
-        // Same one-call-versus-sequential path-independence as "all = sigma one" above, on the actual minted
-        // balance rather than the summed dry-run; carries the same band-transition-scaled relative bound.
-        assertApprox(
+        // Minting the whole amount in one call mints exactly what the sequential 1-ether mints do. A mint's tokens are
+        // the collateral it credits, valued at the price, over the leveraged price; here each leveraged token is worth
+        // exactly a pegged unit and the collateral price is a whole number of them, so every mint's tokens are a whole
+        // number with nothing rounded away, and they leave the leveraged price exactly where it was for the next. The
+        // collateral credited is the same either way: the fees, the subsidies and the collateral used are each checked
+        // to the wei above and below.
+        assertEq(all.leveragedMinted, leveragedMinted, "leveragedMinted: all = sigma one");
+        assertEq(
             IERC20(leveragedToken).balanceOf(user) - beforeAll.userLeveraged,
             leveragedMinted,
-            0,
-            _bandTransitions(config.mintLeveragedIncentiveConfig.incentiveRatios) * 100,
             string.concat("leveraged minted calc in step ", LibString.toString(step))
         );
         assertEq(
@@ -506,13 +495,11 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat("step ", LibString.toString(i + 1), ", actual fee")
             );
-            // Cumulative actual minted versus the sum of per-step one-shot dry-runs: the same band-transition
-            // path-independence drift, bounded relative to the total and scaled by the transition count.
-            assertApprox(
+            // Cumulative actual minted against the sum of the per-step one-call dry runs: each step is exact, so
+            // their sum is.
+            assertEq(
                 IERC20(leveragedToken).balanceOf(user) - before.userLeveraged,
                 total.leveragedMinted,
-                0,
-                _bandTransitions(config.mintLeveragedIncentiveConfig.incentiveRatios) * 100,
                 string.concat("step ", LibString.toString(i + 1), ", actual minted")
             );
             assertApproxEqAbs(
@@ -549,7 +536,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     /// receiving what its dry run forecasts from what is left.
     /// forge-config: default.fuzz.runs = 50
     function test_mintLeveragedFeesAreIntegralWithPartialReserve(uint256 reserve) public {
-        vm.assume(reserve < 24e15);
+        reserve = bound(reserve, 0, 24e15 - 1);
         // add to reserve pool
         deal(Deployed.wstETH, reservePool, reserve);
         _checkMintLeveragedFeesIntegralList();
@@ -847,7 +834,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     /// receiving what its dry run forecasts from what is left.
     /// forge-config: default.fuzz.runs = 50
     function test_redeemPeggedFeesAreIntegralsWithPartialReserve(uint256 reserve) public {
-        vm.assume(reserve < 283e15);
+        reserve = bound(reserve, 0, 283e15 - 1);
         // add to reserve pool
         deal(Deployed.wstETH, reservePool, reserve);
         _checkRedeemPeggedFeesIntegralList();

@@ -9,6 +9,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -27,30 +28,14 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     // Free Redeem Leveraged
     //---------------------------------------------------------------------------------------------
 
-    function _freeRedeemLeveragedToken(uint256 leveragedIn) private {
+    /// @dev Redeems `ownerLeveragedDecrease` of the zero-fee actor's leveraged by the zero-fee route and checks every
+    ///      balance it moves. It expects each leveraged token to be worth a pegged unit and the wrapped-to-underlying
+    ///      rate to be one, as they are in the markets this suite builds.
+    function _freeRedeemLeveragedToken(uint256 ownerLeveragedDecrease) private {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-
-        uint256 ownerLeveragedDecrease;
-        if (leveragedIn == type(uint256).max) {
-            ownerLeveragedDecrease = IERC20(leveragedToken).balanceOf(zeroFee);
-        } else {
-            ownerLeveragedDecrease = leveragedIn;
-        }
-        uint256 minterLeveragedBefore = IMinter(minter).leveragedTokenBalance();
-        if (ownerLeveragedDecrease > 0 && ownerLeveragedDecrease > minterLeveragedBefore)
-            ownerLeveragedDecrease = minterLeveragedBefore;
-        // uint256 receiverCollateralIncrease = IMinter(minter).collateralForLeverageTokens(ownerLeveragedDecrease);
-        // TODO: this fails with actionpaused
-        // (, , , uint256 receiverCollateralIncrease, , ) = IMinter(minter).redeemLeveragedTokenDryRun(
-        //     ownerLeveragedDecrease
-        // );
-        // assertEq(
-        //     receiverCollateralIncrease,
-        //     (ownerLeveragedDecrease * 1 ether) / price,
-        //     "collateral for leveraged calc is correct"
-        // );
         uint256 receiverCollateralIncrease = (ownerLeveragedDecrease * 1 ether) / price;
 
+        uint256 minterLeveragedBefore = IMinter(minter).leveragedTokenBalance();
         uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
         uint256 ownerLeveragedBefore = IERC20(leveragedToken).balanceOf(zeroFee);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
@@ -64,11 +49,12 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             "collaterals balance before freeRedeemLeveraged"
         );
 
-        vm.expectEmit(true, true, true, true, minter);
+        vm.startPrank(zeroFee);
+        vm.expectEmit(minter);
         emit IMinter.RedeemLeveragedToken(zeroFee, receiver, ownerLeveragedDecrease, receiverCollateralIncrease);
-        vm.prank(zeroFee);
-        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(leveragedIn, receiver);
-        //                 ---------------------------------------------------------------
+        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(ownerLeveragedDecrease, receiver);
+        //                 --------------------------------------------------------------------------
+        vm.stopPrank();
         assertEq(
             IMinter(minter).leveragedTokenPrice(),
             leveragedPriceBefore,
@@ -102,72 +88,71 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertGe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio >= before");
     }
 
+    /// The zero-fee leveraged redemption: reverts for a caller without the zero-fee role; with no leveraged
+    /// outstanding, or for an offer of nothing, it reverts as having nothing to redeem; and it reverts in the leveraged
+    /// token for an offer the caller has not approved or does not hold. Served, it burns the offer and pays its
+    /// collateral's worth with no fee, as its event reports, at an unchanged leveraged price.
     function test_freeRedeemLeveraged() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "should have no minted leveraged tokens");
 
         // mint noaccess
         assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.startPrank(sender);
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
-        vm.prank(sender);
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
+        vm.stopPrank();
         // 1 ----------------------------------------------------
 
         // zero input, when none
         assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
+        vm.startPrank(zeroFee);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        vm.prank(zeroFee);
         IMinter(minter).freeRedeemLeveragedToken(0, receiver);
+        vm.stopPrank();
         // 2 ------------------------------------------------
-
-        // no longer support -1
-        // // all input, when none
-        // vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        // vm.prank(zeroFee);
-        // IMinter(minter).freeRedeemLeveragedToken(type(uint256).max, receiver);
-        // // 3 ----------------------------------------------------------------
 
         // some input, when none
         assertEq(IERC20(leveragedToken).totalSupply(), 0);
+        vm.startPrank(zeroFee);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        vm.prank(zeroFee);
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
-        // 4 ----------------------------------------------------
+        vm.stopPrank();
+        // 3 ----------------------------------------------------
 
         // some input, when none, but minter has some
         assertEq(IHarborOwnable(minter).owner(), owner());
         deal(address(Deployed.wstETH), zeroFee, 20 ether);
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
-        vm.prank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(1 ether, sender); // not zeroFee
+        vm.stopPrank();
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-        //vm.expectRevert("ERC20: transfer amount exceeds allowance");
         assertEq(IERC20(leveragedToken).allowance(zeroFee, minter), 0, "zeroFee has none allowed");
+        vm.startPrank(zeroFee);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, minter, 0, 1 ether));
-        vm.prank(zeroFee);
         IMinter(minter).freeRedeemLeveragedToken(1 ether, receiver);
+        vm.stopPrank();
+        // 4 ------------------------------------------------------
+
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, 1 ether);
+        vm.stopPrank();
+        assertEq(IERC20(leveragedToken).balanceOf(zeroFee), 0, "zeroFee has none");
+        vm.startPrank(zeroFee);
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, zeroFee, 0, 1 ether));
+        IMinter(minter).freeRedeemLeveragedToken(1 ether, receiver);
+        vm.stopPrank();
         // 5 ------------------------------------------------------
 
-        //vm.expectRevert("ERC20: transfer amount exceeds balance");
-        vm.prank(zeroFee);
-        IERC20(leveragedToken).approve(minter, 1 ether);
-        assertEq(IERC20(leveragedToken).balanceOf(zeroFee), 0, "zeroFee has none");
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, zeroFee, 0, 1 ether));
-        vm.prank(zeroFee);
-        IMinter(minter).freeRedeemLeveragedToken(1 ether, receiver);
-        // 6 ------------------------------------------------------
-
         uint256 leveragedTotalSupplyBefore = IERC20(leveragedToken).totalSupply();
-        // console2.log("leveragedTotalSupplyBefore=%s", leveragedTotalSupplyBefore);
         uint256 leveragedBalanceOfOwnerBefore = IERC20(leveragedToken).balanceOf(zeroFee);
-        // console2.log("leveragedBalanceOfOwnerBefore=%s", leveragedBalanceOfOwnerBefore);
 
-        // console2.log("leveragedTokenPrice=%s", IMinter(minter).leveragedTokenPrice());
         uint256 mintedLeveraged = price;
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
+        vm.stopPrank();
         //++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         assertEq(
@@ -183,52 +168,56 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(IERC20(leveragedToken).balanceOf(zeroFee), mintedLeveraged);
 
         // zero input, when some
+        vm.startPrank(zeroFee);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        vm.prank(zeroFee);
         IMinter(minter).freeRedeemLeveragedToken(0, receiver);
-        // 7 ------------------------------------------------
+        vm.stopPrank();
+        // 6 ------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(zeroFee), mintedLeveraged, "nothing redeemed");
 
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
+        vm.stopPrank();
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         assertEq(IERC20(leveragedToken).balanceOf(zeroFee), mintedLeveraged + price, "minted more 1:price");
 
-        // check that we can't redeem more than minter has minted
-        // TODO: check this for non-free redeems
-        vm.prank(zeroFee);
+        // a collateral token's worth of the supply, redeemed for exactly a collateral token
+        vm.startPrank(zeroFee);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0, "receiver has none");
         assertEq(IMinter(minter).leveragedTokenBalance(), mintedLeveraged + 2 * price);
-        vm.expectEmit(true, true, false, true, minter);
+        vm.startPrank(zeroFee);
+        vm.expectEmit(minter);
         emit IMinter.RedeemLeveragedToken(zeroFee, receiver, price, 1 ether);
-        vm.prank(zeroFee);
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
-        // 8 -----------------------------------------------------------------
+        vm.stopPrank();
+        // 7 -----------------------------------------------------------------
         assertEq(IMinter(minter).leveragedTokenBalance(), mintedLeveraged + 1 * price);
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 1 ether);
 
         // first normal redeem
-        vm.prank(zeroFee);
+        vm.startPrank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(6 ether, zeroFee);
+        vm.stopPrank();
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         _freeRedeemLeveragedToken(price);
-        // 9 ---------------------------
+        // 8 ---------------------------
 
         // more than one redeem
         _freeRedeemLeveragedToken(2 * price);
-        // 10 ------------------------------
-
-        // // check all-of function, when some
-        // _freeRedeemLeveragedToken(type(uint256).max);
-        // // 11 --------------------------------------
+        // 9 ------------------------------
     }
 
     //---------------------------------------------------------------------------------------------
     // Redeem Leveraged
     //---------------------------------------------------------------------------------------------
 
+    /// @dev Redeems `leveragedIn` of the sender's leveraged by the retail route - the sentinel passed on as given, for
+    ///      the minter to read as the sender's whole balance - and checks every balance it moves against the dry run of
+    ///      the amount. The record is expected to fall by exactly the wrapped that leaves, which holds at the
+    ///      wrapped-to-underlying rate of one, and for the whole-wei claims, of the markets this suite builds.
     function _redeemLeveragedToken(uint256 leveragedIn) private {
         uint256 senderLeveragedDecrease;
         if (leveragedIn == type(uint256).max) {
@@ -237,20 +226,12 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             senderLeveragedDecrease = leveragedIn;
         }
 
-        vm.prank(sender);
+        vm.startPrank(sender);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
 
         (, uint256 redeemLeveragedFee, , uint256 receiverCollateralIncrease, , ) = IMinter(minter)
             .redeemLeveragedTokenDryRun(senderLeveragedDecrease);
-
-        //  = IMinter(minter).collateralForLeverageTokens(
-        //     (senderLeveragedDecrease * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))) /
-        //         1 ether
-        // );
-        // uint256 receiverCollateralIncrease = IMinter(minter).collateralForLeverageTokens(
-        //     (senderLeveragedDecrease *
-        //         (1 ether - uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios)))) / 1 ether
-        // );
 
         uint256 feeReceiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         uint256 senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender);
@@ -262,17 +243,17 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
         uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
 
-        vm.expectEmit(true, true, true, false, minter);
-        emit IMinter.RedeemLeveragedToken(sender, receiver, senderLeveragedDecrease, 0);
-        vm.prank(sender);
-        uint256 returned = IMinter(minter).redeemLeveragedToken(senderLeveragedDecrease, receiver, 0);
-        // -----------------------------------------------------------------------------------------------
+        vm.startPrank(sender);
+        vm.expectEmit(minter);
+        emit IMinter.RedeemLeveragedToken(sender, receiver, senderLeveragedDecrease, receiverCollateralIncrease);
+        uint256 returned = IMinter(minter).redeemLeveragedToken(leveragedIn, receiver, 0);
+        //                 ------------------------------------------------------------
+        vm.stopPrank();
         assertEq(leveragedPrice, IMinter(minter).leveragedTokenPrice(), "leveraged price doesn't change");
         assertEq(returned, receiverCollateralIncrease, "unexpected amount returned compared to price");
-        assertApproxEqAbs(
+        assertEq(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver),
             feeReceiverCollateralBefore + redeemLeveragedFee,
-            1,
             "fee transferred"
         );
         assertEq(
@@ -286,10 +267,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             receiverCollateralBefore + receiverCollateralIncrease,
             "collateral returned"
         );
-        assertApproxEqAbs(
+        assertEq(
             IMinter(minter).collateralTokenBalance(),
             minterCollateralBalanceBefore - receiverCollateralIncrease - redeemLeveragedFee,
-            1,
             "minter is tracking the collateral"
         );
         assertEq(
@@ -297,11 +277,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             minterLeveragedBalanceBefore - senderLeveragedDecrease,
             "minter is tracking the leveraged tokens"
         );
-        // TODO: track the reserve pool too
-        assertApproxEqAbs(
+        assertEq(
             IERC20(Deployed.wstETH).balanceOf(minter),
             minterCollateralBefore - receiverCollateralIncrease - redeemLeveragedFee,
-            1,
             "wstETH has minter owning it"
         );
         assertLt(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio < before");
@@ -318,10 +296,11 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
     function _testRedeemLeveragedDryRun(uint256 collateralIn, DryRunResults memory expected, address sender_) internal {
         DryRunResults memory r;
-        vm.prank(sender_);
+        vm.startPrank(sender_);
         (r.incentiveRatio, r.wrappedFee, r.leveragedRedeemed, r.wrappedCollateralReturned, r.price, r.rate) = IMinter(
             minter
         ).redeemLeveragedTokenDryRun(collateralIn);
+        vm.stopPrank();
         assertEq(r.incentiveRatio, expected.incentiveRatio, "incentiveRatio");
         assertEq(r.wrappedFee, expected.wrappedFee, "wrappedFee");
         assertEq(r.leveragedRedeemed, expected.leveragedRedeemed, "leveragedRedeemed");
@@ -343,203 +322,219 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             });
     }
 
+    /// The retail leveraged redemption: an offer of nothing, or the sentinel from an empty balance, reverts by name;
+    /// with no leveraged outstanding there is nothing to redeem; inside the disallowed band it returns nothing and
+    /// reverts; and above it the leveraged token reverts an offer the minter is not approved for. Served, it charges
+    /// the band's fee exactly, as its dry run forecasts; a minimum the payout does not meet reverts naming both,
+    /// before anything is burned; and the sentinel redeems the caller's whole balance.
     function test_redeemLeveragedBasic() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        int256 disallowed = config.redeemLeveragedIncentiveConfig.incentiveRatios[0];
+        int256 feeRatio = ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios);
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         DryRunResults memory expected;
 
         // zero input, when none
-        assertEq(IERC20(Deployed.wstETH).balanceOf(sender), 0);
+        assertEq(IERC20(leveragedToken).balanceOf(sender), 0);
         expected = zeros();
-        expected.incentiveRatio = 1 ether; // its a disallow
+        expected.incentiveRatio = disallowed;
         _testRedeemLeveragedDryRun(0, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(0, receiver, 0);
+        vm.stopPrank();
         // 1 --------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // all input, when none
         expected = zeros();
-        expected.incentiveRatio = 1 ether; // its a disallow
+        expected.incentiveRatio = disallowed;
         _testRedeemLeveragedDryRun(type(uint256).max, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(type(uint256).max, receiver, 0);
+        vm.stopPrank();
         // 2 ----------------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // some input, when no leveraged tokens
         assertEq(IERC20(leveragedToken).totalSupply(), 0);
         expected = zeros();
-        expected.incentiveRatio = 1 ether; // its a disallow
+        expected.incentiveRatio = disallowed;
         _testRedeemLeveragedDryRun(1 ether, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(1 ether, receiver, 0);
+        vm.stopPrank();
         // 3 -------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // some input, when none
         setUp_collateral(1 ether, 0); // collateral ratio 1.0
         expected = zeros();
-        expected.incentiveRatio = 1 ether; // its a disallow
+        expected.incentiveRatio = disallowed;
         _testRedeemLeveragedDryRun(1 ether, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(1 ether, receiver, 0);
+        vm.stopPrank();
         // 4 -------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // all input, when none
         expected = zeros();
-        expected.incentiveRatio = 1 ether; // its a disallow
+        expected.incentiveRatio = disallowed;
         _testRedeemLeveragedDryRun(type(uint256).max, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(type(uint256).max, receiver, 0);
+        vm.stopPrank();
         // 5 ------------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // get allowance
-        vm.prank(sender);
+        vm.startPrank(sender);
         IERC20(leveragedToken).approve(minter, 10 ether);
+        vm.stopPrank();
 
         // zero input, when some
         expected = zeros();
-        expected.incentiveRatio = 1 ether; // its a disallow
+        expected.incentiveRatio = disallowed;
         _testRedeemLeveragedDryRun(0, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(0, receiver, 0);
+        vm.stopPrank();
         // 6 ----------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // disallowed
-        setUp_collateral(11 ether, 1 ether, sender); // CR = 12/11
-        assertLt(IMinter(minter).collateralRatio(), 1.1e18, "shoule be in disallowed");
+        setUp_collateral(11 ether, 1 ether, sender); // a ratio of 13/12
+        assertLt(
+            IMinter(minter).collateralRatio(),
+            config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds[0],
+            "should be in the disallowed band"
+        );
 
-        // TODO: test all the other places this error is raised
         expected = zeros();
-        expected.incentiveRatio = 1 ether;
+        expected.incentiveRatio = disallowed;
         _testRedeemLeveragedDryRun(1 ether, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, Deployed.wstETH));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(1 ether, receiver, 0);
+        vm.stopPrank();
         // 7 ----------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // first normal redeem
         setUp_collateral(0, 5 ether, sender); // sender has 6 now
         setUp_collateral(10 ether, 100 ether); // make a nice collateral ratio
-        assertGt(IMinter(minter).collateralRatio(), 1.4e18, "shoule be 120 basis points fee");
+        assertGt(
+            IMinter(minter).collateralRatio(),
+            ultimate(config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds),
+            "should be in the fee band"
+        );
 
         expected = zeros();
-        expected.incentiveRatio = 0.012 ether;
+        expected.incentiveRatio = feeRatio;
         _testRedeemLeveragedDryRun(0, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(0, receiver, 0);
+        vm.stopPrank();
         // 8 -----------------------------------------------
 
         assertEq(IERC20(leveragedToken).allowance(sender, minter), 10 ether, "minter has no allowance");
 
         expected = zeros();
-        expected.incentiveRatio = 0.012 ether;
-        expected.wrappedFee = (1 ether * 0.012 ether) / 1 ether;
+        expected.incentiveRatio = feeRatio;
+        expected.wrappedFee = (1 ether * uint256(feeRatio)) / 1 ether;
         expected.leveragedRedeemed = 1 * price;
         expected.wrappedCollateralReturned = 1 ether - expected.wrappedFee;
         _testRedeemLeveragedDryRun(1 * price, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, minter, 10 ether, 1 * price)
         );
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(1 * price, receiver, 0);
+        vm.stopPrank();
         // 9 -------------------------------------------------------
 
-        vm.prank(sender);
+        vm.startPrank(sender);
         IERC20(leveragedToken).approve(minter, 20 * price);
+        vm.stopPrank();
 
-        expected = zeros();
-        expected.incentiveRatio = 0.012 ether;
-        expected.wrappedFee = (1 ether * 0.012 ether) / 1 ether;
-        expected.leveragedRedeemed = 1 * price;
-        expected.wrappedCollateralReturned = 1 ether - expected.wrappedFee;
         _testRedeemLeveragedDryRun(1 * price, expected, sender);
 
         assertEq(IERC20(leveragedToken).balanceOf(sender), 6 * price, "sender has 6");
-        vm.prank(sender);
+        vm.startPrank(sender);
         IMinter(minter).redeemLeveragedToken(1 * price, receiver, 0);
+        vm.stopPrank();
         // 10 -------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender has 5");
 
         expected = zeros();
-        expected.incentiveRatio = 0.012 ether;
-        expected.wrappedFee = (6 ether * 0.012 ether) / 1 ether;
+        expected.incentiveRatio = feeRatio;
+        expected.wrappedFee = (6 ether * uint256(feeRatio)) / 1 ether;
         expected.leveragedRedeemed = 6 * price;
         expected.wrappedCollateralReturned = 6 ether - expected.wrappedFee;
 
         _testRedeemLeveragedDryRun(6 * price, expected, sender);
 
-        // TODO: check all 4+ places where ReturnInsufficientAmount can be reverted
+        vm.startPrank(sender);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IMinter.ReturnInsufficientAmount.selector,
                 Deployed.wstETH,
-                6 ether - (6 * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))),
+                expected.wrappedCollateralReturned,
                 6 ether
             )
         );
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(6 * price, receiver, 6 ether);
+        vm.stopPrank();
         // 11 -------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender still has 5");
 
         expected = zeros();
-        expected.incentiveRatio = 0.012 ether;
-        expected.wrappedFee = (5 ether * 0.012 ether) / 1 ether;
+        expected.incentiveRatio = feeRatio;
+        expected.wrappedFee = (5 ether * uint256(feeRatio)) / 1 ether;
         expected.leveragedRedeemed = 5 * price;
         expected.wrappedCollateralReturned = 5 ether - expected.wrappedFee;
         _testRedeemLeveragedDryRun(5 * price, expected, sender);
 
+        vm.startPrank(sender);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IMinter.ReturnInsufficientAmount.selector,
                 Deployed.wstETH,
-                5 ether - (5 * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))),
+                expected.wrappedCollateralReturned,
                 5 ether
             )
         );
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(5 * price, receiver, 5 ether);
+        vm.stopPrank();
         // 12 -------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender still has 5");
 
-        expected = zeros();
-        expected.incentiveRatio = 0.012 ether;
-        expected.wrappedFee = (5 ether * 0.012 ether) / 1 ether;
-        expected.leveragedRedeemed = 5 * price;
-        // console2.log("expected.leveragedRedeemed = %s", expected.leveragedRedeemed);
-        expected.wrappedCollateralReturned = 5 ether - expected.wrappedFee;
+        // the sentinel: the dry run prices the caller's whole balance, and the call redeems it
         _testRedeemLeveragedDryRun(type(uint256).max, expected, sender);
 
-        vm.prank(sender);
+        vm.startPrank(sender);
         IMinter(minter).redeemLeveragedToken(type(uint256).max, receiver, 0);
+        vm.stopPrank();
         // 13 --------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 0, "sender has 0");
-
-        // now redeem all remaining leveraged tokens
 
         // zero fee has the rest
         assertEq(
@@ -549,14 +544,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
     }
 
-    // TODO: check bonus function - do this as part of reserve pool
-    function test_redeemLeveragedBonus() public {
-        // test bonus when reserve pool is empty
-        // test bonus when reserve
-        // CR out of bonus zone = no bonus
-        // mixed bonus and fee
-    }
-
+    /// A retail leveraged redemption from a collateral ratio of two charges the top band's fee and pays the rest, as
+    /// its event reports; a minimum the payout meets is served, one a wei above it reverts naming both, and the
+    /// sentinel redeems the caller's whole balance for exactly its dry run's forecast.
     function test_redeemLeveragedNormal() public {
         setUp_collateral(20 ether, 0);
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -565,15 +555,15 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         setUp_collateral(0, 10 ether, sender);
-        // first mint
+        // first redeem
         _redeemLeveragedToken(price);
         // 1 --------------------
 
-        // second mint
+        // second redeem
         _redeemLeveragedToken(2 * price);
         // 2 ------------------------
 
-        // check mintokenout
+        // check the minimum out
         uint256 collateral = 3 ether;
         uint256 leveraged = (collateral * price) / 1 ether;
 
@@ -587,20 +577,20 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(expectedCollateralOut, collateral - redeemLeveragedFee, "collateral out correct");
 
         deal(address(leveragedToken), sender, leveraged * 2);
-        vm.prank(sender);
+        vm.startPrank(sender);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
         deal(address(Deployed.wstETH), sender, collateral * 10);
 
         uint256 senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just within
-        vm.prank(sender);
-        IMinter(minter).redeemLeveragedToken(leveraged, receiver, expectedCollateralOut - 0.025 ether);
+        vm.startPrank(sender);
+        IMinter(minter).redeemLeveragedToken(leveraged, receiver, expectedCollateralOut);
+        vm.stopPrank();
         // 3 ------------------------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore + expectedCollateralOut);
-        // clog("senderLeveragedBefore", senderLeveragedBefore);
-        // clog("leveraged", leveraged);
 
         assertEq(IERC20(leveragedToken).balanceOf(sender), senderLeveragedBefore - leveraged);
 
@@ -608,6 +598,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just over
+        vm.startPrank(sender);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IMinter.ReturnInsufficientAmount.selector,
@@ -616,27 +607,22 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
                 expectedCollateralOut + 1
             )
         );
-        vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(leveraged, receiver, expectedCollateralOut + 1);
+        vm.stopPrank();
         // 4 ------------------------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore);
         assertEq(IERC20(leveragedToken).balanceOf(sender), senderLeveragedBefore);
 
-        // mint from all of balance
-        // redeemLeveragedFee = IMinter(minter).collateralForLeverageTokens(
-        //     (senderLeveragedBefore * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))) / 1 ether
-        // );
-        // expectedCollateralOut = collateral - redeemLeveragedFee;
+        // redeem all of the balance
         (, redeemLeveragedFee, , expectedCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(
             senderLeveragedBefore
         );
 
         _redeemLeveragedToken(type(uint256).max);
         // 5 --------------------------------
-        assertApproxEqAbs(
+        assertEq(
             IERC20(Deployed.wstETH).balanceOf(receiver),
             receiverCollateralBefore + expectedCollateralOut,
-            1,
             "out correct"
         );
         assertEq(IERC20(leveragedToken).balanceOf(sender), 0, "transferred it all");
@@ -749,5 +735,336 @@ contract TestMinterRedeemLeveragedRoundedOnce is TestMinterSetUp {
         vm.stopPrank();
 
         assertEq(paid, expected, "the collateral less the fee, rounded down once");
+    }
+}
+
+/// @notice A leveraged redemption that reaches a band where redeeming is disallowed fills only to that band's bound: it
+/// burns the leveraged whose claim is the collateral above the bound, and the caller keeps the rest of the offer.
+contract TestMinterRedeemLeveragedIntoADisallow is TestMinterSetUp {
+    address user;
+
+    /// @dev Redeeming leveraged is disallowed below a ratio of 1.3, and charges 1.2% from 1.3 to 1.5 and 0.7% above it.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(130, 150), ia(disallow, 120, 70))
+        );
+    }
+
+    /// From a ratio of 1.8 an offer of the whole supply would take the ratio to the peg. The redemption burns only the
+    /// leveraged that brings it to 1.3 - the share of the supply that the collateral above the bound is of the collateral
+    /// above the peg - and the caller keeps the rest; the event and the dry run report the partial fill, and the ratio
+    /// ends on the bound.
+    function test_redeemLeveraged_intoTheDisallowBand_fillsToTheBoundary() public {
+        uint256 price = 2000 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1 ether);
+        user = makeAddr("user");
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        uint256 offer = IERC20(leveragedToken).balanceOf(user);
+        assertEq(offer, IMinter(minter).leveragedTokenBalance(), "precondition: the offer is the whole supply");
+        uint256 disallowedBelow = config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds[0];
+        uint256 expectedBurned;
+        {
+            uint256 collateralValue = IMinter(minter).collateralTokenBalance() * price;
+            uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
+            expectedBurned = Math.mulDiv(
+                offer,
+                collateralValue - disallowedBelow * peggedSupply,
+                collateralValue - 1 ether * peggedSupply
+            );
+        }
+        (, , uint256 dryRunBurned, uint256 dryRunPaid, , ) = IMinter(minter).redeemLeveragedTokenDryRun(offer);
+        assertEq(dryRunBurned, expectedBurned, "the dry run burns the share above the bound");
+        assertLt(dryRunBurned, offer, "precondition: the offer is more than the band can take");
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, offer);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter_v3.RedeemLeveragedToken(user, user, dryRunBurned, dryRunPaid);
+        uint256 paid = IMinter(minter).redeemLeveragedToken(offer, user, 0);
+        vm.stopPrank();
+
+        assertEq(paid, dryRunPaid, "paid what the dry run reports");
+        assertEq(IERC20(leveragedToken).balanceOf(user), offer - dryRunBurned, "the caller keeps the rest");
+        assertEq(IMinter(minter).collateralRatio(), disallowedBelow, "the ratio ends on the bound");
+    }
+
+    /// A partial fill never burns fewer leveraged than the collateral it removes is the claim of - that collateral's
+    /// share of the residual, of the supply, rounded up - and at most a wei more, across rates, prices and offers from
+    /// just past the fill to the whole supply.
+    function testFuzz_redeemLeveraged_partialFillBurnsAtLeastTheShareRedeemed(
+        uint256 leveragedIn,
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        user = makeAddr("user");
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        uint256 supply = IMinter(minter).leveragedTokenBalance();
+        // 63% to all of the supply: past the 62.5% whose claim is the collateral above 1.3
+        leveragedIn = bound(leveragedIn, (supply * 63) / 100, supply);
+
+        uint256 share;
+        {
+            uint256 backing = IMinter(minter).collateralTokenBalance();
+            uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
+            // the collateral above the bound, the collateral at the bound rounded up
+            uint256 aboveE36 = backing *
+                1 ether -
+                Math.mulDiv(
+                    config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds[0] * 1 ether,
+                    peggedSupply,
+                    price,
+                    Math.Rounding.Ceil
+                );
+            share = Math.mulDiv(
+                aboveE36,
+                price * supply,
+                (backing * price - peggedSupply * 1 ether) * 1 ether,
+                Math.Rounding.Ceil
+            );
+        }
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, leveragedIn);
+        IMinter(minter).redeemLeveragedToken(leveragedIn, user, 0);
+        vm.stopPrank();
+
+        uint256 burned = supply - IMinter(minter).leveragedTokenBalance();
+        assertLt(burned, leveragedIn, "precondition: the offer is more than the band can take");
+        assertGe(burned, share, "never fewer than the collateral removed is the claim of");
+        // The burn is the offer's part in proportion to the collateral removed out of the offer's own claim, and that
+        // claim is rounded down, by under 1e-36 of a collateral unit: enough to carry the burn past a whole token wei,
+        // by one at most.
+        assertLe(burned, share + 1, "and at most a wei more");
+    }
+}
+
+/// @notice A leveraged redemption walks down through the bands it crosses, each slice charged at its own band's rate; it
+/// is served wherever the leveraged has value - below the min CR as above it - and reverts at the peg and below it,
+/// whatever the incentive config says there.
+contract TestMinterRedeemLeveragedAcrossBands is TestMinterSetUp {
+    address user;
+
+    /// @dev What a redemption moves: what the redeemer is paid and what the fee receiver is paid.
+    struct Outcome {
+        uint256 paid;
+        uint256 fee;
+    }
+
+    /// @dev Redeeming leveraged charges 1.5% from the peg to 1.3, 1% from 1.3 to 1.6 and 0.6% above it. Below the peg
+    ///      the band is a fee too, of 2%: no band disallows.
+    function setUpConfig() internal virtual override {
+        setUp_config(
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100), ia(0, 0)),
+            ic(ua(100, 130, 160), ia(200, 150, 100, 60))
+        );
+    }
+
+    function setUp() public virtual override {
+        super.setUp();
+        user = makeAddr("user");
+    }
+
+    /// At the peg and below it the leveraged is a claim on nothing: a redemption reverts and its dry run reports
+    /// nothing, though the incentive config's band there charges a fee and does not disallow.
+    function test_redeemLeveraged_atThePegAndBelow_revertsWhateverTheIncentiveConfig() public {
+        uint256 rate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, rate);
+        setUp_collateral(100 ether, 100 ether, user); // a ratio of 2
+        assertLt(
+            config.redeemLeveragedIncentiveConfig.incentiveRatios[0],
+            1 ether,
+            "precondition: the band below the peg charges a fee, it does not disallow"
+        );
+        uint256 offer = IERC20(leveragedToken).balanceOf(user);
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, offer);
+        vm.stopPrank();
+
+        uint256[2] memory prices = [uint256(1000 ether), 900 ether]; // a ratio of exactly one, and of 0.9
+        for (uint256 i = 0; i < prices.length; i++) {
+            MockWrappedPriceOracle(priceOracle).setLatestAnswer(prices[i], rate);
+            assertLe(IMinter(minter).collateralRatio(), 1 ether, "precondition: at the peg or below it");
+            (, uint256 dryRunFee, uint256 dryRunBurned, uint256 dryRunPaid, , ) = IMinter(minter)
+                .redeemLeveragedTokenDryRun(offer);
+            assertEq(dryRunBurned, 0, "the dry run burns nothing");
+            assertEq(dryRunPaid, 0, "pays nothing");
+            assertEq(dryRunFee, 0, "and charges nothing");
+
+            vm.startPrank(user);
+            vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+            IMinter(minter).redeemLeveragedToken(offer, user, 0);
+            vm.stopPrank();
+        }
+    }
+
+    /// Between the peg and the min CR no leveraged is minted, but the leveraged outstanding still has value and a
+    /// redemption is served: it pays its share of the residual less its band's fee, rounded down once.
+    function test_redeemLeveraged_belowTheMinimumCollateralRatio_isServed() public {
+        uint256 rate = 1 ether;
+        uint256 price = 1005 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, rate);
+        setUp_collateral(100 ether, 100 ether, user); // a ratio of 2
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate); // a ratio of 1.005
+        assertGt(IMinter(minter).collateralRatio(), 1 ether, "precondition: above the peg");
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "precondition: below the min CR, so no leveraged is minted");
+        uint256 leveragedIn = IERC20(leveragedToken).balanceOf(user) / 2;
+        uint256 claimE36 = Math.mulDiv(
+            IMinter(minter).collateralTokenBalance() * price - IMinter(minter).peggedTokenBalance() * 1 ether,
+            leveragedIn * 1 ether,
+            price * IMinter(minter).leveragedTokenBalance()
+        );
+        uint256 expectedPaid = (claimE36 *
+            uint256(1 ether - config.redeemLeveragedIncentiveConfig.incentiveRatios[1])) / (rate * 1 ether);
+        assertGt(expectedPaid, 0, "precondition: the share is worth something");
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, leveragedIn);
+        uint256 paid = IMinter(minter).redeemLeveragedToken(leveragedIn, user, 0);
+        vm.stopPrank();
+
+        assertEq(paid, expectedPaid, "the share of the residual less the band's fee");
+    }
+
+    /// A leveraged redemption is charged the rate of the band the market is in, and here the bands charge more as the
+    /// ratio falls: a collateral token's worth of leveraged pays 0.6% at a ratio of 1.8, 1% at 1.45 and 1.5% at 1.15.
+    function test_redeemLeveraged_costsMoreAsTheCollateralRatioFalls() public {
+        uint256 price = 2000 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1 ether);
+        uint256 collateral = 1 ether;
+        // the collateral behind the leveraged for ratios of 1.8, 1.45 and 1.15, which sit in bands 3, 2 and 1
+        uint256[3] memory collateralForLeveraged = [uint256(80 ether), 45 ether, 15 ether];
+        uint256 feeAtTheRatioAbove = 0;
+        uint256 snapshot = vm.snapshotState();
+        for (uint256 i = 0; i < collateralForLeveraged.length; i++) {
+            vm.revertToState(snapshot);
+            setUp_collateral(100 ether, collateralForLeveraged[i], user);
+            uint256 expectedFee = (collateral *
+                uint256(
+                    config.redeemLeveragedIncentiveConfig.incentiveRatios[collateralForLeveraged.length - i]
+                )) / 1 ether;
+            uint256 leveragedIn = (collateral * price) / 1 ether; // each leveraged token is worth a pegged unit here
+
+            vm.startPrank(user);
+            IERC20(leveragedToken).approve(minter, leveragedIn);
+            uint256 paid = IMinter(minter).redeemLeveragedToken(leveragedIn, user, 0);
+            vm.stopPrank();
+
+            assertEq(paid, collateral - expectedFee, "the redeemer is paid the collateral less the band's fee");
+            assertEq(
+                IERC20(wrappedCollateralToken).balanceOf(feeReceiver),
+                expectedFee,
+                "the fee receiver is paid the band's fee"
+            );
+            assertGt(expectedFee, feeAtTheRatioAbove, "a lower ratio costs more");
+            feeAtTheRatioAbove = expectedFee;
+        }
+    }
+
+    /// From a ratio of 1.8 a redemption to about 1.45 crosses one bound and one to about 1.15 crosses two. The collateral
+    /// the leveraged is a claim on is split where the ratio reaches each band's lower bound, each slice's fee exact on
+    /// its collateral; the redeemer and the fee receiver are each paid exactly their part.
+    function test_redeemLeveraged_acrossOneAndTwoBandBounds_chargesEachSliceAtItsBandsRate(
+        uint256 rate,
+        uint256 price
+    ) public {
+        rate = bound(rate, 0.5 ether, 5 ether);
+        price = bound(price, 1 ether, 100_000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8, in the top band
+        uint256[] memory bounds = config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds;
+
+        uint256 snapshot = vm.snapshotState();
+        uint256 leveragedIn = _leveragedToReach(1.45 ether);
+        _redeemAndCheck(leveragedIn, _expectedRedemption(leveragedIn), bounds[1], bounds[2]); // one bound crossed
+        vm.revertToState(snapshot);
+        leveragedIn = _leveragedToReach(1.15 ether);
+        _redeemAndCheck(leveragedIn, _expectedRedemption(leveragedIn), bounds[0], bounds[1]); // two bounds crossed
+    }
+
+    /// @dev The leveraged whose redemption takes the ratio to about `targetRatio`, by the ratio's definition: the share
+    ///      of the supply that the collateral above the target is of the collateral above the peg. The fee comes out of
+    ///      the collateral returned, so the backing falls by the whole claim.
+    function _leveragedToReach(uint256 targetRatio) private view returns (uint256) {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 collateralValue = IMinter(minter).collateralTokenBalance() * price;
+        uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
+        return
+            Math.mulDiv(
+                IMinter(minter).leveragedTokenBalance(),
+                collateralValue - targetRatio * peggedSupply,
+                collateralValue - 1 ether * peggedSupply
+            );
+    }
+
+    /// @dev What a redemption of `leveragedIn` moves, by the incentive config. The leveraged is a claim on its share of
+    ///      the residual; walking down from the top band, where the market here starts, each band takes the collateral
+    ///      above its lower bound - the collateral at the bound rounded up, so the cheaper slice is never overstated -
+    ///      and the last band entered takes the rest, each slice's fee exact on its collateral. The redeemer is paid
+    ///      the claim less the fees, rounded down once, and the fee receiver the rest of the whole wei that leave.
+    function _expectedRedemption(uint256 leveragedIn) private view returns (Outcome memory expected) {
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
+        uint256 heldE36 = IMinter(minter).collateralTokenBalance() * 1 ether;
+        uint256 claimE36 = Math.mulDiv(
+            IMinter(minter).collateralTokenBalance() * price - peggedSupply * 1 ether,
+            leveragedIn * 1 ether,
+            price * IMinter(minter).leveragedTokenBalance()
+        );
+        uint256 leftE36 = claimE36;
+        uint256 feeE54 = 0;
+        for (uint256 band = config.redeemLeveragedIncentiveConfig.incentiveRatios.length - 1; leftE36 > 0; band--) {
+            uint256 sliceE36 = Math.min(
+                leftE36,
+                heldE36 -
+                    Math.mulDiv(
+                        config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds[band - 1] * 1 ether,
+                        peggedSupply,
+                        price,
+                        Math.Rounding.Ceil
+                    )
+            );
+            feeE54 += sliceE36 * uint256(config.redeemLeveragedIncentiveConfig.incentiveRatios[band]);
+            leftE36 -= sliceE36;
+            heldE36 -= sliceE36;
+        }
+        expected.paid = (claimE36 * 1 ether - feeE54) / (rate * 1 ether);
+        expected.fee = claimE36 / rate - expected.paid;
+    }
+
+    /// @dev Redeems `leveragedIn` and checks it ended between `lowerRatio` and `upperRatio` - the band the scenario aims
+    ///      for - with the redeemer and the fee receiver each paid exactly what `expected` gives them.
+    function _redeemAndCheck(
+        uint256 leveragedIn,
+        Outcome memory expected,
+        uint256 lowerRatio,
+        uint256 upperRatio
+    ) private {
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user);
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, leveragedIn);
+        IMinter(minter).redeemLeveragedToken(leveragedIn, user, 0);
+        vm.stopPrank();
+
+        assertGt(IMinter(minter).collateralRatio(), lowerRatio, "the redemption ends in the band aimed for");
+        assertLt(IMinter(minter).collateralRatio(), upperRatio, "the redemption ends in the band aimed for");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(user) - heldBefore,
+            expected.paid,
+            "the redeemer is paid each slice less its band's fee"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore,
+            expected.fee,
+            "the fee receiver is paid the fees"
+        );
     }
 }

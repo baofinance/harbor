@@ -27,10 +27,10 @@ import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol"
 ///      exact at 1e54 - the slice's collateral at 1e36 times its band's incentive ratio - and summed exactly. A
 ///      pegged redemption's collateral is priced once, cumulatively, so its slices sum to what the whole redemption
 ///      is worth; a pegged mint's pegged is priced once, from its exact net collateral. The trader's amount is then
-///      rounded once from the exact figure, the protocol's way - collateral taken up, collateral returned and tokens
-///      minted down - and the protocol's parties (the fee receiver, the reserve, the backing) absorb the remainder,
-///      so an order that crosses many bounds is rounded no more than one that crosses none. The 1e54 figures limit
-///      an order to about 1.16e41 wei of underlying collateral (2^256 / 1e36).
+///      rounded once from the exact figure, the protocol's way - collateral taken and tokens burned up, collateral
+///      returned and tokens minted down - and the protocol's parties (the fee receiver, the reserve, the backing)
+///      absorb the remainder, so an order that crosses many bounds is rounded no more than one that crosses none. The
+///      1e54 figures limit an order to about 1.16e41 wei of underlying collateral (2^256 / 1e36).
 library MinterAdjustments_v1 {
     using MinterValuationLib for MinterValuationLib.CollateralRatioData;
 
@@ -622,8 +622,16 @@ library MinterAdjustments_v1 {
             w.underlyingCollateralHeldE36 -= collateralInBandE36;
             band--;
         }
-        // calculate the leveraged for the collateral assuming constant leveraged price.
-        leveragedRedeemed = Math.mulDiv(leveragedIn, w.underlyingCollateralRemovedE36, w.underlyingCollateralInE36);
+        // The leveraged burned for the collateral removed, at the leveraged price the offer was valued at: the whole
+        // offer where the walk took all of its claim, otherwise its share of the offer rounded up, so a partial fill
+        // never burns fewer tokens than the collateral it removes is the claim of. The collateral removed is never
+        // more than the offer's claim, so the burn is never more than the offer.
+        leveragedRedeemed = Math.mulDiv(
+            leveragedIn,
+            w.underlyingCollateralRemovedE36,
+            w.underlyingCollateralInE36,
+            Math.Rounding.Ceil
+        );
 
         // the redeemer is paid the collateral less the exact fee, rounded down once; the fee receiver takes the rest of
         // the wrapped that leaves

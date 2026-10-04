@@ -465,11 +465,13 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
         vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, totalAmount);
-        // Leveraged first: a zero-fee leveraged mint is judged on the market it leaves, which with no pegged yet is
-        // a ratio of infinity, and the zero-fee pegged mint after it is not judged - so any ratio can be set up,
-        // the min CR included and below. Minted in either order the amounts are the same: with no pegged claim the
-        // first leveraged tokens are a token per unit of collateral value, and a pegged mint at or above the peg
-        // leaves the residual as it found it.
+        // Leveraged first: the zero-fee mint of a market's first leveraged tokens is judged on the market it leaves,
+        // which with no pegged yet is a ratio of infinity, and the zero-fee pegged mint after it is not judged - so
+        // an empty market can be set up at any ratio, the min CR included and below. Into a market that already has
+        // leveraged tokens the leveraged mint is judged on the market it starts from, which must stand at the min CR
+        // or above. Minted in either order the amounts are the same: with no pegged claim the first leveraged tokens
+        // are a token per unit of collateral value, and a pegged mint at or above the peg leaves the residual as it
+        // found it.
         if (collateralForLeveraged > 0) {
             leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
