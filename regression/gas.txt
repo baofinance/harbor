@@ -31,7 +31,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | leveragedMintable                                |  19667 | 1.967e+04 |
 | leveragedTokenBalance                            |  10374 | 1.037e+04 |
 | leveragedTokenPrice                              |  29635 | 2.964e+04 |
-| mintLeveragedToken                               | 169127 | 1.691e+05 |
+| mintLeveragedToken                               | 170248 | 1.702e+05 |
 | mintLeveragedTokenDryRun                         |  79707 | 7.971e+04 |
 | mintLeveragedTokenIncentiveRatio                 |  31132 | 3.113e+04 |
 | mintPeggedToken(uint256,address,uint256)         | 181547 | 1.815e+05 |
@@ -45,8 +45,8 @@ src/minter/Minter_v3.sol:Minter_v3
 | priceOracle                                      |   2472 | 2.472e+03 |
 | proxiableUUID                                    |    342 | 3.420e+02 |
 | recogniseImpairment                              |  28616 | 2.862e+04 |
-| redeemLeveragedToken                             | 156879 | 1.569e+05 |
-| redeemLeveragedTokenDryRun                       |  70271 | 7.027e+04 |
+| redeemLeveragedToken                             | 157107 | 1.571e+05 |
+| redeemLeveragedTokenDryRun                       |  70499 | 7.050e+04 |
 | redeemLeveragedTokenIncentiveRatio               |  29106 | 2.911e+04 |
 | redeemPeggedForCollateralRatio                   |  25525 | 2.552e+04 |
 | redeemPeggedToken                                | 181789 | 1.818e+05 |

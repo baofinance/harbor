@@ -813,8 +813,7 @@ contract TestMinterRedeemLeveragedIntoADisallow is TestMinterSetUp {
             uint256 backing = IMinter(minter).collateralTokenBalance();
             uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
             // the collateral above the bound, the collateral at the bound rounded up
-            uint256 aboveE36 = backing *
-                1 ether -
+            uint256 aboveE36 = backing * 1 ether -
                 Math.mulDiv(
                     config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds[0] * 1 ether,
                     peggedSupply,
@@ -905,6 +904,66 @@ contract TestMinterRedeemLeveragedAcrossBands is TestMinterSetUp {
         }
     }
 
+    /// An offer whose claim on the residual rounds to nothing redeems nothing: the redemption reverts by name and its
+    /// dry run reports nothing - here a wei of price above the peg, where the whole residual is a fraction of a
+    /// collateral wei.
+    function test_redeemLeveraged_anOfferWhoseClaimRoundsToNothing_reverts() public {
+        uint256 rate = 1 ether;
+        uint256 price = 1000 ether + 1;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, rate);
+        setUp_collateral(100 ether, 100 ether, user); // a ratio of 2
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        uint256 offer = 1e5;
+        uint256 residualE36 = IMinter(minter).collateralTokenBalance() * price -
+            IMinter(minter).peggedTokenBalance() * 1 ether;
+        assertGt(residualE36, 0, "precondition: above the peg, so the leveraged has a claim");
+        assertEq(
+            Math.mulDiv(residualE36, offer * 1 ether, price * IMinter(minter).leveragedTokenBalance()),
+            0,
+            "precondition: the offer's claim is under 1e-36 of a collateral unit"
+        );
+
+        (, uint256 dryRunFee, uint256 dryRunBurned, uint256 dryRunPaid, , ) = IMinter(minter)
+            .redeemLeveragedTokenDryRun(offer);
+        assertEq(dryRunBurned, 0, "the dry run burns nothing");
+        assertEq(dryRunPaid, 0, "pays nothing");
+        assertEq(dryRunFee, 0, "and charges nothing");
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, offer);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).redeemLeveragedToken(offer, user, 0);
+        vm.stopPrank();
+    }
+
+    /// An offer whose payout rounds to nothing redeems nothing, and its dry run says what the call does: nothing
+    /// burned, nothing charged, nothing paid, at the band's ratio - here a collateral wei's worth of leveraged, which
+    /// the fee, rounded the protocol's way, would take whole.
+    function test_redeemLeveragedDryRun_forAnOfferThatPaysNothing_reportsNothingRedeemed() public {
+        uint256 price = 2000 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1 ether);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        uint256 offer = price / 1 ether; // each leveraged token is worth a pegged unit here
+
+        (int256 ratio, uint256 fee, uint256 burned, uint256 paid, , ) = IMinter(minter).redeemLeveragedTokenDryRun(
+            offer
+        );
+        assertEq(burned, 0, "the dry run burns nothing");
+        assertEq(paid, 0, "pays nothing");
+        assertEq(fee, 0, "charges nothing");
+        assertEq(
+            ratio,
+            ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios),
+            "and reports the ratio of the band the market is in"
+        );
+
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, offer);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).redeemLeveragedToken(offer, user, 0);
+        vm.stopPrank();
+    }
+
     /// Between the peg and the min CR no leveraged is minted, but the leveraged outstanding still has value and a
     /// redemption is served: it pays its share of the residual less its band's fee, rounded down once.
     function test_redeemLeveraged_belowTheMinimumCollateralRatio_isServed() public {
@@ -914,7 +973,10 @@ contract TestMinterRedeemLeveragedAcrossBands is TestMinterSetUp {
         setUp_collateral(100 ether, 100 ether, user); // a ratio of 2
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate); // a ratio of 1.005
         assertGt(IMinter(minter).collateralRatio(), 1 ether, "precondition: above the peg");
-        assertFalse(IMinter_v3(minter).leveragedMintable(), "precondition: below the min CR, so no leveraged is minted");
+        assertFalse(
+            IMinter_v3(minter).leveragedMintable(),
+            "precondition: below the min CR, so no leveraged is minted"
+        );
         uint256 leveragedIn = IERC20(leveragedToken).balanceOf(user) / 2;
         uint256 claimE36 = Math.mulDiv(
             IMinter(minter).collateralTokenBalance() * price - IMinter(minter).peggedTokenBalance() * 1 ether,
@@ -947,9 +1009,8 @@ contract TestMinterRedeemLeveragedAcrossBands is TestMinterSetUp {
             vm.revertToState(snapshot);
             setUp_collateral(100 ether, collateralForLeveraged[i], user);
             uint256 expectedFee = (collateral *
-                uint256(
-                    config.redeemLeveragedIncentiveConfig.incentiveRatios[collateralForLeveraged.length - i]
-                )) / 1 ether;
+                uint256(config.redeemLeveragedIncentiveConfig.incentiveRatios[collateralForLeveraged.length - i])) /
+                1 ether;
             uint256 leveragedIn = (collateral * price) / 1 ether; // each leveraged token is worth a pegged unit here
 
             vm.startPrank(user);

@@ -366,10 +366,12 @@ library MinterAdjustments_v1 {
         uint256 peggedValueE36;
     }
 
-    /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
+    /// @notice Perform a dry run of a mint leveraged to calculate the various transfers of tokens.
     /// Fees, subsidies and disallows relating to the different incentiveRatios values are calculated as sum, weighted
     /// in proportion, in collateral space, to the amount spent within each collateral ratio boundary.
     /// It essentially performs a definite integral of the fee function.
+    /// @dev Where the offer would mint no token every output is nothing: the mint reverts there, and its dry run
+    /// reports what the mint does.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for minting leveraged tokens.
     /// @param wrappedCollateralIn The proposed amount of wrapped collateral being posted in exchange for leveraged tokens
@@ -413,7 +415,6 @@ library MinterAdjustments_v1 {
         if (cr.leveragedTokenBalance > 0 && w.collateralValueE36 <= w.peggedValueE36) {
             return (0, 0, 0, 0, 0);
         }
-        maxWrappedCollateralIn = wrappedCollateralIn;
 
         // simulate minting leveaged tokens from current collateral ratio upwards,
         // applying the incentive at the correct ratio as we go.
@@ -493,26 +494,31 @@ library MinterAdjustments_v1 {
             w.band++;
         }
         uint256 rateE36 = cr.rate * 1 ether;
-        wrappedSubsidy = w.underlyingSubsidyE54 / rateE36; // rounded down: never more than the reserve can cover
         // The wrapped kept for the trader - the whole input, plus the subsidy, less the fee - rounded down once from
         // the exact figure; the fee is what that leaves. Rounding the subsidy and the fee each on their own as well
         // would cost the trader a wei the exact figure does not.
-        uint256 wrappedKept = (maxWrappedCollateralIn * rateE36 + w.underlyingSubsidyE54 - w.underlyingFeeE54) /
-            rateE36;
-        wrappedFee = maxWrappedCollateralIn + wrappedSubsidy - wrappedKept;
+        uint256 wrappedKept = (wrappedCollateralIn * rateE36 + w.underlyingSubsidyE54 - w.underlyingFeeE54) / rateE36;
         // Valued by the same conversion the holding is, so the record and the collateral behind it move together to
         // the wei.
-        underlyingCollateralAdded = MinterValuationLib.wrappedAsCollateral(wrappedKept, cr.rate);
+        uint256 collateralAdded = MinterValuationLib.wrappedAsCollateral(wrappedKept, cr.rate);
         // The tokens are minted against the collateral the record actually gained, not against the unrounded
         // figure the band walk accumulated. Minting against more than was credited buys the holder a share of a
         // residual that never arrived, which shows up as the leveraged price moving on a mint that should not move it.
         leveragedMinted = MinterValuationLib.leveragedForCollateral(
-            underlyingCollateralAdded,
+            collateralAdded,
             cr.underlyingCollateral,
             cr.price,
             cr.peggedTokenBalance,
             cr.leveragedTokenBalance
         );
+        // A mint of no tokens takes nothing - nothing used, subsidised, charged or credited - so that a dry run reports
+        // what the call does, which is to revert.
+        if (leveragedMinted > 0) {
+            maxWrappedCollateralIn = wrappedCollateralIn;
+            wrappedSubsidy = w.underlyingSubsidyE54 / rateE36; // rounded down: never more than the reserve can cover
+            wrappedFee = wrappedCollateralIn + wrappedSubsidy - wrappedKept;
+            underlyingCollateralAdded = collateralAdded;
+        }
     }
 
     struct RedeemLeveragedWorkspace {
@@ -535,6 +541,8 @@ library MinterAdjustments_v1 {
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
     ///    peggedTokenBalance The amount of pegged tokens minted. This is used to calculate collateral ratios.
     /// @dev cr.leveragedTokenBalance is the current supply of leveraged tokens, assumed to be > 0.
+    /// @dev Where the redemption would pay nothing every output is nothing: the redemption reverts there, and its dry
+    /// run reports what the redemption does.
     /// @return wrappedFee the fee charged in collateral tokens.
     /// @return leveragedRedeemed the leveraged tokens to be burned.
     /// @return wrappedCollateralOut the collateral returned to the receiver in exchange for the `leveragedRedeemed`
@@ -620,26 +628,30 @@ library MinterAdjustments_v1 {
             w.underlyingCollateralHeldE36 -= collateralInBandE36;
             band--;
         }
-        // The leveraged burned for the collateral removed, at the leveraged price the offer was valued at: the whole
-        // offer where the walk took all of its claim, otherwise its share of the offer rounded up, so a partial fill
-        // never burns fewer tokens than the collateral it removes is the claim of. The collateral removed is never
-        // more than the offer's claim, so the burn is never more than the offer.
-        leveragedRedeemed = Math.mulDiv(
-            leveragedIn,
-            w.underlyingCollateralRemovedE36,
-            w.underlyingCollateralInE36,
-            Math.Rounding.Ceil
-        );
-
-        // the redeemer is paid the collateral less the exact fee, rounded down once; the fee receiver takes the rest of
-        // the wrapped that leaves
+        // the redeemer is paid the collateral less the exact fee, rounded down once
         wrappedCollateralOut = (w.underlyingCollateralRemovedE36 * 1e18 - w.underlyingFeeE54) / (cr.rate * 1e18);
-        wrappedFee = w.underlyingCollateralRemovedE36 / cr.rate - wrappedCollateralOut;
-        // Ceiled straight from the accumulator, which is exact here: the wrapped leaving is a single floored
-        // conversion of it, so ceiling covers that floor without a second conversion of its own. Round-tripping
-        // through the wrapped amount instead would discard up to one rate's worth of collateral each time, which
-        // is a wei at parity but a million of them at a rate of a million.
-        underlyingCollateralRemoved = Math.ceilDiv(w.underlyingCollateralRemovedE36, 1e18);
+        // A redemption that pays nothing redeems nothing - nothing burned, charged or removed - so that a dry run
+        // reports what the call does, which is to revert: an offer whose payout, or whose very claim, rounds to
+        // nothing, and a walk that starts in a band that disallows.
+        if (wrappedCollateralOut > 0) {
+            // The leveraged burned for the collateral removed, at the leveraged price the offer was valued at: the
+            // whole offer where the walk took all of its claim, otherwise its share of the offer rounded up, so a
+            // partial fill never burns fewer tokens than the collateral it removes is the claim of. The collateral
+            // removed is never more than the offer's claim, so the burn is never more than the offer.
+            leveragedRedeemed = Math.mulDiv(
+                leveragedIn,
+                w.underlyingCollateralRemovedE36,
+                w.underlyingCollateralInE36,
+                Math.Rounding.Ceil
+            );
+            // the fee receiver takes the rest of the wrapped that leaves
+            wrappedFee = w.underlyingCollateralRemovedE36 / cr.rate - wrappedCollateralOut;
+            // Ceiled straight from the accumulator, which is exact here: the wrapped leaving is a single floored
+            // conversion of it, so ceiling covers that floor without a second conversion of its own. Round-tripping
+            // through the wrapped amount instead would discard up to one rate's worth of collateral each time, which
+            // is a wei at parity but a million of them at a rate of a million.
+            underlyingCollateralRemoved = Math.ceilDiv(w.underlyingCollateralRemovedE36, 1e18);
+        }
     }
 
     /// @dev The wrapped collateral and leveraged a free (zero-fee) pegged redeem yields, priced against the given

@@ -230,11 +230,7 @@ contract MinterLeverageCapTest is LocalMarket {
         // the deposit's value over the residual before it, times the leveraged supply before it, floored
         assertEq(
             minted,
-            Math.mulDiv(
-                1 ether * priceAtTheMinimum,
-                leveragedSupply,
-                backing * priceAtTheMinimum - pegged * 1 ether
-            ),
+            Math.mulDiv(1 ether * priceAtTheMinimum, leveragedSupply, backing * priceAtTheMinimum - pegged * 1 ether),
             "served at the price before the trade"
         );
     }

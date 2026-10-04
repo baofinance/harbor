@@ -980,6 +980,26 @@ contract TestMinterMintLeveragedAcrossBands is TestMinterSetUp {
         assertEq(IERC20(wrappedCollateralToken).balanceOf(user), wrappedIn, "nothing is taken");
     }
 
+    /// For a deposit too small for one token the dry run says what the call does - nothing: nothing used, no fee, no
+    /// subsidy, nothing minted, at the band's ratio.
+    function test_mintLeveragedDryRun_forAnOfferTooSmallForOneToken_reportsNothingUsed() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether); // a ratio of 1.8, in the top band, which charges a fee
+
+        // one wei: less its fee, rounded down, it leaves nothing to credit
+        (int256 ratio, uint256 fee, uint256 subsidy, uint256 used, uint256 minted, , ) = IMinter(minter)
+            .mintLeveragedTokenDryRun(1);
+        assertEq(used, 0, "nothing used");
+        assertEq(fee, 0, "no fee");
+        assertEq(subsidy, 0, "no subsidy");
+        assertEq(minted, 0, "nothing minted");
+        assertEq(
+            ratio,
+            ultimate(config.mintLeveragedIncentiveConfig.incentiveRatios),
+            "and reports the ratio of the band the market is in"
+        );
+    }
+
     /// From a ratio of 1.1 a mint to about 1.35 crosses one bound and one to about 1.8 crosses two. Each slice is cut
     /// where the ratio reaches its band's upper bound - the subsidy it draws counted in - and subsidised or charged at
     /// its band's rate exactly; the reserve, the fee receiver and the minter each move by exactly their part.
@@ -1118,10 +1138,8 @@ contract TestMinterMintLeveragedAcrossBands is TestMinterSetUp {
                 sliceE36 = Math.min(
                     sliceE36,
                     Math.mulDiv(
-                        config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds[band] *
-                            peggedHeldE36 -
-                            w.heldE36 *
-                            price,
+                        config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds[band] * peggedHeldE36 -
+                            w.heldE36 * price,
                         1 ether,
                         price * (1 ether + subsidyRatio)
                     )
@@ -1148,12 +1166,7 @@ contract TestMinterMintLeveragedAcrossBands is TestMinterSetUp {
     /// @dev Mints `wrappedIn` and checks the mint ended between `lowerRatio` and `upperRatio` - the band the scenario
     ///      aims for - with the reserve, the fee receiver and the minter each moved by exactly what `expected` gives
     ///      them.
-    function _mintAndCheck(
-        uint256 wrappedIn,
-        Outcome memory expected,
-        uint256 lowerRatio,
-        uint256 upperRatio
-    ) private {
+    function _mintAndCheck(uint256 wrappedIn, Outcome memory expected, uint256 lowerRatio, uint256 upperRatio) private {
         deal(wrappedCollateralToken, user, wrappedIn);
         uint256 reserveBefore = IERC20(wrappedCollateralToken).balanceOf(reservePool);
         uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
