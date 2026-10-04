@@ -151,7 +151,6 @@ interface IMinter_v3 is IToken {
     /// @dev Thrown when pegged or leveraged is passed but redeeming is reduced below the minimum requested.
     error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 minimum);
     error NoRedeemableTokens(address redeemingToken);
-    error InsufficientRedeemableTokens(address redeemingToken, uint256 available, uint256 requested);
 
     /// @dev Thrown when recognising an impairment would change nothing, the record not exceeding the holding.
     error NothingToRecognise(uint256 backing);
@@ -638,6 +637,9 @@ interface IMinter_v3 is IToken {
     function freeMintPeggedToken(uint256 collateralIn, address receiver) external returns (uint256 peggedOut);
 
     /// @notice Redeem some pegged tokens for collateral tokens and leveraged tokens.
+    /// @dev Redeems at most the pegged this minter minted, as `redeemPeggedToken` does: where the two legs ask for
+    /// more, both are cut in proportion to exactly that - the collateral leg rounded down and the conversion leg the
+    /// rest - and the caller keeps the pegged not redeemed. Where it minted none, reverts `NoRedeemableTokens`.
     /// @param peggedForCollateral the amount of peggedToken to redeem for collateral.
     /// @param peggedForLeveraged the amount of peggedToken to redeem for leveraged tokens.
     /// @param receiver The address of receiver for collateral token.
@@ -688,9 +690,11 @@ interface IMinter_v3 is IToken {
     ///         tokens or writing state. Intended for contract-to-contract callers (the StabilityPoolManager's
     ///         rebalance) that must know the redeemed proceeds before acting, e.g. to bound a pool's liquidation
     ///         reward to what its reward accounting can absorb.
+    ///         The legs are cut as the call cuts them, at most to the pegged this minter minted.
     ///         Where the call would revert - a conversion asked for below `MINIMUM_COLLATERAL_RATIO`, which the
-    ///         call reverts `BelowMinimumCollateralRatio` for together with any collateral leg beside it - both legs
-    ///         report zero. A redeem with no conversion is not judged.
+    ///         call reverts `BelowMinimumCollateralRatio` for together with any collateral leg beside it, or a
+    ///         redemption from a minter that minted none - both legs report zero. A redeem with no conversion is not
+    ///         judged.
     /// @param peggedForCollateral The pegged amount redeemed for wrapped collateral.
     /// @param peggedForLeveraged The pegged amount redeemed for leveraged tokens.
     /// @return wrappedCollateralOut The wrapped collateral that `peggedForCollateral` would return.

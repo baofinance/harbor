@@ -1215,14 +1215,12 @@ contract Minter_v3 is
         if (peggedForCollateral + peggedForLeveraged > 0) {
             MinterStorage storage $ = _getMinterStorage();
             uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-
-            if ((peggedForCollateral + peggedForLeveraged) > peggedTokenBalance_) {
-                revert InsufficientRedeemableTokens(
-                    PEGGED_TOKEN,
-                    peggedTokenBalance_,
-                    peggedForCollateral + peggedForLeveraged
-                );
-            }
+            // At most what this minter minted, as the fee-paying redeem: where it minted none, the same revert.
+            (peggedForCollateral, peggedForLeveraged) = _freeRedeemLegs(
+                peggedForCollateral,
+                peggedForLeveraged,
+                _redeemable(PEGGED_TOKEN, peggedForCollateral + peggedForLeveraged, peggedTokenBalance_)
+            );
 
             OracleReading memory reading = _readOracle($.priceOracle);
 
@@ -1298,11 +1296,18 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
         uint256 backing = $.underlyingCollateral;
+        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        // The legs the call redeems: at most what this minter minted, and none where it minted none.
+        (peggedForCollateral, peggedForLeveraged) = _freeRedeemLegs(
+            peggedForCollateral,
+            peggedForLeveraged,
+            _redeemableQuiet(peggedForCollateral + peggedForLeveraged, peggedTokenBalance_)
+        );
         // The call refuses a conversion below the floor, and the whole redeem with it, so neither leg is reported.
         // A redeem without a conversion is not judged, by the call or here.
         bool refused;
         if (peggedForLeveraged > 0) {
-            (bool mintable, ) = _leveragedMintable(backing, reading, $.peggedTokenBalance);
+            (bool mintable, ) = _leveragedMintable(backing, reading, peggedTokenBalance_);
             refused = !mintable;
         }
         if (!refused) {
@@ -1310,10 +1315,27 @@ contract Minter_v3 is
             (wrappedCollateralOut, leveragedOut, ) = _freeRedeemAmounts(
                 peggedForCollateral,
                 peggedForLeveraged,
-                $.peggedTokenBalance,
+                peggedTokenBalance_,
                 backing,
                 reading
             );
+        }
+    }
+
+    /// @notice The legs of a zero-fee pegged redemption cut to `peggedIn`, the most of them this minter can redeem, where
+    /// they ask for more: both in proportion and the total exactly `peggedIn` - the collateral leg rounded down, so the
+    /// least collateral leaves the backing, and the conversion leg the rest, so a redemption of one leg stays one leg.
+    /// @dev Shared by `freeRedeemPeggedToken` and `freeRedeemDryRun`, so a call and its dry run redeem the same legs.
+    function _freeRedeemLegs(
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged,
+        uint256 peggedIn
+    ) private pure returns (uint256 forCollateral, uint256 forLeveraged) {
+        (forCollateral, forLeveraged) = (peggedForCollateral, peggedForLeveraged);
+        uint256 peggedAskedFor = peggedForCollateral + peggedForLeveraged;
+        if (peggedAskedFor > peggedIn) {
+            forCollateral = Math.mulDiv(peggedForCollateral, peggedIn, peggedAskedFor);
+            forLeveraged = peggedIn - forCollateral;
         }
     }
 

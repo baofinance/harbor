@@ -30,18 +30,14 @@ contract TestMinterRedeemPegged is TestMinterMint {
     // Free Redeem Pegged
     //---------------------------------------------------------------------------------------------
 
+    /// @dev Redeems `peggedIn` of the zero-fee actor's pegged for collateral by the zero-fee route and checks every
+    ///      balance it moves: capped at what this minter minted, each pegged paid a pegged unit's worth of collateral,
+    ///      at the price and the wrapped-to-underlying rate of one this suite's oracle gives.
     function _freeRedeemPeggedToken(uint256 peggedIn) private {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
-        uint256 ownerPeggedDecrease;
-        if (peggedIn == type(uint256).max) {
-            ownerPeggedDecrease = IERC20(peggedToken).balanceOf(zeroFee);
-        } else {
-            ownerPeggedDecrease = peggedIn;
-        }
         uint256 minterPeggedBefore = IMinter(minter).peggedTokenBalance();
-        if (ownerPeggedDecrease > 0 && ownerPeggedDecrease > minterPeggedBefore)
-            ownerPeggedDecrease = minterPeggedBefore;
+        uint256 ownerPeggedDecrease = Math.min(peggedIn, minterPeggedBefore);
 
         uint256 receiverCollateralIncrease = (ownerPeggedDecrease * 1 ether) / price;
         uint256 ownerPeggedBefore = IERC20(peggedToken).balanceOf(zeroFee);
@@ -85,6 +81,10 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertGe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio >= before");
     }
 
+    /// The zero-fee pegged redemption for collateral: reverts for a caller without the zero-fee role; a redemption of
+    /// nothing is a no-op; where this minter has minted nothing - the caller's pegged minted elsewhere included - it
+    /// reverts as having nothing to redeem, and its dry run reports nothing. Served, it pays a pegged unit's worth of
+    /// collateral for each pegged, with no fee, capped at what this minter minted.
     function test_freeRedeemPegged() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
@@ -105,9 +105,12 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(leveragedOut, 0, "no leveraged for redeeming nothing");
         // 2 ----------------------------------------------------------
 
-        // some input, when none
+        // some input, when none: nothing to redeem, and the dry run says so
+        (uint256 previewedCollateral, uint256 previewedLeveraged) = IMinter_v3(minter).freeRedeemDryRun(price, 0);
+        assertEq(previewedCollateral, 0, "the dry run pays no collateral where nothing was minted");
+        assertEq(previewedLeveraged, 0, "and mints no leveraged");
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).freeRedeemPeggedToken(price, 0, receiver);
         vm.stopPrank();
         // 3 ----------------------------------------------------------------
@@ -139,9 +142,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         assertEq(IHarborOwnable(minter).owner(), owner());
 
-        // check that we can't redeem more than minter has minted, i.e 0
+        // the caller's pegged was minted elsewhere, and this minter has minted none, so there is nothing to redeem
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).freeRedeemPeggedToken(price, 0, receiver);
         vm.stopPrank();
         // 5 ----------------------------------------------------------------
@@ -201,16 +204,12 @@ contract TestMinterRedeemPegged is TestMinterMint {
     // Free Swap Pegged
     //---------------------------------------------------------------------------------------------
 
+    /// @dev Converts `peggedIn` of the zero-fee actor's pegged into leveraged by the zero-fee route and checks every
+    ///      balance it moves: capped at what this minter minted, the pegged buying its value's share of the leveraged
+    ///      supply, the backing untouched.
     function _freeSwapPeggedForLeveraged(uint256 peggedIn) private {
-        uint256 ownerPeggedDecrease;
-        if (peggedIn == type(uint256).max) {
-            ownerPeggedDecrease = IERC20(peggedToken).balanceOf(zeroFee);
-        } else {
-            ownerPeggedDecrease = peggedIn;
-        }
         uint256 minterPeggedBefore = IMinter(minter).peggedTokenBalance();
-        if (ownerPeggedDecrease > 0 && ownerPeggedDecrease > minterPeggedBefore)
-            ownerPeggedDecrease = minterPeggedBefore;
+        uint256 ownerPeggedDecrease = Math.min(peggedIn, minterPeggedBefore);
 
         // With no leveraged yet a pegged converts one for one; otherwise a leveraged token is a claim on the residual,
         // so the pegged buys its value's share of the leveraged supply - at the oracle's one price, which is also the
@@ -249,6 +248,10 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertGe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio >= before");
     }
 
+    /// The zero-fee conversion of pegged into leveraged: reverts for a caller without the zero-fee role; a conversion of
+    /// nothing is a no-op; where this minter has minted nothing it reverts as having nothing to redeem; in a market of
+    /// pegged alone, at a ratio of one, it reverts at the min CR and burns nothing. Served, the pegged buys its value's
+    /// share of the leveraged supply and the ratio rises.
     function test_freeSwapPegged() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
@@ -269,9 +272,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(leveragedOut, 0, "no leveraged for swapping nothing");
         // 2 ----------------------------------------------------------
 
-        // some input, when none
+        // some input, when none: nothing to redeem
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).freeRedeemPeggedToken(0, price, receiver);
         vm.stopPrank();
         // 3 ----------------------------------------------------------------
@@ -302,9 +305,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         assertEq(IHarborOwnable(minter).owner(), owner());
 
-        // check that we can't swap more than minter has minted, i.e 0
+        // the caller's pegged was minted elsewhere, and this minter has minted none, so there is nothing to convert
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).freeRedeemPeggedToken(0, price, receiver);
         vm.stopPrank();
         // 5 ----------------------------------------------------------------
@@ -1291,5 +1294,183 @@ contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
             expected.subsidy,
             "the reserve sends the subsidy"
         );
+    }
+}
+
+/// @notice The zero-fee pegged redemption - the rebalance's - pays the collateral leg a pegged unit's worth of
+/// collateral for each pegged and converts the conversion leg into its value's share of the leveraged supply, with no
+/// fee; it debits the record by the collateral leg alone, rounded up; it redeems no more than this minter minted, both
+/// legs cut in proportion where they ask for more; and a leg that would hand back nothing reverts by name.
+contract TestMinterFreeRedeemPegged is TestMinterSetUp {
+    /// @dev A market at a ratio of two, at a price of 2000 and a rate of one, its pegged and leveraged held by the
+    ///      zero-fee actor and its pegged approved to the minter: each leveraged token is worth a pegged unit.
+    function setUp() public virtual override {
+        super.setUp();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 100 ether); // a ratio of 2
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// @dev What a zero-fee redemption of `peggedForCollateral` and `peggedForLeveraged` pays, by the definitions, at
+    ///      the oracle's one price and a rate of one, the backing covering the pegged supply: for the collateral leg a
+    ///      pegged unit's worth of collateral for each pegged; for the conversion leg its value's share of the
+    ///      leveraged supply, the residual being what that supply is a claim on.
+    function _expectedRedemption(
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged
+    ) private view returns (uint256 collateral, uint256 leveraged) {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        collateral = Math.mulDiv(peggedForCollateral, 1 ether, price);
+        leveraged = Math.mulDiv(
+            peggedForLeveraged * 1 ether,
+            IMinter(minter).leveragedTokenBalance(),
+            IMinter(minter).collateralTokenBalance() * price - IMinter(minter).peggedTokenBalance() * 1 ether
+        );
+    }
+
+    /// A redemption of more than this minter minted - the caller holding pegged minted elsewhere too - is capped at what
+    /// it minted, both legs in proportion: the collateral leg rounded down and the conversion leg the rest, each paid
+    /// as a redemption of its capped amount is, and the event reporting what was burned. The rest stays with the
+    /// caller.
+    function test_freeRedeemPegged_ofMoreThanThisMinterMinted_isCappedAtWhatItMinted() public {
+        uint256 supply = IMinter(minter).peggedTokenBalance();
+        _mintPegged(zeroFee, supply); // as much again, minted elsewhere
+        uint256 heldBefore = IERC20(peggedToken).balanceOf(zeroFee);
+        uint256 forCollateral = (supply * 3) / 4;
+        uint256 forLeveraged = supply / 2; // together a quarter more than this minter minted
+        uint256 cappedForCollateral = Math.mulDiv(forCollateral, supply, forCollateral + forLeveraged);
+        (uint256 expectedCollateral, uint256 expectedLeveraged) = _expectedRedemption(
+            cappedForCollateral,
+            supply - cappedForCollateral
+        );
+
+        vm.startPrank(zeroFee);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter_v3.RedeemPeggedToken(zeroFee, zeroFee, supply, expectedCollateral, expectedLeveraged);
+        (uint256 collateralOut, uint256 leveragedOut) = IMinter(minter).freeRedeemPeggedToken(
+            forCollateral,
+            forLeveraged,
+            zeroFee
+        );
+        vm.stopPrank();
+
+        assertEq(collateralOut, expectedCollateral, "the collateral leg is paid for its capped amount");
+        assertEq(leveragedOut, expectedLeveraged, "and the conversion leg for the rest of the supply");
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "exactly what this minter minted is redeemed");
+        assertEq(IERC20(peggedToken).balanceOf(zeroFee), heldBefore - supply, "the pegged minted elsewhere stays");
+    }
+
+    /// A single leg asked for above what this minter minted stays a single leg, capped at the supply: the collateral
+    /// leg alone pays collateral for the whole supply and mints no leveraged, and the conversion leg alone converts the
+    /// whole supply and pays no collateral.
+    function test_freeRedeemPegged_ofOneLegAboveWhatThisMinterMinted_staysOneLeg() public {
+        uint256 supply = IMinter(minter).peggedTokenBalance();
+        _mintPegged(zeroFee, supply); // as much again, minted elsewhere
+        (uint256 expectedCollateral, uint256 expectedLeveraged) = _expectedRedemption(supply, supply);
+        uint256 snapshot = vm.snapshotState();
+
+        vm.startPrank(zeroFee);
+        (uint256 collateralOut, uint256 leveragedOut) = IMinter(minter).freeRedeemPeggedToken(2 * supply, 0, zeroFee);
+        vm.stopPrank();
+        assertEq(collateralOut, expectedCollateral, "the collateral leg alone pays for the whole supply");
+        assertEq(leveragedOut, 0, "and mints no leveraged");
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "the whole supply is redeemed");
+
+        vm.revertToState(snapshot);
+        vm.startPrank(zeroFee);
+        (collateralOut, leveragedOut) = IMinter(minter).freeRedeemPeggedToken(0, 2 * supply, zeroFee);
+        vm.stopPrank();
+        assertEq(collateralOut, 0, "the conversion leg alone pays no collateral");
+        assertEq(leveragedOut, expectedLeveraged, "and converts the whole supply");
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "the whole supply is converted");
+    }
+
+    /// The dry run of a redemption of more than this minter minted reports the capped redemption the call makes.
+    function test_freeRedeemDryRun_ofMoreThanThisMinterMinted_reportsTheCappedRedeem() public {
+        uint256 supply = IMinter(minter).peggedTokenBalance();
+        uint256 forCollateral = (supply * 3) / 4;
+        uint256 forLeveraged = supply / 2; // together a quarter more than this minter minted
+        uint256 cappedForCollateral = Math.mulDiv(forCollateral, supply, forCollateral + forLeveraged);
+        (uint256 expectedCollateral, uint256 expectedLeveraged) = _expectedRedemption(
+            cappedForCollateral,
+            supply - cappedForCollateral
+        );
+
+        (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(forCollateral, forLeveraged);
+
+        assertEq(collateralOut, expectedCollateral, "the collateral the capped collateral leg pays");
+        assertEq(leveragedOut, expectedLeveraged, "the leveraged the capped conversion leg mints");
+    }
+
+    /// A conversion too small to mint a leveraged wei - a wei of pegged, where each leveraged token is worth two pegged
+    /// units - reverts by name, and nothing is burned.
+    function test_freeRedeemPegged_aConversionThatYieldsNothing_reverts() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(3000 ether, 1 ether); // the residual now 400,000
+        (, uint256 previewed) = IMinter_v3(minter).freeRedeemDryRun(0, 1);
+        assertEq(previewed, 0, "precondition: a wei of pegged converts to no leveraged");
+        uint256 supplyBefore = IMinter(minter).peggedTokenBalance();
+
+        vm.startPrank(zeroFee);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).freeRedeemPeggedToken(0, 1, zeroFee);
+        vm.stopPrank();
+
+        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore, "nothing is burned");
+    }
+
+    /// The collateral leg debits the record by the collateral it pays out, rounded up from the exact figure - so the
+    /// record never claims collateral the holding no longer has - and by no more: at a price of 3000 a thousand pegged
+    /// is a third of a collateral token, a whole number of wei only once rounded.
+    function test_freeRedeemPegged_debitsTheRecordByTheCeiledCollateral() public {
+        uint256 price = 3000 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1 ether);
+        uint256 pegged = 1000 ether;
+        uint256 collateralE36 = Math.mulDiv(pegged, 1e36, price);
+        assertGt(collateralE36 % 1 ether, 0, "precondition: the collateral is not a whole number of wei");
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
+
+        vm.startPrank(zeroFee);
+        (uint256 paid, ) = IMinter(minter).freeRedeemPeggedToken(pegged, 0, zeroFee);
+        vm.stopPrank();
+
+        assertEq(paid, collateralE36 / 1 ether, "the redeemer is paid the collateral rounded down");
+        assertEq(
+            recordBefore - IMinter(minter).collateralTokenBalance(),
+            Math.ceilDiv(collateralE36, 1 ether),
+            "the record is debited it rounded up"
+        );
+    }
+
+    /// A redemption of both legs reports their total burned, the collateral paid and the leveraged minted, and debits
+    /// the record by the collateral leg alone: the converted pegged's collateral stays, now behind the leveraged.
+    function test_freeRedeemPegged_withBothLegs_emitsTheTotalAndDebitsOnlyTheCollateralLeg() public {
+        uint256 forCollateral = 1000 ether;
+        uint256 forLeveraged = 3000 ether;
+        (uint256 expectedCollateral, uint256 expectedLeveraged) = _expectedRedemption(forCollateral, forLeveraged);
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
+        uint256 peggedBefore = IMinter(minter).peggedTokenBalance();
+        uint256 leveragedBefore = IMinter(minter).leveragedTokenBalance();
+
+        vm.startPrank(zeroFee);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter_v3.RedeemPeggedToken(
+            zeroFee,
+            zeroFee,
+            forCollateral + forLeveraged,
+            expectedCollateral,
+            expectedLeveraged
+        );
+        IMinter(minter).freeRedeemPeggedToken(forCollateral, forLeveraged, zeroFee);
+        vm.stopPrank();
+
+        assertEq(
+            recordBefore - IMinter(minter).collateralTokenBalance(),
+            expectedCollateral,
+            "the record gives up the collateral leg alone"
+        );
+        assertEq(peggedBefore - IMinter(minter).peggedTokenBalance(), forCollateral + forLeveraged, "both legs burn");
+        assertEq(IMinter(minter).leveragedTokenBalance() - leveragedBefore, expectedLeveraged, "the leveraged minted");
     }
 }

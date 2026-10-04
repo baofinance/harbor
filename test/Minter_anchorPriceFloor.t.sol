@@ -90,21 +90,25 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore - 1_000 ether, "and the anchor is burned for it");
     }
 
-    /// The sail leg burns anchor too, so it is held to the same rule: nothing may be burned unless
-    /// sail is minted against it.
-    function test_underBacked_freeRedeemForSailRefusesWhenNoSailIsMinted() public {
+    /// The conversion leg burns pegged too, and in a market with nothing behind its pegged it
+    /// reverts: far below the min CR no leverage is sold, so the min CR refuses it before anything
+    /// is priced, and nothing is burned.
+    function test_underBacked_freeRedeemForLeveraged_revertsBelowTheMinimumAndBurnsNothing() public {
         _setUpMarketHolding(LAST_ZERO_HOLDING);
         uint256 supplyBefore = IMinter(minter).peggedTokenBalance();
+        bytes memory belowMinimum = abi.encodeWithSelector(
+            IMinter_v3.BelowMinimumCollateralRatio.selector,
+            IMinter(minter).collateralRatio(),
+            IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
+        );
 
         vm.startPrank(zeroFee);
         IERC20(peggedToken).approve(minter, 1);
-        // one wei of anchor against a capped leverage ratio still mints sail, so the leg that must
-        // refuse is the one that mints none: a zero request for sail alongside a zero collateral leg
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
-        IMinter(minter).freeRedeemPeggedToken(1, 0, zeroFee);
+        vm.expectRevert(belowMinimum);
+        IMinter(minter).freeRedeemPeggedToken(0, 1, zeroFee);
         vm.stopPrank();
 
-        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore, "no anchor burned");
+        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore, "no pegged burned");
     }
 
     /*//////////////////////////////////////////////////////////////
