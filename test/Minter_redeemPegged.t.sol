@@ -1398,7 +1398,10 @@ contract TestMinterFreeRedeemPegged is TestMinterSetUp {
             supply - cappedForCollateral
         );
 
-        (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(forCollateral, forLeveraged);
+        (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(
+            forCollateral,
+            forLeveraged
+        );
 
         assertEq(collateralOut, expectedCollateral, "the collateral the capped collateral leg pays");
         assertEq(leveragedOut, expectedLeveraged, "the leveraged the capped conversion leg mints");

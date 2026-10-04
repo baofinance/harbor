@@ -9,12 +9,14 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -1463,6 +1465,122 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         // Try to harvest with address(0) as bounty receiver
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidReceiver.selector, address(0)));
         IStabilityPoolManager(stabilityPoolManager).harvest(address(0), 0);
+    }
+
+    /// @dev One harvest, checked: served, or refused as having nothing to harvest - the only revert allowed - and, served,
+    ///      the minter's wrapped falls by exactly what the harvest returns, which is at most the `harvestable()` read
+    ///      just before it, and the minter's record is still covered after.
+    function _harvestWithinHarvestable() private {
+        uint256 harvestableBefore = IMinter(minter).harvestable();
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
+        try IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0) returns (uint256 harvested) {
+            assertEq(
+                heldBefore - IERC20(wrappedCollateralToken).balanceOf(minter),
+                harvested,
+                "the minter gives up exactly what the harvest returns"
+            );
+            assertLe(harvested, harvestableBefore, "never more than is harvestable");
+            (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+            assertLe(recorded, held, "and the minter's record is still covered");
+        } catch (bytes memory reason) {
+            assertEq(
+                reason,
+                abi.encodeWithSelector(IStabilityPoolManager.NoHarvestable.selector),
+                "the only refusal is that there is nothing to harvest"
+            );
+        }
+    }
+
+    /// The harvest never sweeps more than is harvestable - whatever each pool holds, whatever the bounty and cut, whether
+    /// a pool's period capacity defers part of its share as owed, and whether the surplus then shrinks below what is
+    /// owed, so that the owed is written down, or grows: each harvest served takes from the minter exactly what it
+    /// returns, at most the `harvestable()` it found, and leaves the record covered.
+    function testFuzz_harvest_neverSweepsMoreThanIsHarvestable(
+        uint256 depositCollateral,
+        uint256 depositLeveraged,
+        uint256 bountyRatio,
+        uint256 cutRatio,
+        uint256 capacity,
+        uint256 surplusBps
+    ) public {
+        // each pool holds nothing, or a deposit it accepts
+        depositCollateral = bound(depositCollateral, 0, 400_000 ether);
+        if (depositCollateral < IStabilityPool(stabilityPoolCollateral).MIN_DEPOSIT()) {
+            depositCollateral = 0;
+        }
+        depositLeveraged = bound(depositLeveraged, 0, 400_000 ether);
+        if (depositLeveraged < IStabilityPool(stabilityPoolLeveraged).MIN_DEPOSIT()) {
+            depositLeveraged = 0;
+        }
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+        if (depositCollateral > 0) {
+            IStabilityPool(stabilityPoolCollateral).deposit(depositCollateral, address(this), 0);
+        }
+        if (depositLeveraged > 0) {
+            IStabilityPool(stabilityPoolLeveraged).deposit(depositLeveraged, address(this), 0);
+        }
+        // any pair the setter accepts, a full cut included
+        bountyRatio = bound(bountyRatio, 0, 1 ether);
+        cutRatio = bound(cutRatio, 0, 1 ether - bountyRatio);
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bountyRatio, cutRatio);
+        vm.stopPrank();
+        uint256 firstHarvestable = IMinter(minter).harvestable();
+
+        // the first harvest, each pool able to take only `capacity` this period, so the rest of its share stays owed
+        capacity = bound(capacity, 0, 2 * firstHarvestable);
+        vm.mockCall(
+            stabilityPoolCollateral,
+            abi.encodeWithSelector(IMultipleRewardDistributor_v3.maxDepositReward.selector),
+            abi.encode(capacity)
+        );
+        vm.mockCall(
+            stabilityPoolLeveraged,
+            abi.encodeWithSelector(IMultipleRewardDistributor_v3.maxDepositReward.selector),
+            abi.encode(capacity)
+        );
+        _harvestWithinHarvestable();
+        vm.clearMockedCalls();
+
+        // the second, after the rate leaves a surplus from none to twice the first's: below what is owed the owed is
+        // written down, above it there is new yield
+        uint256 surplus = Math.mulDiv(firstHarvestable, bound(surplusBps, 0, 20_000), 10_000);
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(
+            price,
+            Math.mulDiv(
+                IMinter(minter).collateralTokenBalance(),
+                1 ether,
+                IERC20(wrappedCollateralToken).balanceOf(minter) - surplus
+            )
+        );
+        _harvestWithinHarvestable();
+    }
+
+    /// With one pool holding and no bounty or cut, a harvest sweeps the whole of what is harvestable and nothing more:
+    /// none is left harvestable and the record is still covered. This is the case in which a wei too many would show,
+    /// where elsewhere the parties' floored shares leave a few wei behind.
+    function test_harvest_ofEverythingHarvestable_sweepsExactlyThatAndLeavesTheRecordCovered() public {
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IStabilityPool(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0, 0);
+        vm.stopPrank();
+        uint256 harvestableBefore = IMinter(minter).harvestable();
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
+
+        uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+
+        assertEq(harvested, harvestableBefore, "the whole of what is harvestable is swept");
+        assertEq(
+            heldBefore - IERC20(wrappedCollateralToken).balanceOf(minter),
+            harvested,
+            "and nothing more leaves the minter"
+        );
+        assertEq(IMinter(minter).harvestable(), 0, "none is left harvestable");
+        (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+        assertLe(recorded, held, "and the record is still covered");
     }
 
     // Test interface implementation

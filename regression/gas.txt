@@ -18,9 +18,9 @@ src/minter/Minter_v3.sol:Minter_v3
 | feeReceiver                                      |   2442 | 2.442e+03 |
 | freeMintLeveragedToken                           | 147635 | 1.476e+05 |
 | freeMintPeggedToken                              | 171626 | 1.716e+05 |
-| freeRedeemDryRun                                 |  35508 | 3.551e+04 |
+| freeRedeemDryRun                                 |  36107 | 3.611e+04 |
 | freeRedeemLeveragedToken                         |  91716 | 9.172e+04 |
-| freeRedeemPeggedToken                            | 114717 | 1.147e+05 |
+| freeRedeemPeggedToken                            | 115068 | 1.151e+05 |
 | grantRoles                                       |  26400 | 2.640e+04 |
 | harvestable                                      |  29857 | 2.986e+04 |
 | hasAllRoles                                      |   2615 | 2.615e+03 |
@@ -76,7 +76,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | hasStabilityPool           |    559 | 5.590e+02 |
 | initialize                 |  92816 | 9.282e+04 |
 | owner                      |   2401 | 2.401e+03 |
-| rebalance                  | 883035 | 8.830e+05 |
+| rebalance                  | 884388 | 8.844e+05 |
 | rebalanceBountyRatio       |   2399 | 2.399e+03 |
 | rebalanceThreshold         |   2348 | 2.348e+03 |
 | rebalanceable              |  45050 | 4.505e+04 |
