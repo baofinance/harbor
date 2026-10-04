@@ -486,6 +486,21 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         );
     }
 
+    /// Recognition announces the write-down: the record it found, and the holding at the min rate that the record
+    /// becomes.
+    function test_recogniseImpairment_emitsTheRecordAndWhatIsHeld() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(1_500);
+        uint256 recorded = IMinter(minter).collateralTokenBalance();
+        uint256 held = _heldAsCollateral();
+
+        vm.startPrank(owner());
+        vm.expectEmit(minter);
+        emit IMinter_v3.RecogniseImpairment(recorded, held);
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
+    }
+
     /// Each recognition is cumulative and none restores a previous level.
     function test_repeatedImpairment_accumulatesAndNeverRecovers() public {
         setUp_collateral(100 ether, 40 ether);
@@ -780,6 +795,20 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
+    /// The fee-capped overload changes the record as the uncapped one does, so it is halted with it.
+    function test_impairment_haltsTheCappedPeggedMint() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+
+        address minterOfPegged = makeAddr("cappedMinterOfPegged");
+        deal(wrappedCollateralToken, minterOfPegged, 1 ether);
+        vm.startPrank(minterOfPegged);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        _expectUnrecognisedImpairment();
+        IMinter_v3(minter).mintPeggedToken(1 ether, minterOfPegged, 0, 0.05 ether);
+        vm.stopPrank();
+    }
+
     function test_impairment_haltsPeggedRedemption() public {
         (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(_SMALL_DROP_BPS);
@@ -958,6 +987,45 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertGt(leveragedOut, 0, "and its conversion leg");
     }
 
+    /// @dev What each of the six dry runs returns now, raw, for a pegged and a leveraged amount to redeem.
+    function _dryRunAnswers(uint256 pegged, uint256 leveraged) private view returns (bytes[6] memory answers) {
+        bytes[6] memory dryRuns = [
+            abi.encodeWithSignature("mintPeggedTokenDryRun(uint256)", 1 ether),
+            abi.encodeWithSignature("mintPeggedTokenDryRun(uint256,uint256)", 1 ether, 0.05 ether),
+            abi.encodeCall(IMinter_v3.redeemPeggedTokenDryRun, (pegged)),
+            abi.encodeCall(IMinter_v3.mintLeveragedTokenDryRun, (1 ether)),
+            abi.encodeCall(IMinter_v3.redeemLeveragedTokenDryRun, (leveraged)),
+            abi.encodeCall(IMinter_v3.freeRedeemDryRun, (pegged, pegged))
+        ];
+        for (uint256 i = 0; i < dryRuns.length; i++) {
+            (bool answered, bytes memory answer) = minter.staticcall(dryRuns[i]);
+            assertTrue(answered, string.concat("dry run ", vm.toString(i), " answers"));
+            answers[i] = answer;
+        }
+    }
+
+    /// A dry run answers from the record, not from the holding: while a market is halted each of them returns exactly
+    /// what it returns once the holding is topped up to cover the same record at the same rate.
+    function test_everyDryRunWhileHalted_answersFromTheRecord() public {
+        (uint256 peggedTokens, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        _impair(_SMALL_DROP_BPS);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the market is halted");
+        bytes[6] memory whileHalted = _dryRunAnswers(peggedTokens / 10, leveragedTokens / 10);
+
+        // the holding topped up to cover the record, which is left as it was
+        deal(
+            wrappedCollateralToken,
+            minter,
+            Math.mulDiv(IMinter(minter).collateralTokenBalance(), 1 ether, _rate(), Math.Rounding.Ceil)
+        );
+        assertFalse(_recordOverstatesTheHolding(), "precondition: the holding now covers the record");
+        bytes[6] memory onceCovered = _dryRunAnswers(peggedTokens / 10, leveragedTokens / 10);
+
+        for (uint256 i = 0; i < whileHalted.length; i++) {
+            assertEq(whileHalted[i], onceCovered[i], string.concat("dry run ", vm.toString(i), " answers from the record"));
+        }
+    }
+
     /// The halt is curable by the one call that exists to cure it, which is the whole point of halting rather
     /// than quietly marking the record down.
     function test_recognitionUnhaltsTheMarket() public {
@@ -1066,6 +1134,59 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
 
         assertGt(minted, 0, "so the band's width alone halts nothing");
+    }
+
+    /// The guard judges the holding at the LOW edge of the rate band, as recognition does: where the record is covered
+    /// at the middle and the high edge of the band but not at its low edge, every call that changes the record reverts,
+    /// naming the record and the holding at that low edge.
+    function test_impairment_isJudgedAtTheMinRate_everyUpdaterHalts() public {
+        (uint256 peggedTokens, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        uint256 rate = _rate();
+        uint256 highRate = rate * 2;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _price(), (rate * 9_900) / 10_000, highRate);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the low edge leaves the record uncovered");
+        assertGe(
+            Math.mulDiv(IERC20(wrappedCollateralToken).balanceOf(minter), (_rate() + highRate + 1) / 2, 1 ether),
+            IMinter(minter).collateralTokenBalance(),
+            "precondition: the middle of the band covers it"
+        );
+        bytes memory halted = abi.encodeWithSelector(
+            IMinter_v3.UnrecognisedImpairment.selector,
+            IMinter(minter).collateralTokenBalance(),
+            _heldAsCollateral()
+        );
+        deal(wrappedCollateralToken, zeroFee, 2 ether);
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+
+        bytes[10] memory updaters = [
+            abi.encodeWithSignature("mintPeggedToken(uint256,address,uint256)", 1 ether, zeroFee, 0),
+            abi.encodeWithSignature(
+                "mintPeggedToken(uint256,address,uint256,uint256)",
+                1 ether,
+                zeroFee,
+                0,
+                0.05 ether
+            ),
+            abi.encodeCall(IMinter_v3.redeemPeggedToken, (peggedTokens / 10, zeroFee, 0)),
+            abi.encodeCall(IMinter_v3.mintLeveragedToken, (1 ether, zeroFee, 0)),
+            abi.encodeCall(IMinter_v3.redeemLeveragedToken, (leveragedTokens / 10, zeroFee, 0)),
+            abi.encodeCall(IMinter_v3.freeMintPeggedToken, (1 ether, zeroFee)),
+            abi.encodeCall(IMinter_v3.freeMintLeveragedToken, (1 ether, zeroFee)),
+            abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (peggedTokens / 10, 0, zeroFee)),
+            abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (0, peggedTokens / 10, zeroFee)),
+            abi.encodeCall(IMinter_v3.freeRedeemLeveragedToken, (leveragedTokens / 10, zeroFee))
+        ];
+        for (uint256 i = 0; i < updaters.length; i++) {
+            vm.startPrank(zeroFee);
+            (bool served, bytes memory reason) = minter.call(updaters[i]);
+            vm.stopPrank();
+            assertFalse(served, string.concat("updating call ", vm.toString(i), " was served"));
+            assertEq(reason, halted, string.concat("updating call ", vm.toString(i), " is halted at the low edge"));
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
