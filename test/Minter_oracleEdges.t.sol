@@ -533,24 +533,17 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    /// The zero-fee leveraged mint is judged at the middle of the band, on the market it leaves, although its amounts
-    /// are priced at the high edge: a deposit too small to lift the middle-price ratio to the min CR reverts naming
-    /// the ratio it would leave there, though at the high edge the market is already above the min CR.
+    /// The zero-fee leveraged mint, with leveraged tokens outstanding, is judged at the middle of the band too,
+    /// although its amounts are priced at the high edge: it reverts naming the middle-price ratio the market stands
+    /// at, though at the high edge the market is already above the min CR.
     function test_leverageCap_freeMintLeveragedJudgesAtTheMidPrice() public {
-        _belowTheFloorOnlyAtTheMiddle();
+        uint256 ratioAtMiddle = _belowTheFloorOnlyAtTheMiddle();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
-        uint256 deposit = 1e9;
-        (uint256 minPrice, uint256 maxPrice, uint256 minRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        uint256 ratioLeft = Math.mulDiv(
-            IMinter_v3(minter).collateralTokenBalance() + Math.mulDiv(deposit, minRate, 1 ether),
-            (minPrice + maxPrice + 1) / 2,
-            IMinter_v3(minter).peggedTokenBalance()
-        );
-        assertLt(ratioLeft, floor, "precondition: the deposit leaves the market below the min CR at the middle");
+        assertGt(IERC20(leveragedToken).totalSupply(), 0, "precondition: leveraged outstanding");
 
         vm.startPrank(zeroFee);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioLeft, floor));
-        IMinter_v3(minter).freeMintLeveragedToken(deposit, zeroFee);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioAtMiddle, floor));
+        IMinter_v3(minter).freeMintLeveragedToken(1e9, zeroFee);
         vm.stopPrank();
     }
 

@@ -1193,12 +1193,18 @@ holders' backing. Blocking it is the protection.
 
 **Why the cap applies only to minting.** Below the leverage floor a sail token carries more leverage
 than the cap, so minting one would sell that leverage; the cap refuses the sale, at the middle of the
-price band: on the fee-paying mint and a rebalance's conversion judged on the state before the trade,
-and on the zero-fee mint judged on the state it leaves. So a genesis, whose own anchor mint leaves a
-new market exactly at the peg, is served where its sail mint lifts the market to the leverage floor,
-and reverts where it would not. Redeeming sells nothing — it lets a holder leave — so the cap never
-applies to it. Minting reopens by itself once the ratio is back above the leverage floor. The first
-sail token of a market is judged like every other.
+price band, judged on the state before the trade: on the fee-paying mint, on a rebalance's
+conversion, and on the zero-fee mint wherever sail tokens exist. The state before the trade is the
+one the sail is priced at, and below the floor that price is too sensitive to the collateral price to
+sell at; a mint only raises the ratio, so judging it on the state it leaves would guard nothing. One
+mint is judged on the state it leaves instead: the zero-fee mint of a market's first sail tokens,
+where no sail holder exists to be diluted. So a genesis, whose own anchor mint leaves a new market
+exactly at the peg, is served where its sail mint lifts the market to the leverage floor, and reverts
+where it would not; a later genesis into a market that has sail tokens and stands below the leverage
+floor reverts, and waits for the market to stand there. Redeeming sells nothing — it lets a holder
+leave — so the cap never applies to it. Minting reopens by itself once the ratio is back above the
+leverage floor. Through the fee-paying mint or the conversion the first sail token of a market is
+judged like every other.
 
 **Anchor mints stop at the leverage floor too.** A retail anchor mint lowers the ratio, pushing every
 sail holder's leverage up. From at or below the leverage floor it reverts
@@ -2053,7 +2059,7 @@ very different assurance.
 | **A3** | The protocol never redeems more anchor tokens than **it** minted. | By check — what it mints is tracked independently of token supply |
 | **A4** | Sail token supply equals exactly what the protocol minted. | By construction — the protocol is the only minter and burner |
 | **A5** | Rounding always favours the protocol: a mint never mints more than the exact formula, a redeem never returns more. | By check — verified per band slice, not merely in aggregate |
-| **A7** | No retail mint, of sail or of anchor, is served below the leverage floor `MINIMUM_COLLATERAL_RATIO`, a retail anchor mint is cut at it, and no zero-fee sail mint leaves the market below it. The zero-fee anchor mint is not judged. | By check — at the middle price: the retail mints and the conversion on the state before the trade, the zero-fee sail mint on the state it leaves; each reverts `BelowMinimumCollateralRatio` |
+| **A7** | No sail is minted into a market that stands below the leverage floor `MINIMUM_COLLATERAL_RATIO` and has sail tokens, on any route; no retail anchor mint is served at or below it, and one that would cross it is cut at it; and the zero-fee mint of a market's first sail tokens does not leave the market below it. The zero-fee anchor mint is not judged. | By check — at the middle price, on the state before the trade: the retail mints, the conversion, and the zero-fee sail mint where sail tokens exist; on the state it leaves: the zero-fee mint of a market's first sail tokens; each reverts `BelowMinimumCollateralRatio` |
 | **A6** | No operation **creates** a shortfall of the holding under the **recorded** backing, and none **acts** on one. Trading never takes the record above the collateral held; a fall in the rate can, and while it does every updating operation reverts `UnrecognisedImpairment`, until the rate recovers or the owner recognises the loss. | By check — every mint credits the record with the collateral that arrived, and every redeem debits it with the collateral that left, through the same conversion the holding is valued by; and every updater compares the record with the holding at the low edge of the rate band before acting |
 
 **A2 is the strongest claim in the document** and deserves emphasis: this is exact conservation, not

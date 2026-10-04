@@ -599,19 +599,14 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
         assertEq(sailPrice, 0, "the sail claim is worthless at this cover");
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
-        // the zero-fee mint is judged on the market it leaves: the record with the deposit credited at the low rate
-        (uint256 minPrice, uint256 maxPrice, uint256 minRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        uint256 ratioLeft = Math.mulDiv(
-            IMinter(minter).collateralTokenBalance() + Math.mulDiv(1 ether, minRate, 1 ether),
-            (minPrice + maxPrice + 1) / 2,
-            IMinter(minter).peggedTokenBalance()
-        );
-        assertLt(ratioLeft, floor, "precondition: the deposit does not lift the market to the min CR");
+        // with leveraged tokens outstanding the zero-fee mint is judged on the market it starts from: the record
+        uint256 ratio = IMinter(minter).collateralRatio();
+        assertLt(ratio, floor, "precondition: the recognised backing leaves the market below the min CR");
 
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioLeft, floor));
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
         vm.stopPrank();
     }

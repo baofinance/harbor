@@ -59,20 +59,32 @@ The cap limits one thing: **minting sail**. Everything else is uncapped.
 
 ## Minting sail
 
-Every route that mints sail reverts `BelowMinimumCollateralRatio(ratio, floor)` where the floor does not allow it:
+Every route that mints sail reverts `BelowMinimumCollateralRatio(ratio, floor)` where the market stands below
+the floor before the trade:
 
-- `mintLeveragedToken`, the fee-paying mint, where the market is below the floor before the trade;
-- the conversion leg of `freeRedeemPeggedToken`, which mints sail for a stability pool's anchor, likewise;
-- `freeMintLeveragedToken`, the zero-fee mint, where the market would be below the floor after the trade.
+- `mintLeveragedToken`, the fee-paying mint;
+- the conversion leg of `freeRedeemPeggedToken`, which mints sail for a stability pool's anchor;
+- `freeMintLeveragedToken`, the zero-fee mint, wherever sail tokens exist.
+
+A sail mint is judged on the market it starts from because that is the price it is sold at: below the floor the
+residual is so small that a small error in the collateral price is a large error in the sail price, and a mint
+priced there hands its buyer a very large count of tokens at the existing holders' expense. A mint only ever
+raises the ratio, so judging it on the market it leaves would guard nothing.
 
 The ratio is judged at the middle of the oracle's price band, the same figure `collateralRatio()` reports.
-`leveragedMintable()` answers the retail mint's question in advance, and a front end should read it rather than
-compare `leverageRatio()` against the cap itself: the floor is `K/(K-1)` rounded up, so the two comparisons can
-differ by a wei.
+`leveragedMintable()` answers the question in advance, and a front end should read it rather than compare
+`leverageRatio()` against the cap itself: the floor is `K/(K-1)` rounded up, so the two comparisons can differ by
+a wei.
 
-The zero-fee mint is judged on the market it leaves because a genesis needs it: its own anchor mint leaves a new
-market exactly at the peg, below the floor, and its sail mint then lifts the market to about two. A later genesis
-on a live market below the floor is served the same way, once it brings enough collateral to reach the floor.
+One mint is judged on the market it leaves instead: the zero-fee mint of a market's FIRST sail tokens. No sail
+holder exists to be diluted and there is no sail price to get wrong, and a genesis needs it: its own anchor mint
+leaves a new market exactly at the peg, below the floor, and its sail mint then lifts the market to about two.
+That mint reverts where it would leave the market below the floor.
+
+A later genesis on a live market is a sail mint like any other. At or above the floor it is served at the price
+before the trade. Below the floor, with sail tokens outstanding, it reverts and waits: for the price, for anchor
+redemptions, or for a donation the owner chooses to make. Nobody is sold sail below the floor, and nobody is made
+to pay more than its price to enter.
 
 The dry runs agree with the calls. Below the floor `mintLeveragedTokenDryRun` reports nothing minted: every
 amount zero, with the incentive ratio of the band the market is in. `freeRedeemDryRun`, asked for a conversion

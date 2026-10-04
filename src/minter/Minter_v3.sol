@@ -320,16 +320,18 @@ contract Minter_v3 is
     /// @dev THE RULE, in one place. A leveraged token is a claim on the residual, whose sensitivity to the
     /// collateral price is `CR/(CR-1)`, so a cap `K` on the leverage sold is a minimum `K/(K-1)` on the ratio at
     /// which any is sold: the min CR. Judged against the backing the caller passes - never storage the caller may
-    /// have part-updated - which is the snapshot it priced its amounts from for the retail mint and the conversion,
-    /// judged before the trade, and that snapshot with the deposit credited for the zero-fee mint, judged on the
-    /// market it leaves. Always at the middle of the price band, whatever edge the caller's amounts are priced at:
-    /// the ratio is computed exactly as `collateralRatio()` computes it, so a retail caller that `leveragedMintable()`
-    /// let through is not turned away here. The dry runs judge by it too, so no forecast shows a mint its call
-    /// reverts.
+    /// have part-updated - which is the snapshot it priced its amounts from: every leveraged mint is judged before
+    /// the trade, on the market its price is taken from - the retail mint, the conversion, and the zero-fee mint
+    /// where leveraged tokens exist. Always at the middle of the price band, whatever edge the caller's amounts are
+    /// priced at: the ratio is computed exactly as `collateralRatio()` computes it, so a retail caller that
+    /// `leveragedMintable()` let through is not turned away here. The dry runs judge by it too, so no forecast shows
+    /// a mint its call reverts.
     ///
-    /// The first leveraged token is judged like every other. A market with no pegged and no collateral reads a ratio
-    /// of exactly one, below the min CR, so a retail mint cannot open it; a genesis does, its leveraged mint judged
-    /// on the market it leaves.
+    /// One mint is judged on the market it leaves instead - the caller passing the snapshot with its deposit
+    /// credited: the zero-fee mint of a market's first leveraged tokens, where no holder exists to be diluted and
+    /// there is no price to get wrong. A market with no pegged and no collateral reads a ratio of exactly one, below
+    /// the min CR, so a retail mint cannot open it; a genesis does, by that mint. Through the retail mint or the
+    /// conversion a market's first leveraged tokens are judged before the trade like any others.
     function _leveragedMintable(
         uint256 backing,
         OracleReading memory reading,
@@ -1362,10 +1364,17 @@ contract Minter_v3 is
             wrappedCollateralIn,
             reading.minRate
         );
-        // Judged on the market the mint leaves: with no fee to walk, that is the backing with the deposit credited.
-        // So a genesis may start anywhere - an empty minter, or one its own pegged mint has just left at the peg -
-        // and may not end below the min CR.
-        _requireLeveragedMintable(backing + underlyingCollateralAdded, reading, $.peggedTokenBalance);
+        uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
+        // Where leveraged tokens exist the mint is judged on the market it starts from, as every leveraged mint is:
+        // that is the price their holders are diluted at. Where none exist there is nobody to dilute and no price to
+        // get wrong, so a market's first leveraged tokens are judged on the market the mint leaves - the backing with
+        // the deposit credited. That is what lets a genesis open a market: an empty one, or one its own pegged mint
+        // has just left at the peg.
+        _requireLeveragedMintable(
+            leveragedTokenBalance_ > 0 ? backing : backing + underlyingCollateralAdded,
+            reading,
+            $.peggedTokenBalance
+        );
         // The fee-paying mint's own definition, at its edges - the high price and the low rate - so the two routes
         // price the same trade the same. Where it buys nothing, `_mintLeveragedToken` turns the caller away by name.
         leveragedOut = MinterValuationLib.leveragedForCollateral(
@@ -1373,7 +1382,7 @@ contract Minter_v3 is
             backing,
             reading.maxPrice,
             $.peggedTokenBalance,
-            _leveragedTokenBalance()
+            leveragedTokenBalance_
         );
 
         // mint the tokens to the receiver

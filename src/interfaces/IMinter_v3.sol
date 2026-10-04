@@ -245,8 +245,10 @@ interface IMinter_v3 is IToken {
 
     /// @notice The most leverage this market will sell, 1e18-scaled. A cap on the leverage of every leveraged
     ///         token at the moment it is minted, applied by minting none below `MINIMUM_COLLATERAL_RATIO`: the
-    ///         retail mint and the conversion a rebalance performs revert where the market stands below it, and
-    ///         the zero-fee mint where it would leave the market below it.
+    ///         retail mint, the conversion a rebalance performs and the zero-fee mint all revert where the market
+    ///         stands below it. The one mint judged on the market it leaves instead is the zero-fee mint of a
+    ///         market's first leveraged tokens, where no leveraged holder exists: that is how a genesis opens a
+    ///         market, and it reverts where it would leave the market below the min CR.
     function MAX_LEVERAGE_RATIO() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice The min CR: `K / (K - 1)` for `K = MAX_LEVERAGE_RATIO`, rounded up to its 1e18 scale - the lowest
@@ -262,9 +264,9 @@ interface IMinter_v3 is IToken {
     /// @notice Whether a retail leveraged mint, or a rebalance's conversion, is served at the ratio the market
     ///         stands at: true at or above `MINIMUM_COLLATERAL_RATIO` and false below it, whether or not any
     ///         leveraged token exists yet. Where it is false those calls revert `BelowMinimumCollateralRatio`;
-    ///         this is the same judgement as a view, for a caller that would rather not ask by trying. The
-    ///         zero-fee leveraged mint is judged on the market it leaves instead, so it may be served where this
-    ///         is false.
+    ///         this is the same judgement as a view, for a caller that would rather not ask by trying. It is the
+    ///         zero-fee leveraged mint's judgement too wherever leveraged tokens exist. Where none exist that mint
+    ///         is judged on the market it leaves instead, so it may be served where this is false.
     function leveragedMintable() external view returns (bool);
 
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying (18 decimals).

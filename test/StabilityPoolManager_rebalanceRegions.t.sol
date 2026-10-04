@@ -169,6 +169,43 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "and there is nothing left to do");
     }
 
+    /// With no leveraged token outstanding the same two steps run: the conversion is judged on the market it starts
+    /// from whether or not it would mint the market's first leveraged tokens, so below the min CR both pools still
+    /// give up pegged by the collateral route, and only from the min CR is the leveraged pool's pegged converted -
+    /// one leveraged token for each pegged, the first the market has.
+    function test_rebalance_withNoLeveragedOutstanding_takesTheCollateralRouteBelowTheMinimum() public {
+        deal(leveragedToken, user, 0, true); // the state, not the path: every leveraged holder gone
+        assertEq(IERC20(leveragedToken).totalSupply(), 0, "precondition: no leveraged token outstanding");
+        _fillPools(3_000, 6_000);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "the market starts where it sells no leverage");
+        uint256 toTheFloor = _collateralRouteTo(_floor());
+        uint256 allowance = _sizingAllowance(_floor());
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 4, "two payments below the min CR, two above it");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "below the min CR, collateral pool");
+        _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "below the min CR, leveraged pool");
+        _assertPayment(paid[2], stabilityPoolCollateral, wrappedCollateralToken, "above the min CR, collateral pool");
+        _assertPayment(paid[3], stabilityPoolLeveraged, leveragedToken, "above the min CR, leveraged pool");
+
+        uint256 belowTheFloor = paid[0].pegged + paid[1].pegged;
+        assertGe(belowTheFloor, toTheFloor, "below the min CR the pools give up what reaches it");
+        assertLe(belowTheFloor, toTheFloor + allowance, "and no more than reaching it takes");
+        assertEq(paid[3].returned, paid[3].pegged, "the first leveraged tokens: one for each pegged converted");
+        assertEq(
+            IERC20(leveragedToken).totalSupply(),
+            paid[3].returned,
+            "and they are the only leveraged tokens the market has"
+        );
+        assertGe(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "one rebalance reaches the threshold"
+        );
+    }
+
     /// Pools too small to lift the market to the floor give up everything above their own floors, all of it by the
     /// collateral route and paid in collateral. The market is lifted as far as that goes, still short of the floor,
     /// and still rebalanceable for when the pools refill.
