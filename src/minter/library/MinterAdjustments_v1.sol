@@ -557,7 +557,7 @@ library MinterAdjustments_v1 {
         RedeemLeveragedWorkspace memory w;
 
         // we can't meaningfully do anything with leveraged tokens as their value is zero
-        // and we an do this once, here, and not in the loop below, because redeeming leveraged tokens, will never cause a re-peg.
+        // and we can do this once, here, and not in the loop below, because redeeming leveraged tokens, will never cause a re-peg.
         {
             (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                 cr.peggedTokenBalance,
@@ -593,12 +593,10 @@ library MinterAdjustments_v1 {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
+            // Never a band below the peg: at or below the peg the walk has already returned, and above it a first band
+            // the config's validation accepts either ends at the peg, where the walk stops below, or disallows, where
+            // it has stopped above.
             uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, band);
-            if (bandLowerBound < 1 ether) {
-                // depegged (as there is always a CR = 1 boundary) means we disallow redeeming leveraged
-                // because the price has become 0
-                break;
-            }
             uint256 collateralInBandE36;
             {
                 // the collateral above this band's lower bound - the collateral at the bound rounded up, so the slice
