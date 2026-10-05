@@ -209,9 +209,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     /// A pegged mint's fee is the integral of the band rates over the collateral it adds: minted a whole ether at a
-    /// time through every band and into the disallowed one, each slice pays its dry run's fee and each step the fee of
-    /// the step minted at once, exactly; and the steps' fees add up to those of the whole run minted at once, to
-    /// within the rounding derived below.
+    /// time through every band to the edge of the disallowed one, and on into it, where nothing is taken, each slice
+    /// pays its dry run's fee and each step the fee of the step minted at once, exactly; and the steps' fees add up to
+    /// those of the whole run minted at once, to within the rounding derived below. Each step's collateral ratio is
+    /// asserted, so the steps go where they are meant to.
     function test_mintPeggedFeesAreIntegrals() public {
         // ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
         // critical CRs = 130% (disallow), 140% (danger)
@@ -223,17 +224,18 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
-        // check fees:
+        // check fees - each step's collateral, less its fee, joins the record and the pegged it buys the supply, so
+        // from 28 over 18:
         uint[5] memory mintStep = [
-            // 1) completely in the first band: mint(4), CR = 32/22 = 145%
+            // 1) within the top band: mint(4), CR about 1.455
             uint(4),
-            // 2) straddling the first boundary: mint(4), CR = 36/26 = 138%
+            // 2) across the 1.40 boundary: mint(4), CR about 1.385
             uint(4),
-            // 3) remaining in the second band: mint(4), CR= 40/30 = 133%
+            // 3) within the band below 1.40: mint(4), CR about 1.334
             uint(4),
-            // 4) straddling the second boundary: mint(5), CR = 45/35 = 128%
+            // 4) to the disallowed band's edge: mint(5), of which the mint takes about 3.45, CR = 1.30 exactly
             uint(5),
-            // 5) straddling all bands: mint(4), CR = 49/39 = 126%
+            // 5) inside the disallowed band: mint(4), every slice reverting MintZeroAmount, CR still 1.30
             uint(4)
         ];
 
@@ -261,6 +263,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         }
 
         uint256 totalFee = 0;
+        BeforeActionBalance memory before = _readBeforeActionBalance();
         for (uint i = 0; i < mintStep.length; i++) {
             uint step = i + 1;
             totalFee += _checkMintPeggedIntegral(mintStep[i], step);
@@ -280,6 +283,13 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver),
                 totalFee,
                 string.concat("step ", LibString.toString(step))
+            );
+            // The supply is what the user received, not the kept collateral at the price: the slice that meets the
+            // disallowed band takes its collateral rounded up and mints its pegged rounded down.
+            _assertStepCollateralRatio(
+                step,
+                before.backing + (before.userCollateral - IERC20(Deployed.wstETH).balanceOf(user)) - totalFee,
+                before.peggedSupply + (IERC20(peggedToken).balanceOf(user) - before.userPegged)
             );
         }
     }
@@ -431,9 +441,12 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
     }
 
+    /// @dev Mints leveraged up through every band in seven steps, a whole ether at a time, checking each slice and each
+    ///      step against its dry run, and each step's collateral ratio exactly, so the steps go where they are meant
+    ///      to.
     function _checkMintLeveragedFeesIntegralList() public {
         // ic(ua(100, 110, 120, 145), ia(-50, -50, 0, 20, 70)), // mint leveraged
-        // critical CRs (upper bounds) = 110% (bonus, -50), 120% (free, 0), 140% (danger, 20), -> (70)
+        // critical CRs (upper bounds) = 110% (bonus, -50), 120% (free, 0), 145% (danger, 20), -> (70)
         setUp_collateral(150 ether, 10 ether); // CR = 160/150 = 106.6%, bonus
         assertGt(
             second(config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -442,22 +455,22 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
-        // check fees:
-
+        // check fees - each step's collateral joins the record, less its fee and plus its subsidy, so from 160 over
+        // 150, the fees and subsidies moving each ratio by under a thousandth:
         uint[7] memory mintStep = [
-            // 1) completely in the first band: mint(4), CR = 164/150 = 109%
+            // 1) within the subsidy band: mint(4), CR = 164/150 = 1.093
             uint(4),
-            // 2) straddling the first boundary: mint(4), CR = 168/150 = 112%
+            // 2) across the 1.10 boundary: mint(4), CR = 168/150 = 1.12
             uint(4),
-            // 3) remaining in the second band: mint(10), CR= 178/150 = 119%
+            // 3) within the free band: mint(10), CR = 178/150 = 1.187
             uint(10),
-            // 4) straddling the second boundary: mint(20), CR = 198/150 = 132%
+            // 4) across the 1.20 boundary: mint(20), CR = 198/150 = 1.32
             uint(20),
-            // 5) remaining in the third band: mint(10), CR= 208/150 = 139%
+            // 5) within the danger band: mint(10), CR = 208/150 = 1.387
             uint(10),
-            // 6) straddling the third boundary: mint(5), CR = 215/150 = 143%
+            // 6) still within the danger band: mint(5), CR = 213/150 = 1.42
             uint(5),
-            // 7) straddling all bands: mint(5), CR = 228/150 = 145%
+            // 7) across the 1.45 boundary: mint(5), CR = 218/150 = 1.453
             uint(5)
         ];
 
@@ -513,6 +526,11 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 total.subsidy,
                 0,
                 string.concat("step ", LibString.toString(i + 1), ", actual reserve used")
+            );
+            _assertStepCollateralRatio(
+                i + 1,
+                before.backing + total.collateralUsed - total.fee + total.subsidy,
+                before.peggedSupply
             );
         }
     }
@@ -616,6 +634,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
         uint256 userPegged;
         uint256 userLeveraged;
         uint256 reservePool;
+        // the minter's record of its backing, and of the pegged it has issued
+        uint256 backing;
+        uint256 peggedSupply;
     }
 
     function _readBeforeActionBalance() private view returns (BeforeActionBalance memory before) {
@@ -624,6 +645,20 @@ contract TestMinterFees is TestMinterFeeSetUp {
         before.userPegged = IERC20(peggedToken).balanceOf(user);
         before.userLeveraged = IERC20(leveragedToken).balanceOf(user);
         before.reservePool = IERC20(Deployed.wstETH).balanceOf(reservePool);
+        before.backing = IMinter(minter).collateralTokenBalance();
+        before.peggedSupply = IMinter(minter).peggedTokenBalance();
+    }
+
+    /// @dev Asserts that a step of an integral test leaves exactly the collateral ratio it is meant to reach: the
+    ///      record `backing` over the pegged supply `peggedSupply`, at the oracle's price - it quotes only one, so that
+    ///      is also the mid price the ratio reads.
+    function _assertStepCollateralRatio(uint256 step, uint256 backing, uint256 peggedSupply) private view {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            Math.mulDiv(backing, price, peggedSupply),
+            string.concat("step ", LibString.toString(step), " reaches the collateral ratio it is meant to")
+        );
     }
 
     struct Total {
@@ -717,6 +752,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
     }
 
+    /// @dev Redeems pegged up through every band in seven steps, a collateral's worth at a time, checking each slice
+    ///      and each step against its dry run, and each step's collateral ratio exactly, so the steps go where they
+    ///      are meant to.
     function _checkRedeemPeggedFeesIntegralList() private {
         // ic(ua(100, 105, 115, 150), ia(-75, -75, -25, 60, 80)), // redeem pegged
         // critical CRs = 105% (big bonus 75), 115% (small bonus 25), 150% (danger, 60), -> 80
@@ -729,21 +767,22 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
-        // check fees:
+        // check fees - each step takes exactly its pegged's worth out of the record, whatever its fee and subsidy - the
+        // fee comes out of that worth, the subsidy from the reserve - so from 104 over 100:
         uint[7] memory redeemStep = [
-            // 1) completely in the first band: redeem(10), CR = 94/90 = 104.4%
+            // 1) within the first band: redeem(10), CR = 94/90 = 1.044
             uint(10),
-            // 2) straddling the first boundary: redeem(30), CR = 64/60 = 106.7%
+            // 2) across the 1.05 boundary: redeem(30), CR = 64/60 = 1.067
             uint(30),
-            // 3) remaining in the second band: redeem(20), CR= 44/40 = 110%
+            // 3) within the second band: redeem(20), CR = 44/40 = 1.10
             uint(20),
-            // 4) straddling the second boundary: redeem(20), CR = 24/20 = 120%
+            // 4) across the 1.15 boundary: redeem(20), CR = 24/20 = 1.20
             uint(20),
-            // 5) remaining in the third band: redeem(10), CR= 14/10 = 140%
+            // 5) within the third band: redeem(10), CR = 14/10 = 1.40
             uint(10),
-            // 6) straddling the third boundary: redeem(3), CR = 11/7 = 157%
+            // 6) across the 1.50 boundary: redeem(3), CR = 11/7 = 1.571
             uint(3),
-            // 7) straddling all bands: redeem(3), CR = 8/4 = 200%
+            // 7) within the top band: redeem(3), CR = 8/4 = 2.0
             uint(3)
         ];
 
@@ -764,6 +803,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         BeforeActionBalance memory before = _readBeforeActionBalance();
 
         Total memory total;
+        collateralInSum = 0;
         for (uint i = 0; i < redeemStep.length; i++) {
             (
                 uint256 fee,
@@ -810,6 +850,12 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 total.subsidy,
                 0,
                 string.concat("step ", LibString.toString(i + 1), ", actual reserve used")
+            );
+            collateralInSum += redeemStep[i] * 1 ether;
+            _assertStepCollateralRatio(
+                i + 1,
+                before.backing - collateralInSum,
+                before.peggedSupply - total.peggedRedeemed
             );
         }
     }
@@ -897,8 +943,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     /// A leveraged redemption's fee is the integral of the band rates over the collateral it takes out: redeemed down
-    /// through every band to the peg a collateral's worth at a time, each slice pays its dry run's fee, each step the
-    /// fee of the step redeemed at once, and the steps add up to the cumulative dry runs, exactly.
+    /// through both of its fee bands to the edge of the disallowed one, a collateral's worth at a time, each slice pays
+    /// its dry run's fee, each step the fee of the step redeemed at once, and the steps add up to the cumulative dry
+    /// runs, exactly. Each step's collateral ratio is asserted, so the steps go where they are meant to.
     function test_redeemLeveragedFeesAreIntegrals() public {
         // ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -910,17 +957,17 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
-        // check fees:
+        // check fees - each step takes its whole claim out of the record, the fee with it, so from 60 over 40:
         uint[5] memory redeemStep = [
-            // 1) completely in the first band: redeem(4), CR = 56/40 = 140%
+            // 1) within the top band: redeem(4), CR = 56/40 = 1.40
             uint(4),
-            // 2) straddling the first boundary: redeem(4), CR = 52/40 = 130%
+            // 2) across the 1.35 boundary: redeem(4), CR = 52/40 = 1.30
             uint(4),
-            // 3) remaining in the second band: redeem(4), CR= 46/40 = 115%
+            // 3) within the lower band: redeem(4), CR = 48/40 = 1.20
             uint(4),
-            // 4) straddling the second boundary: redeem(5), CR = 41/40 = 102.5%
+            // 4) within the lower band: redeem(5), CR = 43/40 = 1.075
             uint(5),
-            // 5) entering depeg: redeem(1), CR = 40/40 = 100%
+            // 5) down to the disallowed band's edge: redeem(1), CR = 42/40 = 1.05
             uint(1)
         ];
 
@@ -936,7 +983,12 @@ contract TestMinterFees is TestMinterFeeSetUp {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         vm.stopPrank();
 
+        // A collateral's worth of leveraged, at a leveraged price of exactly one pegged, claims exactly one collateral,
+        // so the record falls by exactly what each step redeems and every step's ratio is exact.
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
         uint256 fee = 0;
+        collateralInSum = 0;
         for (uint i = 0; i < redeemStep.length; i++) {
             uint step = i + 1;
             fee += _checkRedeemLeveragedIntegral(redeemStep[i], step);
@@ -947,6 +999,8 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat("step ", LibString.toString(step))
             );
+            collateralInSum += redeemStep[i] * 1 ether;
+            _assertStepCollateralRatio(step, backing - collateralInSum, peggedSupply);
         }
     }
 }
