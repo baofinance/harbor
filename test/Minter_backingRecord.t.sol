@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -50,15 +51,51 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         return Math.mulDiv(IERC20(wrappedCollateralToken).balanceOf(minter), _rate(), 1 ether);
     }
 
-    /// A market low enough in the schedule to sit in the SUBSIDY bands — below 1.10 for sail minting and
-    /// below 1.15 for anchor redemption — with a reserve to pay them from. The subsidy is the term that
+    /// A market low enough in the schedule to sit in the SUBSIDY bands — below 1.10 for leveraged minting and
+    /// below 1.15 for pegged redemption — with a reserve to pay them from. The subsidy is the term that
     /// makes the record and the holding separable: it is floored in wrapped when the reserve pays it, while
     /// the band walk accumulates it in full, so a record derived from the accumulator claims collateral the
     /// reserve never sent.
-    function _setUpSubsidisedMarket(uint256 reserveWrapped) private returns (uint256 sailTokens) {
-        (, sailTokens) = setUp_collateral(100 ether, 8 ether); // collateral ratio 1.08
+    function _setUpSubsidisedMarket(uint256 reserveWrapped) private {
+        setUp_collateral(100 ether, 8 ether); // collateral ratio 1.08
         deal(wrappedCollateralToken, reservePool, reserveWrapped);
         assertLt(IMinter(minter).collateralRatio(), 1.10 ether, "the market must sit in the subsidy bands");
+    }
+
+    /// A wrapped-to-underlying rate from a millionth to a million, drawn evenly across the twelve decades between.
+    /// The extremes are where conversions round coarsest - a millionth floors the collateral a wrapped wei credits, a
+    /// million the wrapped a collateral wei pays out - and the mantissa is drawn too, because at a power of ten one
+    /// direction of each conversion is exact.
+    function _rateFromAMillionthToAMillion(uint256 decade, uint256 mantissa) private pure returns (uint256) {
+        return bound(mantissa, 1e12, 1e13 - 1) * 10 ** bound(decade, 0, 11);
+    }
+
+    /// The wrapped collateral held by everyone an operation can pay or charge.
+    struct WrappedHoldings {
+        uint256 caller;
+        uint256 minter;
+        uint256 feeReceiver;
+        uint256 reserve;
+    }
+
+    function _wrappedHoldings(address caller) private view returns (WrappedHoldings memory holdings) {
+        holdings.caller = IERC20(wrappedCollateralToken).balanceOf(caller);
+        holdings.minter = IERC20(wrappedCollateralToken).balanceOf(minter);
+        holdings.feeReceiver = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        holdings.reserve = IERC20(wrappedCollateralToken).balanceOf(reservePool);
+    }
+
+    /// A zero-fee route charges no fee and draws on no reserve: the wrapped the caller gives up or receives,
+    /// `callerChange`, is exactly what the minter receives or gives up, and nobody else's holding moves.
+    function _assertOnlyTheCallerAndTheMinterMoved(
+        WrappedHoldings memory pre,
+        WrappedHoldings memory post,
+        int256 callerChange
+    ) private pure {
+        assertEq(int256(post.caller) - int256(pre.caller), callerChange, "the caller's wrapped moves by the amount");
+        assertEq(int256(post.minter) - int256(pre.minter), -callerChange, "and the minter's by the opposite");
+        assertEq(post.feeReceiver, pre.feeReceiver, "no fee is taken");
+        assertEq(post.reserve, pre.reserve, "no reserve is drawn on");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -68,20 +105,25 @@ contract MinterBackingRecordTest is TestMinterSetUp {
     /// A mint credits the record with the collateral standing behind it, so the record may never gain
     /// more than the holding gained. A rate that does not divide evenly is what makes the two
     /// derivations separable: the collateral credited and the wrapped taken are computed apart, and
-    /// only their agreement keeps the record honest.
-    function testFuzz_anchorMintRecordNeverGainsMoreThanTheHolding(uint256 wrappedIn) public {
-        wrappedIn = bound(wrappedIn, 1e15, 10 ether);
+    /// only their agreement keeps the record honest. Every test here founds its market at a rate from a
+    /// millionth to a million, so the rounding at both extremes is reached on every route.
+    function testFuzz_peggedMintRecordNeverGainsMoreThanTheHolding(
+        uint256 wrappedIn,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
         setUp_collateral(100 ether, 40 ether);
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
+        wrappedIn = bound(wrappedIn, 1e15, 10 ether);
 
         uint256 recordBefore = _recordedBacking();
         uint256 heldBefore = _heldAsCollateral();
 
-        address anchorMinter = makeAddr("anchorMinter");
-        deal(wrappedCollateralToken, anchorMinter, wrappedIn);
-        vm.startPrank(anchorMinter);
+        address peggedMinter = makeAddr("peggedMinter");
+        deal(wrappedCollateralToken, peggedMinter, wrappedIn);
+        vm.startPrank(peggedMinter);
         IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
-        IMinter(minter).mintPeggedToken(wrappedIn, anchorMinter, 0);
+        IMinter(minter).mintPeggedToken(wrappedIn, peggedMinter, 0);
         vm.stopPrank();
 
         assertLe(
@@ -91,21 +133,129 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         );
     }
 
-    function testFuzz_sailMintRecordNeverGainsMoreThanTheHolding(uint256 wrappedIn) public {
-        wrappedIn = bound(wrappedIn, 1e15, 10 ether);
+    /// The fee-capped pegged mint takes only as much of the offer as its cap allows, and the record must follow
+    /// what it took: the caller gives up exactly the wrapped the mint reports using, which reaches the minter and
+    /// the fee receiver and nobody else, and the record gains no more than the holding. From a ratio of 1.6, in
+    /// the 0.5% band, a cap below 1% cuts the mint inside the 1% band below 1.40, where the average fee reaches the
+    /// cap - at 1.40 itself for a cap of 0.5%; a cap of 1% cuts it at 1.30, where minting is disallowed.
+    function testFuzz_cappedPeggedMint_conservesTheWrappedAndTheRecordGainsNoMoreThanTheHolding(
+        uint256 wrappedIn,
+        uint256 maxFeeRatio,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
+        setUp_collateral(100 ether, 60 ether);
+        wrappedIn = bound(wrappedIn, 1e15, 200 ether);
+        // From the cheapest band's fee, so every cap buys some of the offer, to the dearest band's, so most caps cut the
+        // mint where the average fee reaches them - the cut with the most rounding in it. A cap below every fee mints
+        // nothing, which Minter_mintPegged pins.
+        int256[] memory fees = IMinter_v3(minter).config().mintPeggedIncentiveConfig.incentiveRatios;
+        maxFeeRatio = bound(maxFeeRatio, uint256(fees[fees.length - 1]), uint256(fees[fees.length - 2]));
+
+        address peggedMinter = makeAddr("cappedPeggedMinter");
+        deal(wrappedCollateralToken, peggedMinter, wrappedIn);
+        WrappedHoldings memory pre = _wrappedHoldings(peggedMinter);
+        uint256 recordBefore = _recordedBacking();
+        uint256 heldBefore = _heldAsCollateral();
+
+        vm.startPrank(peggedMinter);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        (, uint256 wrappedUsed) = IMinter_v3(minter).mintPeggedToken(wrappedIn, peggedMinter, 0, maxFeeRatio);
+        vm.stopPrank();
+
+        WrappedHoldings memory post = _wrappedHoldings(peggedMinter);
+        assertEq(post.caller, pre.caller - wrappedUsed, "the caller gives up exactly the wrapped used");
+        assertEq(
+            post.minter + post.feeReceiver,
+            pre.minter + pre.feeReceiver + wrappedUsed,
+            "which reaches the minter and the fee receiver"
+        );
+        assertEq(post.reserve, pre.reserve, "and none of it the reserve");
+        assertLe(
+            _recordedBacking() - recordBefore,
+            _heldAsCollateral() - heldBefore,
+            "the record may not gain more collateral than the holding did"
+        );
+    }
+
+    /// The zero-fee pegged mint takes the whole offer and charges nothing for it: the caller gives up exactly
+    /// what it offers, all of it to the minter, and the record gains no more than the holding.
+    function testFuzz_zeroFeePeggedMint_conservesTheWrappedAndTheRecordGainsNoMoreThanTheHolding(
+        uint256 wrappedIn,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
         setUp_collateral(100 ether, 40 ether);
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
+        wrappedIn = bound(wrappedIn, 1e15, 10 ether);
+
+        deal(wrappedCollateralToken, zeroFee, wrappedIn);
+        WrappedHoldings memory pre = _wrappedHoldings(zeroFee);
+        uint256 recordBefore = _recordedBacking();
+        uint256 heldBefore = _heldAsCollateral();
+
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter_v3(minter).freeMintPeggedToken(wrappedIn, zeroFee);
+        vm.stopPrank();
+
+        _assertOnlyTheCallerAndTheMinterMoved(pre, _wrappedHoldings(zeroFee), -int256(wrappedIn));
+        assertLe(
+            _recordedBacking() - recordBefore,
+            _heldAsCollateral() - heldBefore,
+            "the record may not gain more collateral than the holding did"
+        );
+    }
+
+    function testFuzz_leveragedMintRecordNeverGainsMoreThanTheHolding(
+        uint256 wrappedIn,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
+        setUp_collateral(100 ether, 40 ether);
+        wrappedIn = bound(wrappedIn, 1e15, 10 ether);
 
         uint256 recordBefore = _recordedBacking();
         uint256 heldBefore = _heldAsCollateral();
 
-        address sailMinter = makeAddr("sailMinter");
-        deal(wrappedCollateralToken, sailMinter, wrappedIn);
-        vm.startPrank(sailMinter);
+        address leveragedMinter = makeAddr("leveragedMinter");
+        deal(wrappedCollateralToken, leveragedMinter, wrappedIn);
+        vm.startPrank(leveragedMinter);
         IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
-        IMinter(minter).mintLeveragedToken(wrappedIn, sailMinter, 0);
+        IMinter(minter).mintLeveragedToken(wrappedIn, leveragedMinter, 0);
         vm.stopPrank();
 
+        assertLe(
+            _recordedBacking() - recordBefore,
+            _heldAsCollateral() - heldBefore,
+            "the record may not gain more collateral than the holding did"
+        );
+    }
+
+    /// The zero-fee leveraged mint takes the whole offer and charges nothing for it: the caller gives up
+    /// exactly what it offers, all of it to the minter, and the record gains no more than the holding.
+    function testFuzz_zeroFeeLeveragedMint_conservesTheWrappedAndTheRecordGainsNoMoreThanTheHolding(
+        uint256 wrappedIn,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
+        setUp_collateral(100 ether, 40 ether);
+        wrappedIn = bound(wrappedIn, 1e15, 10 ether);
+
+        deal(wrappedCollateralToken, zeroFee, wrappedIn);
+        WrappedHoldings memory pre = _wrappedHoldings(zeroFee);
+        uint256 recordBefore = _recordedBacking();
+        uint256 heldBefore = _heldAsCollateral();
+
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
+        IMinter_v3(minter).freeMintLeveragedToken(wrappedIn, zeroFee);
+        vm.stopPrank();
+
+        _assertOnlyTheCallerAndTheMinterMoved(pre, _wrappedHoldings(zeroFee), -int256(wrappedIn));
         assertLe(
             _recordedBacking() - recordBefore,
             _heldAsCollateral() - heldBefore,
@@ -120,10 +270,14 @@ contract MinterBackingRecordTest is TestMinterSetUp {
     /// Redeeming pays collateral out, so the mirror applies: a record that gives up LESS than the
     /// holding did is left claiming the difference, which is the same shortfall arrived at from the
     /// other direction.
-    function testFuzz_anchorRedeemRecordNeverLosesLessThanTheHolding(uint256 redeeming) public {
-        (uint256 anchorTokens, ) = setUp_collateral(100 ether, 40 ether);
-        redeeming = bound(redeeming, 1e15, anchorTokens / 10);
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
+    function testFuzz_peggedRedeemRecordNeverLosesLessThanTheHolding(
+        uint256 redeeming,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        redeeming = bound(redeeming, 1e15, peggedTokens / 10);
 
         uint256 recordBefore = _recordedBacking();
         uint256 heldBefore = _heldAsCollateral();
@@ -140,10 +294,45 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         );
     }
 
-    function testFuzz_sailRedeemRecordNeverLosesLessThanTheHolding(uint256 redeeming) public {
-        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
-        redeeming = bound(redeeming, 1e15, sailTokens / 10);
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
+    /// The zero-fee pegged redemption pays its collateral leg out of the minter and converts its leveraged leg in
+    /// place: the caller receives exactly the wrapped returned, all of it from the minter, and the record gives up
+    /// no less than the holding.
+    function testFuzz_zeroFeePeggedRedemption_conservesTheWrappedAndTheRecordLosesNoLessThanTheHolding(
+        uint256 forCollateral,
+        uint256 forLeveraged,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        forCollateral = bound(forCollateral, peggedTokens / 1e9, peggedTokens / 10);
+        forLeveraged = bound(forLeveraged, peggedTokens / 1e9, peggedTokens / 10);
+
+        WrappedHoldings memory pre = _wrappedHoldings(zeroFee);
+        uint256 recordBefore = _recordedBacking();
+        uint256 heldBefore = _heldAsCollateral();
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, forCollateral + forLeveraged);
+        (uint256 wrappedOut, ) = IMinter_v3(minter).freeRedeemPeggedToken(forCollateral, forLeveraged, zeroFee);
+        vm.stopPrank();
+
+        _assertOnlyTheCallerAndTheMinterMoved(pre, _wrappedHoldings(zeroFee), int256(wrappedOut));
+        assertGe(
+            recordBefore - _recordedBacking(),
+            heldBefore - _heldAsCollateral(),
+            "the record must give up at least as much collateral as the holding did"
+        );
+    }
+
+    function testFuzz_leveragedRedeemRecordNeverLosesLessThanTheHolding(
+        uint256 redeeming,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        redeeming = bound(redeeming, 1e15, leveragedTokens / 10);
 
         uint256 recordBefore = _recordedBacking();
         uint256 heldBefore = _heldAsCollateral();
@@ -160,14 +349,42 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         );
     }
 
+    /// The zero-fee leveraged redemption pays out of the minter alone: the caller receives exactly the wrapped
+    /// returned, all of it from the minter, and the record gives up no less than the holding.
+    function testFuzz_zeroFeeLeveragedRedemption_conservesTheWrappedAndTheRecordLosesNoLessThanTheHolding(
+        uint256 leveragedIn,
+        uint256 decade,
+        uint256 mantissa
+    ) public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _rateFromAMillionthToAMillion(decade, mantissa));
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        leveragedIn = bound(leveragedIn, leveragedTokens / 1e9, leveragedTokens / 10);
+
+        WrappedHoldings memory pre = _wrappedHoldings(zeroFee);
+        uint256 recordBefore = _recordedBacking();
+        uint256 heldBefore = _heldAsCollateral();
+
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedIn);
+        uint256 wrappedOut = IMinter_v3(minter).freeRedeemLeveragedToken(leveragedIn, zeroFee);
+        vm.stopPrank();
+
+        _assertOnlyTheCallerAndTheMinterMoved(pre, _wrappedHoldings(zeroFee), int256(wrappedOut));
+        assertGe(
+            recordBefore - _recordedBacking(),
+            heldBefore - _heldAsCollateral(),
+            "the record must give up at least as much collateral as the holding did"
+        );
+    }
+
     /*//////////////////////////////////////////////////////////////
                       WITH A SUBSIDY IN PLAY
     //////////////////////////////////////////////////////////////*/
 
-    /// Minting sail into a subsidy band brings collateral in from two sources — the caller and the reserve —
+    /// Minting leveraged into a subsidy band brings collateral in from two sources — the caller and the reserve —
     /// and the reserve's share is floored on its way in. The record must follow what arrived, not what the
     /// schedule offered.
-    function testFuzz_subsidisedSailMintRecordNeverGainsMoreThanTheHolding(uint256 wrappedIn) public {
+    function testFuzz_subsidisedLeveragedMintRecordNeverGainsMoreThanTheHolding(uint256 wrappedIn) public {
         wrappedIn = bound(wrappedIn, 1e15, 1 ether);
         _setUpSubsidisedMarket(100 ether);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
@@ -175,11 +392,11 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         uint256 recordBefore = _recordedBacking();
         uint256 heldBefore = _heldAsCollateral();
 
-        address sailMinter = makeAddr("subsidisedSailMinter");
-        deal(wrappedCollateralToken, sailMinter, wrappedIn);
-        vm.startPrank(sailMinter);
+        address leveragedMinter = makeAddr("subsidisedLeveragedMinter");
+        deal(wrappedCollateralToken, leveragedMinter, wrappedIn);
+        vm.startPrank(leveragedMinter);
         IERC20(wrappedCollateralToken).approve(minter, wrappedIn);
-        IMinter(minter).mintLeveragedToken(wrappedIn, sailMinter, 0);
+        IMinter(minter).mintLeveragedToken(wrappedIn, leveragedMinter, 0);
         vm.stopPrank();
 
         assertLe(
@@ -189,7 +406,7 @@ contract MinterBackingRecordTest is TestMinterSetUp {
         );
     }
 
-    function testFuzz_subsidisedAnchorRedeemRecordNeverLosesLessThanTheHolding(uint256 redeeming) public {
+    function testFuzz_subsidisedPeggedRedeemRecordNeverLosesLessThanTheHolding(uint256 redeeming) public {
         _setUpSubsidisedMarket(100 ether);
         redeeming = bound(redeeming, 1e15, IMinter(minter).peggedTokenBalance() / 20);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), 1.5 ether);
