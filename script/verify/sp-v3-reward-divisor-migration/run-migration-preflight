@@ -17,14 +17,15 @@
 # Produce a capture first with:
 #   script/verify/sp-holders/capture-sp-holders --to-block <block>
 #
-# Needs MAINNET_RPC_URL, archival at the capture's block.
+# Needs MAINNET_RPC_URL, archival at the capture's block. A run fails unless the pre-flight's tests actually ran - see
+# script/verify/run-campaign-test - and keeps its full output in tmp/sp-v3-reward-divisor-migration.log.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../../.."
 
-TEST_PATH="script/verify/sp-v3-reward-divisor-migration/StabilityPoolMigrationPreflight.t.sol"
+CAMPAIGN_DIR="script/verify/sp-v3-reward-divisor-migration"
 FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
 
 HOLDERS_DIR=""
@@ -51,10 +52,11 @@ fi
 echo "# checking capture ${HOLDERS_DIR} ($(grep '^to-block:' "${HOLDERS_DIR}/manifest.txt"))" >&2
 
 if [[ "$LIST" == true ]]; then
-  forge test --mp "$TEST_PATH" --list
+  FOUNDRY_TEST="$CAMPAIGN_DIR" forge test --no-dynamic-test-linking --mc StabilityPoolMigrationPreflight --list
 else
   # The env var is how this wrapper hands the choice to forge, which takes no arguments of its own -
   # internal plumbing, not a user-facing knob. Users say --holders-dir; nothing reads SP_HOLDERS_DIR
   # except the test this line invokes.
-  SP_HOLDERS_DIR="$HOLDERS_DIR" forge test --mp "$TEST_PATH" $FORGE_VERBOSITY
+  SP_HOLDERS_DIR="$HOLDERS_DIR" exec script/verify/run-campaign-test "$CAMPAIGN_DIR" \
+    tmp/sp-v3-reward-divisor-migration.log --mc StabilityPoolMigrationPreflight "$FORGE_VERBOSITY"
 fi

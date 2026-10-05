@@ -3,9 +3,7 @@
 # accepts and reads back unchanged, and that none would halt once upgraded - its recorded backing covered by its wrapped
 # holding at the low edge of the rate band. Read-only, on a mainnet fork at the latest block.
 #
-# forge (1.8) runs tests only from its configured test directory: a filter outside it, or one matching nothing,
-# reports no tests and exits 0 - a check that checks nothing and passes. So this points the test directory at this
-# campaign, and exits 1 unless at least one test ran - otherwise with forge's own status.
+# Fails unless the preflight's tests actually ran - see script/verify/run-campaign-test.
 #
 # Usage:
 #   script/verify/minter-v3-upgrade/run-preflight
@@ -17,21 +15,5 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../../.."
 
-CAMPAIGN_DIR="script/verify/minter-v3-upgrade"
-FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
-LOG="tmp/minter-v3-upgrade-preflight.log"
-mkdir -p tmp
-
-set +e
-FOUNDRY_TEST="$CAMPAIGN_DIR" forge test --mc MinterUpgradePreflight "$FORGE_VERBOSITY" 2>&1 | tee "$LOG"
-status=${PIPESTATUS[0]}
-set -e
-
-if [[ "$status" -ne 0 ]]; then
-  exit "$status"
-fi
-total="$(grep -oE '\([0-9]+ total tests\)' "$LOG" | tail -n 1 | grep -oE '[0-9]+' || true)"
-if [[ -z "$total" || "$total" -eq 0 ]]; then
-  echo "ERROR: forge ran no test - the preflight checked nothing" >&2
-  exit 1
-fi
+exec script/verify/run-campaign-test script/verify/minter-v3-upgrade tmp/minter-v3-upgrade-preflight.log \
+  --mc MinterUpgradePreflight "${FORGE_VERBOSITY:--vv}"

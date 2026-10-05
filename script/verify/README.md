@@ -8,18 +8,14 @@ Each subdirectory corresponds to a campaign (deployment or upgrade operation).
 Documentation that was previously in `doc/fixes/` lives alongside the
 verification scripts it relates to.
 
+The campaigns sit outside forge's test directory, where `forge test --match-path` finds nothing and still exits 0. The
+upgrade campaigns' runners go through [run-campaign-test](run-campaign-test), which points forge at the campaign and
+fails unless at least one test ran.
+
+Campaigns whose operation has been carried out - the Minter v1→v2 and StabilityPool v1→v2 upgrades, the ETH::fxUSD SPL
+remediation - are kept, no longer compiled, under `deprecated/script/verify/`.
+
 ## Campaigns
-
-### [minter-v2-upgrade/](minter-v2-upgrade/)
-
-Minter v1→v2 upgrade verification. Compares fresh deployment against mainnet
-reference, validates upgrade preserves state.
-
-- `DeployMinters.t.sol` — compare view function outputs between reference and candidate
-- `MinterUpgradeTest.t.sol` — upgrade against local anvil fork
-- `MainnetForkUpgradeTest.t.sol` — upgrade against mainnet fork
-- `test-deploy` — deployment dry-run script
-- [test-deploy.md](minter-v2-upgrade/test-deploy.md), [upgrade-Minter_v2.md](minter-v2-upgrade/upgrade-Minter_v2.md)
 
 ### [minter-v3-upgrade/](minter-v3-upgrade/)
 
@@ -33,26 +29,23 @@ at the low edge of the rate band, which v2 never checked.
   deployed minter as its owner would, failing naming any that v3's `impairment()` reports would halt
 - `run-preflight` — runs it (needs `MAINNET_RPC_URL`); run before upgrading
 
-### [sp-v2-upgrade/](sp-v2-upgrade/)
+### [spm-v2-upgrade/](spm-v2-upgrade/)
 
-StabilityPool v1→v2 upgrade verification and bug fix documentation.
+StabilityPoolManager v1→v2 upgrade verification. There is no upgrade script yet, so the test performs the upgrade
+itself, on a mainnet fork at a pinned block.
 
-- [upgrade-StabilityPool_v2.md](sp-v2-upgrade/upgrade-StabilityPool_v2.md) — upgrade runbook
-- [sp-overflow.md](sp-v2-upgrade/sp-overflow.md) — reward integral overflow analysis
-- [linear-reward-underflow.md](sp-v2-upgrade/linear-reward-underflow.md) — rate truncation fix
-- [finishat-zero.md](sp-v2-upgrade/finishat-zero.md) — reward period end fix
-- [epoch-removal-summary.md](sp-v2-upgrade/epoch-removal-summary.md) — epoch removal
-- [genesis-end.md](sp-v2-upgrade/genesis-end.md) — genesis end condition fix
+- `StabilityPoolManagerUpgradeTest.t.sol` — upgrades every live manager and asserts the configuration survives, the
+  reported interface becomes v2's, and harvest still works on the inherited state
+- `run-upgrade-test-StabilityPoolManager_v2` — runs it (needs `MAINNET_RPC_URL`)
+- [upgrade-StabilityPoolManager_v2.md](spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md)
 
-### [spl-remediation/](spl-remediation/)
+### [sp-v3-reward-divisor-migration/](sp-v3-reward-divisor-migration/)
 
-ETH::fxUSD SPL over-minting bug remediation (post-rebalance integral correction).
+StabilityPool v2→v3 pre-flight: whether every deployed pool can take a plain upgrade.
 
-- `SPLRemediationTest.t.sol` — mainnet fork remediation test
-- `V2ReplaySimulation.t.sol` — v1 vs v2 replay comparison
-- `collect-holders/` — holder data collection scripts
-- [remediation-ETH-fxUSD-SPL.md](spl-remediation/remediation-ETH-fxUSD-SPL.md) — full remediation writeup
-- [rebalance-remediation.md](spl-remediation/rebalance-remediation.md) — rebalance fix documentation
+- `StabilityPoolMigrationPreflight.t.sol` — measures each pool's ledger gap against a holder capture and its supply
+  against the ceiling v3 enforces
+- `run-migration-preflight --holders-dir <capture>` — runs it (needs `MAINNET_RPC_URL`, archival at the capture's block)
 
 ### [sp-v3-migration/](sp-v3-migration/)
 
@@ -60,6 +53,11 @@ StabilityPool v3 upgrade and accumulator force-migration.
 
 - `SPv3MigrationTest.t.sol` — mainnet fork migration test
 - [sp-v3-upgrade.md](sp-v3-migration/sp-v3-upgrade.md) — upgrade documentation
+
+### [sp-holders/](sp-holders/)
+
+- `capture-sp-holders --to-block <block>` — every account that has held a position in each stability pool, the capture
+  the v3 pre-flight checks
 
 ### [roles/](roles/)
 

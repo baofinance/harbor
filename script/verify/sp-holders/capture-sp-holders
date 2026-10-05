@@ -4,8 +4,8 @@
 #
 # Why Etherscan (not cast logs): some RPC providers cap eth_getLogs at ~10 blocks
 # per call, which makes scanning ~1M blocks impossible. Etherscan's getLogs is not
-# block-range limited (1000 records/page, paginated by block), same approach as the
-# sibling `collect-holders` script (which uses the tokentx endpoint).
+# block-range limited (1000 records/page, paginated by block), same approach as
+# `deprecated/script/verify/spl-remediation/collect-holders` (which uses the tokentx endpoint).
 #
 # Why UserDepositChange: an account gets a per-user reward snapshot exactly when it
 # is checkpointed (deposit -> receiver, withdraw -> sender, liquidation -> account).
