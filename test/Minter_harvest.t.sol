@@ -132,7 +132,8 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         );
 
         // Then rate change
-        // the sweep starts at the smallest non-zero rate: a zero rate is an oracle fault, which the Minter rejects
+        // the sweep starts at the smallest non-zero rate: the oracle never quotes a zero rate, and `harvestable`
+        // divides by the rate it is given
         for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
             // The surplus over the wrapped the record needs, that need rounded UP: what a harvest leaves behind must
@@ -164,7 +165,8 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         uint256 collateral = IMinter(minter).collateralTokenBalance();
         address wrappedCollateralToken = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        // the sweep starts at the smallest non-zero rate: a zero rate is an oracle fault, which the Minter rejects
+        // the sweep starts at the smallest non-zero rate: the oracle never quotes a zero rate, and `harvestable`
+        // divides by the rate it is given
         for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
             uint256 wrappedCollateral = IERC20(wrappedCollateralToken).balanceOf(minter);
