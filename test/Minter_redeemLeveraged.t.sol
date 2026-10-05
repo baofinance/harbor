@@ -894,6 +894,52 @@ contract TestMinterFreeRedeemLeveraged is TestMinterSetUp {
             _expectNothingRedeemed(offer);
         }
     }
+
+    /// The zero-fee leveraged redemption pays the offer its share of the residual - the backing's worth above the
+    /// pegged supply's, over the leveraged supply - converted at the rate and rounded down once, with no fee, at any
+    /// price above the peg and any rate at or above the one the record was written at: it burns the offer, the minter's
+    /// holding falls by exactly the payout, and the record gives up the share rounded up.
+    function testFuzz_freeRedeemLeveraged_paysTheOffersShareOfTheResidual_atAnyPriceAndRate(
+        uint256 offer,
+        uint256 price,
+        uint256 rate
+    ) public {
+        price = bound(price, 1100 ether, 100_000 ether); // a ratio from 1.1 to 100
+        rate = bound(rate, 1 ether, 5 ether); // from the rate of one the record was written at
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        uint256 supply = IMinter(minter).leveragedTokenBalance();
+        offer = bound(offer, 1 ether, IERC20(leveragedToken).balanceOf(zeroFee));
+        uint256 recordBefore = IMinter(minter).collateralTokenBalance();
+        // the offer's share of the residual, in collateral, at 1e36
+        uint256 claimE36 = Math.mulDiv(
+            offer * 1 ether,
+            recordBefore * price - IMinter(minter).peggedTokenBalance() * 1 ether,
+            price * supply
+        );
+        uint256 expectedPaid = claimE36 / rate;
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(zeroFee);
+        uint256 holdingBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+
+        vm.startPrank(zeroFee);
+        uint256 paid = IMinter(minter).freeRedeemLeveragedToken(offer, zeroFee);
+        vm.stopPrank();
+
+        assertEq(paid, expectedPaid, "the offer's share of the residual, at the rate, rounded down once");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(zeroFee) - heldBefore, expectedPaid, "paid to the redeemer");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), feeBefore, "with no fee");
+        assertEq(IMinter(minter).leveragedTokenBalance(), supply - offer, "the offer is burned");
+        assertEq(
+            holdingBefore - IERC20(wrappedCollateralToken).balanceOf(minter),
+            expectedPaid,
+            "the minter's holding falls by the payout"
+        );
+        assertEq(
+            recordBefore - IMinter(minter).collateralTokenBalance(),
+            Math.ceilDiv(claimE36, 1 ether),
+            "the record gives up the share, rounded up"
+        );
+    }
 }
 
 /// @notice A leveraged redemption walks down through the bands it crosses, each slice charged at its own band's rate; it
