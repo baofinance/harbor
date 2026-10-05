@@ -11,7 +11,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
-/// @notice The rebalance sizing reaches its target as the market measures it.
+/// @notice The rebalance sizing: how much pegged a rebalance redeems, and how it splits that between the two pools.
 ///
 /// A rebalance asks the minter how much pegged to redeem to bring the collateral ratio to a target, redeems it, and
 /// then acts on the ratio `collateralRatio()` reports. So redeeming the sized amount must land the ratio AT OR ABOVE
@@ -19,14 +19,23 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// market sells no leverage: the rebalance cannot take its second step, and every later call sized from the state it
 /// left finds nothing, or too little, to do.
 ///
-/// Three things could each leave the redemption off its target, and each test isolates one: the prices the sizing and
-/// the payout read against the price the ratio is reported at, the rounding of the amount itself, and the rounding of
-/// the backing where the held collateral is what decides it. Each sizes the collateral route alone - the leg whose
-/// redemption moves the backing - and redeems exactly what it was told.
+/// Three things could each leave the redemption off its target, and each of the first three tests isolates one: the
+/// prices the sizing and the payout read against the price the ratio is reported at, the rounding of the amount
+/// itself, and the rounding of the backing where the held collateral is what decides it. Each of those sizes the
+/// collateral route alone - the leg whose redemption moves the backing - and redeems exactly what it was told.
+///
+/// The rest size both legs. Redeeming pegged for collateral and converting it into leveraged move the ratio at
+/// different rates, so the pairs that reach the target lie on a line between the two single-leg amounts, its
+/// intercepts. The sizing picks the point on it that the pools' holdings weight, then fits it to each pool's headroom:
+/// a leg over its pool's headroom is held there and the shortfall slides along the line onto the other leg, and where
+/// that takes the other leg past its own pool's headroom, both stop at their headrooms, short of the target.
 contract MinterRebalanceSizingTest is TestMinterSetUp {
     /// @dev The highest target the sweeps ask for. Well inside what the supply can reach by the collateral route
     ///      from the ratios they start at, so no sized amount exceeds the pegged outstanding.
     uint256 private constant HIGHEST_TARGET = 1.5 ether;
+
+    /// @dev The target the split tests ask for, from the ratio of 1.03 `_setUpSplit` leaves.
+    uint256 private constant SPLIT_TARGET = 1.1 ether;
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -36,10 +45,41 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         (pegged, ) = IMinter_v3(minter).redeemPeggedForCollateralRatio(target, type(uint256).max, 0, 1, 0);
     }
 
-    function _redeemForCollateral(uint256 pegged) private {
+    /// @dev The two single-leg amounts that reach `target`, the intercepts of its line: the sizing's own answer with
+    ///      no headroom limit and no holdings to weight.
+    function _intercepts(uint256 target) private view returns (uint256 fullCollateral, uint256 fullLeveraged) {
+        (fullCollateral, fullLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            target,
+            type(uint256).max,
+            type(uint256).max,
+            0,
+            0
+        );
+    }
+
+    /// @dev The split tests' market and holdings: a ratio of 1.03 to be taken to `SPLIT_TARGET`, the collateral pool
+    ///      holding the collateral intercept and the leveraged pool three times the leveraged one - both within the
+    ///      supply, and in the proportion that makes the weighting divide exactly.
+    function _setUpSplit()
+        private
+        returns (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged)
+    {
+        setUp_collateral(100 ether, 3 ether); // a ratio of 1.03
+        (fullCollateral, fullLeveraged) = _intercepts(SPLIT_TARGET);
+        (holdingCollateral, holdingLeveraged) = (fullCollateral, 3 * fullLeveraged);
+        assertLe(
+            holdingCollateral + holdingLeveraged,
+            IMinter_v3(minter).peggedTokenBalance(),
+            "the pools hold no more than the supply"
+        );
+    }
+
+    /// @dev Redeems `forCollateral` for wrapped collateral and converts `forLeveraged` into leveraged, as the stability
+    ///      pool manager's rebalance does.
+    function _redeem(uint256 forCollateral, uint256 forLeveraged) private {
         vm.startPrank(zeroFee);
-        IERC20(peggedToken).approve(minter, pegged);
-        IMinter(minter).freeRedeemPeggedToken(pegged, 0, zeroFee);
+        IERC20(peggedToken).approve(minter, forCollateral + forLeveraged);
+        IMinter_v3(minter).freeRedeemPeggedToken(forCollateral, forLeveraged, zeroFee);
         vm.stopPrank();
     }
 
@@ -61,7 +101,7 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price - halfSpread, price + halfSpread, rate, rate);
         target = bound(target, IMinter(minter).collateralRatio() + 1, HIGHEST_TARGET);
 
-        _redeemForCollateral(_collateralRouteTo(target));
+        _redeem(_collateralRouteTo(target), 0);
 
         uint256 landed = IMinter(minter).collateralRatio();
         uint256 roundingBound = Math.ceilDiv(2 * price + target - 1 ether, IMinter(minter).peggedTokenBalance());
@@ -78,7 +118,7 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         setUp_collateral(100 ether, 3 ether); // a ratio of 1.03
         target = bound(target, IMinter(minter).collateralRatio() + 1, HIGHEST_TARGET);
 
-        _redeemForCollateral(_collateralRouteTo(target));
+        _redeem(_collateralRouteTo(target), 0);
 
         assertGe(IMinter(minter).collateralRatio(), target, "the collateral route reaches its target");
     }
@@ -104,8 +144,180 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         );
         target = bound(target, IMinter(minter).collateralRatio() + 1, HIGHEST_TARGET);
 
-        _redeemForCollateral(_collateralRouteTo(target));
+        _redeem(_collateralRouteTo(target), 0);
 
         assertGe(IMinter(minter).collateralRatio(), target, "the collateral route reaches its target");
+    }
+
+    /// With no pegged outstanding there is nothing to redeem, whether the market is empty - a ratio of one - or holds
+    /// leveraged alone - a ratio of infinity.
+    function test_redeemPeggedForCollateralRatio_withNoPeggedSupply_isNothing() public {
+        assertEq(IMinter_v3(minter).collateralRatio(), 1 ether, "an empty market reads a ratio of one");
+        (uint256 forCollateral, uint256 forLeveraged) = _intercepts(SPLIT_TARGET);
+        assertEq(forCollateral, 0, "an empty market redeems nothing for collateral");
+        assertEq(forLeveraged, 0, "or for leveraged");
+
+        setUp_collateral(0, 40 ether);
+        assertEq(IMinter_v3(minter).peggedTokenBalance(), 0, "the market holds leveraged alone");
+        (forCollateral, forLeveraged) = _intercepts(SPLIT_TARGET);
+        assertEq(forCollateral, 0, "a market without pegged redeems nothing for collateral");
+        assertEq(forLeveraged, 0, "or for leveraged");
+    }
+
+    /// A market already at or above the target needs nothing redeemed: asked for a lower target, or for exactly the
+    /// ratio it stands at.
+    function test_redeemPeggedForCollateralRatio_atOrAboveTheTarget_isNothing() public {
+        setUp_collateral(100 ether, 40 ether); // a ratio of 1.4
+        uint256 ratio = IMinter_v3(minter).collateralRatio();
+
+        (uint256 forCollateral, uint256 forLeveraged) = _intercepts(ratio - 0.1 ether);
+        assertEq(forCollateral, 0, "above the target: nothing for collateral");
+        assertEq(forLeveraged, 0, "above the target: nothing for leveraged");
+
+        (forCollateral, forLeveraged) = _intercepts(ratio);
+        assertEq(forCollateral, 0, "at the target: nothing for collateral");
+        assertEq(forLeveraged, 0, "at the target: nothing for leveraged");
+    }
+
+    /// With both pools holding pegged, each gives up pegged in proportion to what it holds: the point on the target
+    /// line where the legs stand in the ratio of the holdings. Holdings of the collateral intercept and three times the
+    /// leveraged one put it at a quarter of the collateral intercept and three quarters of the leveraged one, each
+    /// rounded up so the trade reaches the target.
+    function test_split_weightsTheLegsByThePoolsHoldings() public {
+        (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
+            _setUpSplit()
+        );
+
+        (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            SPLIT_TARGET,
+            type(uint256).max,
+            type(uint256).max,
+            holdingCollateral,
+            holdingLeveraged
+        );
+
+        assertEq(forCollateral, Math.ceilDiv(fullCollateral, 4), "a quarter of the collateral intercept");
+        assertEq(forLeveraged, Math.ceilDiv(3 * fullLeveraged, 4), "three quarters of the leveraged intercept");
+        _redeem(forCollateral, forLeveraged);
+        assertGe(IMinter_v3(minter).collateralRatio(), SPLIT_TARGET, "the trade reaches the target");
+    }
+
+    /// A leg over its pool's headroom is held at the headroom, and the shortfall slides along the target line onto
+    /// the other leg: with the leveraged pool able to give half its intercept, the collateral leg is the line's point
+    /// for that, rounded up, so the trade still reaches the target.
+    function test_split_capsTheLeveragedLegAndSlidesTheRestOntoTheCollateralLeg() public {
+        (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
+            _setUpSplit()
+        );
+        uint256 leveragedHeadroom = fullLeveraged / 2;
+
+        (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            SPLIT_TARGET,
+            type(uint256).max,
+            leveragedHeadroom,
+            holdingCollateral,
+            holdingLeveraged
+        );
+
+        assertEq(forLeveraged, leveragedHeadroom, "the leveraged leg held at its pool's headroom");
+        assertEq(
+            forCollateral,
+            Math.mulDiv(fullCollateral, fullLeveraged - leveragedHeadroom, fullLeveraged, Math.Rounding.Ceil),
+            "the collateral leg takes the rest of the line"
+        );
+        _redeem(forCollateral, forLeveraged);
+        assertGe(IMinter_v3(minter).collateralRatio(), SPLIT_TARGET, "the trade reaches the target");
+    }
+
+    /// The mirror: with the collateral pool able to give an eighth of its intercept, the leveraged leg is the line's
+    /// point for that, rounded up, so the trade still reaches the target.
+    function test_split_slidesTheCollateralShortfallExactly() public {
+        (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
+            _setUpSplit()
+        );
+        uint256 collateralHeadroom = fullCollateral / 8;
+
+        (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            SPLIT_TARGET,
+            collateralHeadroom,
+            type(uint256).max,
+            holdingCollateral,
+            holdingLeveraged
+        );
+
+        assertEq(forCollateral, collateralHeadroom, "the collateral leg held at its pool's headroom");
+        assertEq(
+            forLeveraged,
+            Math.mulDiv(fullLeveraged, fullCollateral - collateralHeadroom, fullCollateral, Math.Rounding.Ceil),
+            "the leveraged leg takes the rest of the line"
+        );
+        _redeem(forCollateral, forLeveraged);
+        assertGe(IMinter_v3(minter).collateralRatio(), SPLIT_TARGET, "the trade reaches the target");
+    }
+
+    /// Where the slide would take the other leg past its own pool's headroom, both pools are exhausted: each leg stops
+    /// at its pool's headroom, the most the two can give, and the trade moves the ratio toward the target without
+    /// reaching it. With the collateral pool able to give an eighth of its intercept, the leveraged leg would have to
+    /// be seven eighths of its own - more than the four fifths its pool can give.
+    function test_split_whenTheLeveragedSlideOverflowsItsPool_takesBothToTheirHeadroom() public {
+        (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
+            _setUpSplit()
+        );
+        uint256 collateralHeadroom = fullCollateral / 8;
+        uint256 leveragedHeadroom = (4 * fullLeveraged) / 5;
+        assertLe(Math.ceilDiv(3 * fullLeveraged, 4), leveragedHeadroom, "the weighted leveraged leg fits its pool");
+        assertGt(
+            Math.mulDiv(fullLeveraged, fullCollateral - collateralHeadroom, fullCollateral, Math.Rounding.Ceil),
+            leveragedHeadroom,
+            "but the slide would take it past"
+        );
+        uint256 ratioBefore = IMinter_v3(minter).collateralRatio();
+
+        (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            SPLIT_TARGET,
+            collateralHeadroom,
+            leveragedHeadroom,
+            holdingCollateral,
+            holdingLeveraged
+        );
+
+        assertEq(forCollateral, collateralHeadroom, "the collateral leg at its pool's headroom");
+        assertEq(forLeveraged, leveragedHeadroom, "the leveraged leg at its pool's headroom");
+        _redeem(forCollateral, forLeveraged);
+        uint256 ratioAfter = IMinter_v3(minter).collateralRatio();
+        assertGt(ratioAfter, ratioBefore, "the trade moves the ratio toward the target");
+        assertLt(ratioAfter, SPLIT_TARGET, "and stops short of it");
+    }
+
+    /// The mirror: with the leveraged pool able to give half its intercept, the collateral leg would have to be half of
+    /// its own - more than the third its pool can give.
+    function test_split_whenTheCollateralSlideOverflowsItsPool_takesBothToTheirHeadroom() public {
+        (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
+            _setUpSplit()
+        );
+        uint256 collateralHeadroom = fullCollateral / 3;
+        uint256 leveragedHeadroom = fullLeveraged / 2;
+        assertLe(Math.ceilDiv(fullCollateral, 4), collateralHeadroom, "the weighted collateral leg fits its pool");
+        assertGt(
+            Math.mulDiv(fullCollateral, fullLeveraged - leveragedHeadroom, fullLeveraged, Math.Rounding.Ceil),
+            collateralHeadroom,
+            "but the slide would take it past"
+        );
+        uint256 ratioBefore = IMinter_v3(minter).collateralRatio();
+
+        (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            SPLIT_TARGET,
+            collateralHeadroom,
+            leveragedHeadroom,
+            holdingCollateral,
+            holdingLeveraged
+        );
+
+        assertEq(forCollateral, collateralHeadroom, "the collateral leg at its pool's headroom");
+        assertEq(forLeveraged, leveragedHeadroom, "the leveraged leg at its pool's headroom");
+        _redeem(forCollateral, forLeveraged);
+        uint256 ratioAfter = IMinter_v3(minter).collateralRatio();
+        assertGt(ratioAfter, ratioBefore, "the trade moves the ratio toward the target");
+        assertLt(ratioAfter, SPLIT_TARGET, "and stops short of it");
     }
 }

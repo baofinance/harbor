@@ -1022,7 +1022,11 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         bytes[6] memory onceCovered = _dryRunAnswers(peggedTokens / 10, leveragedTokens / 10);
 
         for (uint256 i = 0; i < whileHalted.length; i++) {
-            assertEq(whileHalted[i], onceCovered[i], string.concat("dry run ", vm.toString(i), " answers from the record"));
+            assertEq(
+                whileHalted[i],
+                onceCovered[i],
+                string.concat("dry run ", vm.toString(i), " answers from the record")
+            );
         }
     }
 

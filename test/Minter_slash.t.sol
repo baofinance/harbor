@@ -143,7 +143,11 @@ contract MinterSlashTest is TestMinterSetUp {
 
         assertEq(IMinter_v3(minter).collateralTokenBalance(), recordBefore + credit, "credited at the min rate");
         assertEq(IERC20(wrappedCollateralToken).balanceOf(donor), 0, "the donor gives up the whole donation");
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(minter), minterWrappedBefore + donation, "the minter holds it");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(minter),
+            minterWrappedBefore + donation,
+            "the minter holds it"
+        );
         assertEq(
             IMinter_v3(minter).collateralRatio(),
             Math.mulDiv(recordBefore + credit, price, IMinter_v3(minter).peggedTokenBalance()),
