@@ -50,23 +50,6 @@ abstract contract TestMinterFeeRangeSetUp is TestMinterSetUp {
     function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
         return a == 0 ? 0 : (a - 1) / b + 1;
     }
-
-    // Dynamic tolerance unit for r-scaled conversions with spread bump for extreme p vs r
-    function _qR(uint256 p, uint256 r) internal pure returns (uint256) {
-        // ceilDiv(r, 1e18) to avoid underestimating rounding granularity
-        uint256 q = r / 1e18;
-        if (r % 1e18 != 0) q += 1;
-        if (q == 0) q = 1; // ensure a minimum tolerance of 1 wei
-
-        // spread bump: when p and r are very different, rounding accumulates more
-        uint256 small = p < r ? p : r;
-        uint256 large = p < r ? r : p;
-        if (small == 0) return q + 5; // defensive; shouldn't happen in these tests
-        uint256 spread = large / small; // >= 1
-        uint256 bump = spread >= 1e9 ? 5 : (spread >= 1e6 ? 3 : (spread >= 1e3 ? 1 : 0));
-        return q + bump;
-    }
-
 }
 
 abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
@@ -525,34 +508,25 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         assertGe(post.feeWrapped + 1, pre.feeWrapped + fee, "mp fee wrapped, to within a wei");
 
         assertEq(post.userPegged, pre.userPegged + minted, "mp user pegged returned");
-        // console2.log("wrapped=%s", wrapped);
-        // console2.log("fee=%s", fee);
-        // console2.log("p=%s", p);
-        // console2.log("r=%s", r);
-        // console2.log("pre.peggedPrice=%s", pre.peggedPrice);
-        // console2.log("post.peggedPrice=%s", post.peggedPrice);
-        // Minted vs the ideal formula deviates only by rounding: the test's floored fee differs from the
-        // contract's by at most 1 wei (see "mp fee wrapped" above), amplified into minted by the pegged-per-
-        // collateral multiplier `mulDiv(1, p*r, peggedPrice*1e18)`; plus up to ~2 wei of band-math rounding per
-        // collateral-ratio band the mint traverses. Derived per-run, not a blanket tolerance.
-        // The contract prices the mint per CR band (each band a floored mulDiv on balances updated as the mint
-        // proceeds), while the formula is a single floored mulDiv at the static pre-price. The gap is the
-        // band-pricing approximation — purely rounding-scale and protocol-favorable (the contract mints <= the
-        // static-price formula). Bounded two ways (assertApprox passes on either):
-        //  - abs (governs when minted is small): the gap is a few collateral-wei of band-settlement rounding,
-        //    amplified into pegged by the pegged-per-collateral multiplier `mulDiv(1, p*r, peggedPrice*1e18)` —
-        //    large in a depeg. The net collateral rounding is <= 1 wei by conservation, plus a wei-equivalent of
-        //    per-band price drift, so <= 2 multiplier-units; plus per-band pegged flooring. Hence
-        //    `2 * mulDiv(1, p*r, peggedPrice*1e18) + 2 * mintPeggedBands`.
-        //  - rel (governs when minted is huge): the gap stays a few ULP of minted.
-        // Both verified across the price/amount envelope by high-run fuzzing, not a blanket tolerance.
-        assertApprox(
-            minted,
-            Math.mulDiv(wrapped - fee, p * r, pre.peggedPrice * 1e18),
-            2 * Math.mulDiv(1, p * r, pre.peggedPrice * 1e18) + 2 * mintPeggedBands,
-            2 * mintPeggedBands,
-            "mp user pegged"
-        );
+        {
+            // The minter mints the lesser of two figures, each floored once at par: the collateral its walk used, net
+            // of the exact fee, at the price; and the collateral the record gained, at the price. This test's figure
+            // prices the wrapped used less its own fee - never less than the minter's fee - so neither can exceed it.
+            // Below it, the walk's figure loses at most the wrapped wei the walk's collateral was rounded up to and the
+            // fee wei this test's floor drops, and the record's figure at most the collateral wei its conversion floors
+            // away: the larger of two wrapped wei's worth and one collateral wei's worth, at the price.
+            uint256 figure = Math.mulDiv(wrapped - fee, p * r, 1e36);
+            assertLe(minted, figure, "mp user pegged");
+            assertGe(
+                minted +
+                    Math.max(
+                        2 * Math.mulDiv(1, p * r, 1e36, Math.Rounding.Ceil),
+                        Math.mulDiv(1, p, 1 ether, Math.Rounding.Ceil)
+                    ),
+                figure,
+                "mp user pegged, to within rounding"
+            );
+        }
 
         assertEq(post.userLeveraged, pre.userLeveraged, "mp user leveraged");
         assertEq(post.userWrapped, pre.userWrapped - wrapped, "mp user wrapped");
@@ -793,20 +767,18 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             vm.stopPrank();
             // ------------------------------------------------------------------
             Measures memory post = _measure();
-            uint256 q = r / 1e18; // how many 1e18-scale “chunks” in rate
 
             if (subsidyLimitRatio > 0) {
                 assertEq(post.reservePoolWrapped, 0, "ml reserve not exhausted");
             }
 
             subsidy = Math.min(subsidy, pre.reservePoolWrapped);
-            // console2.log("fee=%s", fee);
-            // console2.log("subsidy=%s", subsidy);
 
-            assertApprox(post.feeWrapped, pre.feeWrapped + fee, q + 2, "ml fee wrapped");
-            // The reserve pool falls by the subsidy the contract actually applied; the test reconstructs `subsidy`
-            // with a single truncating division, so the two differ by at most 1 wei (same as "ml minter wrapped").
-            assertApprox(post.reservePoolWrapped, pre.reservePoolWrapped - subsidy, 1, "ml subsidy wrapped");
+            // The minter keeps the offer plus the subsidy less the fee, rounded down once: so its fee is the flat
+            // ratio of the offer rounded up - this test's `fee`, or a wei more - and its subsidy the flat ratio rounded
+            // down, or the reserve's whole balance where that is less, which is this test's `subsidy` exactly.
+            assertEq(post.feeWrapped, pre.feeWrapped + _mintLeveragedFee(wrapped), "ml fee wrapped");
+            assertEq(post.reservePoolWrapped, pre.reservePoolWrapped - subsidy, "ml subsidy wrapped");
 
             // The dry run's ratio is its fee or subsidy over the collateral used - the whole offer, which a leveraged
             // mint always takes; this test's is its own flat figure, floored, over the offer. The dry run's fee is the
@@ -821,26 +793,31 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 "ml dry run fee ratio"
             );
 
-            assertApprox(
+            // the record gains exactly the wrapped the minter keeps, valued at the rate and rounded down
+            assertEq(
                 post.minterUnderlying,
-                pre.minterUnderlying + ((wrapped - fee + subsidy) * r) / 1e18,
-                q + 2,
+                pre.minterUnderlying + Math.mulDiv(post.minterWrapped - pre.minterWrapped, r, 1 ether),
                 "ml minter underlying"
             );
 
             assertEq(post.userWrapped, pre.userWrapped - wrapped, "ml user wrapped");
 
             assertEq(post.minterLeveraged, pre.minterLeveraged + minted, "ml minter leveraged");
-            assertApprox(post.minterWrapped, pre.minterWrapped + wrapped - fee + subsidy, 1, "ml minter wrapped");
+            assertEq(
+                post.minterWrapped,
+                pre.minterWrapped + wrapped + subsidy - _mintLeveragedFee(wrapped),
+                "ml minter wrapped"
+            );
 
             assertEq(post.userLeveraged, pre.userLeveraged + minted, "ml user leveraged returned");
-            // Use full-precision E36 leveraged price rather than the truncated-to-wei public view;
-            // in depeg scenarios lp can shrink to a few wei and the truncation becomes the dominant error.
-            assertApprox(
+            // the record's gain at the price, as a share of the residual, counted in leveraged tokens and rounded down
+            assertEq(
                 minted,
-                Math.mulDiv((wrapped - fee + subsidy) * r /*underlying collateral */, p, _leveragedPriceE36(p)),
-                q + 2,
-                0.00000011 ether, // the test calculation is far less accurate than the contract one
+                Math.mulDiv(
+                    (post.minterUnderlying - pre.minterUnderlying) * p,
+                    pre.minterLeveraged,
+                    pre.minterUnderlying * p - pre.minterPegged * 1 ether
+                ),
                 "ml user leveraged"
             );
 
@@ -855,16 +832,13 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             }
 
             assertEq(post.peggedPrice, pre.peggedPrice, "ml pegged price");
-            assertApprox(
+            // Minted at the residual's price and rounded down, the leveraged price never falls; it rises by under
+            // (price + 1) / the supply after, which the prices' own floors turn into at most that, rounded up.
+            assertGe(post.leveragedPrice, pre.leveragedPrice, "ml leveraged price never falls");
+            assertLe(
                 post.leveragedPrice,
-                post.minterLeveraged == 0 ? 1e18 : pre.leveragedPrice,
-                40,
-                p <= 1e9
-                    ? 0.000004 ether
-                    : p <= 1e18
-                        ? 0.0000000011 ether
-                        : 0, // allow for slight deviation in l price when collateral price is small
-                "ml leveraged price"
+                pre.leveragedPrice + Math.ceilDiv(pre.leveragedPrice + 1, post.minterLeveraged),
+                "ml leveraged price rises by no more than rounding"
             );
         } else {
             // console2.log ("CR=%s", IMinter(minter).collateralRatio());
@@ -886,6 +860,13 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 tolerance -= halfDenominator;
             }
         }
+    }
+
+    /// @dev The leveraged mint's fee as the minter defines it for a flat schedule: the flat ratio of the offer rounded
+    ///      up - what is left once the wrapped kept is rounded down - and nothing where the schedule subsidises.
+    function _mintLeveragedFee(uint256 wrapped) internal view returns (uint256) {
+        int256 ratio = initial(config.mintLeveragedIncentiveConfig.incentiveRatios);
+        return ratio > 0 ? Math.mulDiv(wrapped, uint256(ratio), 1 ether, Math.Rounding.Ceil) : 0;
     }
 
     function _leveragedPriceE36(uint256 p) internal view returns (uint256) {
@@ -910,8 +891,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             // console2.log("wrapped=%s", wrapped);
             uint256 leveraged = _round(wrapped * r * p, _leveragedPriceE36(p));
             // console2.log("leveraged=%s", leveraged);
-            wrapped = (leveraged * _leveragedPriceE36(p)) / (r * p);
-            // console2.log("wrapped=%s", wrapped);
             // TODO: vvv set this to max of leveraged .pre-minterLeveraged, not an if
             if (leveraged <= pre.minterLeveraged) {
                 // console2.log("underlying=%s", (wrapped * r) / 1e18);
@@ -930,7 +909,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 // TODO: why do we ignore depegged redeeming leveraged?
                 // because it has zero value - we need to account for the leverageRatio cap
                 if (post.collateralRatio > 1 ether) {
-                    uint256 fee;
                     {
                         int256 incentiveRatio = initial(config.redeemLeveragedIncentiveConfig.incentiveRatios);
                         // The dry run's ratio is its fee over its measure. The fee is the remainder of a payout rounded
@@ -944,43 +922,35 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                             0,
                             "rl dry run fee ratio"
                         );
-                        fee = (uint256(incentiveRatio) * wrapped) / 1 ether;
-                        assertApprox(post.feeWrapped, pre.feeWrapped + fee, 1, 0, "rl fee wrapped"); // fee won't be more that 10%
-
-                        assertEq(post.userPegged, pre.userPegged, "rl user pegged");
-                        assertApprox(wrappedReturned, wrapped - fee, 1, 0, "rl user wrapped");
-                        assertApprox(post.userLeveraged, pre.userLeveraged - leveraged, 1, 2, "rl user leveraged");
-                        assertApprox(
-                            post.userWrapped,
-                            pre.userWrapped + wrappedReturned,
-                            1,
-                            0,
-                            "rl user wrapped returned"
+                        // The offer's claim, as the minter defines it: its share of the residual, at 36 decimals. The
+                        // walk takes all of it - the schedule disallows nowhere, and the slices it cuts at each bound,
+                        // rounded up, chain to exactly the claim of the whole supply - so the redeemer is paid it less
+                        // the fee, rounded down once, the claim floored to whole wrapped leaves the minter, the fee
+                        // receiver takes the rest of that, and the record gives up the claim rounded up.
+                        uint256 claimE36 = Math.mulDiv(
+                            pre.minterUnderlying * p - pre.minterPegged * 1 ether,
+                            leveraged * 1 ether,
+                            p * pre.minterLeveraged
                         );
-
-                        assertApprox(post.minterPegged, pre.minterPegged, 1, 0, "rl minter pegged");
-                        assertApprox(
-                            post.minterLeveraged,
-                            pre.minterLeveraged - leveraged,
-                            1,
-                            0,
-                            "rl minter leveraged"
+                        assertEq(
+                            wrappedReturned,
+                            Math.mulDiv(claimE36, 1 ether - uint256(incentiveRatio), r * 1 ether),
+                            "rl user wrapped"
                         );
-                        assertApprox(post.minterWrapped, pre.minterWrapped - wrapped, 1, 0, "rl minter wrapped");
-                        // `_qR` is the rate's granularity: reconstructing the underlying from the
-                        // FLOORED wrapped amount discards up to one rate's worth of the accumulator.
-                        // The record itself is then CEILED - `underlyingCollateralRemoved` is
-                        // `ceilDiv(removedE36, 1e18)`, so that the record never gives up less than the
-                        // holding did - and that ceiling is a second, independent wei on top of the
-                        // rate granularity. So the bound is `_qR + 1`, not `_qR`: the two roundings
-                        // are in the same direction and cannot cancel.
-                        assertApprox(
+                        assertEq(post.minterWrapped, pre.minterWrapped - claimE36 / r, "rl minter wrapped");
+                        assertEq(post.feeWrapped, pre.feeWrapped + claimE36 / r - wrappedReturned, "rl fee wrapped");
+                        assertEq(
                             post.minterUnderlying,
-                            pre.minterUnderlying - (wrapped * r) / 1e18,
-                            _qR(p, r) + 1,
-                            0,
+                            pre.minterUnderlying - Math.ceilDiv(claimE36, 1 ether),
                             "rl minter underlying"
                         );
+
+                        // the whole offer burned, the redeemer paid what the minter sent, and no pegged touched
+                        assertEq(post.userLeveraged, pre.userLeveraged - leveraged, "rl user leveraged");
+                        assertEq(post.minterLeveraged, pre.minterLeveraged - leveraged, "rl minter leveraged");
+                        assertEq(post.userWrapped, pre.userWrapped + wrappedReturned, "rl user wrapped returned");
+                        assertEq(post.userPegged, pre.userPegged, "rl user pegged");
+                        assertEq(post.minterPegged, pre.minterPegged, "rl minter pegged");
 
                         // conservation identity
                         {
@@ -993,12 +963,19 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         }
                     }
                     assertEq(post.peggedPrice, pre.peggedPrice, "rl pegged price");
-                    assertApprox(
+                    // The record gives up the claim rounded up from its 36-decimal figure, itself rounded down: under
+                    // a collateral wei more than the claim, or under a 1e18th of one less. So the leveraged price falls
+                    // by under price / the supply after and rises by under a 1e18th of that, and the prices' own floors
+                    // turn each into at most that, rounded up. A supply left above the peg is never empty.
+                    assertGe(
+                        post.leveragedPrice + Math.ceilDiv(p, post.minterLeveraged),
+                        pre.leveragedPrice,
+                        "rl leveraged price falls by no more than rounding"
+                    );
+                    assertLe(
                         post.leveragedPrice,
-                        post.minterLeveraged == 0 ? 1e18 : pre.leveragedPrice,
-                        400 * ((1 ether + measurePrice - 1) / measurePrice), // scale abs tolerance with inverse price
-                        2000,
-                        "rl leveraged price"
+                        pre.leveragedPrice + Math.ceilDiv(p, post.minterLeveraged * 1 ether),
+                        "rl leveraged price rises by no more than rounding"
                     );
                 } else {
                     // console2.log ("skip leveraged=%s, balance=%s", leveraged, pre.minterLeveraged);
