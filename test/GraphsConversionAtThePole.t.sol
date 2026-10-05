@@ -10,22 +10,22 @@ import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
 
-/// @notice What the anchor-to-sail conversion does in the last few wei of collateral price above the peg,
-/// where the residual the sail is a claim on is about to vanish.
+/// @notice What the pegged-to-leveraged conversion does in the last few wei of collateral price above the peg,
+/// where the residual the leveraged is a claim on is about to vanish.
 ///
-/// The conversion mints `anchor x sailSupply / residual`, so as the residual falls the quantity minted
+/// The conversion mints `pegged x leveragedSupply / residual`, so as the residual falls the quantity minted
 /// rises without limit. What actually stops it is not a rule but a granularity: the residual is
-/// `collateral x price - anchorClaim`, and the price is an integer, so one wei of price moves the
+/// `collateral x price - peggedClaim`, and the price is an integer, so one wei of price moves the
 /// residual by the whole collateral balance. The smallest residual a market can be in is therefore one
 /// collateral balance, not one wei, and THAT is what sets the largest conversion rate the market can
 /// ever offer. The sweep is over the price's last digits for exactly that reason - any coarser axis
 /// steps straight over the interesting part.
 ///
-/// The second question is where the REPORTED sail price goes to zero. Operations divide by the residual
+/// The second question is where the REPORTED leveraged price goes to zero. Operations divide by the residual
 /// at its full precision, while `leveragedTokenPrice()` reports it scaled to eighteen decimals, so there
-/// is a band where the protocol mints sail against a price that every external reader sees as zero. The
-/// anchor has a rule for exactly this - `MIN_REPORTABLE_ANCHOR_PRICE_E36`, which refuses to mint below
-/// the smallest price it can report - and the sail has no counterpart. This measures how wide the band
+/// is a band where the protocol mints leveraged against a price that every external reader sees as zero. The
+/// pegged has a rule for exactly this - `MIN_REPORTABLE_PEGGED_PRICE_E36`, which refuses to mint below
+/// the smallest price it can report - and the leveraged has no counterpart. This measures how wide the band
 /// that rule would cover is.
 contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundReleaseSetUp {
     /// @dev How many doublings of the price offset above parity to walk. 2^60 wei of price is far past
@@ -49,8 +49,8 @@ contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundRele
         );
     }
 
-    /// @dev The collateral price at which the anchor claim exactly exhausts the collateral value, so the
-    ///      residual is zero and the sail is worth nothing. Rounded up, so the market sits AT parity
+    /// @dev The collateral price at which the pegged claim exactly exhausts the collateral value, so the
+    ///      residual is zero and the leveraged is worth nothing. Rounded up, so the market sits AT parity
     ///      rather than below it, and every offset added to it is a residual the market really has.
     function _parityPrice() private view returns (uint256) {
         return
@@ -72,16 +72,16 @@ contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundRele
             uint256 snapshot = vm.snapshotState();
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(parity + offset);
 
-            uint256 sailSupplyBefore = IMinter(minter).leveragedTokenBalance();
+            uint256 leveragedSupplyBefore = IMinter(minter).leveragedTokenBalance();
             uint256 collateralValueE36 = IMinter(minter).collateralTokenBalance() * (parity + offset);
-            uint256 anchorClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
+            uint256 peggedClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
 
-            int256 sailOut = NaN;
+            int256 leveragedOut = NaN;
             int256 supplyMultiple = NaN;
-            try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 out) {
-                sailOut = int256(out);
+            try IMinter_v3(minter).freeRedeemPeggedToken(0, PEGGED_IN, address(this)) returns (uint256, uint256 out) {
+                leveragedOut = int256(out);
                 supplyMultiple = int256(
-                    Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, sailSupplyBefore)
+                    Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, leveragedSupplyBefore)
                 );
             } catch (bytes memory reason) {
                 // refused here by the leverage cap, and a gap says so
@@ -92,9 +92,9 @@ contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundRele
                 ia(
                     int256(offset),
                     int256(IMinter(minter).collateralRatio()),
-                    int256(collateralValueE36 > anchorClaimE36 ? collateralValueE36 - anchorClaimE36 : 0),
+                    int256(collateralValueE36 > peggedClaimE36 ? collateralValueE36 - peggedClaimE36 : 0),
                     int256(IMinter_v3(minter).leveragedTokenPrice()),
-                    sailOut,
+                    leveragedOut,
                     supplyMultiple
                 ),
                 _decimals()

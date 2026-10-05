@@ -124,9 +124,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     ///      per-holder flooring a visible part of the conservation bound without the minutes the declared cap cost.
     uint256 internal constant CROWD_SIZE = 100;
 
-    /// @dev The collateral ratio a market stands up at: Genesis' equal halves of anchor and sail put it at 2, and the
-    /// anchor tranche that follows brings it to 1.5 - mid-band on the fee schedules, and a sail buffer able to absorb
-    /// a third of the collateral's value before the anchor is touched.
+    /// @dev The collateral ratio a market stands up at: Genesis' equal halves of pegged and leveraged put it at 2, and
+    /// the pegged tranche that follows brings it to 1.5 - mid-band on the fee schedules, and a leveraged buffer able
+    /// to absorb a third of the collateral's value before the pegged is touched.
     uint256 internal constant DEPLOY_COLLATERAL_RATIO = 1.5 ether;
 
     address internal minter;
@@ -369,11 +369,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     }
 
     /// @dev A collateral ratio deep enough below the rebalance threshold to make the rebalance return a large
-    /// reward, while still leaving the anchor covered. Read from the manager rather than restated, so a market that
+    /// reward, while still leaving the pegged covered. Read from the manager rather than restated, so a market that
     /// configures its threshold differently gets a point that is actually below its own.
     ///
     /// Placed a tenth of the way from parity to the threshold: as deep as the shortfall can be driven while the
-    /// collateral still covers the anchor claim, which is what keeps the sail buffer mintable and the reward large.
+    /// collateral still covers the pegged claim, which is what keeps the leveraged buffer mintable and the reward
+    /// large.
     function _belowRebalanceThreshold() internal view returns (uint256) {
         uint256 threshold = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
         assertGt(threshold, 1 ether, "a threshold at or below parity leaves no covered ratio to rebalance from");
@@ -549,18 +550,19 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         IStabilityPool_v3(stabilityPool).notifyLiquidation(wrappedCollateral, loss, 0);
     }
 
-    /// @dev Stand the market up the way a real one is: Genesis splits its collateral in half, minting anchor with
-    /// one half and sail with the other, which leaves the anchor claim on half the collateral value - a collateral
-    /// ratio of 2. A further anchor tranche of the same size then brings it to 1.5, mid-band on the fee schedules.
+    /// @dev Stand the market up the way a real one is: Genesis splits its collateral in half, minting pegged with
+    /// one half and leveraged with the other, which leaves the pegged claim on half the collateral value - a
+    /// collateral ratio of 2. A further pegged tranche of the same size then brings it to 1.5, mid-band on the fee
+    /// schedules.
     ///
     /// This is deployment-time state, and it must be complete before anything ADVERSE happens - which the point of a
-    /// market's genesis is not, however extreme (see `_seedMarketAt`). Sail is the junior claim that absorbs an
-    /// impairment, so a market that stands up without one is underwater on the first adverse move, and sail cannot
+    /// market's genesis is not, however extreme (see `_seedMarketAt`). Leveraged is the junior claim that absorbs an
+    /// impairment, so a market that stands up without one is underwater on the first adverse move, and leveraged cannot
     /// be added afterwards: minting it requires a residual to sell, and an impaired market has none. The buffer has
     /// to exist before conditions change, exactly as in production.
     function _seedMarket() internal {
-        // Three equal tranches of collateral: anchor and sail at genesis, then anchor again.
-        // Value 3X against an anchor claim of 2X is a collateral ratio of 1.5.
+        // Three equal tranches of collateral: pegged and leveraged at genesis, then pegged again.
+        // Value 3X against a pegged claim of 2X is a collateral ratio of 1.5.
         uint256 tranche = _collateralFor(IStabilityPool(stabilityPool).MIN_DEPOSIT()) + 1 ether;
         marketActions.mint(tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
         marketActions.mint(tranche, 0, address(this)); // the pegged tranche that takes it to 1.5
@@ -576,21 +578,21 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // wrapped collateral records `tranche x rate` of underlying, so at the bottom of the rate range the same
         // wei of flooring is a far larger share of a far smaller backing. Sizing this off the claim alone reads
         // as a tight bound at nominal and silently becomes one three decades too tight at the rate floor.
-        uint256 anchorClaim = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaim = IMinter(minter).peggedTokenBalance();
         uint256 backing = IMinter(minter).collateralTokenBalance();
         uint256 flooring = Math.mulDiv(3, DEPLOY_COLLATERAL_RATIO, backing, Math.Rounding.Ceil) +
-            Math.mulDiv(2, DEPLOY_COLLATERAL_RATIO, anchorClaim, Math.Rounding.Ceil) +
+            Math.mulDiv(2, DEPLOY_COLLATERAL_RATIO, peggedClaim, Math.Rounding.Ceil) +
             1;
         assertApproxEqAbs(
             IMinter(minter).collateralRatio(),
             DEPLOY_COLLATERAL_RATIO,
             flooring,
-            "the market stands up over-collateralised, at genesis proportions plus one anchor tranche"
+            "the market stands up over-collateralised, at genesis proportions plus one pegged tranche"
         );
     }
 
     function _seedPool() internal {
-        // The anchor to deposit was already minted by `_seedMarket`; this establishes only the pool's own floor.
+        // The pegged to deposit was already minted by `_seedMarket`; this establishes only the pool's own floor.
         uint256 minDeposit = IStabilityPool(stabilityPool).MIN_DEPOSIT();
         IERC20(pegged).approve(stabilityPool, type(uint256).max);
         IStabilityPool(stabilityPool).deposit(minDeposit, address(this), 0);
@@ -1818,34 +1820,39 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     // ─── deterministic reward-field corner (the fuzz reaches this < 1/256 runs; never leave it to the fuzzer) ───
 
-    /// @notice An impairment deeper than the sail buffer can absorb, and the recovery out of it. The oracles floor
+    /// @notice An impairment deeper than the leveraged buffer can absorb, and the recovery out of it. The oracles floor
     ///         the reported rate today, so the market halts before it can get this far and the path has never been
     ///         exercised; the planned widening of those bounds turns it from a halt into a state the protocol has
-    ///         to carry. Sail is wiped and the anchor depegs, and no rebalance can help: below the peg a redemption
-    ///         takes its share of the backing with it, so the rebalance is refused by name and the pool keeps its
-    ///         pegged. Once the collateral recovers past the rebalance threshold the market has to come back with it.
-    function test_deepImpairment_wipesSailThenRecovers() public {
+    ///         to carry. Leveraged is wiped and the pegged depegs, and no rebalance can help: below the peg a
+    ///         redemption takes its share of the backing with it, so the rebalance is refused by name and the pool
+    ///         keeps its pegged. Once the collateral recovers past the rebalance threshold the market has to come back
+    ///         with it.
+    function test_deepImpairment_wipesLeveragedThenRecovers() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _mintLeveragedBuffer(poolPegged);
         _growPool(poolPegged, MAX_FUZZ_USERS);
 
-        assertGt(IMinter(minter).leveragedTokenPrice(), 0, "sail carries value while the market is covered");
-        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "and the anchor is at par");
+        assertGt(IMinter(minter).leveragedTokenPrice(), 0, "leveraged carries value while the market is covered");
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "and the pegged is at par");
 
-        // past the buffer: the collateral no longer covers the anchor claim at all
+        // past the buffer: the collateral no longer covers the pegged claim at all
         _setEnvelopePointAtCollateralRatio(0.7 ether, e.minWrapRate, e.pegPriceUSD);
 
-        assertEq(IMinter(minter).leveragedTokenPrice(), 0, "sail is the junior claim and is wiped out first");
-        assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the anchor depegs once sail can absorb no more");
+        assertEq(IMinter(minter).leveragedTokenPrice(), 0, "leveraged is the junior claim and is wiped out first");
+        assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the pegged depegs once leveraged can absorb no more");
         assertEq(IMinter(minter).harvestable(), 0, "a shortfall is not a surplus");
 
-        // both directions that would take value out of a market that cannot cover its anchor are refused
-        (, , , uint256 anchorMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-        assertEq(anchorMinted, 0, "anchor minting is refused while the anchor is uncovered");
-        (, , , uint256 sailCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
-        assertEq(sailCollateralOut, 0, "sail redemption is refused while it stands behind an uncovered anchor");
+        // both directions that would take value out of a market that cannot cover its pegged are refused
+        (, , , uint256 peggedMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+        assertEq(peggedMinted, 0, "pegged minting is refused while the pegged is uncovered");
+        (, , , uint256 leveragedCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
+        assertEq(
+            leveragedCollateralOut,
+            0,
+            "leveraged redemption is refused while it stands behind an uncovered pegged"
+        );
 
         // below the peg there is nothing a rebalance can repair: it is refused by name, and the pool keeps its pegged
         // for when the price brings the market back above the peg
@@ -1870,21 +1877,21 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
             "above the threshold there is nothing left to rebalance"
         );
-        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "the anchor is covered again, so it is back at par");
-        assertGt(IMinter(minter).leveragedTokenPrice(), 0, "and sail carries the recovery, being the residual");
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "the pegged is covered again, so it is back at par");
+        assertGt(IMinter(minter).leveragedTokenPrice(), 0, "and leveraged carries the recovery, being the residual");
 
-        // Anchor minting has its OWN bound, the terminal disallow band of the fee schedule, and it sits above the
-        // rebalance threshold - a market can be past rebalancing and still too thinly covered to mint more anchor.
+        // Pegged minting has its OWN bound, the terminal disallow band of the fee schedule, and it sits above the
+        // rebalance threshold - a market can be past rebalancing and still too thinly covered to mint more pegged.
         // Read the bound rather than assume the two coincide: a market may set them independently, and one here does.
         uint256 mintBound = IMinter_v3(minter).config().mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[0];
         if (recovered <= mintBound) {
             (, , , uint256 stillRefused, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-            assertEq(stillRefused, 0, "clearing the rebalance threshold does not by itself re-open anchor minting");
+            assertEq(stillRefused, 0, "clearing the rebalance threshold does not by itself re-open pegged minting");
         }
 
         _setEnvelopePointAtCollateralRatio(mintBound + 0.01 ether, e.minWrapRate, e.pegPriceUSD);
-        (, , , uint256 anchorMintedAfter, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-        assertGt(anchorMintedAfter, 0, "past its own bound, anchor minting is permitted again");
+        (, , , uint256 peggedMintedAfter, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+        assertGt(peggedMintedAfter, 0, "past its own bound, pegged minting is permitted again");
     }
 
     /// @notice The reward-field corner: the full pool ($maxPoolValueUSD) liquidated in one rebalance at the CHEAPEST

@@ -9,26 +9,26 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
 
-/// @notice Graphs the conversion rate the anchor-to-sail conversion actually applies against the
+/// @notice Graphs the conversion rate the pegged-to-leveraged conversion actually applies against the
 /// conversion rate that would be fair, across the collateral ratio.
 ///
-/// A conversion rate here is sail minted per unit of anchor value, and the fair one is the reciprocal of
-/// the sail price. The bound is a ceiling on that conversion rate, so it should engage where the fair
+/// A conversion rate here is leveraged minted per unit of pegged value, and the fair one is the reciprocal of
+/// the leveraged price. The bound is a ceiling on that conversion rate, so it should engage where the fair
 /// conversion rate crosses it. It engages on the reported LEVERAGE ratio instead - the same comparison
-/// taken against the collateral value rather than against the sail supply. The two agree only if those
+/// taken against the collateral value rather than against the leveraged supply. The two agree only if those
 /// two quantities are equal, which nothing maintains, so between the collateral ratio where the bound
 /// engages and the collateral ratio where it starts costing the pool value, the conversion is active but
-/// mints MORE sail than fairness requires - diluting existing sail holders in the pool's favour. This
+/// mints MORE leveraged than fairness requires - diluting existing leveraged holders in the pool's favour. This
 /// graph is that band, measured.
 ///
-/// The applied conversion rate is measured by putting anchor through the conversion itself and dividing
-/// the sail received by the anchor given up, rather than recomputed here from the same inputs the
+/// The applied conversion rate is measured by putting pegged through the conversion itself and dividing
+/// the leveraged received by the pegged given up, rather than recomputed here from the same inputs the
 /// contract uses: a recomputation would agree with the implementation by construction and show nothing.
 contract TestGraphsRebalanceTrigger is GraphTestBase, TestCollateralRatioRangeSetUp {
-    /// @dev One anchor token, so the sail received IS the applied conversion rate. Small against the
+    /// @dev One pegged token, so the leveraged received IS the applied conversion rate. Small against the
     ///      pool, so what is measured is the conversion rate a conversion faces rather than one its own
     ///      size has moved.
-    uint256 private constant ANCHOR_IN = 1 ether;
+    uint256 private constant PEGGED_IN = 1 ether;
 
     string private file;
 
@@ -65,11 +65,11 @@ contract TestGraphsRebalanceTrigger is GraphTestBase, TestCollateralRatioRangeSe
     /// @dev Everything this graph draws at the market's current collateral ratio, in the order the header
     ///      names. Shared by the recording and by refinement, so what is judged is exactly what is drawn.
     function _lines() private returns (int256[] memory lines) {
-        uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
+        uint256 leveragedPrice = IMinter_v3(minter).leveragedTokenPrice();
 
-        // At and below a collateral ratio of 1 the residual behind the sail token is zero, so the fair
+        // At and below a collateral ratio of 1 the residual behind the leveraged token is zero, so the fair
         // conversion rate is not a finite number. Left as a gap rather than plotted as something.
-        int256 fairRate = sailPrice == 0 ? NaN : int256((1 ether * 1 ether) / sailPrice);
+        int256 fairRate = leveragedPrice == 0 ? NaN : int256((1 ether * 1 ether) / leveragedPrice);
         int256 appliedRate = _measureAppliedRate();
 
         int256 appliedOverFair = NaN;
@@ -98,16 +98,19 @@ contract TestGraphsRebalanceTrigger is GraphTestBase, TestCollateralRatioRangeSe
         return _lines();
     }
 
-    /// @dev Convert a fixed amount of anchor into sail and report the conversion rate that came out, then
+    /// @dev Convert a fixed amount of pegged into leveraged and report the conversion rate that came out, then
     ///      undo it so the sweep's next point starts from the same market.
     function _measureAppliedRate() private returns (int256 appliedRate) {
-        if (IERC20(peggedToken).balanceOf(address(this)) < ANCHOR_IN) {
+        if (IERC20(peggedToken).balanceOf(address(this)) < PEGGED_IN) {
             return NaN;
         }
         uint256 snapshot = vm.snapshotState();
         appliedRate = NaN;
-        try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 sailOut) {
-            appliedRate = int256((sailOut * 1 ether) / ANCHOR_IN);
+        try IMinter_v3(minter).freeRedeemPeggedToken(0, PEGGED_IN, address(this)) returns (
+            uint256,
+            uint256 leveragedOut
+        ) {
+            appliedRate = int256((leveragedOut * 1 ether) / PEGGED_IN);
         } catch (bytes memory reason) {
             // the conversion is refused here by the leverage cap; a gap says so
             _requireLeverageCapRefusal(reason);

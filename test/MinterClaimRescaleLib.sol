@@ -6,17 +6,17 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-/// @notice Evaluate a candidate rule about the SAIL'S CLAIM by measuring the market once and rescaling,
+/// @notice Evaluate a candidate rule about the LEVERAGED CLAIM by measuring the market once and rescaling,
 /// instead of implementing the rule in a contract and installing it.
 ///
-/// The conversion mints `anchorIn x anchorPrice x sailSupply / sailClaim`. The only term a claim rule
+/// The conversion mints `peggedIn x peggedPrice x leveragedSupply / leveragedClaim`. The only term a claim rule
 /// touches is the divisor, so a result measured at one claim can be converted to the result at another
 /// by multiplying by the ratio of the claims. One transaction then yields a whole family of candidate
 /// answers, at any number of parameter values, with no mock minter for any of them.
 ///
 /// That matters for more than speed. Every rule implemented as a contract is a second implementation
-/// that can be wrong on its own account, and one written for this work WAS - it priced the anchor at one
-/// where it was not, and paid 111 sail per anchor against a cap of 100. A rescale has nothing to get
+/// that can be wrong on its own account, and one written for this work WAS - it priced the pegged at one
+/// where it was not, and paid 111 leveraged per pegged against a cap of 100. A rescale has nothing to get
 /// wrong: it is one multiply against a number the market itself produced.
 ///
 /// ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -24,17 +24,17 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 ///
 /// Exact if, and only if, the candidate rule leaves ALL of these untouched:
 ///
-///   1. the ANCHOR's price - `min(1, collateralRatio)`, unchanged;
-///   2. the sail SUPPLY at the moment of measurement;
+///   1. the PEGGED price - `min(1, collateralRatio)`, unchanged;
+///   2. the leveraged SUPPLY at the moment of measurement;
 ///   3. the path the operation takes - which band it walks, what fee it pays, whether it refuses.
 ///
-/// A rule that only puts a floor under the sail's claim satisfies all three, because the band walk is
-/// indexed by the collateral ratio with the anchor taken at par and so cannot see a sail rule at all.
-/// A reserve account backing the sail satisfies all three for the same reason - the claim becomes
+/// A rule that only puts a floor under the leveraged claim satisfies all three, because the band walk is
+/// indexed by the collateral ratio with the pegged taken at par and so cannot see a leveraged rule at all.
+/// A reserve account backing the leveraged satisfies all three for the same reason - the claim becomes
 /// `residual + reserve` and nothing else moves.
 ///
-/// A rule that changes the ANCHOR's price does NOT, and the rescale silently becomes a model. The
-/// shifted-knee proposal was exactly that: it moved the anchor's price, which moved what every band walk
+/// A rule that changes the PEGGED price does NOT, and the rescale silently becomes a model. The
+/// shifted-knee proposal was exactly that: it moved the pegged price, which moved what every band walk
 /// did, which no amount of rescaling can reach. That is why it needed a real implementation, and why
 /// measuring it by rescale would have reported a rule that does not exist.
 ///
@@ -53,11 +53,11 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 library MinterClaimRescaleLib {
     /// @notice How a market's collateral divides, in the 1e36-scaled units the contract works in.
     /// @param collateralValueE36 What the collateral is worth, in pegged tokens.
-    /// @param anchorClaimE36 What the anchor is owed at par - its count, valued at one each.
-    /// @param residualE36 What is left for the sail, floored at zero where the anchor is not covered.
+    /// @param peggedClaimE36 What the pegged is owed at par - its count, valued at one each.
+    /// @param residualE36 What is left for the leveraged, floored at zero where the pegged is not covered.
     struct Valuation {
         uint256 collateralValueE36;
-        uint256 anchorClaimE36;
+        uint256 peggedClaimE36;
         uint256 residualE36;
     }
 
@@ -69,18 +69,18 @@ library MinterClaimRescaleLib {
     function valuationOf(address minter, address priceOracle) internal view returns (Valuation memory valuation) {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         valuation.collateralValueE36 = IMinter(minter).collateralTokenBalance() * price;
-        valuation.anchorClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
-        valuation.residualE36 = valuation.collateralValueE36 > valuation.anchorClaimE36
-            ? valuation.collateralValueE36 - valuation.anchorClaimE36
+        valuation.peggedClaimE36 = IMinter(minter).peggedTokenBalance() * 1 ether;
+        valuation.residualE36 = valuation.collateralValueE36 > valuation.peggedClaimE36
+            ? valuation.collateralValueE36 - valuation.peggedClaimE36
             : 0;
     }
 
-    /// @notice What the measured operation would have returned had the sail's claim been `candidateClaimE36`.
+    /// @notice What the measured operation would have returned had the leveraged claim been `candidateClaimE36`.
     /// @dev Exact under the three conditions in this library's notes, and a model outside them. The
     /// result goes as one over the claim, so this is a single multiply and not an approximation - but
     /// only where the numerator genuinely did not move.
     /// @param measuredOut What the operation actually returned.
-    /// @param measuredClaimE36 The sail's claim at the moment it was measured, usually the raw residual.
+    /// @param measuredClaimE36 The leveraged claim at the moment it was measured, usually the raw residual.
     /// @param candidateClaimE36 The claim the candidate rule would have given.
     function rescaleToClaim(
         uint256 measuredOut,
@@ -96,11 +96,11 @@ library MinterClaimRescaleLib {
 
     /// @notice What a candidate rule hands to, or takes from, whatever funds it - as a signed share of
     ///         the collateral's value.
-    /// @dev Positive where the candidate gives the sail MORE than the residual, so something must supply
+    /// @dev Positive where the candidate gives the leveraged MORE than the residual, so something must supply
     /// the difference; negative where it gives less, so the difference accrues. Whether the second pays
     /// for the first over a market's life is the question a floor has to answer, and it cannot be seen
     /// without the sign.
-    /// @param candidateClaimE36 The claim the candidate rule gives the sail.
+    /// @param candidateClaimE36 The claim the candidate rule gives the leveraged.
     /// @param residualE36 The claim with no rule at all.
     /// @param collateralValueE36 What the collateral is worth, which the flow is expressed against.
     function signedFlowShare(

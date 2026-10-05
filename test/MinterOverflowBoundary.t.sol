@@ -21,10 +21,10 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// Several products inside the minter multiply a token supply by a price in 256 bits, in plain checked
 /// arithmetic, before any `mulDiv` can widen the intermediate. Because the arithmetic is checked, the
 /// failure is a REVERT and not a wrong number, which makes this a question about AVAILABILITY: past the
-/// boundary the operation simply stops being offered, and a sail holder cannot redeem.
+/// boundary the operation simply stops being offered, and a leveraged holder cannot redeem.
 ///
 /// The price in those products is the ORACLE COLLATERAL price - what one collateral token is worth in
-/// pegged tokens - and not the anchor price. The anchor price is `min(1, collateral ratio)` and never
+/// pegged tokens - and not the pegged price. The pegged price is `min(1, collateral ratio)` and never
 /// exceeds one, so were it the multiplier these products would be bounded by the supply alone. The oracle
 /// price is a ratio of two market prices, a market's collateral in dollars over its peg in dollars, and a
 /// cheap peg paired with an expensive collateral makes it very large indeed. So the ceiling is not a
@@ -41,12 +41,12 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// OrdinaryMarket` requires every probe to SUCCEED at a nominal market, which is what catches a mistyped
 /// signature, a missing approval or an ungranted role before it can masquerade as a narrow envelope.
 ///
-/// The sail supply is set by writing the token's supply directly rather than by minting it. The two are
-/// different questions: how much sail the minter's own arithmetic can carry, and how much sail a market
-/// can be made to mint. Minting to reach a supply would conflate them and stop the search at whichever
-/// came first - and the answer would be the mint's, because sail is minted against a residual that a
-/// large supply has already thinned. The conversion this whole investigation is about mints sail with no
-/// collateral behind it at all, so a supply reached without minting is not a hypothetical.
+/// The leveraged supply is set by writing the token's supply directly rather than by minting it. The two
+/// are different questions: how much leveraged the minter's own arithmetic can carry, and how much leveraged
+/// a market can be made to mint. Minting to reach a supply would conflate them and stop the search at
+/// whichever came first - and the answer would be the mint's, because leveraged is minted against a residual
+/// that a large supply has already thinned. The conversion this whole investigation is about mints leveraged
+/// with no collateral behind it at all, so a supply reached without minting is not a hypothetical.
 contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, RevertReason {
     /// @dev The wrapped-to-underlying rate held at one throughout, so a wrapped token and the underlying it
     ///      counts are the same number: the collateral count is swept by the collateral price instead, and
@@ -54,7 +54,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     uint256 private constant WRAP_RATE = 1 ether;
 
     /// @dev The collateral ratio every row is measured at - the proportions a market is deployed at, with
-    ///      the sail buffer carrying a third of the collateral's value. Held the same across the peg sweep
+    ///      the leveraged buffer carrying a third of the collateral's value. Held the same across the peg sweep
     ///      so the rows differ in the peg alone.
     uint256 private constant BUILD_COLLATERAL_RATIO = 2 ether;
 
@@ -62,8 +62,8 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     uint256 private constant PEG_PRICE_STEP = 100;
 
     /// @dev The peg prices swept, in dollars, 1e18-scaled: the envelope's declared range, from a hyperinflated
-    ///      unit to an appreciated one, a step apart. The oracle price and the anchor token count both scale
-    ///      with this, in opposite directions - a cheaper peg means more anchor tokens each worth less, and a
+    ///      unit to an appreciated one, a step apart. The oracle price and the pegged token count both scale
+    ///      with this, in opposite directions - a cheaper peg means more pegged tokens each worth less, and a
     ///      collateral token worth more of them.
     function _pegPrices(Envelope memory envelope) private pure returns (uint256[] memory prices) {
         uint256 count = 0;
@@ -78,12 +78,12 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         }
     }
 
-    /// @dev The top of the sail-supply ladder, as a power of two. 2^200 is about 1.6e60 - far past any
+    /// @dev The top of the leveraged-supply ladder, as a power of two. 2^200 is about 1.6e60 - far past any
     ///      supply the envelope's own dollar figures reach, so a column that never overflows below it has
     ///      genuinely not been shown a boundary rather than merely not been pushed far enough.
     uint256 private constant TOP_RUNG = 200;
 
-    /// @dev The production volatility configs refuse an anchor mint below a collateral ratio of about
+    /// @dev The production volatility configs refuse a pegged mint below a collateral ratio of about
     ///      1.31. That band table is policy and this measurement is about arithmetic, so a market stood up
     ///      under it would be one long gap where the probes were refused rather than answered.
     function setUpConfig() internal virtual override {
@@ -117,8 +117,8 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     function _entryPointCalls() private view returns (bytes[] memory calls) {
         address me = address(this);
         uint256 collateralIn = IERC20(wrappedCollateralToken).balanceOf(minter);
-        uint256 anchorIn = IERC20(peggedToken).balanceOf(me);
-        uint256 sailIn = IERC20(leveragedToken).balanceOf(me);
+        uint256 peggedIn = IERC20(peggedToken).balanceOf(me);
+        uint256 leveragedIn = IERC20(leveragedToken).balanceOf(me);
 
         calls = new bytes[](10);
         calls[0] = abi.encodeWithSignature("mintPeggedToken(uint256,address,uint256)", collateralIn, me, 0);
@@ -131,16 +131,16 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
             0,
             1 ether
         );
-        calls[2] = abi.encodeWithSignature("redeemPeggedToken(uint256,address,uint256)", anchorIn, me, 0);
+        calls[2] = abi.encodeWithSignature("redeemPeggedToken(uint256,address,uint256)", peggedIn, me, 0);
         calls[3] = abi.encodeWithSignature("mintLeveragedToken(uint256,address,uint256)", collateralIn, me, 0);
-        calls[4] = abi.encodeWithSignature("redeemLeveragedToken(uint256,address,uint256)", sailIn, me, 0);
+        calls[4] = abi.encodeWithSignature("redeemLeveragedToken(uint256,address,uint256)", leveragedIn, me, 0);
         calls[5] = abi.encodeWithSignature("freeMintPeggedToken(uint256,address)", collateralIn, me);
-        calls[6] = abi.encodeWithSignature("freeRedeemPeggedToken(uint256,uint256,address)", anchorIn, 0, me);
-        // The conversion leg: anchor given up for sail, which is what a rebalance calls and what the
+        calls[6] = abi.encodeWithSignature("freeRedeemPeggedToken(uint256,uint256,address)", peggedIn, 0, me);
+        // The conversion leg: pegged given up for leveraged, which is what a rebalance calls and what the
         // bound this whole investigation is about sits inside.
-        calls[7] = abi.encodeWithSignature("freeRedeemPeggedToken(uint256,uint256,address)", 0, anchorIn, me);
+        calls[7] = abi.encodeWithSignature("freeRedeemPeggedToken(uint256,uint256,address)", 0, peggedIn, me);
         calls[8] = abi.encodeWithSignature("freeMintLeveragedToken(uint256,address)", collateralIn, me);
-        calls[9] = abi.encodeWithSignature("freeRedeemLeveragedToken(uint256,address)", sailIn, me);
+        calls[9] = abi.encodeWithSignature("freeRedeemLeveragedToken(uint256,address)", leveragedIn, me);
     }
 
     /// @dev How a probe's call ended, carried out of the frame whose revert undoes it.
@@ -176,7 +176,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     }
 
     /// @dev Give the market backing until it reports `targetRatio`, taking nothing in return. Permissionless
-    ///      and, unlike a sail mint, possible at any collateral ratio: sail is a claim on the residual, so
+    ///      and, unlike a leveraged mint, possible at any collateral ratio: leveraged is a claim on the residual, so
     ///      a market with none to sell cannot mint any, which is exactly the market that needs raising.
     ///
     ///      The wrapped-to-underlying rate is held at one throughout, so the wrapped collateral this gives
@@ -191,18 +191,18 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     }
 
     /// @dev Stand up a market holding the envelope's largest pool, a collateral token worth `collateralUSD`
-    ///      and the peg at `pegPriceUSD`, and report the anchor supply it reached. The anchor count follows
+    ///      and the peg at `pegPriceUSD`, and report the pegged supply it reached. The pegged count follows
     ///      from the peg - a pool of a fixed dollar value is more tokens when each is worth less - and the
-    ///      oracle price from the two together: a collateral token is worth more anchor the dearer it is and
+    ///      oracle price from the two together: a collateral token is worth more pegged the dearer it is and
     ///      the cheaper the peg.
     ///
     ///      The price is moved before the market is grown, which leaves the tranche the deployment minted
     ///      either far over- or far under-collateralised - eighteen orders of magnitude of price have to go
-    ///      somewhere. So the backing is restored by donation first, which an anchor mint needs (it mints
+    ///      somewhere. So the backing is restored by donation first, which a pegged mint needs (it mints
     ///      at `min(1, collateral ratio)`, so minting into an insolvent market mints a multiple of what was
-    ///      asked for), and again afterwards, because minting anchor against its own backing pulls the
+    ///      asked for), and again afterwards, because minting pegged against its own backing pulls the
     ///      collateral ratio towards one.
-    function _buildMarketAt(uint256 collateralUSD, uint256 pegPriceUSD) private returns (uint256 anchorSupply) {
+    function _buildMarketAt(uint256 collateralUSD, uint256 pegPriceUSD) private returns (uint256 peggedSupply) {
         uint256 oraclePrice = Math.mulDiv(collateralUSD, 1 ether, pegPriceUSD);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(oraclePrice, WRAP_RATE);
         deal(address(wrappedCollateralToken), address(this), type(uint128).max);
@@ -212,7 +212,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         uint256 held = IMinter(minter).peggedTokenBalance();
         if (target > held) {
             // The collateral that mints the shortfall, where one wrapped token is worth `oraclePrice`
-            // times the rate in pegged, and the anchor it buys is priced at one.
+            // times the rate in pegged, and the pegged it buys is priced at one.
             IMinter_v3(minter).freeMintPeggedToken(
                 Math.mulDiv(target - held, 1 ether * 1 ether, oraclePrice * WRAP_RATE),
                 address(this)
@@ -220,7 +220,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         }
         _donateToCollateralRatio(BUILD_COLLATERAL_RATIO);
 
-        anchorSupply = IMinter(minter).peggedTokenBalance();
+        peggedSupply = IMinter(minter).peggedTokenBalance();
         assertApproxEqRel(
             IMinter(minter).collateralRatio(),
             BUILD_COLLATERAL_RATIO,
@@ -229,7 +229,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         );
     }
 
-    /// @dev The largest sail supply each entry point survives, walking a power-of-two ladder and probing
+    /// @dev The largest leveraged supply each entry point survives, walking a power-of-two ladder and probing
     ///      every entry point at every rung. A ladder rather than a bisection per entry point: it needs no
     ///      assumption that the outcome is monotone in the supply, it answers all ten in one pass, and its
     ///      resolution - a factor of two - is a fixed small distance on the logarithmic axis this is drawn
@@ -237,8 +237,8 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     ///      drawing a zero that would read as a measurement.
     ///
     ///      Nothing needs restoring between rungs: each probe undoes itself, and each rung's `deal` sets the
-    ///      sail balance outright and moves the supply by the difference, replacing the rung before.
-    function _sailSupplyCeilings() private returns (int256[] memory ceilings) {
+    ///      leveraged balance outright and moves the supply by the difference, replacing the rung before.
+    function _leveragedSupplyCeilings() private returns (int256[] memory ceilings) {
         bytes[] memory probeCalls = _entryPointCalls();
         ceilings = new int256[](probeCalls.length);
         for (uint256 i = 0; i < ceilings.length; i++) {
@@ -247,8 +247,8 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
 
         uint256 remaining = ceilings.length;
         for (uint256 rung = 0; rung <= TOP_RUNG && remaining > 0; rung++) {
-            uint256 sailSupply = uint256(1) << rung;
-            deal(address(leveragedToken), address(this), sailSupply, true);
+            uint256 leveragedSupply = uint256(1) << rung;
+            deal(address(leveragedToken), address(this), leveragedSupply, true);
 
             probeCalls = _entryPointCalls();
             for (uint256 i = 0; i < probeCalls.length; i++) {
@@ -265,25 +265,25 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         }
     }
 
-    /// @notice A market holding as much sail as anchor can convert anchor into sail.
+    /// @notice A market holding as much leveraged as pegged can convert pegged into leveraged.
     ///
-    /// That market shape is unremarkable - a sail token is a claim on the residual, so a market normally
-    /// carries many more sail than anchor, and one sail per anchor is at the thin end of ordinary. Every
-    /// other operation on sail survives it with eight-fold room to spare at the same market.
+    /// That market shape is unremarkable - a leveraged token is a claim on the residual, so a market normally
+    /// carries many more leveraged than pegged, and one leveraged per pegged is at the thin end of ordinary.
+    /// Every other operation on leveraged survives it with eight-fold room to spare at the same market.
     ///
     /// The conversion has no business being the exception, because its arithmetic carries no term the
     /// others lack: the collateral value it divides by is the same collateral value its rate is built
     /// from, so the two cancel. What it multiplies by instead is the leverage ratio, which is where the
-    /// cancellation is lost and a product of the anchor being converted with the whole sail supply is
+    /// cancellation is lost and a product of the pegged being converted with the whole leveraged supply is
     /// formed in its place.
     ///
-    /// Measured at the envelope's cheapest peg, where the anchor count and the collateral price are both
+    /// Measured at the envelope's cheapest peg, where the pegged count and the collateral price are both
     /// at their largest - which is one corner, not two, because a pool of a fixed dollar value is more
     /// tokens exactly when each collateral token is worth more of them.
-    function test_aMarketWithAsMuchSailAsAnchorCanConvert() public {
+    function test_aMarketWithAsMuchLeveragedAsPeggedCanConvert() public {
         Envelope memory envelope = EnvelopeLib.ethFxUSD();
-        uint256 anchorSupply = _buildMarketAt(envelope.maxCollateralUSD, envelope.minPegPriceUSD);
-        deal(address(leveragedToken), address(this), anchorSupply, true);
+        uint256 peggedSupply = _buildMarketAt(envelope.maxCollateralUSD, envelope.minPegPriceUSD);
+        deal(address(leveragedToken), address(this), peggedSupply, true);
 
         (bool overflowed, string memory reason) = _probe(
             abi.encodeWithSignature(
@@ -293,7 +293,10 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
                 address(this)
             )
         );
-        assertFalse(overflowed, "converting anchor to sail overflowed at a market holding one sail per anchor");
+        assertFalse(
+            overflowed,
+            "converting pegged to leveraged overflowed at a market holding one leveraged per pegged"
+        );
         assertEq(reason, "ok", "the conversion must be available, not merely free of overflow");
     }
 
@@ -311,9 +314,9 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         }
     }
 
-    /// @notice The sail supply each entry point stops working at, across the envelope's declared range of
-    /// peg prices, at its dearest collateral - a collateral token worth the most anchor, the oracle price at
-    /// its largest. The peg decides both the anchor count and the oracle price, so this is the boundary in
+    /// @notice The leveraged supply each entry point stops working at, across the envelope's declared range of
+    /// peg prices, at its dearest collateral - a collateral token worth the most pegged, the oracle price at
+    /// its largest. The peg decides both the pegged count and the oracle price, so this is the boundary in
     /// the one variable a director does not choose - the relationship between the supplies and the price
     /// that a market arrives at rather than declares.
     function test_whereTheArithmeticStops_atTheDearestCollateral() public {
@@ -331,7 +334,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     }
 
     /// @dev One row per peg price, written to `name`: the market built there with a collateral token worth
-    ///      `collateralUSD`, and the sail supply each entry point survives in it.
+    ///      `collateralUSD`, and the leveraged supply each entry point survives in it.
     function _writeWhereTheArithmeticStops(string memory name, uint256 collateralUSD) private {
         string memory file = openFile(
             name,
@@ -366,13 +369,13 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         for (uint256 p = 0; p < pegPrices.length; p++) {
             uint256 snapshot = vm.snapshotState();
 
-            uint256 anchorSupply = _buildMarketAt(collateralUSD, pegPrices[p]);
+            uint256 peggedSupply = _buildMarketAt(collateralUSD, pegPrices[p]);
             (uint256 oraclePrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-            int256[] memory ceilings = _sailSupplyCeilings();
+            int256[] memory ceilings = _leveragedSupplyCeilings();
 
             int256[] memory row = new int256[](15);
             row[0] = int256(pegPrices[p]);
-            row[1] = int256(anchorSupply);
+            row[1] = int256(peggedSupply);
             row[2] = int256(oraclePrice);
             row[3] = int256(IMinter(minter).collateralRatio());
             // How far the ladder climbed, so a column with no boundary in it can be drawn as the bound it

@@ -9,19 +9,19 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 
-/// @notice A market whose sail supply can be set, and the measurement of what the anchor-to-sail
+/// @notice A market whose leveraged supply can be set, and the measurement of what the pegged-to-leveraged
 /// conversion rate does at the collateral ratio where the market starts selling leverage.
 ///
-/// A conversion rate is sail minted per unit of anchor value. The market sells no leverage below its floor,
+/// A conversion rate is leveraged minted per unit of pegged value. The market sells no leverage below its floor,
 /// `K/(K-1)` for a cap `K` on the leverage sold - a refusal, by name, on the conversion and the retail routes
-/// alike - and above it prices every conversion on the residual, which is the fair rate: sail supply over
+/// alike - and above it prices every conversion on the residual, which is the fair rate: leveraged supply over
 /// residual. So the release is a door, not a step: nothing below, the fair rate above.
 ///
-/// The release is always at the same collateral ratio, since the floor is fixed by the cap alone. The sail
+/// The release is always at the same collateral ratio, since the floor is fixed by the cap alone. The leveraged
 /// supply is a settable dimension because the fair rate above the floor scales with it.
 abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
-    /// @dev One anchor token, so the sail received IS the applied conversion rate.
-    uint256 internal constant ANCHOR_IN = 1 ether;
+    /// @dev One pegged token, so the leveraged received IS the applied conversion rate.
+    uint256 internal constant PEGGED_IN = 1 ether;
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -30,7 +30,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
     function setUp() public virtual override {
         super.setUp();
         setUp_collateral(10 ether, 10 ether, address(this));
-        // Enough to buy a sail supply a hundred times the anchor supply, which the sweep asks for.
+        // Enough to buy a leveraged supply a hundred times the pegged supply, which the sweep asks for.
         deal(address(wrappedCollateralToken), address(this), 100_000 ether);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
@@ -46,7 +46,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
         return IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
     }
 
-    /// @dev Convert one anchor token at `collateralRatio` and report the conversion rate it was given,
+    /// @dev Convert one pegged token at `collateralRatio` and report the conversion rate it was given,
     ///      then put the market back. Measured through the conversion rather than recomputed, so the
     ///      answer is the contract's and not this test's.
     /// @dev Zero where the market refuses to sell - `BelowMinimumCollateralRatio`, which is the rule's own answer and the
@@ -54,8 +54,11 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
     function appliedConversionRateAt(uint256 collateralRatio) internal returns (uint256 applied) {
         uint256 snapshot = vm.snapshotState();
         marketActions.setCollateralRatioByPrice(collateralRatio);
-        try IMinter_v3(minter).freeRedeemPeggedToken(0, ANCHOR_IN, address(this)) returns (uint256, uint256 sailOut) {
-            applied = (sailOut * 1 ether) / ANCHOR_IN;
+        try IMinter_v3(minter).freeRedeemPeggedToken(0, PEGGED_IN, address(this)) returns (
+            uint256,
+            uint256 leveragedOut
+        ) {
+            applied = (leveragedOut * 1 ether) / PEGGED_IN;
         } catch (bytes memory err) {
             if (bytes4(err) != IMinter_v3.BelowMinimumCollateralRatio.selector) {
                 // solhint-disable-next-line no-inline-assembly
@@ -87,7 +90,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
     /// @notice The collateral ratio at which the FAIR conversion rate meets the bound - where a ceiling
     ///         of `K` on the conversion rate would engage, as against where this one actually does.
     /// @dev Found by bisection on the market itself rather than computed: the fair conversion rate is the
-    ///      reciprocal of the sail price the minter reports, and it falls as the collateral ratio rises,
+    ///      reciprocal of the leveraged price the minter reports, and it falls as the collateral ratio rises,
     ///      so the crossing is bracketed and halved. Forty rounds takes a bracket of one to a fraction of
     ///      a wei, and each round is a price write and a view.
     function collateralRatioWhereTheFairRateMeetsTheBound() internal returns (uint256 crossing) {
@@ -98,9 +101,9 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
         for (uint256 round = 0; round < 40; round++) {
             uint256 middle = (low + high) / 2;
             marketActions.setCollateralRatioByPrice(middle);
-            uint256 sailPrice = IMinter_v3(minter).leveragedTokenPrice();
+            uint256 leveragedPrice = IMinter_v3(minter).leveragedTokenPrice();
             // Above the bound the crossing is still higher; at or below it, lower.
-            if (sailPrice == 0 || (1 ether * 1 ether) / sailPrice > IMinter_v3(minter).MAX_LEVERAGE_RATIO()) {
+            if (leveragedPrice == 0 || (1 ether * 1 ether) / leveragedPrice > IMinter_v3(minter).MAX_LEVERAGE_RATIO()) {
                 low = middle;
             } else {
                 high = middle;
@@ -130,11 +133,11 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
         vm.revertToState(snapshot);
     }
 
-    /// @notice What one sail token is worth at the collateral ratio where the bound releases.
-    function sailPriceAtTheRelease() internal returns (uint256 sailPrice) {
+    /// @notice What one leveraged token is worth at the collateral ratio where the bound releases.
+    function leveragedPriceAtTheRelease() internal returns (uint256 leveragedPrice) {
         uint256 snapshot = vm.snapshotState();
         marketActions.setCollateralRatioByPrice(releaseCollateralRatio());
-        sailPrice = IMinter_v3(minter).leveragedTokenPrice();
+        leveragedPrice = IMinter_v3(minter).leveragedTokenPrice();
         vm.revertToState(snapshot);
     }
 }

@@ -21,19 +21,19 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// refuses until the holding covers the record again - because the rate recovers, or because the
 /// owner's `recogniseImpairment` writes the record down to what is held.
 ///
-/// Every market here opens at a collateral ratio of 1.4 from 140 wrapped collateral: 200,000 anchor
-/// tokens and 80,000 sail tokens at a collateral price of 2000. A rate cut of `d`, once recognised,
+/// Every market here opens at a collateral ratio of 1.4 from 140 wrapped collateral: 200,000 pegged
+/// tokens and 80,000 leveraged tokens at a collateral price of 2000. A rate cut of `d`, once recognised,
 /// leaves the ratio at `1.4 × (1 − d)`, which crosses this configuration's disallow bounds at:
 ///
-///   drop  7.14%  → ratio 1.30, below which anchor minting is disallowed
-///   drop 25.00%  → ratio 1.05, below which sail redemption is disallowed
+///   drop  7.14%  → ratio 1.30, below which pegged minting is disallowed
+///   drop 25.00%  → ratio 1.05, below which leveraged redemption is disallowed
 contract MinterImpairedBackingTest is TestMinterSetUp {
     uint256 private constant _WRAPPED_IN = 140 ether;
     uint256 private constant _STARTING_RATIO = 1.4 ether;
 
     /// drops at which each disallow bound is crossed, in basis points
-    uint256 private constant _ANCHOR_MINT_BOUND_BPS = 714; // 1.4 → 1.30
-    uint256 private constant _SAIL_REDEEM_BOUND_BPS = 2500; // 1.4 → 1.05
+    uint256 private constant _PEGGED_MINT_BOUND_BPS = 714; // 1.4 → 1.30
+    uint256 private constant _LEVERAGED_REDEEM_BOUND_BPS = 2500; // 1.4 → 1.05
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -175,7 +175,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     //////////////////////////////////////////////////////////////*/
 
     /// An impairment smaller than the accrued surplus is absorbed by it. The buffer exists for this,
-    /// so nothing the protocol reports may change: the backing is still fully covered, and sail
+    /// so nothing the protocol reports may change: the backing is still fully covered, and leveraged
     /// holders take no loss. Only the harvestable amount shrinks.
     function test_impairmentWithinSurplus_movesNothingButHarvestable() public {
         setUp_collateral(100 ether, 40 ether);
@@ -183,7 +183,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         _scaleRate(10_500); // accrue 5% of yield, building a surplus
         uint256 backing = IMinter(minter).collateralTokenBalance();
         uint256 ratio = IMinter(minter).collateralRatio();
-        uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
+        uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
         uint256 harvestableBefore = IMinter(minter).harvestable();
         assertGt(harvestableBefore, 0, "a surplus must exist for this to test anything");
 
@@ -192,7 +192,11 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         assertEq(IMinter(minter).collateralTokenBalance(), backing, "backing unchanged inside the surplus");
         assertEq(IMinter(minter).collateralRatio(), ratio, "ratio unchanged inside the surplus");
-        assertEq(IMinter(minter).leveragedTokenPrice(), sailPrice, "sail holders take no loss inside the surplus");
+        assertEq(
+            IMinter(minter).leveragedTokenPrice(),
+            leveragedPrice,
+            "leveraged holders take no loss inside the surplus"
+        );
         assertLt(IMinter(minter).harvestable(), harvestableBefore, "the surplus itself absorbs it");
         assertGt(IMinter(minter).harvestable(), 0, "and is not exhausted");
     }
@@ -200,28 +204,28 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// Ordinary yield accrual is the everyday case and must not move a wei of anything but the
     /// surplus. The views report the record, and a rising rate does not move a record, however far
     /// it rises. The whole of the gain shows up as harvestable, which is what carries it to
-    /// depositors rather than to sail holders.
+    /// depositors rather than to leveraged holders.
     function test_normalRateIncrease_leavesBackingAndPricesUnchanged() public {
         setUp_collateral(100 ether, 40 ether);
 
         uint256 backing = IMinter(minter).collateralTokenBalance();
         uint256 ratio = IMinter(minter).collateralRatio();
-        uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
-        uint256 anchorPrice = IMinter(minter).peggedTokenPrice();
+        uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
+        uint256 peggedPrice = IMinter(minter).peggedTokenPrice();
         uint256 harvestableBefore = IMinter(minter).harvestable();
 
         _scaleRate(11_000); // 10% of yield accrues to the wrapped collateral
 
         assertEq(IMinter(minter).collateralTokenBalance(), backing, "yield does not raise the recorded backing");
         assertEq(IMinter(minter).collateralRatio(), ratio, "nor the collateral ratio");
-        assertEq(IMinter(minter).leveragedTokenPrice(), sailPrice, "nor the sail price");
-        assertEq(IMinter(minter).peggedTokenPrice(), anchorPrice, "nor the anchor price");
+        assertEq(IMinter(minter).leveragedTokenPrice(), leveragedPrice, "nor the leveraged price");
+        assertEq(IMinter(minter).peggedTokenPrice(), peggedPrice, "nor the pegged price");
         assertGt(IMinter(minter).harvestable(), harvestableBefore, "the gain is a surplus, and only that");
 
         // and it keeps holding however far the rate runs
         _scaleRate(50_000);
         assertEq(IMinter(minter).collateralTokenBalance(), backing, "a fivefold rate still leaves the record");
-        assertEq(IMinter(minter).leveragedTokenPrice(), sailPrice, "and still leaves the sail price");
+        assertEq(IMinter(minter).leveragedTokenPrice(), leveragedPrice, "and still leaves the leveraged price");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -237,48 +241,48 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         _impair(500); // ratio 1.33
         _recogniseImpairment();
 
-        assertGt(IMinter(minter).collateralRatio(), 1.30 ether, "above the anchor-mint bound");
+        assertGt(IMinter(minter).collateralRatio(), 1.30 ether, "above the pegged-mint bound");
 
-        (, , uint256 collateralUsed, uint256 anchorOut, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-        assertGt(collateralUsed, 0, "anchor minting still permitted");
-        assertGt(anchorOut, 0, "and still produces tokens");
+        (, , uint256 collateralUsed, uint256 peggedOut, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+        assertGt(collateralUsed, 0, "pegged minting still permitted");
+        assertGt(peggedOut, 0, "and still produces tokens");
     }
 
-    /// Between the two bounds, anchor minting is forbidden while sail redemption is not.
-    function test_middlingImpairment_forbidsAnchorMintingOnly() public {
+    /// Between the two bounds, pegged minting is forbidden while leveraged redemption is not.
+    function test_middlingImpairment_forbidsPeggedMintingOnly() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(1_500); // ratio 1.19
         _recogniseImpairment();
 
         uint256 ratio = IMinter(minter).collateralRatio();
-        assertLt(ratio, 1.30 ether, "below the anchor-mint bound");
-        assertGt(ratio, 1.05 ether, "above the sail-redeem bound");
+        assertLt(ratio, 1.30 ether, "below the pegged-mint bound");
+        assertGt(ratio, 1.05 ether, "above the leveraged-redeem bound");
 
         (, , uint256 collateralUsed, , , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-        assertEq(collateralUsed, 0, "anchor minting forbidden");
+        assertEq(collateralUsed, 0, "pegged minting forbidden");
 
         (, , , uint256 collateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
-        assertGt(collateralOut, 0, "sail redemption still permitted");
+        assertGt(collateralOut, 0, "leveraged redemption still permitted");
     }
 
     /// Below both bounds, the junior claim is worthless and must not be paid out of the senior
     /// claim's backing.
-    function test_deepImpairment_forbidsBothAnchorMintingAndSailRedemption() public {
+    function test_deepImpairment_forbidsBothPeggedMintingAndLeveragedRedemption() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000); // ratio 0.98
         _recogniseImpairment();
 
-        assertLt(IMinter(minter).collateralRatio(), 1.05 ether, "below the sail-redeem bound");
-        assertEq(IMinter(minter).leveragedTokenPrice(), 0, "the sail claim is worthless");
+        assertLt(IMinter(minter).collateralRatio(), 1.05 ether, "below the leveraged-redeem bound");
+        assertEq(IMinter(minter).leveragedTokenPrice(), 0, "the leveraged claim is worthless");
 
         (, , uint256 collateralUsed, , , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-        assertEq(collateralUsed, 0, "anchor minting forbidden");
+        assertEq(collateralUsed, 0, "pegged minting forbidden");
 
         (, , , uint256 collateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
-        assertEq(collateralOut, 0, "sail redemption forbidden");
+        assertEq(collateralOut, 0, "leveraged redemption forbidden");
 
         // and the senior claim is marked down to what is left of its cover
-        assertEq(IMinter(minter).peggedTokenPrice(), 0.98 ether, "anchor marked to its share");
+        assertEq(IMinter(minter).peggedTokenPrice(), 0.98 ether, "pegged marked to its share");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -288,12 +292,12 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// A front-end shows the dry run. If it prices from a different backing than the call it
     /// forecasts, the user is quoted one thing and given another — a distinct defect from pricing
     /// the backing wrongly, and one a partial fix could introduce.
-    function test_impairedBacking_anchorRedeemDryRunMatchesTheCall() public {
-        (uint256 anchorTokens, ) = setUp_collateral(100 ether, 40 ether);
+    function test_impairedBacking_peggedRedeemDryRunMatchesTheCall() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
         _recogniseImpairment();
 
-        uint256 redeeming = anchorTokens / 100;
+        uint256 redeeming = peggedTokens / 100;
         (, , , , uint256 forecast, , ) = IMinter(minter).redeemPeggedTokenDryRun(redeeming);
 
         vm.startPrank(zeroFee);
@@ -301,24 +305,24 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 actual = IMinter(minter).redeemPeggedToken(redeeming, zeroFee, 0);
         vm.stopPrank();
 
-        assertEq(actual, forecast, "the anchor redeem dry run must match its call");
+        assertEq(actual, forecast, "the pegged redeem dry run must match its call");
     }
 
-    function test_impairedBacking_sailMintDryRunMatchesTheCall() public {
+    function test_impairedBacking_leveragedMintDryRunMatchesTheCall() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(1_500);
         _recogniseImpairment();
 
         (, , , , uint256 forecast, , ) = IMinter(minter).mintLeveragedTokenDryRun(1 ether);
 
-        address minterOfSail = makeAddr("minterOfSail");
-        deal(wrappedCollateralToken, minterOfSail, 1 ether);
-        vm.startPrank(minterOfSail);
+        address minterOfLeveraged = makeAddr("minterOfLeveraged");
+        deal(wrappedCollateralToken, minterOfLeveraged, 1 ether);
+        vm.startPrank(minterOfLeveraged);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        uint256 actual = IMinter(minter).mintLeveragedToken(1 ether, minterOfSail, 0);
+        uint256 actual = IMinter(minter).mintLeveragedToken(1 ether, minterOfLeveraged, 0);
         vm.stopPrank();
 
-        assertEq(actual, forecast, "the sail mint dry run must match its call");
+        assertEq(actual, forecast, "the leveraged mint dry run must match its call");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -328,16 +332,16 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// The manager sizes a rebalance from this call, so it is on the solvency path. Once the loss is
     /// recognised the market is below the target, and the sizing must see that.
     function test_impairedBacking_rebalanceSizingUsesRecognisedBacking() public {
-        (uint256 anchorTokens, ) = setUp_collateral(100 ether, 40 ether);
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(1_500); // ratio 1.19 once recognised, below the 1.30 target
         _recogniseImpairment();
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             1.30 ether,
-            anchorTokens,
-            anchorTokens,
-            anchorTokens / 2,
-            anchorTokens / 2
+            peggedTokens,
+            peggedTokens,
+            peggedTokens / 2,
+            peggedTokens / 2
         );
 
         assertGt(
@@ -407,15 +411,15 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     }
 
     /// Recognising the loss is what settles who owns the recovery. Once the record is written down,
-    /// the collateral's yield is a surplus again and reaches stability-pool depositors, while sail
+    /// the collateral's yield is a surplus again and reaches stability-pool depositors, while leveraged
     /// holders keep the loss they absorbed as the junior claim.
-    function test_impairment_isBorneBySailHoldersNotDepositors() public {
+    function test_impairment_isBorneByLeveragedHoldersNotDepositors() public {
         setUp_collateral(100 ether, 40 ether);
 
         _impair(1_500); // rate 0.85: held cover 119 against 140 recorded
         _recogniseImpairment();
-        uint256 sailPriceAtRecognition = IMinter(minter).leveragedTokenPrice();
-        assertGt(sailPriceAtRecognition, 0, "sail must still be worth something for this to discriminate");
+        uint256 leveragedPriceAtRecognition = IMinter(minter).leveragedTokenPrice();
+        assertGt(leveragedPriceAtRecognition, 0, "leveraged must still be worth something for this to discriminate");
 
         _setRate(0.9 ether); // the collateral earns afterwards
 
@@ -426,30 +430,30 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         );
         assertEq(
             IMinter(minter).leveragedTokenPrice(),
-            sailPriceAtRecognition,
-            "sail keeps the loss it absorbed - the recovery is not diverted back to it"
+            leveragedPriceAtRecognition,
+            "leveraged keeps the loss it absorbed - the recovery is not diverted back to it"
         );
     }
 
     /// The mirror, and the reason recognition is a deliberate act rather than an automatic one. A dip that
-    /// reverses costs sail holders nothing, and it costs them nothing in the strongest possible way: the
+    /// reverses costs leveraged holders nothing, and it costs them nothing in the strongest possible way: the
     /// price does not move at all while the dip lasts, because it reports what is RECORDED and a fallen rate
     /// does not move a record. The market simply stops until the dip passes. A system that wrote the record
     /// down automatically would have made the loss permanent instead.
-    function test_transientDip_leavesBackingIntactAndRecoversSail() public {
+    function test_transientDip_leavesBackingIntactAndRecoversLeveraged() public {
         setUp_collateral(100 ether, 40 ether);
-        uint256 sailPriceBefore = IMinter(minter).leveragedTokenPrice();
+        uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
 
         _impair(1_500);
         assertEq(
             IMinter(minter).leveragedTokenPrice(),
-            sailPriceBefore,
-            "the dip does not mark sail down - nothing has judged it a loss"
+            leveragedPriceBefore,
+            "the dip does not mark leveraged down - nothing has judged it a loss"
         );
 
         _setRate(1 ether); // the dip reverses
 
-        assertEq(IMinter(minter).leveragedTokenPrice(), sailPriceBefore, "and it is whole throughout");
+        assertEq(IMinter(minter).leveragedTokenPrice(), leveragedPriceBefore, "and it is whole throughout");
         assertEq(IMinter(minter).harvestable(), 0, "with nothing taken from it on the way");
     }
 
@@ -457,15 +461,15 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// property each mutator has to be careful to have: while the record overstates, no mutator runs at all.
     /// So the record is exactly where the dip found it when the dip reverses.
     function test_mutatingWhileImpaired_isRefusedSoNothingCanWriteTheRecordDown() public {
-        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         uint256 backingBefore = IMinter(minter).collateralTokenBalance();
 
         _impair(3_000);
 
         vm.startPrank(zeroFee);
-        IERC20(leveragedToken).approve(minter, sailTokens);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
         _expectUnrecognisedImpairment();
-        IMinter(minter).freeRedeemLeveragedToken(sailTokens / 10, zeroFee);
+        IMinter(minter).freeRedeemLeveragedToken(leveragedTokens / 10, zeroFee);
         vm.stopPrank();
 
         assertEq(IMinter(minter).collateralTokenBalance(), backingBefore, "the record is untouched");
@@ -513,15 +517,15 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         _impair(1_000);
         _recogniseImpairment();
-        uint256 sailAfterFirst = IMinter(minter).leveragedTokenPrice();
+        uint256 leveragedAfterFirst = IMinter(minter).leveragedTokenPrice();
 
         _impair(1_000);
         _recogniseImpairment();
-        uint256 sailAfterSecond = IMinter(minter).leveragedTokenPrice();
-        assertLt(sailAfterSecond, sailAfterFirst, "the second loss compounds on the first");
+        uint256 leveragedAfterSecond = IMinter(minter).leveragedTokenPrice();
+        assertLt(leveragedAfterSecond, leveragedAfterFirst, "the second loss compounds on the first");
 
         _setRate(1 ether);
-        assertEq(IMinter(minter).leveragedTokenPrice(), sailAfterSecond, "neither loss is given back");
+        assertEq(IMinter(minter).leveragedTokenPrice(), leveragedAfterSecond, "neither loss is given back");
     }
 
     /// A call that would change nothing fails rather than succeeding silently, so an owner cannot
@@ -551,7 +555,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    /// Writing the record down transfers the collateral's future yield from sail holders to
+    /// Writing the record down transfers the collateral's future yield from leveraged holders to
     /// depositors, so it is the owner's decision and nobody else's.
     function test_recogniseImpairment_isOwnerOnly() public {
         setUp_collateral(100 ether, 40 ether);
@@ -575,25 +579,25 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         _impair(3_000); // ratio 0.98 — the depegged band of every schedule
         _recogniseImpairment();
 
-        assertEq(IMinter(minter).mintPeggedTokenIncentiveRatio(), 1 ether, "anchor minting disallowed");
-        assertEq(IMinter(minter).redeemLeveragedTokenIncentiveRatio(), 1 ether, "sail redemption disallowed");
-        assertEq(IMinter(minter).redeemPeggedTokenIncentiveRatio(), -7.5e15, "anchor redemption subsidised");
-        assertEq(IMinter(minter).mintLeveragedTokenIncentiveRatio(), -5e15, "sail minting subsidised");
+        assertEq(IMinter(minter).mintPeggedTokenIncentiveRatio(), 1 ether, "pegged minting disallowed");
+        assertEq(IMinter(minter).redeemLeveragedTokenIncentiveRatio(), 1 ether, "leveraged redemption disallowed");
+        assertEq(IMinter(minter).redeemPeggedTokenIncentiveRatio(), -7.5e15, "pegged redemption subsidised");
+        assertEq(IMinter(minter).mintLeveragedTokenIncentiveRatio(), -5e15, "leveraged minting subsidised");
     }
 
     /// The manager redeems through the free path during a rebalance, and sizes it from this dry run.
     /// The two must agree, or a rebalance moves a different amount than it planned.
     function test_impairedBacking_freeRedeemDryRunMatchesTheCall() public {
-        (uint256 anchorTokens, ) = setUp_collateral(100 ether, 40 ether);
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(1_500);
         _recogniseImpairment();
 
-        uint256 forCollateral = anchorTokens / 100;
-        (uint256 forecastCollateral, uint256 forecastSail) = IMinter_v3(minter).freeRedeemDryRun(forCollateral, 0);
+        uint256 forCollateral = peggedTokens / 100;
+        (uint256 forecastCollateral, uint256 forecastLeveraged) = IMinter_v3(minter).freeRedeemDryRun(forCollateral, 0);
 
         vm.startPrank(zeroFee);
         IERC20(peggedToken).approve(minter, forCollateral);
-        (uint256 actualCollateral, uint256 actualSail) = IMinter(minter).freeRedeemPeggedToken(
+        (uint256 actualCollateral, uint256 actualLeveraged) = IMinter(minter).freeRedeemPeggedToken(
             forCollateral,
             0,
             zeroFee
@@ -601,13 +605,13 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
 
         assertEq(actualCollateral, forecastCollateral, "free redeem dry run must match its call");
-        assertEq(actualSail, forecastSail, "free redeem dry run must match its call");
+        assertEq(actualLeveraged, forecastLeveraged, "free redeem dry run must match its call");
     }
 
     /// The zero-fee mint is how Genesis opens a market. It prices from the same backing as everything
     /// else and must not be exempt from a recognised impairment.
     ///
-    /// Once the collateral no longer covers the anchor claim there is no residual to sell, so no sail
+    /// Once the collateral no longer covers the pegged claim there is no residual to sell, so no leveraged
     /// can be minted. It must refuse by the same named error as the fee-paying path - the leverage cap's
     /// refusal, judged on the recorded backing, before any pricing that could divide by the zero
     /// residual - not by an arithmetic panic, which would take the collateral's measure of the failure
@@ -617,8 +621,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         _impair(3_000);
         _recogniseImpairment();
 
-        uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
-        assertEq(sailPrice, 0, "the sail claim is worthless at this cover");
+        uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
+        assertEq(leveragedPrice, 0, "the leveraged claim is worthless at this cover");
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         // with leveraged tokens outstanding the zero-fee mint is judged on the market it starts from: the record
         uint256 ratio = IMinter(minter).collateralRatio();
@@ -632,18 +636,18 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    /// With no collateral left behind an outstanding anchor supply, an anchor token is worth nothing,
+    /// With no collateral left behind an outstanding pegged supply, a pegged token is worth nothing,
     /// so a mint priced against it has no answer. The protocol must say so by name rather than
     /// dividing by the zero price it just computed.
-    function test_noBacking_freeAnchorMintIsRefusedByName() public {
+    function test_noBacking_freePeggedMintRevertsByName() public {
         setUp_collateral(100 ether, 40 ether);
-        assertGt(IMinter(minter).peggedTokenBalance(), 0, "anchor must be outstanding for this to bite");
+        assertGt(IMinter(minter).peggedTokenBalance(), 0, "pegged must be outstanding for this to bite");
 
         // The whole holding is gone, and recognising that is what makes the record say so - until then the
         // guard is what stands in the way, and this test is about what happens once it does not.
         deal(wrappedCollateralToken, minter, 0);
         _recogniseImpairment();
-        assertEq(IMinter(minter).collateralTokenBalance(), 0, "no collateral stands behind the anchor claim");
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "no collateral stands behind the pegged claim");
 
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
@@ -658,7 +662,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     //////////////////////////////////////////////////////////////*/
 
     /// The dry run and the call are separate code paths. Forbidding one is not forbidding the other.
-    function test_impairedBacking_anchorMintingCallIsRefused() public {
+    function test_impairedBacking_peggedMintingCallReverts() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
         _recogniseImpairment();
@@ -668,33 +672,33 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
             IMinter(minter).collateralRatio(),
             IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
         );
-        address anchorMinter = makeAddr("anchorMinter");
-        deal(wrappedCollateralToken, anchorMinter, 1 ether);
-        vm.startPrank(anchorMinter);
+        address peggedMinter = makeAddr("peggedMinter");
+        deal(wrappedCollateralToken, peggedMinter, 1 ether);
+        vm.startPrank(peggedMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
         vm.expectRevert(belowMinimum);
-        IMinter(minter).mintPeggedToken(1 ether, anchorMinter, 0);
+        IMinter(minter).mintPeggedToken(1 ether, peggedMinter, 0);
         vm.stopPrank();
     }
 
-    function test_impairedBacking_sailRedemptionCallIsRefused() public {
-        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
+    function test_impairedBacking_leveragedRedemptionCallReverts() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
         _recogniseImpairment();
 
         // Approve before arming the expectation: a one-shot cheatcode binds to the next external
         // call, which would otherwise be the approval rather than the redemption.
         vm.startPrank(zeroFee);
-        IERC20(leveragedToken).approve(minter, sailTokens);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
         vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
-        IMinter(minter).redeemLeveragedToken(sailTokens / 10, zeroFee, 0);
+        IMinter(minter).redeemLeveragedToken(leveragedTokens / 10, zeroFee, 0);
         vm.stopPrank();
     }
 
     /// The fee-capped overload takes only as much collateral as it can mint within the cap. Below the
     /// min CR nothing may be minted, so it must take nothing — and report that as zero rather than
     /// reverting, since a cap was supplied.
-    function test_impairedBacking_cappedAnchorMintingTakesNothing() public {
+    function test_impairedBacking_cappedPeggedMintingTakesNothing() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
         _recogniseImpairment();
@@ -706,11 +710,11 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertEq(forecastTaken, 0, "nothing is taken below the min CR");
         assertEq(forecastMinted, 0, "so nothing is minted");
 
-        address anchorMinter = makeAddr("cappedAnchorMinter");
-        deal(wrappedCollateralToken, anchorMinter, 1 ether);
-        vm.startPrank(anchorMinter);
+        address peggedMinter = makeAddr("cappedPeggedMinter");
+        deal(wrappedCollateralToken, peggedMinter, 1 ether);
+        vm.startPrank(peggedMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        (uint256 minted, uint256 used) = IMinter_v3(minter).mintPeggedToken(1 ether, anchorMinter, 0, 0.05 ether);
+        (uint256 minted, uint256 used) = IMinter_v3(minter).mintPeggedToken(1 ether, peggedMinter, 0, 0.05 ether);
         vm.stopPrank();
 
         assertEq(minted, forecastMinted, "the capped dry run must match its call");

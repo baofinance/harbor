@@ -13,16 +13,16 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// bounded but unfair, and this graph is that band's position and width against the ratio a market opened
 /// at.
 ///
-/// A market's opening collateral ratio fixes how many sail tokens it carries per anchor token: opening at
-/// `r` funds the residual `r - 1` against an anchor supply of 1, and the first sail is minted at a price
-/// of one, so the market carries `r - 1` sail per anchor. Nothing afterwards changes that except minting
-/// or redeeming sail, and both are price-neutral - so the sail supply per anchor IS the opening ratio,
+/// A market's opening collateral ratio fixes how many leveraged tokens it carries per pegged token: opening at
+/// `r` funds the residual `r - 1` against a pegged supply of 1, and the first leveraged is minted at a price
+/// of one, so the market carries `r - 1` leveraged per pegged. Nothing afterwards changes that except minting
+/// or redeeming leveraged, and both are price-neutral - so the leveraged supply per pegged IS the opening ratio,
 /// carried forward. That is what makes this a property of the market's birth rather than of its history,
 /// and it is why a single global constant has to answer for every market ever opened.
 ///
-/// Sail supply per anchor is set here by buying and selling sail, which reaches the same state an opening
-/// would have left. Both crossings are then MEASURED by bisection on the market - asking it for its
-/// reported leverage ratio and its sail price - rather than computed from the formulae they follow.
+/// Leveraged supply per pegged is set here by buying and selling leveraged, which reaches the same state an
+/// opening would have left. Both crossings are then MEASURED by bisection on the market - asking it for its
+/// reported leverage ratio and its leveraged price - rather than computed from the formulae they follow.
 contract TestGraphsRebalanceCr0Sensitivity is GraphTestBase, TestConversionBoundReleaseSetUp {
     uint256 private constant FIRST_OPENING_RATIO = 1.02 ether;
     uint256 private constant LAST_OPENING_RATIO = 6 ether;
@@ -47,7 +47,7 @@ contract TestGraphsRebalanceCr0Sensitivity is GraphTestBase, TestConversionBound
         for (uint256 opening = FIRST_OPENING_RATIO; opening <= LAST_OPENING_RATIO; opening += OPENING_RATIO_STEP) {
             uint256 snapshot = vm.snapshotState();
 
-            // A market opened at `opening` carries `opening - 1` sail per anchor token.
+            // A market opened at `opening` carries `opening - 1` leveraged per pegged token.
             marketActions.setLeveragedSupplyMultiple(address(this), opening - 1 ether);
 
             writeLine(

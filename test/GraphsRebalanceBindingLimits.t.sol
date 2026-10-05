@@ -17,11 +17,11 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 
 /// @notice Graphs what stops a rebalance short, against the size of the stability pools.
 ///
-/// A rebalance asks the minter how much anchor it must give up to bring the collateral ratio back to the
+/// A rebalance asks the minter how much pegged it must give up to bring the collateral ratio back to the
 /// rebalance threshold, and then three things can make it give up less: a pool can only be taken down to
 /// its minimum supply (`maxAssetLoss`), its reward accounting can only absorb so much in one go
-/// (`maxLiquidationReward`), and neither pool can hand over anchor it does not hold. This graph sweeps
-/// the pools' anchor holdings over a four-hundredfold range and records, at each size, what was asked
+/// (`maxLiquidationReward`), and neither pool can hand over pegged it does not hold. This graph sweeps
+/// the pools' pegged holdings over a four-hundredfold range and records, at each size, what was asked
 /// for, what the pools could lose, what was actually taken, and where the collateral ratio ended up.
 ///
 /// It exists to answer a question about a DIFFERENT bound. The conversion bound over-mints only while
@@ -80,8 +80,8 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
         for (uint256 share = FIRST_POOL_SHARE; share <= LAST_POOL_SHARE; share = (share * 3) / 2) {
             uint256 snapshot = vm.snapshotState();
 
-            uint256 anchorOutstanding = IMinter(minter).peggedTokenBalance();
-            uint256 perPool = Math.mulDiv(anchorOutstanding, share, 2 ether);
+            uint256 peggedOutstanding = IMinter(minter).peggedTokenBalance();
+            uint256 perPool = Math.mulDiv(peggedOutstanding, share, 2 ether);
             IStabilityPool(stabilityPoolCollateral).deposit(perPool, address(this), 0);
             IStabilityPool(stabilityPoolLeveraged).deposit(perPool, address(this), 0);
 
@@ -111,7 +111,7 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
                             IERC20(peggedToken).balanceOf(stabilityPoolLeveraged) +
                             taken,
                         1 ether,
-                        anchorOutstanding
+                        peggedOutstanding
                     ),
                     askCollateral + askLeveraged,
                     allowedToLose,

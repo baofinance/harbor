@@ -19,10 +19,10 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// @notice Whether the leveraged pool could absorb a rebalance if the conversion were not capped.
 ///
 /// The conversion used to hand over the leverage ratio cap as though it were a rate, so a rebalance near
-/// the peg minted twenty sail per anchor however far the residual had fallen. Removing that was the first
+/// the peg minted twenty leveraged per pegged however far the residual had fallen. Removing that was the first
 /// step of the reserve work, and it raised a question that had to be answered BEFORE the removal rather
 /// than after - so this graph is the answer that let the removal go ahead, and it stays as the standing
-/// measurement of the headroom: the sail a rebalance hands the leveraged pool is accrued into that pool's
+/// measurement of the headroom: the leveraged a rebalance hands the leveraged pool is accrued into that pool's
 /// reward
 /// integral, and the integral has a ceiling. `maxLiquidationReward` is that ceiling - not a policy but
 /// the field width, scaled by the pool's share - and `StabilityPoolManager._capLiquidation` scales the
@@ -31,7 +31,7 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// So if the uncapped minting exceeds the ceiling, removing the cap SHRINKS the rebalance rather than
 /// freeing it, and does so worst where the market is most distressed.
 ///
-/// Three quantities at each collateral ratio, against the anchor a rebalance asks the leveraged leg for:
+/// Three quantities at each collateral ratio, against the pegged a rebalance asks the leveraged leg for:
 ///
 /// - what the market mints TODAY, measured through the dry run the manager itself uses;
 /// - what it would mint with no cap, computed from the contract's own uncapped expression, because with
@@ -44,7 +44,7 @@ import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t
 /// Measured at a SMALL pool share on purpose. The ceiling scales linearly with the pool's share of the
 /// supply, so a small pool is the stress case and the answer at a larger one follows by scaling.
 contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolManagerSetUp {
-    /// @dev Each pool holds this share of the anchor outstanding: a fifth of a percent, the stress case for a
+    /// @dev Each pool holds this share of the pegged outstanding: a fifth of a percent, the stress case for a
     ///      ceiling that scales with the pool's size.
     uint256 private constant POOL_SHARE = 0.002 ether;
 
@@ -88,17 +88,17 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
     }
 
     /// @notice There is an escrow below which the reward ceiling can be exceeded and above which it
-    /// cannot, and it is vanishingly small - about nine wei of the sail's opening price.
+    /// cannot, and it is vanishingly small - about nine wei of the leveraged token's opening price.
     ///
-    /// An escrow of `f` per sail, valued in pegged terms, bounds what a conversion can mint at
-    /// `anchorSurrendered x anchorPrice / f`, because the sail cannot be minted below its floor. The
+    /// An escrow of `f` per leveraged token, valued in pegged terms, bounds what a conversion can mint at
+    /// `peggedSurrendered x peggedPrice / f`, because the leveraged cannot be minted below its floor. The
     /// pool's ceiling is `uint256.max x poolShare / (REWARD_PRECISION x MAGNITUDE_PRECISION x
-    /// INTEGRAL_HEADROOM)`. A rebalance can take at most the anchor the pool holds, so the anchor
+    /// INTEGRAL_HEADROOM)`. A rebalance can take at most the pegged the pool holds, so the pegged
     /// surrendered and the pool's share are the same quantity and CANCEL - leaving
     ///
-    ///     f >= anchorPrice x 1e60 / uint256.max
+    ///     f >= peggedPrice x 1e60 / uint256.max
     ///
-    /// which is 8.64 wei at an anchor worth one. Neither the collateral price nor the size of the pool
+    /// which is 8.64 wei at a pegged worth one. Neither the collateral price nor the size of the pool
     /// appears, so the threshold is the same for every market.
     ///
     /// Asserted at the worst state there is - one wei of collateral ratio above the peg, the whole pool
@@ -108,30 +108,30 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
         marketActions.setCollateralRatioByPrice(1 ether + 1);
 
         uint256 ceiling = IMultipleRewardAccumulator_v3(stabilityPoolLeveraged).maxLiquidationReward();
-        uint256 poolAnchor = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
-        uint256 anchorPrice = IMinter_v3(minter).peggedTokenPrice();
-        assertGt(poolAnchor, 0, "the pool must hold anchor for this to be the worst case");
+        uint256 poolPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
+        uint256 peggedPrice = IMinter_v3(minter).peggedTokenPrice();
+        assertGt(poolPegged, 0, "the pool must hold pegged for this to be the worst case");
 
-        uint256 threshold = Math.mulDiv(anchorPrice, 1e60, type(uint256).max);
+        uint256 threshold = Math.mulDiv(peggedPrice, 1e60, type(uint256).max);
         assertEq(threshold, 8, "the derived threshold, floored - about nine wei of the opening price");
 
         // Just above it the whole pool can be liquidated without troubling the ceiling.
         assertLe(
-            Math.mulDiv(poolAnchor, anchorPrice, threshold + 1),
+            Math.mulDiv(poolPegged, peggedPrice, threshold + 1),
             ceiling,
             "an escrow above the threshold must keep the minting inside the reward ceiling"
         );
 
         // Well below it, it cannot - so the threshold is a real boundary and not merely a safe number.
         assertGt(
-            Math.mulDiv(poolAnchor, anchorPrice, threshold / 2),
+            Math.mulDiv(poolPegged, peggedPrice, threshold / 2),
             ceiling,
             "an escrow well below the threshold must exceed it, or this asserts nothing"
         );
 
         // And the escrow sizes actually under consideration clear it by many orders of magnitude.
         assertLe(
-            Math.mulDiv(poolAnchor, anchorPrice, 0.001 ether),
+            Math.mulDiv(poolPegged, peggedPrice, 0.001 ether),
             ceiling,
             "the smallest escrow under consideration is far inside the ceiling"
         );
@@ -145,7 +145,7 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
             marketActions.setCollateralRatioByPrice(1 ether + above);
 
             // What the manager would ask the leveraged leg for, taken from the minter exactly as the
-            // manager takes it - so the anchor here is the anchor a real rebalance would burn.
+            // manager takes it - so the pegged here is the pegged a real rebalance would burn.
             (, uint256 askLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
                 threshold,
                 type(uint256).max,
