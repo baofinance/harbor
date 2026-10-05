@@ -54,8 +54,9 @@ library RebalanceSizing_v1 {
             return (0, 0); // nothing to redeem, or the collateral ratio already meets the target
         }
 
-        // The desired point on the line: split by pegged holdings when both pools hold (each pool bears loss - and
-        // earns the matching reward - in proportion to its size), else the intercepts themselves.
+        // The point to aim for: where both pools hold, the point on the line that splits by their pegged holdings
+        // (each pool bears loss - and earns the matching reward - in proportion to its size); else the two intercepts
+        // themselves, off the line, which the fitting below brings onto it wherever a headroom binds.
         peggedForCollateral = fullCollateral;
         peggedForLeveraged = fullLeveraged;
         if (holdingCollateral > 0 && holdingLeveraged > 0) {
@@ -65,14 +66,13 @@ library RebalanceSizing_v1 {
             peggedForLeveraged = Math.mulDiv(fullLeveraged, 1 ether - collateralFraction, 1 ether, Math.Rounding.Ceil);
         }
 
-        // Fit the point into the [0, maxCollateralPegged] x [0, maxLeveragedPegged] headroom box: a leg above its
-        // pool's headroom is capped there and its shortfall slides along the line into the co-pool's leg - still
-        // reaching the target, with each leg redeemed for its own token. If both legs exceed their headroom the pools
-        // are exhausted, so liquidate both to their max (a partial rebalance - the most the stability pools can absorb).
-        if (peggedForCollateral > maxCollateralPegged && peggedForLeveraged > maxLeveragedPegged) {
-            peggedForCollateral = maxCollateralPegged;
-            peggedForLeveraged = maxLeveragedPegged;
-        } else if (peggedForCollateral > maxCollateralPegged) {
+        // Fit the point into the [0, maxCollateralPegged] x [0, maxLeveragedPegged] headroom box. A leg above its
+        // pool's headroom is held there and its shortfall slides along the line onto the other leg - still reaching
+        // the target, with each leg redeemed for its own token. If that takes the other leg past its own headroom, it
+        // is held as well: the pools are exhausted and both give their headroom, a partial rebalance - the most the
+        // stability pools can absorb. Both legs over is no exception: where a pool holds nothing the point is the two
+        // intercepts, off the line, and the slide still finds the line's point inside the box when there is one.
+        if (peggedForCollateral > maxCollateralPegged) {
             peggedForCollateral = maxCollateralPegged;
             peggedForLeveraged = Math.mulDiv(
                 fullLeveraged,

@@ -74,7 +74,7 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
     /// @notice redeemPeggedForCollateralRatio (the 5-arg overload) fits the collateral/leveraged split to each pool's
     /// headroom while staying on the target-CR line. Unconstrained (no caps, no holdings) it returns the two line
     /// intercepts. Capping one leg pins it and slides the shortfall along the line into the co-pool's leg (still
-    /// reaching the target). Capping both liquidates the pools' max - a partial.
+    /// reaching the target). Capping both so low that no point on the line fits liquidates the pools' max - a partial.
     function test_redeemConstrained_fitsSplitToHeadroom() public {
         setUp_collateral(10 ether, 2 ether); // both collateral and leveraged present, CR below the target
         uint256 targetCR = 1.3 ether;
@@ -98,8 +98,9 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         // on/above the line x/fullCol + y/fullLev >= 1, cross-multiplied to avoid the fractions
         assertGe(cc * fullLev + cl * fullCol, fullCol * fullLev, "constrained split still reaches the target");
 
-        // cap BOTH legs below their intercepts: the pools are exhausted, so both liquidate their max - a partial that
-        // stays below the line
+        // cap BOTH legs to a quarter of their intercepts, so low that no point on the line fits (holding the collateral
+        // leg to a quarter needs three quarters of the leveraged one): the pools are exhausted, so both liquidate their
+        // max - a partial that stays below the line
         (uint256 bc, uint256 bl) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             targetCR,
             capCol,

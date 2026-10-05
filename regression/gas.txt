@@ -35,7 +35,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | mintLeveragedTokenDryRun                         |  79296 | 7.930e+04 |
 | mintLeveragedTokenIncentiveRatio                 |  31132 | 3.113e+04 |
 | mintPeggedToken(uint256,address,uint256)         | 181547 | 1.815e+05 |
-| mintPeggedToken(uint256,address,uint256,uint256) | 154774 | 1.548e+05 |
+| mintPeggedToken(uint256,address,uint256,uint256) | 156626 | 1.566e+05 |
 | mintPeggedTokenDryRun(uint256)                   |  82153 | 8.215e+04 |
 | mintPeggedTokenDryRun(uint256,uint256)           |  61710 | 6.171e+04 |
 | mintPeggedTokenIncentiveRatio                    |  30026 | 3.003e+04 |
@@ -48,7 +48,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | redeemLeveragedToken                             | 157107 | 1.571e+05 |
 | redeemLeveragedTokenDryRun                       |  70499 | 7.050e+04 |
 | redeemLeveragedTokenIncentiveRatio               |  29106 | 2.911e+04 |
-| redeemPeggedForCollateralRatio                   |  25525 | 2.552e+04 |
+| redeemPeggedForCollateralRatio                   |  26228 | 2.623e+04 |
 | redeemPeggedToken                                | 181789 | 1.818e+05 |
 | redeemPeggedTokenDryRun                          |  66026 | 6.603e+04 |
 | redeemPeggedTokenIncentiveRatio                  |  30153 | 3.015e+04 |
@@ -76,7 +76,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | hasStabilityPool           |    559 | 5.590e+02 |
 | initialize                 |  92816 | 9.282e+04 |
 | owner                      |   2401 | 2.401e+03 |
-| rebalance                  | 884388 | 8.844e+05 |
+| rebalance                  | 884296 | 8.843e+05 |
 | rebalanceBountyRatio       |   2399 | 2.399e+03 |
 | rebalanceThreshold         |   2348 | 2.348e+03 |
 | rebalanceable              |  45050 | 4.505e+04 |
