@@ -67,20 +67,6 @@ abstract contract TestMinterFeeRangeSetUp is TestMinterSetUp {
         return q + bump;
     }
 
-    // Dynamic tolerance unit for conversions that multiply by p and r (pegged<->wrapped via price and rate)
-    function _qPR(uint256 p, uint256 r) internal pure returns (uint256) {
-        // floor(p*r/1e36); ensure at least 1
-        uint256 q = Math.mulDiv(p, r, 1e36);
-        if (q == 0) q = 1;
-
-        // spread bump as above
-        uint256 small = p < r ? p : r;
-        uint256 large = p < r ? r : p;
-        if (small == 0) return q + 5;
-        uint256 spread = large / small;
-        uint256 bump = spread >= 1e9 ? 5 : (spread >= 1e6 ? 3 : (spread >= 1e3 ? 1 : 0));
-        return q + bump;
-    }
 }
 
 abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
@@ -531,8 +517,12 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // What the mint took: the whole offer, or what the min CR left of it, as the dry run reported.
         wrapped = used;
 
+        // The minter's fee is the flat ratio of the collateral its walk used, floored; this test's is the same ratio
+        // of the wrapped used - that collateral rounded up to whole wrapped - floored. So they agree for a whole offer,
+        // and where the walk cut it the minter's is at most a wei below this test's, never above.
         uint256 fee = (feeRatio * wrapped) / 1 ether;
-        assertApprox(post.feeWrapped, pre.feeWrapped + fee, 1, "mp fee wrapped");
+        assertLe(post.feeWrapped, pre.feeWrapped + fee, "mp fee wrapped");
+        assertGe(post.feeWrapped + 1, pre.feeWrapped + fee, "mp fee wrapped, to within a wei");
 
         assertEq(post.userPegged, pre.userPegged + minted, "mp user pegged returned");
         // console2.log("wrapped=%s", wrapped);
@@ -569,12 +559,13 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         assertEq(post.minterPegged, pre.minterPegged + minted, "mp minter pegged");
         assertEq(post.minterLeveraged, pre.minterLeveraged, "mp minter leveraged");
-        assertApprox(post.minterWrapped, pre.minterWrapped + wrapped - fee, 1, 0, "mp minter wrapped");
-        assertApprox(
+        // the wrapped used less the minter's fee, so at most a wei above this test's figure and never below
+        assertGe(post.minterWrapped, pre.minterWrapped + wrapped - fee, "mp minter wrapped");
+        assertLe(post.minterWrapped, pre.minterWrapped + wrapped - fee + 1, "mp minter wrapped, to within a wei");
+        // the record gains exactly the wrapped the minter keeps, valued at the rate and rounded down
+        assertEq(
             post.minterUnderlying,
-            pre.minterUnderlying + ((wrapped - fee) * r) / 1e18,
-            _qR(p, r),
-            35,
+            pre.minterUnderlying + Math.mulDiv(post.minterWrapped - pre.minterWrapped, r, 1 ether),
             "mp minter underlying"
         );
 
@@ -588,7 +579,9 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertApprox(dUser + dMinter + dFee + dReserve, 0, 0, "mp wrapped conservation");
         }
 
-        assertApprox(post.peggedPrice, pre.peggedPrice, 1, 500, "mp pegged price");
+        // a pegged mint is served only above the min CR and stops at it, so the pegged price is par before and after
+        assertEq(pre.peggedPrice, 1 ether, "mp pegged price at par before");
+        assertEq(post.peggedPrice, 1 ether, "mp pegged price at par after");
         // assertApprox(post.leveragedPrice, pre.leveragedPrice, 20000, 0.000000000002 ether, "mp leveraged price");
     }
 
@@ -698,36 +691,36 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         }
 
         assertEq(post.userPegged, pre.userPegged - pegged, "rp user pegged");
-        uint256 qPR = _qPR(p, r);
-        assertApprox(wrappedReturned, wrapped - fee + subsidy, qPR, 5, "rp user wrapped");
         assertEq(post.userLeveraged, pre.userLeveraged, "rp user leveraged");
         assertEq(post.userWrapped, pre.userWrapped + wrappedReturned, "rp user wrapped returned");
 
         assertEq(post.minterPegged, pre.minterPegged - pegged, "rp minter pegged");
         assertEq(post.minterLeveraged, pre.minterLeveraged, "rp minter leveraged");
 
-        // When depegged and redeeming pegged token, converting pegged to wrapped accrues some precision loss
-        // We're compensating for it by creating wrappedDiffAllowed. With the current test suite iterations, it should max cap at 0.000002000000000000
-        uint256 wrappedDiffAllowed = 0;
-        if (pre.collateralRatio < 1 ether) {
-            wrappedDiffAllowed = pegged / 1e16;
+        {
+            // What the pegged redeems for, as the minter defines it: a pegged unit's worth of collateral each at or
+            // above the peg, each token's share of the record below it - at 36 decimals - and the whole wrapped that
+            // releases. It leaves the minter exactly, and the record gives it up valued at the rate, rounded up.
+            uint256 collateralE36 = pre.collateralRatio < 1 ether
+                ? Math.mulDiv(pegged, pre.minterUnderlying * 1 ether, pre.minterPegged)
+                : Math.mulDiv(pegged, 1e36, p);
+            assertEq(post.minterWrapped, pre.minterWrapped - collateralE36 / r, "rp minter wrapped");
+            assertEq(
+                post.minterUnderlying,
+                pre.minterUnderlying - Math.mulDiv(collateralE36 / r, r, 1 ether, Math.Rounding.Ceil),
+                "rp minter underlying"
+            );
+            // the redeemer is paid that worth less the fee, rounded down once, and every wrapped wei the reserve sent
+            assertEq(
+                wrappedReturned + post.reservePoolWrapped - pre.reservePoolWrapped,
+                Math.mulDiv(
+                    collateralE36,
+                    1 ether - uint256(SignedMath.max(initial(config.redeemPeggedIncentiveConfig.incentiveRatios), 0)),
+                    r * 1 ether
+                ),
+                "rp user wrapped"
+            );
         }
-        // console2.log("wrappedDiffAllowed:", wrappedDiffAllowed);
-
-        assertApprox(
-            post.minterWrapped,
-            pre.minterWrapped - wrapped,
-            wrappedDiffAllowed + qPR,
-            200,
-            "rp minter wrapped"
-        );
-        assertApprox(
-            post.minterUnderlying,
-            pre.minterUnderlying - (wrapped * r) / 1e18,
-            wrappedDiffAllowed + _qR(p, r),
-            0.00000000000002 ether,
-            "rp minter underlying"
-        );
 
         // conservation identity
         {
