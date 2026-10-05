@@ -216,8 +216,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
     /// @dev Redeems `leveragedIn` of the sender's leveraged by the retail route - the sentinel passed on as given, for
     ///      the minter to read as the sender's whole balance - and checks every balance it moves against the dry run of
-    ///      the amount. The record is expected to fall by exactly the wrapped that leaves, which holds at the
-    ///      wrapped-to-underlying rate of one, and for the whole-wei claims, of the markets this suite builds.
+    ///      the amount, and that it leaves the reserve as it was. The record is expected to fall by exactly the wrapped
+    ///      that leaves, which holds at the wrapped-to-underlying rate of one, and for the whole-wei claims, of the
+    ///      markets this suite builds.
     function _redeemLeveragedToken(uint256 leveragedIn) private {
         uint256 senderLeveragedDecrease;
         if (leveragedIn == type(uint256).max) {
@@ -236,12 +237,13 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         uint256 feeReceiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         uint256 senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
-        uint256 totalLeveragedBefore = IERC20(leveragedToken).totalSupply();
+        // the leveraged supply, which the minter's leveragedTokenBalance() reports
+        uint256 leveragedSupplyBefore = IERC20(leveragedToken).totalSupply();
         uint256 minterCollateralBalanceBefore = IMinter(minter).collateralTokenBalance();
-        uint256 minterLeveragedBalanceBefore = IMinter(minter).leveragedTokenBalance();
         uint256 minterCollateralBefore = IERC20(Deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
         uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
+        uint256 reserveBefore = IERC20(Deployed.wstETH).balanceOf(reservePool);
 
         vm.startPrank(sender);
         vm.expectEmit(minter);
@@ -261,7 +263,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             senderLeveragedBefore - senderLeveragedDecrease,
             "token sent"
         );
-        assertEq(IERC20(leveragedToken).totalSupply(), totalLeveragedBefore - senderLeveragedDecrease, "token burned");
+        assertEq(IERC20(leveragedToken).totalSupply(), leveragedSupplyBefore - senderLeveragedDecrease, "token burned");
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(receiver),
             receiverCollateralBefore + receiverCollateralIncrease,
@@ -274,7 +276,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
         assertEq(
             IMinter(minter).leveragedTokenBalance(),
-            minterLeveragedBalanceBefore - senderLeveragedDecrease,
+            leveragedSupplyBefore - senderLeveragedDecrease,
             "minter is tracking the leveraged tokens"
         );
         assertEq(
@@ -283,6 +285,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             "wstETH has minter owning it"
         );
         assertLt(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio < before");
+        assertEq(IERC20(Deployed.wstETH).balanceOf(reservePool), reserveBefore, "the reserve is left as it was");
     }
 
     struct DryRunResults {
@@ -545,8 +548,8 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     }
 
     /// A retail leveraged redemption from a collateral ratio of two charges the top band's fee and pays the rest, as
-    /// its event reports; a minimum the payout meets is served, one a wei above it reverts naming both, and the
-    /// sentinel redeems the caller's whole balance for exactly its dry run's forecast.
+    /// its event reports, leaving a funded reserve as it was; a minimum the payout meets is served, one a wei above it
+    /// reverts naming both, and the sentinel redeems the caller's whole balance for exactly its dry run's forecast.
     function test_redeemLeveragedNormal() public {
         setUp_collateral(20 ether, 0);
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -555,6 +558,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         setUp_collateral(0, 10 ether, sender);
+        deal(address(Deployed.wstETH), reservePool, 100 ether); // a reserve that could fund a subsidy
         // first redeem
         _redeemLeveragedToken(price);
         // 1 --------------------
