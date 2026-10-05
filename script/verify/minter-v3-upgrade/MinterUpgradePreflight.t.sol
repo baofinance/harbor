@@ -4,6 +4,9 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -16,23 +19,29 @@ import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
-/// @title MinterUpgradePreflight — is every deployed minter's stored config one Minter_v3 accepts?
-/// @notice The v2 -> v3 upgrade carries each minter's incentive config across unchecked: `upgradeToAndCall` swaps the
-///         implementation and v3 reads the stored encoding as it stands. v3's loader refuses schedules v2's accepted -
-///         a subsidy in the highest band of redeem pegged or mint leveraged, a bound too wide for its field - and v3's
-///         band walks rely on that: the leveraged mint never subsidises its highest band. So each deployed minter's
-///         config is loaded, on a mainnet fork, through a fresh Minter_v3's own `updateConfig`, and must be accepted
-///         and read back unchanged.
+/// @title MinterUpgradePreflight — will every deployed minter work under Minter_v3?
+/// @notice Two things the v2 -> v3 upgrade carries across unchecked, each its own test:
 ///
-///         PASSES iff every deployed minter's config is accepted and reads back exactly. FAILS - naming each minter -
-///         if the v3 loader refuses its config (the refusal is logged) or would hold it differently.
+///         The incentive config. `upgradeToAndCall` swaps the implementation and v3 reads the stored encoding as it
+///         stands. v3's loader refuses schedules v2's accepted - a subsidy in the highest band of redeem pegged or mint
+///         leveraged, a bound too wide for its field - and v3's band walks rely on that: the leveraged mint never
+///         subsidises its highest band. So each deployed minter's config is loaded through a fresh Minter_v3's own
+///         `updateConfig`, and must be accepted and read back unchanged. FAILS - naming each minter - if the v3 loader
+///         refuses its config (the refusal is logged) or would hold it differently.
 ///
-///         RUN BEFORE UPGRADING:
-///           `forge test --mp script/verify/minter-v3-upgrade/MinterUpgradePreflight.t.sol -vv`  (needs MAINNET_RPC_URL)
-///         Red -> update the named minter's config, under v2, to one the v3 loader accepts, and re-run.
+///         The backing. v3 halts a market whose recorded backing exceeds what its wrapped holding converts to at the
+///         low edge of the oracle's rate band - every mint and redeem reverts `UnrecognisedImpairment` - a check v2
+///         never made. So each deployed minter is upgraded, as its owner would upgrade it, and v3's own `impairment()`
+///         says whether the record is covered. FAILS - naming each minter - if one would halt the moment it is
+///         upgraded.
 ///
-///         Read-only: nothing deployed is touched. Minters are enumerated through the deploy scripts' own salt
-///         derivation, so this checks exactly the set the deploy made.
+///         RUN BEFORE UPGRADING, through `run-preflight` (needs MAINNET_RPC_URL).
+///         Config red -> update the named minter's config, under v2, to one the v3 loader accepts, and re-run.
+///         Backing red -> the named market halts on upgrade until its rate recovers, its shortfall is donated, or it
+///         is recognised after the upgrade: decide which before upgrading it.
+///
+///         Read-only: everything happens on a mainnet fork, so nothing deployed is touched. Minters are enumerated
+///         through the deploy scripts' own salt derivation, so this checks exactly the set the deploy made.
 contract MinterUpgradePreflight is
     Test,
     Deploy_BTC_Minter,
@@ -45,6 +54,7 @@ contract MinterUpgradePreflight is
     uint256 internal deployedCount;
     uint256 internal refusedCount;
     uint256 internal readsBackDifferentlyCount;
+    uint256 internal wouldHaltCount;
 
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"));
@@ -75,6 +85,61 @@ contract MinterUpgradePreflight is
         assertGt(deployedCount, 0, "no minters checked - fork or enumeration broken");
         assertEq(refusedCount, 0, "a deployed minter holds a config the v3 loader refuses - see REFUSED in the log");
         assertEq(readsBackDifferentlyCount, 0, "a config would read back differently under v3 - see the log");
+    }
+
+    function test_noDeployedMinterWouldHaltUnderMinterV3() public {
+        Config_MinterMarket[] memory markets;
+        (, markets) = createBTCMintersConfig();
+        _checkBacking(markets);
+        (, markets) = createETHMintersConfig();
+        _checkBacking(markets);
+        (, markets) = createEURMintersConfig();
+        _checkBacking(markets);
+        (, markets) = createGOLDMintersConfig();
+        _checkBacking(markets);
+        (, markets) = createMCAPMintersConfig();
+        _checkBacking(markets);
+        (, markets) = createSILVERMintersConfig();
+        _checkBacking(markets);
+
+        console.log("Pre-flight: %d minters deployed, %d would halt under v3", deployedCount, wouldHaltCount);
+        assertGt(deployedCount, 0, "no minters checked - fork or enumeration broken");
+        assertEq(wouldHaltCount, 0, "a deployed minter's record exceeds its holding at the min rate - see WOULD HALT");
+    }
+
+    function _checkBacking(Config_MinterMarket[] memory markets) internal {
+        for (uint256 i = 0; i < markets.length; i++) {
+            address minter = minterAddress(markets[i]);
+            if (minter.code.length == 0) {
+                continue; // not deployed - nothing to upgrade
+            }
+            deployedCount++;
+            string memory key = minterKey(markets[i]);
+
+            // the upgrade itself, as the owner would make it: a plain implementation swap, nothing re-initialised
+            address implementation = address(
+                new Minter_v3(
+                    IMinter(minter).WRAPPED_COLLATERAL_TOKEN(),
+                    IMinter(minter).PEGGED_TOKEN(),
+                    IMinter(minter).LEVERAGED_TOKEN()
+                )
+            );
+            vm.startPrank(IBaoOwnable(minter).owner());
+            UUPSUpgradeable(minter).upgradeToAndCall(implementation, "");
+            vm.stopPrank();
+
+            (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+            if (recorded > held) {
+                wouldHaltCount++;
+                console.log(
+                    string.concat("WOULD HALT: ", key, " recorded ", vm.toString(recorded), " held ", vm.toString(held))
+                );
+            } else {
+                console.log(
+                    string.concat(key, " covered: recorded ", vm.toString(recorded), " held ", vm.toString(held))
+                );
+            }
+        }
     }
 
     function _check(Config_MinterMarket[] memory markets) internal {

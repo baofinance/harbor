@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Check, before the Minter v2 -> v3 upgrade, that every deployed minter's stored incentive config is one the v3 loader
-# accepts and reads back unchanged. Read-only, on a mainnet fork at the latest block.
+# accepts and reads back unchanged, and that none would halt once upgraded - its recorded backing covered by its wrapped
+# holding at the low edge of the rate band. Read-only, on a mainnet fork at the latest block.
 #
 # forge (1.8) runs tests only from its configured test directory: a filter outside it, or one matching nothing,
 # reports no tests and exits 0 - a check that checks nothing and passes. So this points the test directory at this

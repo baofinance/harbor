@@ -25,10 +25,12 @@ reference, validates upgrade preserves state.
 
 Minter v2→v3 upgrade verification. An upgrade carries each minter's stored incentive config across unchecked, and v3's
 loader refuses schedules v2's accepted (a subsidy in the highest band, a bound too wide for its field) - v3's band
-walks rely on that.
+walks rely on that. It carries the recorded backing across too, and v3 halts a market whose record exceeds its holding
+at the low edge of the rate band, which v2 never checked.
 
-- `MinterUpgradePreflight.t.sol` — loads every deployed minter's config through a fresh Minter_v3's `updateConfig` on
-  a mainnet fork; fails naming any minter whose config is refused or would read back differently
+- `MinterUpgradePreflight.t.sol` — on a mainnet fork, loads every deployed minter's config through a fresh Minter_v3's
+  `updateConfig`, failing naming any minter whose config is refused or would read back differently; and upgrades every
+  deployed minter as its owner would, failing naming any that v3's `impairment()` reports would halt
 - `run-preflight` — runs it (needs `MAINNET_RPC_URL`); run before upgrading
 
 ### [sp-v2-upgrade/](sp-v2-upgrade/)
