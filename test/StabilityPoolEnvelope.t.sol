@@ -413,9 +413,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// no way to unfund one. The snapshot is taken after the actors exist and before any capital does, so
     /// what comes back is the same deployment with no market in it yet.
     ///
-    /// Returns whether a market could be founded at all. Where the collateral is worth less than a wei of pegged
-    /// per unit, no amount of it mints anything and the first tranche divides by the floored price - the same
-    /// located limit a later mint reaches, met earlier because founding is the first thing to need a price. It is
+    /// Returns whether a market's genesis could be minted at all. Where the collateral is worth less than a wei of
+    /// pegged per unit, no amount of it mints anything and the first tranche divides by the floored price - the same
+    /// located limit a later mint reaches, met earlier because the genesis is the first thing to need a price. It is
     /// OBSERVED through a probe rather than pre-checked, so the boundary is discovered each run. Only the funding
     /// is probed: the rewind and the oracle write happen here, where no revert can roll them back.
     function _seedMarketAt(uint256 collateralUSD, uint256 wrapRate, uint256 pegPriceUSD) internal returns (bool) {
@@ -436,8 +436,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         }
     }
 
-    /// @dev The deploy-time capital structure, external so `_seedMarketAt` can observe the one limit founding a
-    /// market can reach. Nothing else may call it: the point must already be set.
+    /// @dev The deploy-time capital structure, external so `_seedMarketAt` can observe the one limit a market's
+    /// genesis can reach. Nothing else may call it: the point must already be set.
     function seedFundingProbe() external {
         _seedMarket();
         _seedPool();
@@ -452,8 +452,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// multiplied together. Sweeping the two separately therefore conflates two different questions: how healthy the
     /// market is, and how large the numbers running through it are. This takes the collateral ratio as the axis and
     /// derives the price from it, so the rate is free to widen the wrapped amounts across the whole declared range
-    /// without also deciding whether the market is solvent. A test that means the rate as pure scale founds its
-    /// market at that rate first (`_seedMarketAt`), so there is nothing to recognise.
+    /// without also deciding whether the market is solvent. A test that means the rate as pure scale mints its
+    /// market's genesis at that rate first (`_seedMarketAt`), so there is nothing to recognise.
     ///
     /// The derivation itself is `MarketActions.setCollateralRatioByWrapRate`, shared with any suite that needs to
     /// reach the impaired branch; this wrapper keeps the envelope's own `currentPrice` / `currentRate` in step with it
@@ -553,8 +553,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// one half and sail with the other, which leaves the anchor claim on half the collateral value - a collateral
     /// ratio of 2. A further anchor tranche of the same size then brings it to 1.5, mid-band on the fee schedules.
     ///
-    /// This is deployment-time state, and it must be complete before anything ADVERSE happens - which the point a
-    /// market is founded at is not, however extreme (see `_seedMarketAt`). Sail is the junior claim that absorbs an
+    /// This is deployment-time state, and it must be complete before anything ADVERSE happens - which the point of a
+    /// market's genesis is not, however extreme (see `_seedMarketAt`). Sail is the junior claim that absorbs an
     /// impairment, so a market that stands up without one is underwater on the first adverse move, and sail cannot
     /// be added afterwards: minting it requires a residual to sell, and an impaired market has none. The buffer has
     /// to exist before conditions change, exactly as in production.
@@ -676,7 +676,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // it again inside `_arrange`, but that inner write rolls back on a probe revert): the recorded row
         // below must log the point that produced the failure, not the prior one.
         //
-        // Founding is itself priced, so the cheap-collateral corner is refused here rather than at the mint
+        // The genesis is itself priced, so the cheap-collateral corner is refused here rather than at the mint
         // below - the same located limit, one step earlier. Record it under its own name: at this point there is
         // no market to deposit into, which is a stronger statement than a pool that cannot be grown.
         if (!_seedMarketAt(collateralUSD, wrapRate, pegPriceUSD)) {
@@ -754,8 +754,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         Envelope memory e = buildEnvelope();
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
 
-        // Found the market at the cheap corner rather than dragging a nominal one down to it: the cheapness is a
-        // condition this market is meant to live under, not a loss it has suffered, and the two are different
+        // Mint the market's genesis at the cheap corner rather than dragging a nominal one down to it: the cheapness
+        // is a condition this market is meant to live under, not a loss it has suffered, and the two are different
         // markets. See `_seedMarketAt`.
         assertTrue(
             _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),

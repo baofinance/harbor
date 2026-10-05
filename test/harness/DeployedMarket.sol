@@ -68,12 +68,12 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
     uint256 internal constant FORK_BLOCK = 25272609;
     string internal constant SALT_PREFIX = "harbor_v1";
 
-    /// @dev The price the market is founded at, and the wrapped-to-underlying rate. Chosen rather than
+    /// @dev The price of the market's genesis, and the wrapped-to-underlying rate. Chosen rather than
     /// carried forward: this market's oracle was never deployed, so there is no prior answer to be
     /// consistent with.
-    uint256 internal constant FOUNDING_PRICE = 2000 ether;
+    uint256 internal constant GENESIS_PRICE = 2000 ether;
     uint256 internal constant WRAP_RATE = 1 ether;
-    uint256 internal constant FOUNDING_TRANCHE = 500 ether;
+    uint256 internal constant GENESIS_TRANCHE = 500 ether;
 
     address internal deployedOwner;
 
@@ -102,9 +102,9 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         deployedOwner = IBaoOwnable(market.minter).owner();
 
         // The mock goes where the production minter reads its price - which the run checks is where it predicts - and
-        // is priced as the market is founded.
+        // is priced as at the market's genesis.
         productionRun.installMockPriceOracle(config);
-        MockWrappedPriceOracle(market.oracle).setLatestAnswer(FOUNDING_PRICE, WRAP_RATE);
+        MockWrappedPriceOracle(market.oracle).setLatestAnswer(GENESIS_PRICE, WRAP_RATE);
 
         // EITHER the market as deployed, OR the whole v3 upgrade. There is no third option and none can be
         // written here, which is the point: a candidate behind the minter proxy is a v3-family minter, and
@@ -129,7 +129,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         IBaoRoles(market.minter).grantRoles(address(this), IMinter(market.minter).ZERO_FEE_ROLE());
         vm.stopPrank();
 
-        _foundMarket();
+        _mintGenesis();
         _fundInitialConditions(collateralPoolShare, leveragedPoolShare);
         _recordMarketProvenance(runName);
         return market;
@@ -238,14 +238,14 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         vm.stopPrank();
     }
 
-    function _foundMarket() internal virtual {
-        deal(market.wrappedCollateral, address(this), 2 * FOUNDING_TRANCHE);
+    function _mintGenesis() internal virtual {
+        deal(market.wrappedCollateral, address(this), 2 * GENESIS_TRANCHE);
         IERC20(market.wrappedCollateral).approve(market.minter, type(uint256).max);
-        IMinter(market.minter).freeMintPeggedToken(FOUNDING_TRANCHE, address(this));
-        IMinter(market.minter).freeMintLeveragedToken(FOUNDING_TRANCHE, address(this));
+        IMinter(market.minter).freeMintPeggedToken(GENESIS_TRANCHE, address(this));
+        IMinter(market.minter).freeMintLeveragedToken(GENESIS_TRANCHE, address(this));
     }
 
-    /// @dev The founding pegged, split between the pools as the run asked for. Whatever the two shares leave
+    /// @dev The genesis pegged, split between the pools as the run asked for. Whatever the two shares leave
     /// over stays here, an ordinary pegged holder beside the pools.
     function _fundInitialConditions(uint256 collateralPoolShare, uint256 leveragedPoolShare) internal virtual {
         uint256 held = IERC20(market.pegged).balanceOf(address(this));

@@ -7,7 +7,7 @@ import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 
 /// @notice Repeated rebalances from the same collateral ratio, against each contract set. Both markets are
-///         founded with the same collateral, so every column compares directly and nothing is normalised.
+///         given the same genesis collateral, so every column compares directly and nothing is normalised.
 ///
 /// The pool split is `HysteresisMeasurement.LEVERAGED_POOL_SHARE`, stated once there with the reason it is a
 /// minority. Each run below says only what makes it different from its siblings.

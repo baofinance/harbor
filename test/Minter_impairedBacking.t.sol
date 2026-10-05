@@ -1207,14 +1207,14 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
     // Only a fall in the rate may leave the record above the holding. An operation that did it - by debiting the
     // record with less collateral than left - would halt the market by its own rounding, and every later update
-    // would refuse until the owner recognised a loss nobody suffered. Each market here is founded AT the fuzzed
+    // would refuse until the owner recognised a loss nobody suffered. Each market's genesis here is AT the fuzzed
     // rate, so its record starts covered with no surplus to hide a wei behind.
 
     /// A free pegged redeem - the rebalance's collateral leg - debits the record by at least what the holding lost.
     function testFuzz_theFreePeggedRedeemLeavesTheRecordCovered(uint256 rate, uint256 redeemBps) public {
         _setRate(bound(rate, 0.5 ether, 2 ether));
         (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
-        assertFalse(_recordOverstatesTheHolding(), "precondition: founded covered");
+        assertFalse(_recordOverstatesTheHolding(), "precondition: covered at genesis");
         uint256 redeeming = Math.mulDiv(peggedTokens, bound(redeemBps, 1, 10_000), 10_000);
 
         vm.startPrank(zeroFee);
@@ -1229,7 +1229,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function testFuzz_theFreeLeveragedRedeemLeavesTheRecordCovered(uint256 rate, uint256 redeemBps) public {
         _setRate(bound(rate, 0.5 ether, 2 ether));
         (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
-        assertFalse(_recordOverstatesTheHolding(), "precondition: founded covered");
+        assertFalse(_recordOverstatesTheHolding(), "precondition: covered at genesis");
         uint256 redeeming = Math.mulDiv(leveragedTokens, bound(redeemBps, 1, 10_000), 10_000);
 
         vm.startPrank(zeroFee);
@@ -1243,14 +1243,14 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// A harvest takes only what the holding exceeds the record by, so sweeping ALL of `harvestable()` - which the
     /// manager does whenever every share is streamed - leaves the holding still covering the record. Were the wrapped
     /// the record needs rounded down, the harvest itself would leave it a wei uncovered and halt the market until
-    /// the owner recognised a loss nobody suffered. The market is founded at one fuzzed rate and the yield raises
+    /// the owner recognised a loss nobody suffered. The market's genesis is at one fuzzed rate and the yield raises
     /// it by a fuzzed step, so the record's need in wrapped tokens is rarely a whole number.
     function testFuzz_aFullHarvestLeavesTheRecordCovered(uint256 rate, uint256 yieldBps) public {
-        uint256 foundingRate = bound(rate, 0.5 ether, 2 ether);
-        _setRate(foundingRate);
+        uint256 genesisRate = bound(rate, 0.5 ether, 2 ether);
+        _setRate(genesisRate);
         setUp_collateral(100 ether, 40 ether);
-        assertFalse(_recordOverstatesTheHolding(), "precondition: founded covered");
-        _setRate(foundingRate + Math.mulDiv(foundingRate, bound(yieldBps, 1, 2_000), 10_000));
+        assertFalse(_recordOverstatesTheHolding(), "precondition: covered at genesis");
+        _setRate(genesisRate + Math.mulDiv(genesisRate, bound(yieldBps, 1, 2_000), 10_000));
         uint256 surplus = IMinter(minter).harvestable();
         assertGt(surplus, 0, "precondition: the yield left something to harvest");
 

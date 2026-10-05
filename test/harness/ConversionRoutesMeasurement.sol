@@ -116,7 +116,7 @@ abstract contract ConversionRoutesMeasurement is GraphTestBase, Array, RevertRea
             )
         );
         keeper = makeAddr("keeper");
-        // A MINORITY of the founding pegged into the pool, so that holders remain outside it: below the peg
+        // A MINORITY of the genesis pegged into the pool, so that holders remain outside it: below the peg
         // the pegged claim is the whole collateral divided by holding, and a sole holder's claim cannot be
         // diluted by its own conversions.
         standUpMarket(0, 0.4 ether, context());

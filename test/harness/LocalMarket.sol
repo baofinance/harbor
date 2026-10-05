@@ -21,8 +21,8 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 ///
 /// The deploy chain is USED rather than reproduced - the tokens, the minter, both pools and the manager all come
 /// from it, configured and granted their roles by it - so a measurement is run against what the deploy actually
-/// produces and not against a fixture that resembles it. What this adds is what a test does to a market: found it,
-/// and split the founding pegged between the pools.
+/// produces and not against a fixture that resembles it. What this adds is what a test does to a market: mint its
+/// genesis, and split the genesis pegged between the pools.
 ///
 /// The manager is wired to the LEVERAGED POOL AND AN EMPTY COLLATERAL POOL, so a rebalance has only the
 /// conversion to work with. The collateral leg is value-neutral below the peg by construction - it pays each
@@ -33,14 +33,14 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// chain built, so a run that names another rule is refused, by its label, rather than measured as the tree under
 /// that label.
 abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
-    /// @dev The collateral each of the two founding tranches puts in. Half to pegged and half to leveraged
-    /// opens the market at a collateral ratio of two, which is what `GraphsLiquidate` founds with.
+    /// @dev The collateral each of the two genesis tranches puts in. Half to pegged and half to leveraged
+    /// opens the market at a collateral ratio of two, which is the genesis `GraphsLiquidate` mints.
     ///
-    /// The SAME figure `DeployedMarket` founds with, deliberately: a graph comparing the two should compare
+    /// The SAME figure as `DeployedMarket`'s genesis, deliberately: a graph comparing the two should compare
     /// raw columns, and a graph that has to normalise them is one where a mistake in the normalising cannot
     /// be told from a difference in the thing measured. The market size is an input here, so there is no
     /// reason to correct for it afterwards.
-    uint256 internal constant FOUNDING_TRANCHE = 500 ether;
+    uint256 internal constant GENESIS_TRANCHE = 500 ether;
 
     /// @notice The run names a rule other than the tree's, and a local market runs the tree's alone.
     error LocalMarketRunsOnlyTheTreesRule(string label);
@@ -81,27 +81,28 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
         // The object the unit-test base made for this minter when it deployed it.
         actions = marketActions;
 
-        // The harness founds the market with free mints: a test actor, which the deploy has no reason to know of.
+        // The harness mints the market's genesis with free mints: a test actor, which the deploy has no reason to
+        // know of.
         vm.startPrank(owner());
         IBaoRoles(minter).grantRoles(address(this), IMinter(minter).ZERO_FEE_ROLE());
         vm.stopPrank();
 
-        _foundMarket();
+        _mintGenesis();
         _fundInitialConditions(collateralPoolShare, leveragedPoolShare);
         _recordMarketProvenance(runName);
         return market;
     }
 
-    /// @dev Half the collateral into pegged and half into leveraged, the same free mints `GraphsLiquidate`
-    /// founds its market with.
-    function _foundMarket() internal virtual {
-        deal(address(wrappedCollateralToken), address(this), 2 * FOUNDING_TRANCHE);
+    /// @dev Half the collateral into pegged and half into leveraged, the same free mints as `GraphsLiquidate`'s
+    /// genesis.
+    function _mintGenesis() internal virtual {
+        deal(address(wrappedCollateralToken), address(this), 2 * GENESIS_TRANCHE);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
-        IMinter(minter).freeMintPeggedToken(FOUNDING_TRANCHE, address(this));
-        IMinter(minter).freeMintLeveragedToken(FOUNDING_TRANCHE, address(this));
+        IMinter(minter).freeMintPeggedToken(GENESIS_TRANCHE, address(this));
+        IMinter(minter).freeMintLeveragedToken(GENESIS_TRANCHE, address(this));
     }
 
-    /// @dev The founding pegged, split between the pools as the run asked for - the starting state, which
+    /// @dev The genesis pegged, split between the pools as the run asked for - the starting state, which
     /// the harness owns so that two measurements of this market begin from the same place. Whatever the two
     /// shares leave over stays here, an ordinary pegged holder beside the pools.
     function _fundInitialConditions(uint256 collateralPoolShare, uint256 leveragedPoolShare) internal virtual {

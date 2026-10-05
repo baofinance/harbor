@@ -130,7 +130,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         w = bound(w, minToken, maxToken);
         setUp_collateral(p, l, user);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-        // A leveraged deposit small beside the pegged one founds the market at the peg, below the floor at
+        // A leveraged deposit small beside the pegged one puts the market's genesis at the peg, below the floor at
         // which leverage is sold. There is no fee to range over where the mint is refused, and the refusal
         // is `Minter_leverageCap`'s to assert; the fee arithmetic is measured where a mint exists.
         vm.assume(IMinter_v3(minter).leveragedMintable());

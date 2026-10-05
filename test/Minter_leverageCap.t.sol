@@ -420,10 +420,10 @@ contract MinterLeverageCapTest is LocalMarket {
 ///         the min CR - the first leveraged tokens then holding the whole residual after it.
 contract MinterFirstLeveragedMintTest is LocalMarket {
     /// @dev Pegged only: the leveraged supply is left empty for the tests to mint the first of.
-    function _foundMarket() internal override {
-        deal(address(wrappedCollateralToken), address(this), 2 * FOUNDING_TRANCHE);
+    function _mintGenesis() internal override {
+        deal(address(wrappedCollateralToken), address(this), 2 * GENESIS_TRANCHE);
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
-        IMinter(minter).freeMintPeggedToken(FOUNDING_TRANCHE, address(this));
+        IMinter(minter).freeMintPeggedToken(GENESIS_TRANCHE, address(this));
     }
 
     function setUp() public override {
@@ -505,7 +505,7 @@ contract MinterFirstLeveragedMintTest is LocalMarket {
         );
 
         vm.expectRevert(revertData);
-        IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
+        IMinter_v3(market.minter).mintLeveragedToken(GENESIS_TRANCHE / 2, address(this), 0);
         assertEq(IERC20(market.wrappedCollateral).balanceOf(address(this)), held, "nothing is taken");
     }
 
@@ -526,7 +526,7 @@ contract MinterFirstLeveragedMintTest is LocalMarket {
         assertEq(IMinter(market.minter).collateralRatio(), minimum, "precondition: exactly at the min CR");
         assertTrue(IMinter_v3(market.minter).leveragedMintable(), "the view agrees");
 
-        uint256 minted = IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
+        uint256 minted = IMinter_v3(market.minter).mintLeveragedToken(GENESIS_TRANCHE / 2, address(this), 0);
 
         assertGt(minted, 0, "the first leveraged mint is served");
         assertEq(minted, _residual(), "and holds the whole residual after its deposit");
@@ -547,7 +547,7 @@ contract MinterFirstLeveragedMintTest is LocalMarket {
         );
 
         vm.expectRevert(revertData);
-        IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE, address(this), 0);
+        IMinter_v3(market.minter).mintLeveragedToken(GENESIS_TRANCHE, address(this), 0);
         assertEq(IERC20(market.wrappedCollateral).balanceOf(address(this)), held, "nothing is taken");
     }
 
@@ -592,7 +592,7 @@ contract MinterFirstLeveragedMintTest is LocalMarket {
                 minimum
             );
             vm.expectRevert(revertData);
-            IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
+            IMinter_v3(market.minter).mintLeveragedToken(GENESIS_TRANCHE / 2, address(this), 0);
             vm.revertToState(snapshot);
         }
         MockWrappedPriceOracle(market.oracle).setLatestAnswer(
@@ -606,7 +606,7 @@ contract MinterFirstLeveragedMintTest is LocalMarket {
         assertEq(IMinter(market.minter).collateralRatio(), minimum, "precondition: exactly at the min CR");
         assertTrue(IMinter_v3(market.minter).leveragedMintable(), "the view says yes at the min CR");
         assertGt(
-            IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0),
+            IMinter_v3(market.minter).mintLeveragedToken(GENESIS_TRANCHE / 2, address(this), 0),
             0,
             "and so does the retail mint"
         );
@@ -634,7 +634,7 @@ contract MinterFirstLeveragedMintTest is LocalMarket {
 
         (int256 incentiveRatio, uint256 fee, uint256 subsidy, uint256 used, uint256 forecast, , ) = IMinter_v3(
             market.minter
-        ).mintLeveragedTokenDryRun(FOUNDING_TRANCHE / 2);
+        ).mintLeveragedTokenDryRun(GENESIS_TRANCHE / 2);
         assertEq(fee + subsidy + used + forecast, 0, "the dry run reports nothing");
         assertEq(
             incentiveRatio,
@@ -647,6 +647,6 @@ contract MinterFirstLeveragedMintTest is LocalMarket {
             IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO()
         );
         vm.expectRevert(revertData);
-        IMinter_v3(market.minter).mintLeveragedToken(FOUNDING_TRANCHE / 2, address(this), 0);
+        IMinter_v3(market.minter).mintLeveragedToken(GENESIS_TRANCHE / 2, address(this), 0);
     }
 }

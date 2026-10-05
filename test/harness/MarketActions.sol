@@ -168,7 +168,7 @@ contract MarketActions is StdCheats {
     /// @dev Both legs are price-neutral: a mint and a redemption each move the residual and the leveraged supply in the
     ///      same proportion, so this changes how many leveraged tokens carry the residual without changing what any
     ///      one of them is worth, and without taking value from anyone holding one. That is what lets a market be
-    ///      reshaped into the one a different founding would have produced - the state is the same either way, and the
+    ///      reshaped into the one a different genesis would have produced - the state is the same either way, and the
     ///      history that reached it is not something the protocol records.
     ///
     ///      Acts AS `holder`, one call deeper than its caller, and only for the one trade: the holder's leveraged
@@ -199,7 +199,7 @@ contract MarketActions is StdCheats {
     }
 
     /// @notice Mint pegged against `collateralForPegged` and leveraged against `collateralForLeveraged` of wrapped
-    ///         collateral, to `recipient`, as the minter's owner and at no fee - the founding mints Genesis makes.
+    ///         collateral, to `recipient`, as the minter's owner and at no fee - the genesis mints Genesis makes.
     ///         Returns what each mint gave; a side given nothing is not minted.
     /// @dev The owner is given the collateral first, ADDED to what it already holds, so an owner that is also the
     ///      treasury keeps its balance; the total supply grows with it, as a mint's would. The owner may take the free

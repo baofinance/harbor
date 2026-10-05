@@ -105,8 +105,8 @@ contract MinterBackingRecordTest is TestMinterSetUp {
     /// A mint credits the record with the collateral standing behind it, so the record may never gain
     /// more than the holding gained. A rate that does not divide evenly is what makes the two
     /// derivations separable: the collateral credited and the wrapped taken are computed apart, and
-    /// only their agreement keeps the record honest. Every test here founds its market at a rate from a
-    /// millionth to a million, so the rounding at both extremes is reached on every route.
+    /// only their agreement keeps the record honest. Every test here mints its market's genesis at a rate
+    /// from a millionth to a million, so the rounding at both extremes is reached on every route.
     function testFuzz_peggedMintRecordNeverGainsMoreThanTheHolding(
         uint256 wrappedIn,
         uint256 decade,

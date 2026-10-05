@@ -14,7 +14,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 import {console2} from "forge-std/console2.sol";
 
 abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilityPool2SetUp {
-    /// @dev The collateral ratio the market is founded at: where every sweep starts, and what the sweeps that scale a
+    /// @dev The collateral ratio of the market's genesis: where every sweep starts, and what the sweeps that scale a
     ///      starting quantity - the wrapped-to-underlying rate, the collateral held - scale it against.
     uint256 internal constant START_COLLATERAL_RATIO = 2 ether;
 

@@ -18,7 +18,7 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// @notice The actions a test takes on a market, through the object it holds for them: each places the market where
 ///         it was asked to, names what stops it, and leaves alone what it was not asked to move.
 contract MarketActionsTest is TestMinterSetUp {
-    /// @dev The collateral ratio the placing tests ask for: under the founding collateral ratio of two and above the
+    /// @dev The collateral ratio the placing tests ask for: under the genesis collateral ratio of two and above the
     ///      peg.
     uint256 private constant TARGET = 1.3 ether;
 
@@ -27,15 +27,15 @@ contract MarketActionsTest is TestMinterSetUp {
     }
 
     /// @dev Equal halves behind the pegged and the leveraged, held by this contract: a collateral ratio of two.
-    function _foundAtTwo() private {
+    function _mintGenesisAtTwo() private {
         setUp_collateral(10 ether, 10 ether, address(this));
     }
 
-    /// @dev A holder that trades on the market at no fee, founded into it at a collateral ratio of two: it holds the
-    ///      founding pegged and leveraged tokens and 1,000 wrapped collateral besides, has approved the minter for its
-    ///      collateral and its leveraged tokens, and holds the zero-fee role the free routes require. It is not this
-    ///      contract, so a test can tell acting AS the holder from acting as the caller.
-    function _foundAtTwoWithATrader() private returns (address trader) {
+    /// @dev A holder that trades on the market at no fee, given the market's genesis at a collateral ratio of two: it
+    ///      holds the genesis pegged and leveraged tokens and 1,000 wrapped collateral besides, has approved the
+    ///      minter for its collateral and its leveraged tokens, and holds the zero-fee role the free routes require.
+    ///      It is not this contract, so a test can tell acting AS the holder from acting as the caller.
+    function _mintGenesisAtTwoWithATrader() private returns (address trader) {
         trader = makeAddr("trader");
         setUp_collateral(10 ether, 10 ether, trader);
         deal(wrappedCollateralToken, trader, 1_000 ether);
@@ -68,7 +68,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// Placing by price writes the collateral price that inverts `backing x price / pegged`, as a single price, and
     /// the market then reports the collateral ratio asked for.
     function test_setCollateralRatioByPrice_putsTheMarketAtTheCollateralRatioAsked() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         uint256 expectedPrice = Math.mulDiv(
             TARGET,
             IMinter(minter).peggedTokenBalance(),
@@ -90,10 +90,10 @@ contract MarketActionsTest is TestMinterSetUp {
     }
 
     /// Placing by price moves the collateral price and nothing else: a wrapped-to-underlying rate band is left with
-    /// both its ends where they were. The band starts at the wrapped-to-underlying rate the market was founded at, so
+    /// both its ends where they were. The band starts at the wrapped-to-underlying rate of the market's genesis, so
     /// the holding covers the record under it.
     function test_setCollateralRatioByPrice_leavesTheWrapRateBandAsItWas() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, price, 1 ether, 1.02 ether);
 
@@ -127,7 +127,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// refused with what was asked, what it reports and the rounding allowed - and one that is over by exactly that is
     /// accepted.
     function test_setCollateralRatioByPrice_reportsACollateralRatioAboveTheOneAsked() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         uint256 tolerance = _placingTolerance();
 
         vm.mockCall(minter, abi.encodeCall(IMinter.collateralRatio, ()), abi.encode(TARGET + tolerance));
@@ -147,7 +147,7 @@ contract MarketActionsTest is TestMinterSetUp {
 
     /// The same below: short by exactly the rounding is accepted, short by one more is refused with the figures.
     function test_setCollateralRatioByPrice_reportsACollateralRatioBelowTheOneAsked() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         uint256 tolerance = _placingTolerance();
 
         vm.mockCall(minter, abi.encodeCall(IMinter.collateralRatio, ()), abi.encode(TARGET - tolerance));
@@ -168,7 +168,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// An oracle address holding no code - the object made before the mock was installed - is named, where a call
     /// into it would revert without saying which address or why.
     function test_anActionOnAMarketWhoseOracleHasNoCode_namesTheOracle() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         vm.etch(priceOracle, "");
 
         vm.expectRevert(abi.encodeWithSelector(MarketActions.OracleHasNoCode.selector, priceOracle));
@@ -179,7 +179,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// and the derived collateral price, each as a single figure, and the market reports the collateral ratio asked
     /// for.
     function test_setCollateralRatioByWrapRate_putsTheMarketAtTheCollateralRatioAtTheWrapRateGiven() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
 
         uint256 price = marketActions.setCollateralRatioByWrapRate(TARGET, 1.1 ether);
 
@@ -201,7 +201,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// Placing by that rate writes the record down to the holding, so the market trades at the collateral ratio asked
     /// for.
     function test_setCollateralRatioByWrapRate_writesTheRecordDownToWhatALowerWrapRateLeaves() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         uint256 recordBefore = IMinter(minter).collateralTokenBalance();
 
         marketActions.setCollateralRatioByWrapRate(TARGET, 0.9 ether);
@@ -220,7 +220,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// An action that acts as the market's owner does so inside its own call, so a caller that is itself acting as
     /// someone else is still that someone afterwards.
     function test_anActionThatActsAsTheOwner_leavesTheCallersOwnPrankInPlace() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         uint256 recordBefore = IMinter(minter).collateralTokenBalance();
         address caller = makeAddr("caller");
         address spender = makeAddr("spender");
@@ -242,7 +242,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// Measured in widths of the band between the peg and the leverage floor, no widths is the peg and one is the
     /// leverage floor; a market placed half a width up sells no leverage, and one placed a width and a half up does.
     function test_collateralRatioBandsAboveThePeg_namesThePegTheLeverageFloorAndEachSideOfIt() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
 
         assertEq(
@@ -270,9 +270,9 @@ contract MarketActionsTest is TestMinterSetUp {
     /// middle; priced at either edge alone the market reports the edge figure returned; the edges are the width asked
     /// for either side; and the wrapped-to-underlying rate band is left as it was.
     function test_openPriceBand_putsTheMiddleAtTheCollateralRatioAndAnEdgeTheWidthEitherSide() public {
-        _foundAtTwo();
-        (uint256 foundingPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(foundingPrice, foundingPrice, 1 ether, 1.02 ether);
+        _mintGenesisAtTwo();
+        (uint256 genesisPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(genesisPrice, genesisPrice, 1 ether, 1.02 ether);
         uint256 halfWidth = 0.1 ether;
 
         (uint256 lowEdge, uint256 highEdge) = marketActions.openPriceBand(TARGET, halfWidth);
@@ -308,7 +308,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// A band as wide as the collateral ratio itself would put its low edge at a price of nothing, and is refused
     /// with the collateral ratio and the width rather than by an arithmetic panic.
     function test_openPriceBand_refusesAHalfWidthAsWideAsTheCollateralRatio() public {
-        _foundAtTwo();
+        _mintGenesisAtTwo();
         marketActions.setCollateralRatioByPrice(TARGET);
         uint256 reported = IMinter(minter).collateralRatio();
 
@@ -325,7 +325,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// the holder holds what the supply grew by, and the collateral it paid is what the minter took. The caller, which
     /// is not the holder, neither pays nor receives.
     function test_setLeveragedSupplyMultiple_buysLeveragedUpToTheMultipleAsked() public {
-        address trader = _foundAtTwoWithATrader();
+        address trader = _mintGenesisAtTwoWithATrader();
         // A higher rate leaves the record covered, so the backing - and with it the leveraged price - stands as it was.
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1.25 ether);
@@ -364,7 +364,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// Asked for fewer leveraged tokens per pegged than the market carries, the holder named redeems exactly the
     /// difference, and the market lands on the multiple asked.
     function test_setLeveragedSupplyMultiple_sellsLeveragedDownToTheMultipleAsked() public {
-        address trader = _foundAtTwoWithATrader();
+        address trader = _mintGenesisAtTwoWithATrader();
         uint256 supplyBefore = IMinter(minter).leveragedTokenBalance();
         uint256 heldBefore = IERC20(leveragedToken).balanceOf(trader);
         uint256 target = IMinter(minter).peggedTokenBalance() / 2;
@@ -383,7 +383,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// At the multiple the market already carries there is nothing to trade: the supply and the holder's balances
     /// stay as they are, and the multiple returned is the one the market has.
     function test_setLeveragedSupplyMultiple_atTheMultipleTheMarketHasChangesNothing() public {
-        address trader = _foundAtTwoWithATrader();
+        address trader = _mintGenesisAtTwoWithATrader();
         uint256 supplyBefore = IMinter(minter).leveragedTokenBalance();
         uint256 heldBefore = IERC20(leveragedToken).balanceOf(trader);
         uint256 collateralBefore = IERC20(wrappedCollateralToken).balanceOf(trader);
@@ -400,7 +400,7 @@ contract MarketActionsTest is TestMinterSetUp {
     /// Reshaping changes how many leveraged tokens carry the residual, not what one is worth: a purchase and a
     /// redemption each move the residual and the supply in the same proportion, so the leveraged price stays put.
     function test_setLeveragedSupplyMultiple_leavesTheLeveragedPriceWhereItWas() public {
-        address trader = _foundAtTwoWithATrader();
+        address trader = _mintGenesisAtTwoWithATrader();
         uint256 priceBefore = IMinter_v3(minter).leveragedTokenPrice();
 
         marketActions.setLeveragedSupplyMultiple(trader, 3 ether);
@@ -410,7 +410,7 @@ contract MarketActionsTest is TestMinterSetUp {
         assertEq(IMinter_v3(minter).leveragedTokenPrice(), priceBefore, "and so does a redemption");
     }
 
-    /// A founding mint puts each side's tokens in the recipient's hands and the collateral in the minter's: 10 wrapped
+    /// A genesis mint puts each side's tokens in the recipient's hands and the collateral in the minter's: 10 wrapped
     /// behind each side of an empty market, at 2000 and a wrapped-to-underlying rate of one, is 20,000 pegged and -
     /// the pegged claim in place first - 20,000 leveraged, against the 20 wrapped the minter takes.
     function test_mint_mintsEachSideToTheRecipient() public {

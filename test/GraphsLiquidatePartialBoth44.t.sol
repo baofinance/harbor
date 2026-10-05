@@ -9,7 +9,7 @@ import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 /// @notice `liquidate_to_partial_both44` against each contract set - the variant that produced the `K = 20`
 ///         leverage cap, which makes it the measurement a rule most needs reading against.
 ///
-/// The split - 0.4 of the founding pegged into each pool, so a liquidation has the collateral leg AND the
+/// The split - 0.4 of the genesis pegged into each pool, so a liquidation has the collateral leg AND the
 /// conversion to work with - is `LiquidateMeasurement.variant()`, stated once there with the suffix it names
 /// the files by. Each run below says only what makes it different from its siblings.
 

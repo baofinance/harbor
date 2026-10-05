@@ -879,7 +879,8 @@ abstract contract TestMinterRedeemPeggedExact is TestMinterSetUp {
     /// @dev The schedule's one ratio, a fee when positive and a subsidy when negative.
     function _ratio() internal view virtual returns (int256);
 
-    /// @dev A market founded at a price of one at a ratio of 1.5, `user` holding the pegged, then priced at `price`.
+    /// @dev A market whose genesis is at a price of one and a ratio of 1.5, `user` holding the pegged, then priced
+    ///      at `price`.
     function _redeem(uint256 pegged, uint256 rate, uint256 price) internal returns (uint256 paid, uint256 exact) {
         user = makeAddr("user");
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(1 ether, rate);

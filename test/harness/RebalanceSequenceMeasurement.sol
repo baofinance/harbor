@@ -139,12 +139,12 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
 
     /// @notice One rebalance sequence from every collateral ratio in the span.
     ///
-    /// @dev Every point starts from the market as it was founded, by snapshot, so no point inherits the
+    /// @dev Every point starts from the market as its genesis left it, by snapshot, so no point inherits the
     /// liquidation the point before it performed - depth is the only dimension a sequence accumulates in.
     function test_graph_rebalanceSequence() public {
         _openSequenceFile();
         keeper = makeAddr("keeper");
-        // A MINORITY of the founding pegged into the pool. This measurement reports what a rebalance hands
+        // A MINORITY of the genesis pegged into the pool. This measurement reports what a rebalance hands
         // back, and below the peg the pegged claim is the whole collateral divided by holding - so a pool
         // holding every pegged token claims the entire market however much of its own a conversion burned,
         // and what it gave up cannot be seen. The remainder stays with the harness, holding pegged outside
@@ -200,7 +200,7 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
     }
 
     function emitSampleAt(uint256 ratio) internal override {
-        // Every point starts from the market as founded, so no point inherits the sequence before it.
+        // Every point starts from the market as its genesis left it, so no point inherits the sequence before it.
         uint256 snapshot = vm.snapshotState();
         actions.setCollateralRatioByPrice(ratio);
         _rebalanceUntilSettled(ratio);

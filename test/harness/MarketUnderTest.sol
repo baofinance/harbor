@@ -47,15 +47,15 @@ abstract contract MarketUnderTest {
     /// something different from one that does not, and only the measurement knows which it means.
     ///
     /// THE SPLIT IS A PARAMETER RATHER THAN A HOOK, and that is deliberate. It is data flowing from the
-    /// measurement into the market: the measurement is what decides how the founding pegged is divided,
+    /// measurement into the market: the measurement is what decides how the genesis pegged is divided,
     /// because the division is part of what it means to measure. Declared as a virtual on this base it would
     /// sit on BOTH inheritance paths of every `measurement + market` run, so each leaf would have to override
     /// it purely to disambiguate - writing out a constant its siblings already write, saying nothing. Passed
     /// as an argument it is stated once, at the call site that chose it.
     ///
-    /// @param collateralPoolShare Share of the founding pegged deposited into the collateral stability pool,
+    /// @param collateralPoolShare Share of the genesis pegged deposited into the collateral stability pool,
     /// as a 1e18 fraction.
-    /// @param leveragedPoolShare Share of the founding pegged deposited into the leveraged stability pool, as
+    /// @param leveragedPoolShare Share of the genesis pegged deposited into the leveraged stability pool, as
     /// a 1e18 fraction. The two need not sum to one: what is left over stays with the harness, an ordinary
     /// holder alongside the pools, which is what lets a conversion dilute the converter.
     /// @param runName What this run's files are called - the measurement's `context()`, which only it knows.
@@ -207,7 +207,7 @@ abstract contract MarketUnderTest {
     /// sequence that ran twelve rounds against a sole holder reported a flat result for exactly this reason,
     /// and the same market with a remainder outside the pools lost 88% of the position in ONE round.
     ///
-    /// The leveraged side needs no such check: the founding leveraged is minted to the harness and the pools
+    /// The leveraged side needs no such check: the genesis leveraged is minted to the harness and the pools
     /// take only pegged, so a holder outside them exists by construction.
     function _requireHoldersOutsidePools(uint256 collateralPoolShare, uint256 leveragedPoolShare) internal pure {
         require(

@@ -10,17 +10,17 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
-/// The floor under the anchor price, and what the anchor operations do at it.
+/// The floor under the pegged price, and what the pegged operations do at it.
 ///
-/// While the anchor is fully backed its price is exactly 1, so it mints at face value and a
+/// While the pegged token is fully backed its price is exactly 1, so it mints at face value and a
 /// redeem returns it. Below that the cap engages and the price falls with the collateral ratio,
 /// at which point every operation that divides by it grows without bound and every operation that
 /// multiplies by it collapses to nothing. These tests pin both edges.
 ///
 /// Every market here opens from 140 wrapped collateral at a collateral price of 2000, giving
-/// 200,000 anchor and 80,000 sail at a collateral ratio of 1.4.
-abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
-    /// the largest wrapped holding for which the reported anchor price is still zero
+/// 200,000 pegged and 80,000 leveraged at a collateral ratio of 1.4.
+abstract contract MinterPeggedPriceFloorBase is TestMinterSetUp {
+    /// the largest wrapped holding for which the reported pegged price is still zero
     uint256 internal constant LAST_ZERO_HOLDING = 99;
 
     function _rate() internal view returns (uint256 rate) {
@@ -41,7 +41,7 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
     /// Open the standard market, then reduce what the Minter holds to `held` wei and recognise the loss.
     function _setUpMarketHolding(uint256 held) internal {
         setUp_collateral(100 ether, 40 ether);
-        assertGt(IMinter(minter).peggedTokenBalance(), 0, "anchor must be outstanding for any of this to bite");
+        assertGt(IMinter(minter).peggedTokenBalance(), 0, "pegged must be outstanding for any of this to bite");
         deal(wrappedCollateralToken, minter, held);
         _recogniseImpairment();
     }
@@ -57,9 +57,9 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
     //////////////////////////////////////////////////////////////*/
 
     /// The zero-fee redeem is the rebalance path. At a collateral price of nothing it returns no
-    /// collateral, so burning the anchor against it would destroy the stability pool's deposit for
-    /// nothing. It must refuse by the same name the fee-paying redeem already uses.
-    function test_underBacked_freeRedeemRefusesToBurnAnchorForNothing() public {
+    /// collateral, so burning the pegged against it would destroy the stability pool's deposit for
+    /// nothing. It must revert with the same error the fee-paying redeem already uses.
+    function test_underBacked_freeRedeemRevertsRatherThanBurnPeggedForNothing() public {
         _setUpMarketHolding(LAST_ZERO_HOLDING);
         uint256 supplyBefore = IMinter(minter).peggedTokenBalance();
 
@@ -69,7 +69,7 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
         IMinter(minter).freeRedeemPeggedToken(1_000 ether, 0, zeroFee);
         vm.stopPrank();
 
-        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore, "and no anchor was burned");
+        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore, "and no pegged was burned");
     }
 
     /// The guard is on returning nothing, not on being under-backed: a depegged market that still
@@ -78,7 +78,7 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
         assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the market is depegged");
-        assertGt(IMinter(minter).peggedTokenPrice(), 0, "but the anchor is still worth something");
+        assertGt(IMinter(minter).peggedTokenPrice(), 0, "but the pegged is still worth something");
 
         uint256 supplyBefore = IMinter(minter).peggedTokenBalance();
         vm.startPrank(zeroFee);
@@ -87,11 +87,11 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
         vm.stopPrank();
 
         assertGt(wrappedOut, 0, "collateral is returned");
-        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore - 1_000 ether, "and the anchor is burned for it");
+        assertEq(IMinter(minter).peggedTokenBalance(), supplyBefore - 1_000 ether, "and the pegged is burned for it");
     }
 
     /// The conversion leg burns pegged too, and in a market with nothing behind its pegged it
-    /// reverts: far below the min CR no leverage is sold, so the min CR refuses it before anything
+    /// reverts: far below the min CR no leverage is sold, so it reverts at the min CR before anything
     /// is priced, and nothing is burned.
     function test_underBacked_freeRedeemForLeveraged_revertsBelowTheMinimumAndBurnsNothing() public {
         _setUpMarketHolding(LAST_ZERO_HOLDING);
@@ -115,25 +115,25 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
               THE MINT MUST NOT DIVIDE BY A PRICE OF NOTHING
     //////////////////////////////////////////////////////////////*/
 
-    /// With nothing behind an outstanding anchor supply the anchor is worth nothing, so the mint has
+    /// With nothing behind an outstanding pegged supply the pegged is worth nothing, so the mint has
     /// no price to divide by. It must revert by name rather than reaching the band walk and panicking
     /// on the division: the market's ratio is zero, under the min CR, and the mint says so. Whether
     /// the band table happens to disallow minting at this ratio must not be what decides it.
-    function test_noBacking_mintPeggedIsRefusedByNameRatherThanPanicking() public {
+    function test_noBacking_mintPeggedRevertsByNameRatherThanPanicking() public {
         _setUpMarketHolding(0);
-        assertEq(IMinter(minter).collateralTokenBalance(), 0, "nothing stands behind the anchor claim");
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "nothing stands behind the pegged claim");
         bytes memory belowMinimum = abi.encodeWithSelector(
             IMinter_v3.BelowMinimumCollateralRatio.selector,
             0,
             IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
         );
 
-        address anchorMinter = makeAddr("anchorMinter");
-        deal(wrappedCollateralToken, anchorMinter, 1 ether);
-        vm.startPrank(anchorMinter);
+        address peggedMinter = makeAddr("peggedMinter");
+        deal(wrappedCollateralToken, peggedMinter, 1 ether);
+        vm.startPrank(peggedMinter);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
         vm.expectRevert(belowMinimum);
-        IMinter(minter).mintPeggedToken(1 ether, anchorMinter, 0);
+        IMinter(minter).mintPeggedToken(1 ether, peggedMinter, 0);
         vm.stopPrank();
     }
 
@@ -147,8 +147,8 @@ abstract contract MinterAnchorPriceFloorBase is TestMinterSetUp {
     }
 }
 
-/// production-shaped config: anchor minting and sail redemption are disallowed at low ratios
-contract MinterAnchorPriceFloorTest is MinterAnchorPriceFloorBase {
+/// production-shaped config: pegged minting and leveraged redemption are disallowed at low ratios
+contract MinterPeggedPriceFloorTest is MinterPeggedPriceFloorBase {
     function setUpConfig() internal virtual override {
         setUp_config_likely();
     }
@@ -156,7 +156,7 @@ contract MinterAnchorPriceFloorTest is MinterAnchorPriceFloorBase {
 
 /// A config with no disallow band, so the band walk cannot break out before pricing. This is what
 /// separates a structural guard from one the config happens to provide.
-contract MinterAnchorPriceFloorNoDisallowTest is MinterAnchorPriceFloorBase {
+contract MinterPeggedPriceFloorNoDisallowTest is MinterPeggedPriceFloorBase {
     function setUpConfig() internal virtual override {
         setUp_config_likelyNoDisallow();
     }

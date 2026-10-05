@@ -192,7 +192,7 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
     }
 
     function emitSampleAt(uint256 ratio) internal override {
-        // Every point from the market as founded, so no point inherits the liquidation before it.
+        // Every point from the market as its genesis left it, so no point inherits the liquidation before it.
         uint256 market_ = vm.snapshotState();
         (Measures memory pre, Measures memory post) = _measureAt(ratio);
 

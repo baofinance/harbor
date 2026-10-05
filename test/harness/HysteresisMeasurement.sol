@@ -17,7 +17,7 @@ import {Array} from "@bao-test/utils/Array.sol";
 /// A market does not fall once. It falls, is rebalanced, and falls again - and the question a stability pool
 /// depositor is actually asking is whether being liquidated in the fourth round is worse than being
 /// liquidated in the first. Every other measurement here samples a market once and cannot answer it: a sweep
-/// across the collateral ratio compares DIFFERENT markets, one per point, each freshly founded.
+/// across the collateral ratio compares DIFFERENT markets, one per point, each fresh from its genesis.
 ///
 /// THE COLLATERAL RATIO IS PUT BACK TO THE SAME VALUE BEFORE EVERY REBALANCE. That is the whole design. Each
 /// round therefore faces a market of identical HEALTH, so anything that changes between rounds is

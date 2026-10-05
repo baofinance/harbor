@@ -209,7 +209,7 @@ contract MinterSlashTest is TestMinterSetUp {
     ) public {
         (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(100 ether, 40 ether);
-        // any low edge below the rate the market was founded at leaves the record above what the holding converts to
+        // any low edge below the rate of the market's genesis leaves the record above what the holding converts to
         minRate = bound(minRate, rate / 1e6, rate - 1);
         maxRate = bound(maxRate, minRate, 2 * rate);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, price, minRate, maxRate);
