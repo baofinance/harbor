@@ -98,7 +98,7 @@ interface IStabilityPoolManager_v2 {
     ///      `CollateralRatioNotAbovePeg` at or below the peg, and `InsufficientLiquidation` when both steps together
     ///      take less than `minPeggedLiquidated`. While the minter's record of its backing overstates what it holds,
     ///      the minter's own `IMinter_v3.UnrecognisedImpairment` is passed up unchanged: every redemption a rebalance
-    ///      makes is an update the minter refuses until the rate recovers or the impairment is recognised.
+    ///      makes is an update the minter reverts until the rate recovers or the impairment is recognised.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 

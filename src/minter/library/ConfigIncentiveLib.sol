@@ -27,7 +27,7 @@ library ConfigIncentiveLib {
     uint256 internal constant COLLATERAL_RATIO_BOUND_BITS = 32;
 
     /// @notice The widest collateral ratio bound a field holds, 1e18-scaled: 4294.967295. A wider one would be stored
-    /// truncated, so the config loader refuses it.
+    /// truncated, so the config loader reverts on it.
     uint256 internal constant MAX_COLLATERAL_RATIO_BOUND =
         (2 ** COLLATERAL_RATIO_BOUND_BITS - 1) * 10 ** (18 - COLLATERAL_RATIO_DECIMALS);
 

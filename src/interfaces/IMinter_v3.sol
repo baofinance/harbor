@@ -532,6 +532,8 @@ interface IMinter_v3 is IToken {
     /// @param receiver The address to receive minted pegged tokens.
     /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.
     /// @param maxFeeRatio Maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
+    /// `type(uint256).max` is no cap at all: the call is then the three-argument mint, and reverts wherever that
+    /// reverts rather than returning (0, 0).
     /// @return peggedOut The amount of pegged tokens minted.
     /// @return collateralUsed The amount of wrapped collateral actually consumed (collateral added + fee).
     function mintPeggedToken(
@@ -627,10 +629,11 @@ interface IMinter_v3 is IToken {
     function updateReservePool(address reservePool_) external;
 
     /// @notice Updates the price oracle to the given address
-    /// @param priceOracle_ The new price oracle. Refuses the zero address.
+    /// @param priceOracle_ The new price oracle. Reverts on the zero address.
     function updatePriceOracle(address priceOracle_) external;
 
     /// @notice Mint some pegged tokens in exchange for collateral tokens.
+    /// @dev Reverts `ReturnZeroAmount` for a deposit too small to buy a whole pegged token, taking none of it.
     /// @param collateralIn The amount of wrapped value of collateral token supplied.
     /// @param receiver The address of receiver for peggedToken.
     /// @return peggedOut The amount of pegged tokens received.
@@ -658,6 +661,8 @@ interface IMinter_v3 is IToken {
     function freeMintLeveragedToken(uint256 collateralIn, address receiver) external returns (uint256 leveragedOut);
 
     /// @notice Redeem some leveraged tokens for collateral tokens.
+    /// @dev Reverts `ReturnZeroAmount` wherever the redemption would pay nothing - the residual gone, or the offer's
+    /// share of it too small to pay a wrapped wei - burning nothing and debiting nothing.
     /// @param leveragedIn the amount of leveragedToken to redeem.
     /// @param receiver The address of receiver for collateral token.
     /// @return collateralOut The amount of collateral tokens received.

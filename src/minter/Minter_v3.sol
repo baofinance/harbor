@@ -647,7 +647,7 @@ contract Minter_v3 is
 
         {
             uint256 backing = $.underlyingCollateral;
-            // Below the floor the call refuses, so nothing would be minted: the amounts stay zero, and the incentive
+            // Below the min CR the call reverts, so nothing would be minted: the amounts stay zero, and the incentive
             // ratio below falls back to the band's, as it does wherever nothing is used.
             (bool mintable, ) = _leveragedMintable(backing, reading, $.peggedTokenBalance);
             if (mintable) {
@@ -785,7 +785,7 @@ contract Minter_v3 is
 
     /// @inheritdoc IMinter_v3
     function updateConfig(Config calldata config_) external override onlyOwner {
-        // the loader stores the config exactly or refuses it whole, so this is the config that takes effect
+        // the loader stores the config exactly or reverts, storing none of it, so this is the config that takes effect
         emit UpdateConfig(config_);
         MinterStorage storage $ = _getMinterStorage();
         // incentive config
@@ -795,7 +795,7 @@ contract Minter_v3 is
     // Price/Rate Oracle
     // -----------------
     /// @inheritdoc IMinter_v3
-    /// @dev Refuses the zero address. Every price read calls this address, so a zero here disables minting and
+    /// @dev Reverts on the zero address. Every price read calls this address, so a zero here disables minting and
     ///      redeeming — but only as a side effect of a call into a codeless address failing to decode, which is an
     ///      accident of the ABI rather than a decision. Rejecting it at the setter puts the failure where the
     ///      mistake is made instead of inside a later mint.
@@ -1009,6 +1009,10 @@ contract Minter_v3 is
                 address(this),
                 wrappedSubsidy
             );
+            // The reserve this market deploys pays the lesser of the request and its balance, and the request never
+            // exceeds the balance read in this call, so it never pays short. This guards a replacement reserve that
+            // did: the shortfall would be paid out of the backing, leaving the record above the holding. No reserve
+            // the tests can deploy reaches it.
             if (actualSubsidy != wrappedSubsidy) {
                 revert RequestedSubsidyNotGiven(wrappedSubsidy, actualSubsidy);
             }
@@ -1075,6 +1079,8 @@ contract Minter_v3 is
                 address(this),
                 wrappedSubsidy
             );
+            // as for the pegged redemption: unreachable with the reserve this market deploys, it guards a
+            // replacement that paid short, whose shortfall would otherwise be minted against backing never received
             if (actualSubsidy != wrappedSubsidy) {
                 revert RequestedSubsidyNotGiven(wrappedSubsidy, actualSubsidy);
             }
@@ -1168,7 +1174,7 @@ contract Minter_v3 is
         // A depegged pegged is minted at its depressed price, which yields more tokens per unit of collateral -
         // but only while that price is one the protocol can report. Below the reportable floor it rounds to zero
         // everywhere outside this contract, so the mint would be priced at a figure no consumer can see, in
-        // unbounded quantity. Say so, rather than dividing by it. The fee-paying mint refuses on the same
+        // unbounded quantity. Say so, rather than dividing by it. The fee-paying mint reverts on the same
         // threshold, taken from the same constant, so the two cannot drift apart.
         uint256 peggedPriceE36 = MinterValuationLib.peggedTokenPriceE36(
             peggedTokenBalance_,
@@ -1187,7 +1193,7 @@ contract Minter_v3 is
             price
         );
         // A deposit too small to buy a whole pegged token buys none, and is not taken for nothing: the fee-paying
-        // mint refuses on the same condition, by the same name.
+        // mint reverts on the same condition, by the same name.
         // slither-disable-next-line incorrect-equality
         if (peggedOut == 0) {
             revert ReturnZeroAmount(PEGGED_TOKEN);
@@ -1229,8 +1235,8 @@ contract Minter_v3 is
             uint256 underlyingCollateral_ = $.underlyingCollateral;
             _requireRecordIsCovered(underlyingCollateral_, reading.minRate);
 
-            // The rule's own refusal FIRST, judged on that snapshot before either leg has moved anything:
-            // below its floor the market sells no leverage on any route, and that is the reason to give
+            // The rule's own revert FIRST, judged on that snapshot before either leg has moved anything:
+            // below the min CR the market sells no leverage on any route, and that is the reason to give
             // whether or not the amount would also round to nothing.
             if (peggedForLeveraged > 0) {
                 _requireLeveragedMintable(underlyingCollateral_, reading, peggedTokenBalance_);
@@ -1249,7 +1255,7 @@ contract Minter_v3 is
             // that yields nothing has priced the pegged at nothing, and burning against that price
             // destroys the redeemer's claim outright rather than settling it - which on this path
             // means a rebalance consuming the stability pool's deposit and returning it nothing.
-            // The fee-paying redeem already refuses on the same condition, by the same name.
+            // The fee-paying redeem already reverts on the same condition, by the same name.
             if (peggedForCollateral > 0) {
                 // slither-disable-next-line incorrect-equality
                 if (wrappedCollateralOut == 0) {
@@ -1303,14 +1309,14 @@ contract Minter_v3 is
             peggedForLeveraged,
             _redeemableQuiet(peggedForCollateral + peggedForLeveraged, peggedTokenBalance_)
         );
-        // The call refuses a conversion below the floor, and the whole redeem with it, so neither leg is reported.
+        // The call reverts a conversion below the min CR, and the whole redeem with it, so neither leg is reported.
         // A redeem without a conversion is not judged, by the call or here.
-        bool refused;
+        bool callReverts;
         if (peggedForLeveraged > 0) {
             (bool mintable, ) = _leveragedMintable(backing, reading, peggedTokenBalance_);
-            refused = !mintable;
+            callReverts = !mintable;
         }
-        if (!refused) {
+        if (!callReverts) {
             // slither-disable-next-line unused-return a dry run does not touch the backing record
             (wrappedCollateralOut, leveragedOut, ) = _freeRedeemAmounts(
                 peggedForCollateral,
@@ -1443,7 +1449,7 @@ contract Minter_v3 is
             price
         );
         // The offer's share of the residual: nothing at the peg or below it, where the residual is gone. The supply
-        // is not zero here - `_redeemable` has refused an empty one - and the price is not either, as the residual
+        // is not zero here - `_redeemable` reverts on an empty one - and the price is not either, as the residual
         // is worth something.
         uint256 underlyingCollateralOutE36;
         if (collateralValueE36 > peggedValueE36) {
@@ -1455,7 +1461,7 @@ contract Minter_v3 is
         }
         collateralOut = underlyingCollateralOutE36 / reading.maxRate;
         // A redemption that would pay nothing burns nothing and debits nothing, whether the residual is gone or the
-        // offer's share of it rounds to nothing: the fee-paying redemption refuses on the same condition, by the same
+        // offer's share of it rounds to nothing: the fee-paying redemption reverts on the same condition, by the same
         // name.
         // slither-disable-next-line incorrect-equality
         if (collateralOut == 0) {
@@ -1577,7 +1583,7 @@ contract Minter_v3 is
         );
     }
 
-    /// @notice Refuses to act while the collateral record claims more collateral than the holding stands up.
+    /// @notice Reverts while the collateral record claims more collateral than the holding stands up.
     /// @dev Every path that CHANGES the record passes through here; nothing that only reports does. A view that
     /// marked itself down would be deciding, on every read, that a fallen rate is a real loss - the judgement
     /// `recogniseImpairment` exists to make and the reason `_recordedBacking` reports what is recorded. So the
@@ -1586,16 +1592,18 @@ contract Minter_v3 is
     /// someone has said the shortfall is real.
     ///
     /// The MIN rate is not merely the conservative edge here, it is forced. `recogniseImpairment` measures at
-    /// the min rate and refuses when the record is not overstated, so reading the same edge makes this
+    /// the min rate and reverts when the record is not overstated, so reading the same edge makes this
     /// condition and that one the SAME condition: this reverts exactly when recognition would succeed, and
-    /// never when recognition would refuse. Any other edge admits a market that is halted and cannot be
+    /// never when recognition would revert. Any other edge admits a market that is halted and cannot be
     /// unhalted, or one that is recognisable while it goes on trading against a record nobody has stood behind.
     /// The rate is the caller's own reading's, so the guard costs the entry point no second oracle read.
     ///
     /// A harvest needs no call to this: it pays out only what the holding exceeds the record by, so an
     /// overstatement leaves it reporting nothing. A donation needs none either, though for a different reason -
-    /// it credits the record with exactly what the holding gains, so it can neither widen the shortfall nor
-    /// close it, and a halted market stays halted however much is donated to it.
+    /// it credits the record with its value at the min rate, rounded down, and the holding gains that same
+    /// value rounded down as part of the whole: the credit, or a wei more. So it never widens the shortfall and
+    /// narrows it by at most a wei - a halted market stays halted however much is donated to it, unless its
+    /// whole shortfall was that wei.
     /// @param backing The recorded backing.
     /// @param minRate The min wrapped-to-collateral rate, from the caller's reading.
     function _requireRecordIsCovered(uint256 backing, uint256 minRate) private view {

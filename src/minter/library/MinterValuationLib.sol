@@ -26,8 +26,8 @@ library MinterValuationLib {
     /// falls - at the floor it is already 1e18, and below it there is no limit at all.
     ///
     /// This is a floor on REPORTABILITY, not on solvency: a depegged pegged well above it is still minted at its
-    /// depressed price, which is the intended behaviour. It only refuses the range the protocol has no way to
-    /// describe.
+    /// depressed price, which is the intended behaviour. Only a mint in the range the protocol has no way to
+    /// describe reverts.
     uint256 internal constant MIN_REPORTABLE_PEGGED_PRICE_E36 = 1 ether;
 
     /// @notice The state a valuation is computed against, gathered once by the caller.
@@ -179,7 +179,7 @@ library MinterValuationLib {
     /// @notice The pegged tokens `collateral` buys, floored: its value at `collateralPrice` while the backing covers
     /// the pegged supply, otherwise the share of that supply it matches - each pegged token being a claim on
     /// backing / supply.
-    /// @dev A mint is refused before it gets here whenever the pegged price is too small to report, so the backing is
+    /// @dev A mint reverts before it gets here whenever the pegged price is too small to report, so the backing is
     /// never zero below the peg.
     function peggedForCollateral(
         uint256 collateral,
@@ -255,7 +255,7 @@ library MinterValuationLib {
         } else {
             // The true sensitivity of the residual to the collateral price, uncapped: a holder's leverage
             // rises as the collateral falls, and that is what the token is. What is bounded is the leverage
-            // SOLD, by the minter's refusal to mint below its floor.
+            // SOLD, by the minter reverting any leveraged mint below the min CR.
             ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
         }
     }

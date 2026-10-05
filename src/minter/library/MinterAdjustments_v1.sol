@@ -94,7 +94,7 @@ library MinterAdjustments_v1 {
         );
         // Below the reportable floor the pegged price rounds to zero everywhere outside this contract, and the
         // band walk below divides by it for every band it enters - at zero backing that division panics, and
-        // just above it the mint is priced at a price no consumer can see. Refuse by name, the same name the
+        // just above it the mint is priced at a price no consumer can see. Revert by name, the same name the
         // zero-fee mint uses. A band table that disallows minting at this ratio would break out of the walk
         // first and hide it, which is exactly why this cannot be left to the config: it is the arithmetic that
         // fails, not the policy that forbids.
@@ -678,7 +678,7 @@ library MinterAdjustments_v1 {
                 // multiplied by the whole leveraged supply before `mulDiv` can widen anything, and that
                 // product leaves 256 bits at supplies a market can really hold.
                 //
-                // Where the residual is gone the claim is nothing and nothing is minted. The minter refuses
+                // Where the residual is gone the claim is nothing and nothing is minted. The minter reverts
                 // the conversion by name before the amounts are asked for; a dry run reports the zero.
                 (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
                     peggedTokenBalance_,

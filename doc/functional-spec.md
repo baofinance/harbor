@@ -671,9 +671,11 @@ Acceptance criteria:
 1. Below a collateral ratio of 1, the anchor token's reported price is its pro-rata share of the
    remaining collateral, not 1.
 2. Redemption remains available and is priced from that share.
-3. Redemption at a depeg is **subsidised, not penalised** — the fee schedule pays holders to redeem.
-   A redemption at the pro-rata share leaves the ratio unchanged, so the subsidy does not buy
-   health; it keeps the exit worth taking.
+3. Redemption at a depeg is **subsidised, not penalised** — every deployed incentive config pays anchor
+   holders 1% to redeem below the peg, from the reserve pool as far as it holds. That is how the
+   deployed configs are calibrated, not a rule the code enforces: the config loader would accept one
+   that charged there. A redemption at the pro-rata share leaves the ratio unchanged, so the subsidy
+   does not buy health; it keeps the exit worth taking.
 
 ### 4.2 Sail holder
 
@@ -891,8 +893,10 @@ Acceptance criteria:
    distributable again (§6.3).
 5. Calling it is a judgement that the loss is **permanent**. No reading distinguishes a permanent loss
    from a fall that will reverse, so the protocol never makes that judgement for itself (§6.7).
-6. A donation (US-21) does not lift the halt: it raises the record and the holding alike, leaving the
-   shortfall where it was.
+6. A donation (US-21) never widens the shortfall. It credits the record with its value at the low
+   edge of the rate band, rounded down, while the holding gains that same value as part of the whole,
+   also rounded down — the credit or a wei more. So the shortfall narrows by at most a wei, and a
+   donation lifts the halt only where the whole shortfall was that wei.
 
 ---
 
