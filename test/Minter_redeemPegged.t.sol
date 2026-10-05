@@ -1218,6 +1218,37 @@ contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
         _redeemAndCheck(pegged, _expectedRedemption(pegged), bounds[2], type(uint256).max); // two bounds crossed
     }
 
+    /// A redemption that ends exactly on a band's upper bound leaves exactly that collateral ratio and is priced wholly
+    /// in the band below - here subsidised on all of its collateral and charged nothing. From the bound the market is
+    /// in the band above: the minter reports that band's fee, and the next redemption is charged it and subsidised
+    /// nothing.
+    function test_redeemPegged_landingExactlyOnABound_paysTheBandBelow_andTheNextTheBandAbove() public {
+        uint256 price = 2000 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1 ether);
+        setUp_collateral(100 ether, 10 ether, user); // a ratio of 1.1, in the band below 1.2
+        uint256[] memory bounds = config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds;
+        int256[] memory ratios = config.redeemPeggedIncentiveConfig.incentiveRatios;
+        // (1.2 x 200,000 - 110 x 2,000) / (1.2 - 1): the pegged that takes the ratio to exactly 1.2
+        uint256 pegged = _peggedToReach(bounds[1]);
+
+        // each pegged worth a pegged unit: a whole number of collateral tokens at a rate of one, so nothing rounds
+        uint256 collateral = (pegged * 1 ether) / price;
+        uint256 subsidy = (collateral * uint256(-ratios[1])) / 1 ether;
+        _redeemAndCheckPayments(pegged, Outcome(collateral + subsidy, 0, subsidy));
+        assertEq(IMinter(minter).collateralRatio(), bounds[1], "the redemption ends exactly on the bound");
+        assertEq(IMinter(minter).redeemPeggedTokenIncentiveRatio(), ratios[2], "and the minter reports the band above");
+
+        // the next redemption, a collateral token's worth of pegged, ends inside the band above
+        uint256 nextCollateral = 1 ether;
+        uint256 nextFee = (nextCollateral * uint256(ratios[2])) / 1 ether;
+        _redeemAndCheck(
+            (nextCollateral * price) / 1 ether,
+            Outcome(nextCollateral - nextFee, nextFee, 0),
+            bounds[1],
+            bounds[2]
+        );
+    }
+
     /// @dev The pegged whose redemption at a pegged unit's worth takes the ratio to about `targetRatio`, by the ratio's
     ///      definition and leaving the incentives aside: (C p - x) / (P - x) = T, so x = (T P - C p) / (T - 1).
     function _peggedToReach(uint256 targetRatio) private view returns (uint256) {
@@ -1270,6 +1301,14 @@ contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
     /// @dev Redeems `pegged` and checks it ended between `lowerRatio` and `upperRatio` - the band the scenario aims for -
     ///      with the redeemer, the fee receiver and the reserve each moved by exactly what `expected` gives them.
     function _redeemAndCheck(uint256 pegged, Outcome memory expected, uint256 lowerRatio, uint256 upperRatio) private {
+        _redeemAndCheckPayments(pegged, expected);
+        assertGt(IMinter(minter).collateralRatio(), lowerRatio, "the redemption ends in the band aimed for");
+        assertLt(IMinter(minter).collateralRatio(), upperRatio, "the redemption ends in the band aimed for");
+    }
+
+    /// @dev Redeems `pegged` and checks the redeemer, the fee receiver and the reserve each moved by exactly what
+    ///      `expected` gives them.
+    function _redeemAndCheckPayments(uint256 pegged, Outcome memory expected) private {
         uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user);
         uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
         uint256 reserveBefore = IERC20(wrappedCollateralToken).balanceOf(reservePool);
@@ -1278,8 +1317,6 @@ contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
         IMinter(minter).redeemPeggedToken(pegged, user, 0);
         vm.stopPrank();
 
-        assertGt(IMinter(minter).collateralRatio(), lowerRatio, "the redemption ends in the band aimed for");
-        assertLt(IMinter(minter).collateralRatio(), upperRatio, "the redemption ends in the band aimed for");
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(user) - heldBefore,
             expected.paid,

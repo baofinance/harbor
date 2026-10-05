@@ -443,7 +443,9 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
     /// @dev Mints leveraged up through every band in seven steps, a whole ether at a time, checking each slice and each
     ///      step against its dry run, and each step's collateral ratio exactly, so the steps go where they are meant
-    ///      to.
+    ///      to. The steps are not held to one mint of the whole run: one call rounds the subsidy netted against the fee
+    ///      once where the steps round it once each, so with both in the run the two can differ by a wei of fee and the
+    ///      leveraged that wei buys.
     function _checkMintLeveragedFeesIntegralList() public {
         // ic(ua(100, 110, 120, 145), ia(-50, -50, 0, 20, 70)), // mint leveraged
         // critical CRs (upper bounds) = 110% (bonus, -50), 120% (free, 0), 145% (danger, 20), -> (70)
@@ -473,15 +475,6 @@ contract TestMinterFees is TestMinterFeeSetUp {
             // 7) across the 1.45 boundary: mint(5), CR = 218/150 = 1.453
             uint(5)
         ];
-
-        Total[] memory totals = new Total[](mintStep.length);
-        uint256 collateralInSum = 0;
-        for (uint i = 0; i < mintStep.length; i++) {
-            collateralInSum += (mintStep[i] * 1 ether);
-            (, totals[i].fee, totals[i].subsidy, totals[i].collateralUsed, totals[i].leveragedMinted, , ) = IMinter(
-                minter
-            ).mintLeveragedTokenDryRun(collateralInSum);
-        }
 
         deal(address(Deployed.wstETH), user, IMinter(minter).collateralTokenBalance());
         vm.startPrank(user);
@@ -826,6 +819,18 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 totals[i].subsidy,
                 0,
                 string.concat("step ", LibString.toString(i + 1), ", calculated subsidy")
+            );
+            // The redemptions burn what they are asked for, and pay what the pegged is worth - a whole number of
+            // collateral tokens a step - plus the subsidy, less the fee, each of which adds up exactly: so do these.
+            assertEq(
+                total.peggedRedeemed,
+                totals[i].peggedRedeemed,
+                string.concat("step ", LibString.toString(i + 1), ", calculated redemption")
+            );
+            assertEq(
+                total.collateralReturned,
+                totals[i].collateralReturned,
+                string.concat("step ", LibString.toString(i + 1), ", calculated payout")
             );
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver),
