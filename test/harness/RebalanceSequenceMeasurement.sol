@@ -118,8 +118,8 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
             uint256 collateralBefore = IERC20(market.wrappedCollateral).balanceOf(market.leveragedPool);
             uint256 peggedPriceBefore = IMinter_v3(market.minter).peggedTokenPrice();
 
-            // A rule that REFUSES at this ratio ends the sequence: the row before it stands as the reading.
-            if (!_rebalanceUnlessTheRuleRefuses(keeper)) {
+            // A rule that REVERTS at this ratio ends the sequence: the row before it stands as the reading.
+            if (!_rebalanceUnlessTheRuleReverts(keeper)) {
                 return;
             }
 
@@ -182,7 +182,7 @@ abstract contract RebalanceSequenceMeasurement is GraphTestBase, Array, RatioSwe
         uint256 leveragedBefore = IERC20(market.leveraged).balanceOf(market.leveragedPool);
 
         while (passes < MAX_REBALANCES && _canRebalance()) {
-            if (!_rebalanceUnlessTheRuleRefuses(keeper)) {
+            if (!_rebalanceUnlessTheRuleReverts(keeper)) {
                 break;
             }
             passes++;

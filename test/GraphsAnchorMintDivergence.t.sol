@@ -101,7 +101,7 @@ abstract contract TestGraphsAnchorMintDivergenceBase is GraphTestBase, TestColla
             return lines;
         }
 
-        // Never refused in this sweep: the pegged price stays far above the smallest it can report, and every way the
+        // Never reverts in this sweep: the pegged price stays far above the smallest it can report, and every way the
         // ratio is moved leaves the record covered. So the mint is not caught, and a revert fails the test.
         uint256 snapshot = vm.snapshotState();
         uint256 peggedOut = IMinter_v3(minter).freeMintPeggedToken(COLLATERAL_IN, address(this));

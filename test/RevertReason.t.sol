@@ -10,8 +10,8 @@ import {RevertReason} from "@harbor-test/RevertReason.sol";
 /// system declining.
 ///
 /// A search that drives an operation until it stops reports where it stopped, so what it reports depends
-/// entirely on this telling a checked-arithmetic failure from a balance running out or a rule refusing.
-/// Getting it wrong in either direction is silent: count a refusal as an overflow and the declared
+/// entirely on this telling a checked-arithmetic failure from a balance running out or a rule reverting by name.
+/// Getting it wrong in either direction is silent: count a business revert as an overflow and the declared
 /// envelope is far smaller than the real one; miss an overflow and a liveness failure is recorded as a
 /// market fact and shipped.
 contract TestRevertReason is BaoTest, RevertReason {
@@ -43,7 +43,7 @@ contract TestRevertReason is BaoTest, RevertReason {
 
     /// @notice A business revert is not a panic, whatever it says. This is the direction that decides how
     /// wide a measured envelope comes out: the system under test declines constantly and for good reasons,
-    /// and every one of those counted as the boundary would stop the search at the first refusal.
+    /// and every one of those counted as the boundary would stop the search at the first business revert.
     function test_businessRevertsAreNotPanics() public pure {
         bytes memory reason = abi.encodeWithSignature("Error(string)", "nope");
         assertFalse(_isPanic(reason, PANIC_ARITHMETIC_OVERFLOW), "a require string is not an overflow");

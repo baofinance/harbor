@@ -26,7 +26,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 ///
 ///   1. the PEGGED price - `min(1, collateralRatio)`, unchanged;
 ///   2. the leveraged SUPPLY at the moment of measurement;
-///   3. the path the operation takes - which band it walks, what fee it pays, whether it refuses.
+///   3. the path the operation takes - which band it walks, what fee it pays, whether it reverts.
 ///
 /// A rule that only puts a floor under the leveraged claim satisfies all three, because the band walk is
 /// indexed by the collateral ratio with the pegged taken at par and so cannot see a leveraged rule at all.

@@ -129,8 +129,8 @@ contract TestGraphsConversionFairness is GraphTestBase, TestCollateralRatioRange
             uint256 valueIn = (peggedIn * peggedPrice) / 1 ether;
             valuePerPegged = int256((valueOut * 1 ether) / valueIn);
         } catch (bytes memory reason) {
-            // the conversion is refused here by the leverage cap; a gap says so
-            _requireLeverageCapRefusal(reason);
+            // the conversion reverts here on the leverage cap; a gap says so
+            _requireLeverageCapRevert(reason);
         }
         vm.revertToState(snapshot);
     }

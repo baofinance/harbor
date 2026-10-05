@@ -8,7 +8,7 @@ import {Vm} from "forge-std/Vm.sol";
 ///
 /// An envelope search drives an operation past what it can do and asks where it stopped. The answer is
 /// only useful if the reasons are distinguished: a token balance running out, a guard declining, a
-/// business rule refusing, and the arithmetic itself failing are four different findings, and only the
+/// business rule reverting, and the arithmetic itself failing are four different findings, and only the
 /// last is a defect in the code rather than a fact about the market. A search that counted them all as
 /// "it broke" would report whichever came first and call it the boundary.
 ///

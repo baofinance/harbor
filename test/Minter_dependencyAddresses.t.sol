@@ -7,7 +7,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
-/// @notice The Minter must refuse the zero address for each of the three dependencies it holds in storage —
+/// @notice The Minter must revert on the zero address for each of the three dependencies it holds in storage —
 /// the price oracle, the reserve pool and the fee receiver — and only the owner may set them.
 ///
 /// Zero is not a configuration for any of them. Every price read calls the oracle, every subsidy draws on the
@@ -67,24 +67,24 @@ contract MinterDependencyAddressesTest is TestMinterSetUp {
 
     // Owner only -------------------------------------------------------------
 
-    /// Only the owner replaces the price oracle: a stranger and a holder of the zero-fee role are refused.
-    function test_updatePriceOracle_isRefusedToAnyoneButTheOwner() public {
+    /// Only the owner replaces the price oracle: for a stranger and a holder of the zero-fee role it reverts.
+    function test_updatePriceOracle_revertsForAnyoneButTheOwner() public {
         address replacement = makeAddr("replacement");
-        address[2] memory refused = [makeAddr("stranger"), zeroFee];
-        for (uint256 i = 0; i < refused.length; i++) {
-            vm.startPrank(refused[i]);
+        address[2] memory unauthorised = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < unauthorised.length; i++) {
+            vm.startPrank(unauthorised[i]);
             vm.expectRevert(IHarborOwnable.Unauthorized.selector);
             IMinter_v3(minter).updatePriceOracle(replacement);
             vm.stopPrank();
         }
     }
 
-    /// Only the owner replaces the reserve pool: a stranger and a holder of the zero-fee role are refused.
-    function test_updateReservePool_isRefusedToAnyoneButTheOwner() public {
+    /// Only the owner replaces the reserve pool: for a stranger and a holder of the zero-fee role it reverts.
+    function test_updateReservePool_revertsForAnyoneButTheOwner() public {
         address replacement = makeAddr("replacement");
-        address[2] memory refused = [makeAddr("stranger"), zeroFee];
-        for (uint256 i = 0; i < refused.length; i++) {
-            vm.startPrank(refused[i]);
+        address[2] memory unauthorised = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < unauthorised.length; i++) {
+            vm.startPrank(unauthorised[i]);
             vm.expectRevert(IHarborOwnable.Unauthorized.selector);
             IMinter_v3(minter).updateReservePool(replacement);
             vm.stopPrank();

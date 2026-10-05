@@ -43,7 +43,7 @@ contract MinterSlashTest is TestMinterSetUp {
     /// A rate rise is yield: it becomes harvestable, and moves neither the backing nor any price.
     /// A rate fall past that surplus takes effect at once, without anyone acting: the market halts. The views
     /// go on reporting the record, because deciding the fall is a real loss is the owner's call, and every
-    /// update refuses until that call is made - which is when the ratio falls to what is held.
+    /// update reverts until that call is made - which is when the ratio falls to what is held.
     function test_slash_haltsTheMarketWithoutIntervention() public {
         (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
@@ -251,7 +251,7 @@ contract MinterSlashTest is TestMinterSetUp {
     }
 
     /// A donation of nothing reverts by name, for a caller allowed to donate.
-    function test_donateWrappedCollateral_refusesZero() public {
+    function test_donateWrappedCollateral_revertsOnZero() public {
         setUp_collateral(100 ether, 40 ether);
 
         vm.startPrank(zeroFee);

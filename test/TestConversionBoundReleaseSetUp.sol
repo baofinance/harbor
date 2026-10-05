@@ -13,7 +13,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// conversion rate does at the collateral ratio where the market starts selling leverage.
 ///
 /// A conversion rate is leveraged minted per unit of pegged value. The market sells no leverage below its floor,
-/// `K/(K-1)` for a cap `K` on the leverage sold - a refusal, by name, on the conversion and the retail routes
+/// `K/(K-1)` for a cap `K` on the leverage sold - a revert, by name, on the conversion and the retail routes
 /// alike - and above it prices every conversion on the residual, which is the fair rate: leveraged supply over
 /// residual. So the release is a door, not a step: nothing below, the fair rate above.
 ///
@@ -49,8 +49,8 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
     /// @dev Convert one pegged token at `collateralRatio` and report the conversion rate it was given,
     ///      then put the market back. Measured through the conversion rather than recomputed, so the
     ///      answer is the contract's and not this test's.
-    /// @dev Zero where the market refuses to sell - `BelowMinimumCollateralRatio`, which is the rule's own answer and the
-    ///      reading this helper exists to take. Anything else propagates unchanged.
+    /// @dev Zero where the market reverts rather than sell - `BelowMinimumCollateralRatio`, which is the rule's own
+    ///      answer and the reading this helper exists to take. Anything else propagates unchanged.
     function appliedConversionRateAt(uint256 collateralRatio) internal returns (uint256 applied) {
         uint256 snapshot = vm.snapshotState();
         marketActions.setCollateralRatioByPrice(collateralRatio);
@@ -71,8 +71,8 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
     }
 
     /// @notice The applied conversion rate either side of the release: below the floor, where the market
-    ///         refuses and the rate is zero, and above it, where it is the fair rate.
-    /// @dev One part in a million either side of the release - far inside the refusal, far outside the
+    ///         reverts and the rate is zero, and above it, where it is the fair rate.
+    /// @dev One part in a million either side of the release - far inside the revert, far outside the
     ///      rounding.
     function ratesAcrossTheRelease() internal returns (uint256 bounded, uint256 released) {
         uint256 release = releaseCollateralRatio();
@@ -113,7 +113,7 @@ abstract contract TestConversionBoundReleaseSetUp is TestStabilityPool2SetUp {
         vm.revertToState(snapshot);
     }
 
-    /// @notice The collateral ratio at which the refusal ACTUALLY engages, found the same way - by asking
+    /// @notice The collateral ratio at which the revert ACTUALLY engages, found the same way - by asking
     ///         the market, at each ratio, whether it sells.
     function collateralRatioWhereTheBoundEngages() internal returns (uint256 engagement) {
         uint256 snapshot = vm.snapshotState();

@@ -92,7 +92,7 @@ abstract contract ConversionRoutesMeasurement is GraphTestBase, Array, RevertRea
         }
         uint256 peggedBefore = IERC20(market.pegged).balanceOf(market.leveragedPool);
         uint256 leveragedBefore = IERC20(market.leveraged).balanceOf(market.leveragedPool);
-        if (!_rebalanceUnlessTheRuleRefuses(keeper)) {
+        if (!_rebalanceUnlessTheRuleReverts(keeper)) {
             return 0;
         }
         uint256 burned = peggedBefore - IERC20(market.pegged).balanceOf(market.leveragedPool);
@@ -146,7 +146,7 @@ abstract contract ConversionRoutesMeasurement is GraphTestBase, Array, RevertRea
     /// that gains most from putting its points where the bends are.
     ///
     /// A route that returned NOTHING has no value here rather than a zero one - the retail route below the
-    /// peg is refused outright, and a zero would read as a cliff to either side of a stretch the graph draws
+    /// peg reverts outright, and a zero would read as a cliff to either side of a stretch the graph draws
     /// nothing in, spending the whole depth on the edge of a gap.
     function probeSignalsAt(uint256 ratio) internal override returns (int256[] memory signals) {
         uint256 snapshot = vm.snapshotState();

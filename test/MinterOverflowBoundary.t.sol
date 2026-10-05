@@ -35,7 +35,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// reached one of these products and reported an envelope the user paths do not have.
 ///
 /// ONLY AN ARITHMETIC PANIC MARKS THE BOUNDARY. The minter declines calls constantly and for good reasons
-/// - a zero output, a disallow band, a balance, a fee cap - and a search that counted a refusal as the
+/// - a zero output, a disallow band, a balance, a fee cap - and a search that counted any revert as the
 /// edge would report a far smaller envelope than the real one. That distinction is what makes a negative
 /// result here worth anything, so it is guarded from the other side too: `test_everyEntryPointWorksAtAn
 /// OrdinaryMarket` requires every probe to SUCCEED at a nominal market, which is what catches a mistyped
@@ -83,9 +83,9 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     ///      genuinely not been shown a boundary rather than merely not been pushed far enough.
     uint256 private constant TOP_RUNG = 200;
 
-    /// @dev The production volatility configs refuse a pegged mint below a collateral ratio of about
+    /// @dev The production volatility configs disallow a pegged mint below a collateral ratio of about
     ///      1.31. That band table is policy and this measurement is about arithmetic, so a market stood up
-    ///      under it would be one long gap where the probes were refused rather than answered.
+    ///      under it would be one long gap where the probes reverted rather than answered.
     function setUpConfig() internal virtual override {
         setUp_config_likelyNoDisallow();
     }
@@ -113,7 +113,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     ///
     ///      Encoded by signature rather than by `abi.encodeCall` because two of these are overloads of one
     ///      name, which a typed encoding cannot name apart. The cost of that is a mistyped signature
-    ///      reading as a refusal, which is exactly what the nominal-market test forbids.
+    ///      reading as a revert, which is exactly what the nominal-market test forbids.
     function _entryPointCalls() private view returns (bytes[] memory calls) {
         address me = address(this);
         uint256 collateralIn = IERC20(wrappedCollateralToken).balanceOf(minter);
@@ -123,7 +123,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         calls = new bytes[](10);
         calls[0] = abi.encodeWithSignature("mintPeggedToken(uint256,address,uint256)", collateralIn, me, 0);
         // The fee cap opened to 100%, so this differs from the plain mint above only in the band walk it
-        // takes to honour a cap - which is the arithmetic being probed - and never in being refused one.
+        // takes to honour a cap - which is the arithmetic being probed - and never in reverting on one.
         calls[1] = abi.encodeWithSignature(
             "mintPeggedToken(uint256,address,uint256,uint256)",
             collateralIn,
@@ -310,7 +310,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         for (uint256 i = 0; i < probeCalls.length; i++) {
             (bool overflowed, string memory reason) = _probe(probeCalls[i]);
             assertFalse(overflowed, string.concat("entry point ", vm.toString(i), " overflowed at an ordinary market"));
-            assertEq(reason, "ok", string.concat("entry point ", vm.toString(i), " was refused at an ordinary market"));
+            assertEq(reason, "ok", string.concat("entry point ", vm.toString(i), " reverted at an ordinary market"));
         }
     }
 

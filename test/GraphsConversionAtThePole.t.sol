@@ -24,7 +24,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// The second question is where the REPORTED leveraged price goes to zero. Operations divide by the residual
 /// at its full precision, while `leveragedTokenPrice()` reports it scaled to eighteen decimals, so there
 /// is a band where the protocol mints leveraged against a price that every external reader sees as zero. The
-/// pegged has a rule for exactly this - `MIN_REPORTABLE_PEGGED_PRICE_E36`, which refuses to mint below
+/// pegged has a rule for exactly this - `MIN_REPORTABLE_PEGGED_PRICE_E36`, which reverts a mint below
 /// the smallest price it can report - and the leveraged has no counterpart. This measures how wide the band
 /// that rule would cover is.
 contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundReleaseSetUp {
@@ -84,8 +84,8 @@ contract TestGraphsConversionAtThePole is GraphTestBase, TestConversionBoundRele
                     Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, leveragedSupplyBefore)
                 );
             } catch (bytes memory reason) {
-                // refused here by the leverage cap, and a gap says so
-                _requireLeverageCapRefusal(reason);
+                // reverted here at the leverage cap, and a gap says so
+                _requireLeverageCapRevert(reason);
             }
             writeLine(
                 file,

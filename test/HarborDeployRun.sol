@@ -176,7 +176,7 @@ contract HarborDeployRun is HarborDeployStack {
     /// @notice The addresses of `config`'s market as this run deployed it.
     /// @dev The minter, the two pools, the manager and the oracle are found by this run's own resolvers - where the
     ///      deploy put them, and where it wired the minter to find its price. The three tokens are read from the
-    ///      deployed minter, since those are the ones the market uses. Refuses a market this run has not deployed.
+    ///      deployed minter, since those are the ones the market uses. Reverts on a market this run has not deployed.
     function marketAddresses(Config_MinterMarket config) public returns (MarketAddresses memory addresses) {
         addresses.minter = _deployedMinter(config);
         addresses.collateralPool = stabilityPoolAddress(config, StabilityPoolType.Collateral);
@@ -212,7 +212,7 @@ contract HarborDeployRun is HarborDeployStack {
         MockWrappedPriceOracle(oracle).setQuoteName(template.quoteName());
     }
 
-    /// @dev `config`'s minter, refused if this run has not deployed it.
+    /// @dev `config`'s minter; reverts if this run has not deployed it.
     function _deployedMinter(Config_MinterMarket config) private returns (address minter) {
         minter = minterAddress(config);
         if (minter.code.length == 0) {

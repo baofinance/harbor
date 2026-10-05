@@ -35,7 +35,7 @@ contract TestMinterFreeOwnerAuth is TestMinterSetUp {
     }
 
     /// A harvester cannot free-mint pegged.
-    function test_freeMintPeggedToken_isRefusedToAHarvester() public {
+    function test_freeMintPeggedToken_revertsForAHarvester() public {
         vm.startPrank(harvester);
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         IMinter(minter).freeMintPeggedToken(1 ether, harvester);
@@ -43,7 +43,7 @@ contract TestMinterFreeOwnerAuth is TestMinterSetUp {
     }
 
     /// A harvester cannot free-mint leveraged.
-    function test_freeMintLeveragedToken_isRefusedToAHarvester() public {
+    function test_freeMintLeveragedToken_revertsForAHarvester() public {
         vm.startPrank(harvester);
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         IMinter(minter).freeMintLeveragedToken(1 ether, harvester);
@@ -51,7 +51,7 @@ contract TestMinterFreeOwnerAuth is TestMinterSetUp {
     }
 
     /// A harvester cannot free-redeem pegged.
-    function test_freeRedeemPeggedToken_isRefusedToAHarvester() public {
+    function test_freeRedeemPeggedToken_revertsForAHarvester() public {
         vm.startPrank(harvester);
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         IMinter(minter).freeRedeemPeggedToken(1 ether, 0, harvester);
@@ -59,7 +59,7 @@ contract TestMinterFreeOwnerAuth is TestMinterSetUp {
     }
 
     /// A harvester cannot free-redeem leveraged.
-    function test_freeRedeemLeveragedToken_isRefusedToAHarvester() public {
+    function test_freeRedeemLeveragedToken_revertsForAHarvester() public {
         vm.startPrank(harvester);
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         IMinter(minter).freeRedeemLeveragedToken(1 ether, harvester);

@@ -220,7 +220,7 @@ contract TestMinterOverflow is TestMinterMint {
 ///      less than one whole pegged token at zero - while still charging it the collateral and the fee. At
 ///      a collateral price of 1e-9 pegged per token that is any mint under about a billion wei, which is
 ///      what these tests use. Redeeming pegged, minting leveraged and redeeming leveraged all already
-///      refuse this with ReturnZeroAmount; minting pegged is held to the same rule.
+///      revert on this with ReturnZeroAmount; minting pegged is held to the same rule.
 contract TestMinterMintZeroOutput is TestMinterMint {
     uint256 constant COLLATERAL_PRICE = 1e9; // 1e-9 pegged tokens per collateral token
     uint256 constant DUST = 1e9; // buys 0.995 pegged after the 0.5% fee, so floors to zero
@@ -264,7 +264,7 @@ contract TestMinterMintZeroOutput is TestMinterMint {
         assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), feeWrapped, "no fee is charged");
     }
 
-    /// @dev A dry run says what its call does. This offer buys no whole pegged token, so the plain mint refuses
+    /// @dev A dry run says what its call does. This offer buys no whole pegged token, so the plain mint reverts
     ///      it and the capped one consumes nothing: both dry runs report nothing used, no fee, nothing minted,
     ///      and the ratio of the band the market is in.
     function test_mintPeggedDryRun_forAnOfferTooSmallForOneToken_reportsNothingUsed() public view {

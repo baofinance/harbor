@@ -31,13 +31,13 @@ contract LocalMarketRuleTest is LocalMarket {
     }
 
     /// The deploy chain builds the tree's minter and manager, and a local market puts nothing behind them - so a run
-    /// naming another rule is refused, by that rule's label, rather than measured as the tree under it.
-    /// @dev The refusal is inside the market, at this depth, which forge accepts only with the allowance below; and it
+    /// naming another rule reverts, with that rule's label, rather than being measured as the tree under it.
+    /// @dev The revert is inside the market, at this depth, which forge accepts only with the allowance below; and it
     ///      must come before the market creates anything, since a contract created first takes the expectation.
     /// forge-config: default.allow_internal_expect_revert = true
-    function test_aLocalMarketRefusesARuleOtherThanTheTrees() public {
+    function test_aLocalMarketRevertsOnARuleOtherThanTheTrees() public {
         string memory ruleLabel = overrideLabel();
         vm.expectRevert(abi.encodeWithSelector(LocalMarket.LocalMarketRunsOnlyTheTreesRule.selector, ruleLabel));
-        standUpMarket(0.4 ether, 0.4 ether, string.concat(marketLabel(), ruleLabel, "_refusalTest"));
+        standUpMarket(0.4 ether, 0.4 ether, string.concat(marketLabel(), ruleLabel, "_revertTest"));
     }
 }

@@ -69,8 +69,8 @@ contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatio
         ) {
             leveragedPerPegged = int256((leveragedOut * 1 ether) / PEGGED_IN);
         } catch (bytes memory reason) {
-            // refused here by the leverage cap; a gap says so
-            _requireLeverageCapRefusal(reason);
+            // reverted here at the leverage cap; a gap says so
+            _requireLeverageCapRevert(reason);
         }
         vm.revertToState(snapshot);
     }
@@ -85,15 +85,15 @@ contract TestGraphsConversionCircumvention is GraphTestBase, TestCollateralRatio
         uint256 snapshot = vm.snapshotState();
         leveragedPerPegged = NaN;
 
-        // The first leg is never refused under this incentive config - it has no disallowed band for redeeming -
+        // The first leg never reverts under this incentive config - it has no disallowed band for redeeming -
         // so it is not caught: a revert here is a failure, not a closed route.
         uint256 collateralOut = IMinter_v3(minter).redeemPeggedToken(PEGGED_IN, address(this), 0);
         if (collateralOut > 0) {
             try IMinter_v3(minter).mintLeveragedToken(collateralOut, address(this), 0) returns (uint256 leveragedOut) {
                 leveragedPerPegged = int256((leveragedOut * 1 ether) / PEGGED_IN);
             } catch (bytes memory reason) {
-                // the second leg is refused by the leverage cap - the route is closed here, which is itself the answer
-                _requireLeverageCapRefusal(reason);
+                // the second leg reverts at the leverage cap - the route is closed here, which is itself the answer
+                _requireLeverageCapRevert(reason);
             }
         }
         vm.revertToState(snapshot);

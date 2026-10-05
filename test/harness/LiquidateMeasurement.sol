@@ -109,7 +109,7 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
         try this.rebalanceProbe() {
             return;
         } catch (bytes memory err) {
-            // The second selector is a rule REFUSING to mint leveraged below its floor - its designed
+            // The second selector is a rule REVERTING a leveraged mint below its floor - its designed
             // behaviour, recorded as a point where nothing moved, exactly as `ReturnZeroAmount` is.
             if (
                 bytes4(err) != IMinter_v3.ReturnZeroAmount.selector &&
@@ -178,7 +178,7 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
     /// graph even though they are written as two.
     ///
     /// The after-price is the one that is sometimes absent: deep below the peg a leg hands back nothing and
-    /// the rebalance is refused, so the row records the market unchanged.
+    /// the rebalance reverts, so the row records the market unchanged.
     function probeSignalsAt(uint256 ratio) internal override returns (int256[] memory signals) {
         uint256 snapshot = vm.snapshotState();
         (Measures memory pre, Measures memory post) = _measureAt(ratio);

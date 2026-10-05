@@ -185,7 +185,7 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, GraphTestBase {
 
         string memory file = openFile("redeemPegged");
 
-        // The pegged supply is a whole number of redemptions, so none is ever refused: a revert fails the test.
+        // The pegged supply is a whole number of redemptions, so none reverts, and any revert fails the test.
         for (uint256 i = 0; i <= iterations; i++) {
             writeOneLine(file);
             if (IMinter(minter).peggedTokenBalance() > 0) {
@@ -219,7 +219,7 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, GraphTestBase {
 
         string memory file = openFile("redeemLeveraged");
 
-        // The leveraged supply is a whole number of redemptions, so none is ever refused: a revert fails the test.
+        // The leveraged supply is a whole number of redemptions, so none reverts, and any revert fails the test.
         for (uint256 i = 0; i <= iterations; i++) {
             writeOneLine(file);
             if (IMinter(minter).leveragedTokenBalance() > 0) {

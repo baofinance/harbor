@@ -596,7 +596,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // 3 -------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
-        // some input, when none: with the burn approved, the caller's empty balance is what refuses it
+        // some input, when none: with the burn approved, the caller's empty balance is what makes it revert
         setUp_collateral(1 ether, 0); // collateral ratio == 1.0
         expected = zeros();
         expected.incentiveRatio = feeRatio;
@@ -631,7 +631,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         setUp_collateral(1 ether, 0, sender);
         assertEq(IERC20(peggedToken).balanceOf(sender), 1 * price, "sender has 1");
 
-        // redeem no allowance: the burn refuses the allowance before it looks at the balance
+        // redeem no allowance: the burn reverts on the allowance before it looks at the balance
         assertEq(IERC20(peggedToken).allowance(sender, minter), 0);
         expected = zeros();
         expected.incentiveRatio = feeRatio;

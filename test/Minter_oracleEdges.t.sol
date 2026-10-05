@@ -125,7 +125,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
 
     /// @dev The amount each route is exercised with: wrapped collateral for the mints, the token given up for the
     ///      redeems. Small against the market's 140 wrapped, 200,000 pegged and 80,000 leveraged, so no route leaves
-    ///      the fee band it starts in by enough to be refused.
+    ///      the fee band it starts in by enough to revert.
     function _boundAmount(Route route, uint256 amount) private pure returns (uint256) {
         bool isMint = route == Route.MintPegged ||
             route == Route.MintLeveraged ||
@@ -340,7 +340,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
 
     /// @dev Performs the mint `route` under a rate band, then asserts there is nothing for `recogniseImpairment` to
     ///      write down: the record claims no more than the held collateral valued at the min rate, so the recognised
-    ///      backing IS the record, and the refusal names it.
+    ///      backing IS the record, and the revert names it.
     function _assertCreditsAtTheMinRate(Route route, uint256 amount, uint256 priceBps, uint256 rateBps) private {
         _openBand(priceBps, rateBps);
         _perform(route, _boundAmount(route, amount));
@@ -507,11 +507,11 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
 
         ratioAtMiddle = IMinter_v3(minter).collateralRatio();
         assertLt(ratioAtMiddle, floor, "at the middle the market is below the floor");
-        assertFalse(IMinter_v3(minter).leveragedMintable(), "the view refuses leverage at the middle");
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "the view reports no leverage mintable at the middle");
     }
 
-    /// The free redeem's leveraged leg - the rebalance's conversion - is refused wherever `leveragedMintable()` refuses
-    /// it: judged at the middle of the band, not at the high edge its amounts are priced at.
+    /// The free redeem's leveraged leg - the rebalance's conversion - reverts wherever `leveragedMintable()` is false:
+    /// judged at the middle of the band, not at the high edge its amounts are priced at.
     function test_leverageCap_freeRedeemJudgesAtTheMidPrice() public {
         uint256 ratioAtMiddle = _belowTheFloorOnlyAtTheMiddle();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
@@ -522,7 +522,7 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
         vm.stopPrank();
     }
 
-    /// The retail leveraged mint is refused at the middle of the band, although its amounts are priced at the high edge.
+    /// The retail leveraged mint reverts at the middle of the band, although its amounts are priced at the high edge.
     function test_leverageCap_mintLeveragedJudgesAtTheMidPrice() public {
         uint256 ratioAtMiddle = _belowTheFloorOnlyAtTheMiddle();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();

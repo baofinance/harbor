@@ -1227,7 +1227,7 @@ contract TestMinterMintPeggedCapped is TestMinterSetUp {
     /// reportable floor's share of the pegged supply there - a capped mint reverts by name rather than being priced
     /// at a price no consumer can see. A price band this wide leaves the market above the min CR at its middle price,
     /// where the min CR is judged, so the mint is reached.
-    function test_cappedMint_belowTheReportablePeggedPrice_isRefused() public {
+    function test_cappedMint_belowTheReportablePeggedPrice_reverts() public {
         uint256 price = Math.mulDiv(
             MinterValuationLib.MIN_REPORTABLE_PEGGED_PRICE_E36,
             IMinter(minter).peggedTokenBalance(),

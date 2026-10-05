@@ -172,9 +172,9 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
             uint256 peggedPriceBefore = IMinter_v3(market.minter).peggedTokenPrice();
             uint256 holdingBefore = _holdingInCollateral();
 
-            // A rule that REFUSES to mint leveraged at this ratio ends the sequence here, and that is the
+            // A rule that REVERTS a leveraged mint at this ratio ends the sequence here, and that is the
             // reading: below its floor there is no rebalance to have, and a file with one row says so.
-            if (!_rebalanceUnlessTheRuleRefuses(keeper)) {
+            if (!_rebalanceUnlessTheRuleReverts(keeper)) {
                 break;
             }
 

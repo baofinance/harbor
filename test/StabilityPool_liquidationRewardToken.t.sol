@@ -18,7 +18,7 @@ import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalan
 /// A pool distributes several tokens, and which one a rebalance pays it in depends on the market: its own from
 /// the minter's floor up, collateral where the market sells no leverage. So the pool credits whatever token it is
 /// told, at once and at the balances before the loss, so that the holders who bear the loss are the ones paid;
-/// and it refuses a token it does not distribute, since a reward accrued in one no claim walks is stranded.
+/// and it reverts on a token it does not distribute, since a reward accrued in one no claim walks is stranded.
 contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSetUp {
     uint256 private constant DEPOSIT_ONE = 100 ether;
     uint256 private constant DEPOSIT_TWO = 300 ether;
@@ -100,8 +100,8 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         assertEq(_claimable(user1, address(rewardToken)), 0, "and no other token was credited");
     }
 
-    /// A token the pool does not distribute is refused by name: a reward accrued in it would be stranded.
-    function test_aTokenThePoolDoesNotDistributeIsRefused() public {
+    /// A liquidation in a token the pool does not distribute reverts by name: a reward accrued in it would be stranded.
+    function test_notifyLiquidation_revertsOnATokenThePoolDoesNotDistribute() public {
         _twoDepositors();
         address stranger = address(new MockERC20("Stranger", "STR", 18));
         _sweepAndFund(stranger, LIQUIDATED, 0);
@@ -112,9 +112,9 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         vm.stopPrank();
     }
 
-    /// A token the pool once distributed and has since retired is refused the same way: what is already accrued in
-    /// it stays claimable, but no new liquidation may be paid in it.
-    function test_aRetiredTokenIsRefused() public {
+    /// A liquidation in a token the pool once distributed and has since retired reverts the same way: what is already
+    /// accrued in it stays claimable, but no new liquidation may be paid in it.
+    function test_notifyLiquidation_revertsOnARetiredToken() public {
         _twoDepositors();
         vm.startPrank(rewardManager);
         IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(address(rewardToken));

@@ -44,15 +44,15 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         vm.stopPrank();
     }
 
-    /// Only the owner or a harvester sweeps: a stranger and a holder of the zero-fee role are refused, and the
+    /// Only the owner or a harvester sweeps: for a stranger and a holder of the zero-fee role it reverts, and the
     /// owner's and the harvester's sweeps each go through and are announced.
-    function test_sweep_isRefusedToAnyoneButTheOwnerOrAHarvester() public {
+    function test_sweep_revertsForAnyoneButTheOwnerOrAHarvester() public {
         address stray = address(new MockERC20("stray", "STRAY", 18));
         MockERC20(stray).mint(minter, 2 ether);
 
-        address[2] memory refused = [makeAddr("stranger"), zeroFee];
-        for (uint256 i = 0; i < refused.length; i++) {
-            vm.startPrank(refused[i]);
+        address[2] memory unauthorised = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < unauthorised.length; i++) {
+            vm.startPrank(unauthorised[i]);
             vm.expectRevert(IHarborOwnable.Unauthorized.selector);
             ITokenHolder(minter).sweep(stray, 1 ether, harvestReceiver);
             vm.stopPrank();

@@ -720,7 +720,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         uint256 max = IStabilityPool_v3(pool).MAX_TOTAL_ASSET_SUPPLY();
         assertEq(max, floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION, "MAX == MIN * FACTOR_PRECISION");
 
-        // Depositing exactly to the cap is admitted (its safety is proven above); one wei more is refused. deal/approve
+        // Depositing exactly to the cap is admitted (its safety is proven above); one wei more reverts. deal/approve
         // are hoisted before expectRevert so the one-shot binding attaches to `deposit`, not to a setup call.
         address depositor = _mkActors(1)[0];
         deal(peggedToken, depositor, max + 1);

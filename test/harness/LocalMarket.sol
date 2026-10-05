@@ -30,7 +30,7 @@ import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol"
 /// was - and including it would mix a leg that cannot recapitalise into a measurement of the one that can.
 ///
 /// THE TREE'S RULE, AND NO OTHER. Nothing here puts another rule's minter or manager behind the ones the deploy
-/// chain built, so a run that names another rule is refused, by its label, rather than measured as the tree under
+/// chain built, so a run that names another rule reverts, with its label, rather than measured as the tree under
 /// that label.
 abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
     /// @dev The collateral each of the two genesis tranches puts in. Half to pegged and half to leveraged

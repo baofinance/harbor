@@ -18,7 +18,7 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 /// The Minter records the backing as a collateral-token quantity and holds a wrapped balance. An
 /// impairment lowers the wrapped-to-collateral rate, so the recorded quantity comes to overstate
 /// what is held. The records keep reporting what is recorded, and every call that updates them
-/// refuses until the holding covers the record again - because the rate recovers, or because the
+/// reverts until the holding covers the record again - because the rate recovers, or because the
 /// owner's `recogniseImpairment` writes the record down to what is held.
 ///
 /// Every market here opens at a collateral ratio of 1.4 from 140 wrapped collateral: 200,000 pegged
@@ -73,8 +73,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     }
 
     /// Recognise where there is something to recognise, for tests that sweep a range of drops including none.
-    /// @dev `recogniseImpairment` refuses when the record is not overstated, which is the same condition the
-    /// guard refuses on - so swallowing exactly that one revert leaves the market in the state these tests are
+    /// @dev `recogniseImpairment` reverts when the record is not overstated, which is the same condition the
+    /// guard reverts on - so swallowing exactly that one revert leaves the market in the state these tests are
     /// about either way: a record that agrees with the holding.
     function _recogniseImpairmentIfThereIsAny() private {
         vm.startPrank(owner());
@@ -232,7 +232,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
                           REGIME BOUNDARIES
     //////////////////////////////////////////////////////////////*/
 
-    // These are about the fee bands, so each recognises the impairment first: before that, the guard refuses
+    // These are about the fee bands, so each recognises the impairment first: before that, the guard reverts
     // every operation whatever band the market sits in.
 
     /// Above every bound, a recognised impairment changes prices but the bands forbid nothing.
@@ -460,7 +460,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// No mutating call writes the record down, and the guard is what makes that STRUCTURAL rather than a
     /// property each mutator has to be careful to have: while the record overstates, no mutator runs at all.
     /// So the record is exactly where the dip found it when the dip reverses.
-    function test_mutatingWhileImpaired_isRefusedSoNothingCanWriteTheRecordDown() public {
+    function test_mutatingWhileImpaired_revertsSoNothingCanWriteTheRecordDown() public {
         (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         uint256 backingBefore = IMinter(minter).collateralTokenBalance();
 
@@ -530,7 +530,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
     /// A call that would change nothing fails rather than succeeding silently, so an owner cannot
     /// mistake a no-op for a write-down.
-    function test_recogniseImpairment_refusesWhenTheRecordIsNotOverstated() public {
+    function test_recogniseImpairment_revertsWhenTheRecordIsNotOverstated() public {
         setUp_collateral(100 ether, 40 ether);
         _scaleRate(10_500); // a surplus, not a shortfall
 
@@ -542,7 +542,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     }
 
     /// Recognition completes in one call. If the write-down left a residue the record would still overstate,
-    /// the guard would still be refusing, and a second call would find something to do.
+    /// the guard would still be reverting, and a second call would find something to do.
     function test_recognisingTwiceFindsNothingTheSecondTime() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
@@ -612,8 +612,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     /// else and must not be exempt from a recognised impairment.
     ///
     /// Once the collateral no longer covers the pegged claim there is no residual to sell, so no leveraged
-    /// can be minted. It must refuse by the same named error as the fee-paying path - the leverage cap's
-    /// refusal, judged on the recorded backing, before any pricing that could divide by the zero
+    /// can be minted. It must revert with the same named error as the fee-paying path - the min CR's revert,
+    /// judged on the recorded backing, before any pricing that could divide by the zero
     /// residual - not by an arithmetic panic, which would take the collateral's measure of the failure
     /// away from the caller.
     function test_impairedBacking_freeMintPricesFromRecognisedBacking() public {
@@ -769,7 +769,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     }
 
     /*//////////////////////////////////////////////////////////////
-              THE GUARD: READING REPORTS, UPDATING REFUSES
+              THE GUARD: READING REPORTS, UPDATING REVERTS
     //////////////////////////////////////////////////////////////*/
 
     /// @dev A drop small enough that no disallow bound is crossed, so every operation below would otherwise
@@ -857,7 +857,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     }
 
     /// The leg that pays out wrapped collateral is a redemption in everything but the caller, so it is
-    /// refused for the reason a redemption is.
+    /// reverts for the reason a redemption does.
     function test_impairment_haltsTheRebalancesCollateralLeg() public {
         (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
         _impair(_SMALL_DROP_BPS);
@@ -941,7 +941,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertFalse(_recordOverstatesTheHolding(), "recognition makes the record true");
     }
 
-    /// Reading reports; only updating refuses. The views answer, and answer what is RECORDED - deciding that a
+    /// Reading reports; only updating reverts. The views answer, and answer what is RECORDED - deciding that a
     /// fallen rate is a real loss belongs to `recogniseImpairment` and to nothing else, so a view that marked
     /// itself down would be making that judgement on every read.
     function test_impairment_leavesEveryViewReportingTheRecords() public {
@@ -971,11 +971,11 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertEq(IMinter_v3(minter).harvestable(), 0, "an overstated record leaves no surplus to sweep");
     }
 
-    /// A dry run is a reporting function, so it answers from the records where its call refuses. The two have
+    /// A dry run is a reporting function, so it answers from the records where its call reverts. The two have
     /// never had the contract "both succeed or both fail" - `Token.allOfQuiet` and `_redeemableQuiet` return
     /// zero exactly where `allOf` and `_redeemable` revert - and what they do share is the backing they price
     /// from.
-    function test_everyDryRunStillReportsWhereItsCallRefuses() public {
+    function test_everyDryRunStillReportsWhereItsCallReverts() public {
         (uint256 peggedTokens, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
         _impair(_SMALL_DROP_BPS);
 
@@ -1080,11 +1080,11 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         try IMinter_v3(minter).recogniseImpairment() {
             recognitionSucceeds = true;
         } catch (bytes memory reason) {
-            // the one refusal recognition makes: the holding already covers the record
+            // the one revert recognition makes: the holding already covers the record
             assertEq(
                 reason,
                 abi.encodeWithSelector(IMinter_v3.NothingToRecognise.selector, recorded),
-                "recognition refused only because there is nothing to recognise"
+                "recognition reverted only because there is nothing to recognise"
             );
             recognitionSucceeds = false;
         }
@@ -1107,7 +1107,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         vm.stopPrank();
         vm.revertToStateAndDelete(snapshot);
 
-        assertEq(guardTrips, overstated, "and the guard refuses on exactly the same condition");
+        assertEq(guardTrips, overstated, "and the guard reverts on exactly the same condition");
     }
 
     /// A dip that reverses needs no owner call: the guard states a condition about the present, not a
@@ -1211,7 +1211,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
     // Only a fall in the rate may leave the record above the holding. An operation that did it - by debiting the
     // record with less collateral than left - would halt the market by its own rounding, and every later update
-    // would refuse until the owner recognised a loss nobody suffered. Each market's genesis here is AT the fuzzed
+    // would revert until the owner recognised a loss nobody suffered. Each market's genesis here is AT the fuzzed
     // rate, so its record starts covered with no surplus to hide a wei behind.
 
     /// A free pegged redeem - the rebalance's collateral leg - debits the record by at least what the holding lost.

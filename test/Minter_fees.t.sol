@@ -1069,11 +1069,11 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
     }
 
-    /// Below the leverage floor a leveraged mint is refused by name, deep below the peg and at it alike, and with no
+    /// Below the leverage floor a leveraged mint reverts by name, deep below the peg and at it alike, and with no
     /// residual left a leveraged redemption has nothing to return.
     function test_leveraged() public {
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
-        // go depegged: below the floor the mint is refused by name, before anything is priced
+        // go depegged: below the floor the mint reverts by name, before anything is priced
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(500 ether);
         uint256 ratio = IMinter(minter).collateralRatio();
         vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
@@ -1141,7 +1141,7 @@ contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
                     vm.revertToState(snap2);
 
                     // A leveraged deposit dwarfed by the pegged one leaves the ratio at the peg, below the
-                    // floor at which leverage is sold: refused by name, and nothing to redeem back.
+                    // floor at which leverage is sold: the mint reverts by name, leaving nothing to redeem back.
                     if (IMinter_v3(minter).leveragedMintable()) {
                         minted = IMinter(minter).mintLeveragedToken(d, address(this), 0);
                         IMinter(minter).redeemLeveragedToken(minted, address(this), 0);

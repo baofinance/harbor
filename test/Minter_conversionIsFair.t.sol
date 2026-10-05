@@ -16,7 +16,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// them and failed against the count cap it replaced, each failure naming which requirement that cap
 /// broke. A suite written afterwards could only have confirmed whatever was built.
 ///
-/// The rule: the market sells no leverage below its floor `K/(K-1)` - refused by name on every route - and
+/// The rule: the market sells no leverage below its floor `K/(K-1)` - a revert by name on every route - and
 /// above it prices every conversion on the residual, the same rate the retail route gets. So each property
 /// below holds where the market sells, and where it does not sell the property is that nothing is taken.
 ///
@@ -56,7 +56,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     /// R1. THE EXCHANGE RETURNS WHAT IT TOOK. Leveraged worth what the pegged was worth, at the prices the
     /// market reports when the conversion is made, whatever the collateral ratio and whatever the size.
     /// This is the requirement the count cap broke: it reduced the leveraged it paid without reducing the
-    /// pegged it took, so the difference was simply kept. Below the floor the exchange is refused, and
+    /// pegged it took, so the difference was simply kept. Below the floor the exchange reverts, and
     /// what it took is nothing.
     function testFuzz_theConversionReturnsWhatItTook(uint256 ratioSeed, uint256 shareSeed) public {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
@@ -90,10 +90,10 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     }
 
     /// R2. THERE IS NO CLIFF IN THE PRICE, ONLY A DOOR. Either side of the floor at which the market starts
-    /// selling leverage, one part in a million apart: just below it the conversion is refused by name and
+    /// selling leverage, one part in a million apart: just below it the conversion reverts by name and
     /// nothing changes hands; just above it the conversion is priced on the residual, which is the fair rate.
     /// The count cap this replaced paid a fifth of the fair rate on the low side of its release and stepped to
-    /// the whole of it on the high side; a refusal has no rate to step from.
+    /// the whole of it on the high side; a revert has no rate to step from.
     function test_theConversionRateDoesNotJumpWhereTheFloorReleases() public {
         uint256 release = releaseCollateralRatio();
         uint256 nudge = release / 1_000_000;
@@ -126,7 +126,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         marketActions.setCollateralRatioByPrice(collateralRatio);
 
         if (!IMinter_v3(minter).leveragedMintable()) {
-            // Below the floor BOTH routes are refused, by the same name: neither is paid, so neither is paid
+            // Below the floor BOTH routes revert, with the same error: neither is paid, so neither is paid
             // less. The retail route's redeem goes through and lifts the ratio a hair, so the mint is judged
             // at the ratio it finds.
             uint256 release = releaseCollateralRatio();
@@ -169,7 +169,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     }
 
     /// R4. MINTING PER CONVERSION STAYS WITHIN A BOUND. Whatever else changes, one conversion may not mint
-    /// without limit - which is the reason a bound exists at all. The refusal bounds the LEVERAGE sold, and
+    /// without limit - which is the reason a bound exists at all. The revert bounds the LEVERAGE sold, and
     /// that bounds the count: at any ratio the market sells at, the residual is at least `n/(K-1)` for a
     /// pegged supply `n`, so a unit of pegged value buys at most `(K-1) x S/n` leveraged, `S` the leveraged supply
     /// before the conversion. Below the floor nothing is minted at all.
@@ -241,12 +241,12 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         assertGe(IMinter(minter).leveragedTokenBalance(), leveragedBefore, "and the supply cannot go backwards");
     }
 
-    /// R5. THE CONVERSION IS REFUSED WHERE THE RESIDUAL VANISHES. Approaching the collateral ratio where the
+    /// R5. THE CONVERSION REVERTS WHERE THE RESIDUAL VANISHES. Approaching the collateral ratio where the
     /// leveraged is worth nothing the fair rate is unbounded, and no finite count is a fair one. The market does
-    /// not pretend otherwise: at every ratio below its floor the conversion is refused by name, the pegged
+    /// not pretend otherwise: at every ratio below its floor the conversion reverts by name, the pegged
     /// offered stays with its holder, and the leveraged supply is untouched. A rebalance in that condition is the
     /// manager's to route around, not the minter's to settle by minting.
-    function test_theConversionIsRefusedWhereTheResidualVanishes() public {
+    function test_theConversionRevertsWhereTheResidualVanishes() public {
         // Just under the leverage floor, just over the peg, the peg, and far below it.
         uint256[4] memory ratios = [
             marketActions.collateralRatioBandsAboveThePeg(0.9 ether),

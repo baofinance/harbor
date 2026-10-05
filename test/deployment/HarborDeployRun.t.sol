@@ -233,8 +233,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
         );
     }
 
-    /// Asked about a market it has not deployed, a run refuses, naming the minter it would have deployed.
-    function test_marketAddresses_refusesAMarketNotYetDeployed() public {
+    /// Asked about a market it has not deployed, a run reverts, naming the minter it would have deployed.
+    function test_marketAddresses_revertsOnAMarketNotYetDeployed() public {
         HarborDeployRun undeployed = _undeployedRun();
         address minter = undeployed.minterAddress(config);
 
@@ -268,8 +268,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
     }
 
     /// Before its market is deployed there is no minter reading an oracle, and a mock put there first would hide the
-    /// deploy's reference to a codeless address; the run refuses, naming the minter.
-    function test_installMockPriceOracle_refusesAMarketNotYetDeployed() public {
+    /// deploy's reference to a codeless address; the run reverts, naming the minter.
+    function test_installMockPriceOracle_revertsOnAMarketNotYetDeployed() public {
         HarborDeployRun undeployed = _undeployedRun();
         address minter = undeployed.minterAddress(config);
 
@@ -278,8 +278,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
     }
 
     /// A minter wired to an oracle other than the one the run predicts would read none of what the mock is set to; the
-    /// run refuses, naming the minter, where it reads, and where the run predicted.
-    function test_installMockPriceOracle_refusesAMinterWiredToAnotherOracle() public {
+    /// run reverts, naming the minter, where it reads, and where the run predicted.
+    function test_installMockPriceOracle_revertsOnAMinterWiredToAnotherOracle() public {
         address minter = deployRun.minterAddress(config);
         address predicted = deployRun.wrappedPriceOracleAddress(config);
         address elsewhere = makeAddr("elsewhere");

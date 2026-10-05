@@ -226,8 +226,8 @@ contract MinterV2ToV3UpgradeTest is TestMinterSetUp {
         assertEq(IERC20(stray).balanceOf(harvester), 1 ether, "the harvester role granted under v2 sweeps under v3");
     }
 
-    /// A schedule v2 stored with a subsidy in its highest band - one the v3 loader refuses, carried across the upgrade
-    /// unchecked - pays no subsidy there under v3: above the last bound a subsidy would have no end.
+    /// A schedule v2 stored with a subsidy in its highest band - one the v3 loader reverts on, carried across the
+    /// upgrade unchecked - pays no subsidy there under v3: above the last bound a subsidy would have no end.
     function test_legacyHighestBandSubsidy_paysNothingAfterTheUpgrade() public {
         IMinter.Config memory legacy = marketConfig.minterConfig();
         legacy.mintLeveragedIncentiveConfig = ic(ua(100), ia(0, -50));

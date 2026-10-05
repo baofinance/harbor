@@ -108,7 +108,7 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is GraphTestBase, Test
 
     /// @dev What the conversion is being given at the market's current state, measured by putting one
     ///      pegged token through it and undoing that - the same measurement the trigger graph makes. Zero
-    ///      where the minter refuses to mint leveraged, since no conversion is given anything there.
+    ///      where the minter's leveraged mint reverts, since no conversion is given anything there.
     function _appliedOverFair() private returns (uint256 appliedOverFair) {
         if (!IMinter_v3(minter).leveragedMintable()) {
             return 0;

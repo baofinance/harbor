@@ -99,7 +99,7 @@ abstract contract LeverageSensitivityMeasurement is GraphTestBase, Array, RatioS
     function _age() private {
         for (uint256 round = 0; round < agingRounds(); round++) {
             actions.setCollateralRatioByPrice(AGING_COLLATERAL_RATIO);
-            if (!_canRebalance() || !_rebalanceUnlessTheRuleRefuses(keeper)) {
+            if (!_canRebalance() || !_rebalanceUnlessTheRuleReverts(keeper)) {
                 return;
             }
         }

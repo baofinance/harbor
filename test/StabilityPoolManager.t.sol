@@ -1025,9 +1025,9 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
     /// An impaired collateral suspends harvesting entirely, and only an impairment does. The surplus is the excess of
     /// the holding over the RECORDED backing, so once the rate falls below the level the record was credited at the
-    /// holding is under the record and there is no surplus by construction. The harvest must then REFUSE rather than distribute a zero - and the
-    /// refusal must cost nothing, which is what the recovery leg establishes: the same surplus is still there to
-    /// distribute afterwards, so nothing was consumed or stranded by the attempt.
+    /// holding is under the record and there is no surplus by construction. The harvest must then REVERT rather than
+    /// distribute a zero - and the revert must cost nothing, which is what the recovery leg establishes: the same
+    /// surplus is still there to distribute afterwards, so nothing was consumed or stranded by the attempt.
     function test_harvest_revertsWhenBackingOverstated() public {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
@@ -1047,9 +1047,9 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
 
-        // the collateral recovers: the surplus is untouched, so the refusal took nothing with it
+        // the collateral recovers: the surplus is untouched, so the revert took nothing with it
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
-        assertEq(IMinter(minter).harvestable(), surplus, "the refused harvest consumed no surplus");
+        assertEq(IMinter(minter).harvestable(), surplus, "the reverted harvest consumed no surplus");
 
         vm.startPrank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
@@ -1467,9 +1467,9 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).harvest(address(0), 0);
     }
 
-    /// @dev One harvest, checked: served, or refused as having nothing to harvest - the only revert allowed - and, served,
-    ///      the minter's wrapped falls by exactly what the harvest returns, which is at most the `harvestable()` read
-    ///      just before it, and the minter's record is still covered after.
+    /// @dev One harvest, checked: served, or reverting as having nothing to harvest - the only revert allowed - and,
+    ///      served, the minter's wrapped collateral falls by exactly what the harvest returns, which is at most the
+    ///      `harvestable()` read just before it, and the minter's record is still covered after.
     function _harvestWithinHarvestable() private {
         uint256 harvestableBefore = IMinter(minter).harvestable();
         uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(minter);
@@ -1486,7 +1486,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             assertEq(
                 reason,
                 abi.encodeWithSelector(IStabilityPoolManager.NoHarvestable.selector),
-                "the only refusal is that there is nothing to harvest"
+                "the only revert is that there is nothing to harvest"
             );
         }
     }
@@ -1854,7 +1854,7 @@ contract TestStabilityPoolManagerUpgradeable is TestStabilityPoolManagerSetUp {
 
 /// @notice GIST-1 audit issue: a rebalance with the market below the peg (the audit's reproduction, modified only to
 /// compile here). Below the peg each pegged redeemed for collateral takes its pro rata share of the backing with it,
-/// so no amount redeemed moves the collateral ratio: there is nothing a rebalance can repair. It is refused by name
+/// so no amount redeemed moves the collateral ratio: there is nothing a rebalance can repair. It reverts by name
 /// and the pools keep their pegged for when the price brings the market back above the peg.
 contract Gist_1 is TestStabilityPoolManagerSetUp {
     function test_rebalanceDepeg() public {

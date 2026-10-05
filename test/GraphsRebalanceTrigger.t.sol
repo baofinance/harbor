@@ -112,8 +112,8 @@ contract TestGraphsRebalanceTrigger is GraphTestBase, TestCollateralRatioRangeSe
         ) {
             appliedRate = int256((leveragedOut * 1 ether) / PEGGED_IN);
         } catch (bytes memory reason) {
-            // the conversion is refused here by the leverage cap; a gap says so
-            _requireLeverageCapRefusal(reason);
+            // the conversion reverts here at the leverage cap; a gap says so
+            _requireLeverageCapRevert(reason);
         }
         vm.revertToState(snapshot);
     }

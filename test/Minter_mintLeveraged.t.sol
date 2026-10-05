@@ -528,7 +528,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     }
 
     /// A fee-paying leveraged mint from a collateral ratio of two charges the top band's fee and credits the backing
-    /// with the rest; a minimum equal to the dry run's forecast is met, one wei more is refused naming both, and the
+    /// with the rest; a minimum equal to the dry run's forecast is met, one wei more reverts naming both, and the
     /// max sentinel spends the caller's whole balance for exactly the forecast.
     function test_mintLeveragedNormal() public {
         setUp_collateral(10 ether, 0);

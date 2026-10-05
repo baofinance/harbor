@@ -10,7 +10,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
 
-/// @notice Where a conversion would start refusing, under the two rules that could make it refuse, as the
+/// @notice Where a conversion would start reverting, under the two rules that could make it revert, as the
 /// leveraged supply varies.
 ///
 /// A conversion mints `pegged / leveragedPrice`, so something has to stop it before the leveraged price
@@ -22,10 +22,10 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// The leveraged price is the residual divided by the leveraged SUPPLY, while the leverage ratio is the
 /// collateral value divided by the same residual and so depends on no supply at all. A market with more
 /// leveraged in it therefore has a lower leveraged price at the same collateral ratio, and a price floor
-/// refuses higher and higher up as the supply grows, while a leverage cap stays where it is. Since every
-/// conversion mints leveraged, a price floor's refusal boundary is pushed up by the very operation it governs.
+/// reverts higher and higher up as the supply grows, while a leverage cap stays where it is. Since every
+/// conversion mints leveraged, a price floor's revert boundary is pushed up by the very operation it governs.
 ///
-/// The candidates are paired so that each price floor refuses at the same collateral ratio as its
+/// The candidates are paired so that each price floor reverts at the same collateral ratio as its
 /// leverage cap when the market holds one leveraged token per pegged token - `1/(K-1)` against `K`. They start
 /// together by construction, and the graph is what happens to them either side of that.
 ///
@@ -138,15 +138,15 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
             leveragedOut = int256(out);
             supplyMultiple = int256(Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, supplyBefore));
         } catch (bytes memory reason) {
-            // refused by the minter's own leverage cap, whose floor lies above this boundary, and a gap says so
-            _requireLeverageCapRefusal(reason);
+            // reverted at the minter's own leverage cap, whose floor lies above this boundary, and a gap says so
+            _requireLeverageCapRevert(reason);
         }
         vm.revertToState(snapshot);
     }
 
-    /// @notice The two rules' refusal boundaries across a ten-thousandfold range of leveraged supply, with the
+    /// @notice The two rules' revert boundaries across a ten-thousandfold range of leveraged supply, with the
     /// conversion each would allow at its own edge.
-    function test_whereEachRuleWouldRefuse() public {
+    function test_whereEachRuleWouldRevert() public {
         uint256[3] memory caps = _leverageCaps();
         uint256[3] memory floors = _priceFloors();
 
@@ -176,11 +176,11 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
         vm.closeFile(file);
     }
 
-    /// @notice The refusal boundary against the cap that sets it, so a market can be read off against its
+    /// @notice The revert boundary against the cap that sets it, so a market can be read off against its
     /// own rebalance threshold.
     ///
-    /// A cap refuses at and below `K/(K-1)`, and a rebalance restores UP to its threshold - so a cap
-    /// whose boundary sits above a market's threshold refuses the leveraged leg across that market's entire
+    /// A cap reverts at and below `K/(K-1)`, and a rebalance restores UP to its threshold - so a cap
+    /// whose boundary sits above a market's threshold reverts the leveraged leg across that market's entire
     /// rebalancing range, and its leveraged stability pool is never drawn on at all. The threshold is
     /// therefore a hard floor on the cap, market by market, and the production tiers are far enough apart
     /// that no single cap clears all of them by much.

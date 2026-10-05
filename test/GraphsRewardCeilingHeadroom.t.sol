@@ -163,7 +163,7 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
             row[5] = NaN;
 
             if (askLeveraged > 0) {
-                // A dry run reports zero where the call would be refused rather than reverting, so it is read directly.
+                // A dry run reports zero where the call would revert, without reverting itself, so it is read directly.
                 (, uint256 minted) = IMinter_v3(minter).freeRedeemDryRun(0, askLeveraged);
                 row[2] = int256(minted);
                 MinterClaimRescaleLib.Valuation memory valuation = MinterClaimRescaleLib.valuationOf(

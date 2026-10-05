@@ -16,7 +16,7 @@ import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/
 /// @notice A rebalance while the minter's record of its backing overstates what it holds.
 ///
 /// A rebalance updates the market - it redeems the pools' pegged through the minter - so while the minter is halted
-/// by an unrecognised impairment it is refused with the minter's own error, and `rebalanceable()` says so in advance
+/// by an unrecognised impairment it reverts with the minter's own error, and `rebalanceable()` says so in advance
 /// rather than inviting a keeper to send a transaction that will revert. The halt lifts, and the rebalance with it,
 /// when the owner recognises the loss or when the rate recovers.
 ///
@@ -53,7 +53,7 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_reb
         assertGt(recorded, held, "precondition: the record overstates the holding");
     }
 
-    /// Below the threshold and impaired, the rebalance is refused with the minter's error and both figures, and the
+    /// Below the threshold and impaired, the rebalance reverts with the minter's error and both figures, and the
     /// pools keep their pegged.
     function test_rebalance_revertsWhileImpaired() public {
         assertLt(

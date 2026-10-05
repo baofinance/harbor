@@ -50,7 +50,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         // (2) ----------------------------------------------------------------------------------------
         assertEq(liquidated, supplyBefore - floor, "liquidation removes everything above the floor");
 
-        // at or below the peg there is nothing a rebalance can repair: it is refused by name, and the pool keeps
+        // at or below the peg there is nothing a rebalance can repair: it reverts by name, and the pool keeps
         // its pegged for when the price brings the market back above the peg
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1.09
         price /= 2;
@@ -220,7 +220,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         vm.stopPrank();
 
         // The market sells leverage only at or above its floor, so a market that sells is what "unbounded"
-        // means here: the conversion is priced on the residual, not refused.
+        // means here: the conversion is priced on the residual and does not revert.
         assertTrue(
             IMinter_v3(minter).leveragedMintable(),
             "the market must be selling leverage for fairness to be the claim under test"

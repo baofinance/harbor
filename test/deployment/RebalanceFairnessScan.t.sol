@@ -164,9 +164,9 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             uint256 collAfter = IERC20(pegged).balanceOf(stabilityPoolCollateral);
             liquidFracE18 = ((collBefore - collAfter) * 1 ether) / collBefore;
         } catch (bytes memory reason) {
-            // Only the manager's two refusals, which leave nothing liquidated and so no row: at or above its threshold
+            // Only the manager's two reverts, which leave nothing liquidated and so no row: at or above its threshold
             // there is nothing to rebalance, and at or below the peg nothing a rebalance could repair. The ratio and
-            // threshold are the ones it judged, since a refused call leaves both as they were.
+            // threshold are the ones it judged, since a reverted call leaves both as they were.
             uint256 collateralRatio_ = IMinter(minter).collateralRatio();
             uint256 rebalanceThreshold_ = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
             assertEq(
@@ -181,7 +181,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
                         IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector,
                         collateralRatio_
                     ),
-                "a rebalance is refused only because the market is above its threshold or at or below the peg"
+                "a rebalance reverts only because the market is above its threshold or at or below the peg"
             );
             liquidFracE18 = 0;
         }

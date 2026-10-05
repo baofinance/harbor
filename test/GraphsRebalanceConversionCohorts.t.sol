@@ -26,7 +26,7 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 /// actually holds is what the conversion's pricing did to it, and nothing else.
 ///
 /// The cohorts stay at or above the minter's `MINIMUM_COLLATERAL_RATIO`, the lowest collateral ratio at
-/// which it converts pegged into leveraged at all; below it the conversion is refused.
+/// which it converts pegged into leveraged at all; below it the conversion reverts.
 contract TestGraphsRebalanceConversionCohorts is GraphTestBase, TestConversionBoundReleaseSetUp {
     /// @dev Each cohort gives up this share of the pegged outstanding at the time - large enough that its
     ///      conversion moves the market for the cohorts after it, which is the effect being graphed.

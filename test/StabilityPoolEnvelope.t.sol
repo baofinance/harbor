@@ -402,7 +402,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// means a market that LIVES at each point - not one market funded at nominal and then dragged across
     /// them. Funding first and moving after leaves the record stating a collateral value the holding no
     /// longer converts to, which is an impairment: real, but a different axis from the one these tests
-    /// sweep, and one the guard refuses to trade through. Seeding at the point leaves nothing overstated
+    /// sweep, and one the guard reverts every trade through. Seeding at the point leaves nothing overstated
     /// and keeps the rate what it is meant to be here - a SCALE axis, widening the numbers running through
     /// the protocol without also deciding how healthy the market is.
     ///
@@ -678,7 +678,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // it again inside `_arrange`, but that inner write rolls back on a probe revert): the recorded row
         // below must log the point that produced the failure, not the prior one.
         //
-        // The genesis is itself priced, so the cheap-collateral corner is refused here rather than at the mint
+        // The genesis is itself priced, so the cheap-collateral corner reverts here rather than at the mint
         // below - the same located limit, one step earlier. Record it under its own name: at this point there is
         // no market to deposit into, which is a stronger statement than a pool that cannot be grown.
         if (!_seedMarketAt(collateralUSD, wrapRate, pegPriceUSD)) {
@@ -1685,7 +1685,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// @dev Mint a leveraged buffer so the collateral ratio starts healthy (~1.5x) and can then be dropped below the
     /// rebalance threshold. Minted BEFORE the pegged it buffers: the minter sells no leverage below its floor, and the
     /// pool's pegged, minted first at par against collateral worth exactly that pegged, would bring the market down to
-    /// the peg, where a leveraged mint is refused.
+    /// the peg, where a leveraged mint reverts.
     function _mintLeveragedBuffer(uint256 peggedBacked) internal {
         uint256 collateral = _collateralFor(peggedBacked) / 2;
         marketActions.mint(0, collateral, address(this));
@@ -1824,7 +1824,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     ///         the reported rate today, so the market halts before it can get this far and the path has never been
     ///         exercised; the planned widening of those bounds turns it from a halt into a state the protocol has
     ///         to carry. Leveraged is wiped and the pegged depegs, and no rebalance can help: below the peg a
-    ///         redemption takes its share of the backing with it, so the rebalance is refused by name and the pool
+    ///         redemption takes its share of the backing with it, so the rebalance reverts by name and the pool
     ///         keeps its pegged. Once the collateral recovers past the rebalance threshold the market has to come back
     ///         with it.
     function test_deepImpairment_wipesLeveragedThenRecovers() public {
@@ -1844,17 +1844,17 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the pegged depegs once leveraged can absorb no more");
         assertEq(IMinter(minter).harvestable(), 0, "a shortfall is not a surplus");
 
-        // both directions that would take value out of a market that cannot cover its pegged are refused
+        // both directions that would take value out of a market that cannot cover its pegged revert
         (, , , uint256 peggedMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-        assertEq(peggedMinted, 0, "pegged minting is refused while the pegged is uncovered");
+        assertEq(peggedMinted, 0, "pegged minting reverts while the pegged is uncovered");
         (, , , uint256 leveragedCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
         assertEq(
             leveragedCollateralOut,
             0,
-            "leveraged redemption is refused while it stands behind an uncovered pegged"
+            "leveraged redemption reverts while it stands behind an uncovered pegged"
         );
 
-        // below the peg there is nothing a rebalance can repair: it is refused by name, and the pool keeps its pegged
+        // below the peg there is nothing a rebalance can repair: it reverts by name, and the pool keeps its pegged
         // for when the price brings the market back above the peg
         uint256 depeggedRatio = IMinter(minter).collateralRatio();
         uint256 poolPeggedHeld = IERC20(pegged).balanceOf(stabilityPool);
@@ -1885,8 +1885,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // Read the bound rather than assume the two coincide: a market may set them independently, and one here does.
         uint256 mintBound = IMinter_v3(minter).config().mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[0];
         if (recovered <= mintBound) {
-            (, , , uint256 stillRefused, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
-            assertEq(stillRefused, 0, "clearing the rebalance threshold does not by itself re-open pegged minting");
+            (, , , uint256 mintedBelowTheBound, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+            assertEq(
+                mintedBelowTheBound,
+                0,
+                "clearing the rebalance threshold does not by itself re-open pegged minting"
+            );
         }
 
         _setEnvelopePointAtCollateralRatio(mintBound + 0.01 ether, e.minWrapRate, e.pegPriceUSD);

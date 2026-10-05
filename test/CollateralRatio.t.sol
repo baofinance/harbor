@@ -178,7 +178,7 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     /// @dev Move the market to `requested` by pricing the collateral for it, and return the collateral ratio the
     ///      market then reports, which is the one each measurement records. For the swept points the two are equal;
     ///      a refined point between them may land a wei away, and the row should carry where the market
-    ///      is rather than where it was asked to be. `MarketActions` refuses a placement further off than
+    ///      is rather than where it was asked to be. `MarketActions` reverts on a placement further off than
     ///      the derived price's own flooring allows.
     ///
     ///      Pricing the collateral is one of several ways to reach a collateral ratio, and a sweep that
@@ -201,7 +201,7 @@ abstract contract TestCollateralRatioRangeSetUp is GraphRefinement, TestStabilit
     }
 
     /// @inheritdoc GraphRefinement
-    /// @dev Not guarded. Every refusal a sweep expects is handled inside its own measurement, where the reason can
+    /// @dev Not guarded. Every revert a sweep expects is handled inside its own measurement, where the reason can
     ///      be checked, and a graph records such a point as a `NaN`, which gnuplot draws as a break in the line. A
     ///      revert that reaches here is therefore an error, and fails the test rather than costing a row unseen.
     function emitSampleAt(uint256 ratio) internal override {
@@ -328,7 +328,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         vm.revertToState(snap);
 
         // mint leveraged: below the leverage cap's collateral-ratio floor the market sells no leverage, and the mint
-        // is refused by that rule, naming the ratio it judged and the floor it wanted
+        // reverts with that rule's error, naming the ratio it judged and the floor it wanted
         data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         uint256 minimumCollateralRatio = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         if (collateralRatio >= minimumCollateralRatio) {
@@ -373,7 +373,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
         }
 
-        // redeem leveraged: not refused by the cap, which governs only minting; depegged there is no residual to redeem
+        // redeem leveraged: untouched by the cap, which governs only minting; depegged there is no residual to redeem
         if (collateralRatio > 1 ether) {
             data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
             (data.incentiveRatio, data.fee, data.levergedRedeemed, data.collateralReturned, , ) = IMinter(minter)

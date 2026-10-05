@@ -78,11 +78,11 @@ contract MinterLeverageCapTest is LocalMarket {
         );
     }
 
-    /// Below the floor the rule refuses the conversion - the free redeem's leveraged leg, the route a rebalance
+    /// Below the floor the conversion reverts - the free redeem's leveraged leg, the route a rebalance
     /// converts by - reporting the ratio the market is priced at, the figure `collateralRatio()` prints, and the
-    /// floor it wanted; and refusing takes nothing from the holder. A rebalance never asks for a conversion there,
+    /// floor it wanted; and reverting takes nothing from the holder. A rebalance never asks for a conversion there,
     /// taking the collateral route instead, so this is the minter's own guard, reached directly.
-    function test_conversionBelowTheFloorIsRefused_namingTheRatioTheMarketIsPricedAt() public {
+    function test_conversionBelowTheFloorReverts_namingTheRatioTheMarketIsPricedAt() public {
         actions.setCollateralRatioByPrice(actions.collateralRatioBandsAboveThePeg(0.5 ether));
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
@@ -94,7 +94,7 @@ contract MinterLeverageCapTest is LocalMarket {
         vm.expectRevert(abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratio, floor));
         IMinter(market.minter).freeRedeemPeggedToken(0, held, address(this));
 
-        assertEq(IERC20(market.pegged).balanceOf(address(this)), held, "refusing takes nothing");
+        assertEq(IERC20(market.pegged).balanceOf(address(this)), held, "reverting takes nothing");
     }
 
     /// Below the min CR, with leveraged tokens outstanding, both mint routes revert by the same name and the same
@@ -121,8 +121,8 @@ contract MinterLeverageCapTest is LocalMarket {
     }
 
     /// The floor is where leverage starts to be sold, inclusively: placed by price exactly at it, a mint is served; a
-    /// price wei below - the highest ratio under it the market reaches - it is refused, naming that ratio.
-    function test_mintLeveraged_atTheFloor_isServedAndJustBelow_isRefused() public {
+    /// price wei below - the highest ratio under it the market reaches - it reverts, naming that ratio.
+    function test_mintLeveraged_atTheFloor_isServedAndJustBelow_reverts() public {
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         // The ratio is `backing x price / pegged`, floored, so the least price that reaches the floor is
         // `floor x pegged / backing`, rounded up, and a wei less falls short of it.
@@ -237,7 +237,7 @@ contract MinterLeverageCapTest is LocalMarket {
 
     /// `leveragedMintable()` is the retail mint's rule as a view: true exactly where a retail mint is served, false
     /// exactly where it reverts, well either side of the min CR and a tenth of the peg-to-min-CR band either side of it.
-    function test_leveragedMintableAgreesWithTheRefusal() public {
+    function test_leveragedMintableAgreesWithTheRevert() public {
         uint256[6] memory ratios = [
             uint256(0.9 ether),
             1 ether,
@@ -300,11 +300,11 @@ contract MinterLeverageCapTest is LocalMarket {
             actions.openPriceBand(actions.collateralRatioBandsAboveThePeg(bands), actions.leverageFloorBandWidth() / 2);
     }
 
-    /// Below the floor the leveraged mint's dry run reports that nothing would be minted, as the call refuses: every
+    /// Below the floor the leveraged mint's dry run reports that nothing would be minted, as the call reverts: every
     /// amount zero, and the incentive ratio of the band the market sits in, which is what any dry run that uses
     /// nothing reports. The middle price is below the floor while the high edge - the price the mint is priced at -
     /// is above it, so a dry run judging at the price it prices at would report a mint here.
-    function test_mintDryRunBelowTheFloor_reportsNothingMinted_asTheCallRefuses() public {
+    function test_mintDryRunBelowTheFloor_reportsNothingMinted_asTheCallReverts() public {
         (, uint256 highEdgeRatio) = _openAHalfBandAround(0.75 ether);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
@@ -336,7 +336,7 @@ contract MinterLeverageCapTest is LocalMarket {
     }
 
     /// Just above the floor the leveraged mint's dry run reports what the call mints. The middle price is above the
-    /// floor while the low edge is below it, so a dry run judging at the low edge would refuse here.
+    /// floor while the low edge is below it, so a dry run judging at the low edge would report nothing here.
     function test_mintDryRunJustAboveTheFloor_reportsWhatTheCallMints() public {
         (uint256 lowEdgeRatio, ) = _openAHalfBandAround(1.25 ether);
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
@@ -352,10 +352,10 @@ contract MinterLeverageCapTest is LocalMarket {
     }
 
     /// Below the floor a free redeem's dry run that asks for a conversion reports nothing on EITHER leg, because the
-    /// call refuses the whole trade: a collateral figure beside the refused conversion would forecast a payout that
+    /// whole call reverts: a collateral figure beside the reverting conversion would forecast a payout that
     /// never comes. Asked for alone or beside a collateral leg, the answer is the same. The high edge is above the
     /// floor, so a dry run judging at an edge rather than the middle would report a conversion here.
-    function test_conversionDryRunBelowTheFloor_reportsNothingOnEitherLeg_asTheCallRefuses() public {
+    function test_conversionDryRunBelowTheFloor_reportsNothingOnEitherLeg_asTheCallReverts() public {
         (, uint256 highEdgeRatio) = _openAHalfBandAround(0.75 ether);
         uint256 ratio = IMinter(market.minter).collateralRatio();
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
@@ -395,7 +395,7 @@ contract MinterLeverageCapTest is LocalMarket {
     }
 
     /// Just above the floor a free redeem's dry run reports the conversion the call makes. The middle price is above
-    /// the floor while the low edge is below it, so a dry run judging at the low edge would refuse here.
+    /// the floor while the low edge is below it, so a dry run judging at the low edge would report nothing here.
     function test_conversionDryRunJustAboveTheFloor_reportsWhatTheCallConverts() public {
         (uint256 lowEdgeRatio, ) = _openAHalfBandAround(1.25 ether);
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();

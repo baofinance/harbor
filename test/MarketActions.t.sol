@@ -104,8 +104,8 @@ contract MarketActionsTest is TestMinterSetUp {
         assertEq(maxRate, 1.02 ether, "and so is the high end");
     }
 
-    /// A market nothing has been minted into has no collateral ratio to be placed at, and is refused by name.
-    function test_setCollateralRatioByPrice_refusesAMarketWithNoBacking() public {
+    /// A market nothing has been minted into has no collateral ratio to be placed at, and reverts by name.
+    function test_setCollateralRatioByPrice_revertsOnAMarketWithNoBacking() public {
         assertEq(IMinter(minter).collateralTokenBalance(), 0, "precondition: nothing has been minted");
 
         vm.expectRevert(abi.encodeWithSelector(MarketActions.NoBacking.selector, minter));
@@ -114,7 +114,7 @@ contract MarketActionsTest is TestMinterSetUp {
 
     /// A market holding collateral behind leveraged tokens alone has no pegged claim to take a collateral ratio
     /// against.
-    function test_setCollateralRatioByPrice_refusesAMarketWithNoPeggedSupply() public {
+    function test_setCollateralRatioByPrice_revertsOnAMarketWithNoPeggedSupply() public {
         setUp_collateral(0, 10 ether, address(this));
         assertGt(IMinter(minter).collateralTokenBalance(), 0, "precondition: the market has backing");
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "precondition: and no pegged supply");
@@ -124,7 +124,7 @@ contract MarketActionsTest is TestMinterSetUp {
     }
 
     /// A market that reports a collateral ratio above the one asked for, by more than the derivation's rounding, is
-    /// refused with what was asked, what it reports and the rounding allowed - and one that is over by exactly that is
+    /// reverted with what was asked, what it reports and the rounding allowed - and one that is over by exactly that is
     /// accepted.
     function test_setCollateralRatioByPrice_reportsACollateralRatioAboveTheOneAsked() public {
         _mintGenesisAtTwo();
@@ -145,7 +145,7 @@ contract MarketActionsTest is TestMinterSetUp {
         marketActions.setCollateralRatioByPrice(TARGET);
     }
 
-    /// The same below: short by exactly the rounding is accepted, short by one more is refused with the figures.
+    /// The same below: short by exactly the rounding is accepted, short by one more reverts with the figures.
     function test_setCollateralRatioByPrice_reportsACollateralRatioBelowTheOneAsked() public {
         _mintGenesisAtTwo();
         uint256 tolerance = _placingTolerance();
@@ -305,9 +305,9 @@ contract MarketActionsTest is TestMinterSetUp {
         assertApproxEqAbs(IMinter(minter).collateralRatio(), highEdge, 2, "priced at the high edge alone");
     }
 
-    /// A band as wide as the collateral ratio itself would put its low edge at a price of nothing, and is refused
+    /// A band as wide as the collateral ratio itself would put its low edge at a price of nothing, and reverts
     /// with the collateral ratio and the width rather than by an arithmetic panic.
-    function test_openPriceBand_refusesAHalfWidthAsWideAsTheCollateralRatio() public {
+    function test_openPriceBand_revertsOnAHalfWidthAsWideAsTheCollateralRatio() public {
         _mintGenesisAtTwo();
         marketActions.setCollateralRatioByPrice(TARGET);
         uint256 reported = IMinter(minter).collateralRatio();

@@ -155,16 +155,16 @@ abstract contract MarketUnderTest {
         }
     }
 
-    /// @dev Rebalance, reporting whether THE RULE UNDER TEST refused to.
+    /// @dev Rebalance, reporting whether THE RULE UNDER TEST reverted it.
     ///
     /// This is not the tolerance that was rejected earlier and must not be read as it. That one caught
     /// `NoTokensToLiquidate`, which is an EMPTY POOL - a defect in how the market was set up, and rightly
     /// fixed by setting it up properly rather than by catching the symptom. This catches exactly one thing,
-    /// `BelowMinimumCollateralRatio`, which a rule throws BY DESIGN where it declines to mint leveraged. That refusal
+    /// `BelowMinimumCollateralRatio`, which a rule throws BY DESIGN where it declines to mint leveraged. That revert
     /// is not a failure of the measurement; it is the single behaviour the rule exists to exhibit, and a
     /// measurement that crashed on it could not report the one thing it was run to see. Anything else
     /// propagates unchanged.
-    function _rebalanceUnlessTheRuleRefuses(address keeper) internal returns (bool rebalanced) {
+    function _rebalanceUnlessTheRuleReverts(address keeper) internal returns (bool rebalanced) {
         _vm.startPrank(keeper);
         try IStabilityPoolManager(market.manager).rebalance(keeper, 0) {
             rebalanced = true;
@@ -197,7 +197,7 @@ abstract contract MarketUnderTest {
             0;
     }
 
-    /// @dev Refuses a split that leaves NOBODY holding pegged outside the stability pools. Called by every
+    /// @dev Reverts on a split that leaves NOBODY holding pegged outside the stability pools. Called by every
     /// market's `standUpMarket` before it funds anything.
     ///
     /// This is not tidiness, it is the difference between a measurement and a blind one. Below the peg the

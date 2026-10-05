@@ -23,11 +23,11 @@ import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol"
 /// @notice Two things the v2 -> v3 upgrade carries across unchecked, each its own test:
 ///
 ///         The incentive config. `upgradeToAndCall` swaps the implementation and v3 reads the stored encoding as it
-///         stands. v3's loader refuses schedules v2's accepted - a subsidy in the highest band of redeem pegged or mint
-///         leveraged, a bound too wide for its field - and v3's band walks rely on that: the leveraged mint never
+///         stands. v3's loader reverts on schedules v2's accepted - a subsidy in the highest band of redeem pegged or
+///         mint leveraged, a bound too wide for its field - and v3's band walks rely on that: the leveraged mint never
 ///         subsidises its highest band. So each deployed minter's config is loaded through a fresh Minter_v3's own
 ///         `updateConfig`, and must be accepted and read back unchanged. FAILS - naming each minter - if the v3 loader
-///         refuses its config (the refusal is logged) or would hold it differently.
+///         reverts on its config (the revert is logged) or would hold it differently.
 ///
 ///         The backing. v3 halts a market whose recorded backing exceeds what its wrapped holding converts to at the
 ///         low edge of the oracle's rate band - every mint and redeem reverts `UnrecognisedImpairment` - a check v2
@@ -52,7 +52,7 @@ contract MinterUpgradePreflight is
     Deploy_SILVER_Minter
 {
     uint256 internal deployedCount;
-    uint256 internal refusedCount;
+    uint256 internal revertsOnLoadCount;
     uint256 internal readsBackDifferentlyCount;
     uint256 internal wouldHaltCount;
 
@@ -77,13 +77,17 @@ contract MinterUpgradePreflight is
         _check(markets);
 
         console.log(
-            "Pre-flight: %d minters deployed, %d configs refused by the v3 loader, %d read back differently",
+            "Pre-flight: %d minters deployed, %d configs the v3 loader reverts on, %d read back differently",
             deployedCount,
-            refusedCount,
+            revertsOnLoadCount,
             readsBackDifferentlyCount
         );
         assertGt(deployedCount, 0, "no minters checked - fork or enumeration broken");
-        assertEq(refusedCount, 0, "a deployed minter holds a config the v3 loader refuses - see REFUSED in the log");
+        assertEq(
+            revertsOnLoadCount,
+            0,
+            "a deployed minter holds a config the v3 loader reverts on - see REVERTED in the log"
+        );
         assertEq(readsBackDifferentlyCount, 0, "a config would read back differently under v3 - see the log");
     }
 
@@ -173,23 +177,23 @@ contract MinterUpgradePreflight is
                     console.log(string.concat(key, " accepted"));
                 }
             } catch (bytes memory reason) {
-                // Only the loader's own refusals are findings about the config; anything else is a fault in this
+                // Only the loader's own reverts are findings about the config; anything else is a fault in this
                 // check or the fork, and fails it as it stands.
-                string memory refusal = _loaderRefusal(reason);
-                if (bytes(refusal).length == 0) {
+                string memory loaderError = _loaderErrorName(reason);
+                if (bytes(loaderError).length == 0) {
                     assembly {
                         revert(add(reason, 0x20), mload(reason))
                     }
                 }
-                refusedCount++;
+                revertsOnLoadCount++;
                 // the whole payload decodes with `cast decode-error`
-                console.log(string.concat("REFUSED: ", key, " ", refusal, " ", vm.toString(reason)));
+                console.log(string.concat("REVERTED: ", key, " ", loaderError, " ", vm.toString(reason)));
             }
         }
     }
 
     /// @dev The name of the v3 config loader's error `reason` carries, or empty when it is not one of them.
-    function _loaderRefusal(bytes memory reason) internal pure returns (string memory) {
+    function _loaderErrorName(bytes memory reason) internal pure returns (string memory) {
         if (reason.length < 4) {
             return "";
         }

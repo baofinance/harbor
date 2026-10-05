@@ -228,8 +228,8 @@ contract Test_GenesisBase is TestMinterSetUp {
         IGenesis(genesis).endGenesis();
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
-        // the deploy grants genesis the minter's zero-fee role, without which the minter refuses the ending - see
-        // test_endGenesis_isRefusedByTheMinterWithoutItsZeroFeeRole
+        // the deploy grants genesis the minter's zero-fee role, without which the ending reverts in the minter - see
+        // test_endGenesis_revertsInTheMinterWithoutItsZeroFeeRole
         assertTrue(
             IHarborRoles(minter).hasAllRoles(genesis, zeroFeeRole),
             "the deploy grants genesis the minter's zero-fee role"
@@ -317,8 +317,8 @@ contract Test_GenesisBase is TestMinterSetUp {
     }
 
     /// Ending a genesis mints its collateral through the minter fee-free, so a genesis the minter has not granted the
-    /// zero-fee role cannot end: the refusal is the minter's, and the genesis stays open.
-    function test_endGenesis_isRefusedByTheMinterWithoutItsZeroFeeRole() public {
+    /// zero-fee role cannot end: the revert is the minter's, and the genesis stays open.
+    function test_endGenesis_revertsInTheMinterWithoutItsZeroFeeRole() public {
         deal(wrappedCollateralToken, address(this), 1 ether);
         IGenesis(genesis).deposit(1 ether, user1);
 

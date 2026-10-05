@@ -131,7 +131,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         setUp_collateral(p, l, user);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
         // A leveraged deposit small beside the pegged one puts the market's genesis at the peg, below the floor at
-        // which leverage is sold. There is no fee to range over where the mint is refused, and the refusal
+        // which leverage is sold. There is no fee to range over where the mint reverts, and the revert
         // is `Minter_leverageCap`'s to assert; the fee arithmetic is measured where a mint exists.
         vm.assume(IMinter_v3(minter).leveragedMintable());
         _mintLeveraged(w);
@@ -239,7 +239,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
             }
 
             // No fee range exists where the market sells no leverage: a starting band below the floor at
-            // which leverage is sold has nothing to measure, and the refusal is `Minter_leverageCap`'s to
+            // which leverage is sold has nothing to measure, and the revert is `Minter_leverageCap`'s to
             // assert. The bands above the floor still span, so this is a skip and not a stop.
             if (!IMinter_v3(minter).leveragedMintable()) {
                 continue;
@@ -492,9 +492,9 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             // The market stood at or below the min CR, or the offer was too small to buy a whole pegged token, so
             // the minter reverted rather than charging for nothing. There is no fee to measure against a mint
             // that did not happen; what must hold is that it cost the caller nothing.
-            assertEq(post.userWrapped, pre.userWrapped, "mp refused mint leaves the user's collateral alone");
-            assertEq(post.feeWrapped, pre.feeWrapped, "mp refused mint charges no fee");
-            assertEq(post.userPegged, pre.userPegged, "mp refused mint delivers no pegged tokens");
+            assertEq(post.userWrapped, pre.userWrapped, "mp reverted mint leaves the user's collateral alone");
+            assertEq(post.feeWrapped, pre.feeWrapped, "mp reverted mint charges no fee");
+            assertEq(post.userPegged, pre.userPegged, "mp reverted mint delivers no pegged tokens");
             return;
         }
         // What the mint took: the whole offer, or what the min CR left of it, as the dry run reported.
@@ -1271,15 +1271,15 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         // quantity, both correct. So each stopped path is measured against the boundary, above, and only
         // paths that ran to completion are compared with each other.
         // Splitting a mint can make the individual pieces too small to buy a whole pegged token, and the
-        // minter refuses those rather than charging for nothing. When that happens the stepped path has not
+        // minter reverts on those rather than charging for nothing. When that happens the stepped path has not
         // performed the same operation as the single shot — it consumed less collateral — so the two are not
-        // comparable as an integral. Every such refusal was already checked against the dry run's prediction
+        // comparable as an integral. Every such revert was already checked against the dry run's prediction
         // in `mintPeggedIgnoreZeroMint`, so this is not a blind exemption; what remains to assert is the
-        // direction, since refusing pieces can only ever consume LESS than doing it in one go.
+        // direction, since reverting pieces can only ever consume LESS than doing it in one go.
         uint256 allUsed = pre.userWrapped - post.userWrapped;
         uint256 stepsUsed = pre.userWrapped - postSteps.userWrapped;
         if (!allStopped && !stepsStopped && allUsed != stepsUsed) {
-            assertLt(stepsUsed, allUsed, "mp integral stepping consumed more than one shot despite refusals");
+            assertLt(stepsUsed, allUsed, "mp integral stepping consumed more than one shot despite reverts");
         }
 
         if (!allStopped && !stepsStopped && allUsed == stepsUsed) {

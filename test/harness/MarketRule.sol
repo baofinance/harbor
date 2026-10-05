@@ -7,8 +7,8 @@ import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.so
 /// @notice A rule under test, as ONE object: what goes behind the minter, which manager the market gets, and the
 ///         label the run's files carry.
 ///
-/// A rule can have two halves. `MinterLeverageCap` refuses to sell leverage below its floor, and only a manager
-/// that knows so routes a rebalance around the refusal instead of reverting inside it; a run that installed the
+/// A rule can have two halves. `MinterLeverageCap` reverts a sale of leverage below its floor, and only a manager
+/// that knows so routes a rebalance around the floor instead of reverting with the sale; a run that installed the
 /// minter and forgot the manager would measure a rule nobody proposed - which happened, once, before this
 /// existed. Holding both halves in one object makes that impossible to do by accident.
 ///

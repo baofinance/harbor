@@ -22,7 +22,7 @@ import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/
 /// leveraged tokens. Below the floor it sells none, so the rebalance first takes BOTH pools' pegged by the collateral
 /// route, pro rata to what each holds, until the ratio reaches the floor - paying the leveraged pool in collateral for
 /// that part - and then goes on from the floor by both legs. At or below the peg a redemption takes its share of the
-/// backing with it, so no amount redeemed moves the ratio; there is nothing to repair and the rebalance is refused.
+/// backing with it, so no amount redeemed moves the ratio; there is nothing to repair and the rebalance reverts.
 ///
 /// The market: 100 of collateral backing 200,000 pegged, and 25 more behind the leveraged tokens, at the mock's price
 /// of 2,000 - a ratio of 1.25. Each test places it by price, which leaves the backing where it is.
@@ -373,12 +373,12 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     }
 
     /*//////////////////////////////////////////////////////////////
-                    AT OR BELOW THE PEG: REFUSED
+                    AT OR BELOW THE PEG: REVERTS
     //////////////////////////////////////////////////////////////*/
 
     /// At exactly the peg the collateral is worth exactly the pegged claim, so a redemption at par takes the two in
-    /// the same measure and leaves the ratio at one: nothing to repair, and the rebalance is refused by name.
-    function test_atThePeg_theRebalanceIsRefused() public {
+    /// the same measure and leaves the ratio at one: nothing to repair, and the rebalance reverts by name.
+    function test_atThePeg_theRebalanceReverts() public {
         _fillPools(3_000, 6_000);
         marketActions.setCollateralRatioByPrice(1 ether);
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "the market is exactly at the peg");
@@ -390,7 +390,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
 
     /// Below the peg each pegged redeemed takes its pro rata share of the backing with it, so the ratio stays where it
     /// is for any amount. The pools keep their pegged for when the price brings the market back above the peg.
-    function test_belowThePeg_theRebalanceIsRefused() public {
+    function test_belowThePeg_theRebalanceReverts() public {
         _fillPools(3_000, 6_000);
         marketActions.setCollateralRatioByPrice(0.9 ether);
         uint256 ratio = IMinter(minter).collateralRatio();

@@ -10,7 +10,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 /// @notice A zero collateral price is legitimate - the oracle gives one only when it is - and the minter handles it:
-/// every entry point that reads the price answers or refuses by name, and a pegged token, redeemed below the peg,
+/// every entry point that reads the price answers or reverts by name, and a pegged token, redeemed below the peg,
 /// pays its share of the backing in kind whatever the price, zero included.
 contract TestMinterZeroPrice is TestMinterSetUp {
     address user;
@@ -99,9 +99,9 @@ contract TestMinterZeroPrice is TestMinterSetUp {
         assertEq(previewed, paid, "the dry run says what the call does");
     }
 
-    /// @dev Calls the minter as `actor` and requires it to answer, or to refuse with a named error - a custom error,
+    /// @dev Calls the minter as `actor` and requires it to answer, or to revert with a named error - a custom error,
     ///      not an arithmetic panic, a bare revert or a string.
-    function _answersOrRefusesByName(string memory name, address actor, bytes memory call) private {
+    function _answersOrRevertsByName(string memory name, address actor, bytes memory call) private {
         uint256 snapshot = vm.snapshotState();
         vm.startPrank(actor);
         (bool answered, bytes memory reason) = minter.call(call);
@@ -110,45 +110,45 @@ contract TestMinterZeroPrice is TestMinterSetUp {
         if (answered) {
             return;
         }
-        assertGe(reason.length, 4, string.concat(name, ": refused without a reason"));
+        assertGe(reason.length, 4, string.concat(name, ": reverted without a reason"));
         bytes4 selector = bytes4(reason);
         assertTrue(selector != bytes4(keccak256("Panic(uint256)")), string.concat(name, ": panicked"));
-        assertTrue(selector != bytes4(keccak256("Error(string)")), string.concat(name, ": refused with a string"));
+        assertTrue(selector != bytes4(keccak256("Error(string)")), string.concat(name, ": reverted with a string"));
     }
 
-    /// Every entry point that reads the price, given a zero price, answers or refuses by name.
-    function test_everyPriceReadingEntryPoint_atAZeroPrice_answersOrRefusesByName() public {
-        _answersOrRefusesByName("collateralRatio", user, abi.encodeCall(IMinter_v3.collateralRatio, ()));
-        _answersOrRefusesByName("leverageRatio", user, abi.encodeCall(IMinter_v3.leverageRatio, ()));
-        _answersOrRefusesByName("leveragedMintable", user, abi.encodeCall(IMinter_v3.leveragedMintable, ()));
-        _answersOrRefusesByName("peggedTokenPrice", user, abi.encodeCall(IMinter_v3.peggedTokenPrice, ()));
-        _answersOrRefusesByName("leveragedTokenPrice", user, abi.encodeCall(IMinter_v3.leveragedTokenPrice, ()));
-        _answersOrRefusesByName(
+    /// Every entry point that reads the price, given a zero price, answers or reverts by name.
+    function test_everyPriceReadingEntryPoint_atAZeroPrice_answersOrRevertsByName() public {
+        _answersOrRevertsByName("collateralRatio", user, abi.encodeCall(IMinter_v3.collateralRatio, ()));
+        _answersOrRevertsByName("leverageRatio", user, abi.encodeCall(IMinter_v3.leverageRatio, ()));
+        _answersOrRevertsByName("leveragedMintable", user, abi.encodeCall(IMinter_v3.leveragedMintable, ()));
+        _answersOrRevertsByName("peggedTokenPrice", user, abi.encodeCall(IMinter_v3.peggedTokenPrice, ()));
+        _answersOrRevertsByName("leveragedTokenPrice", user, abi.encodeCall(IMinter_v3.leveragedTokenPrice, ()));
+        _answersOrRevertsByName(
             "mintPeggedTokenIncentiveRatio",
             user,
             abi.encodeCall(IMinter_v3.mintPeggedTokenIncentiveRatio, ())
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "redeemPeggedTokenIncentiveRatio",
             user,
             abi.encodeCall(IMinter_v3.redeemPeggedTokenIncentiveRatio, ())
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "mintLeveragedTokenIncentiveRatio",
             user,
             abi.encodeCall(IMinter_v3.mintLeveragedTokenIncentiveRatio, ())
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "redeemLeveragedTokenIncentiveRatio",
             user,
             abi.encodeCall(IMinter_v3.redeemLeveragedTokenIncentiveRatio, ())
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "mintPeggedToken",
             user,
             abi.encodeWithSignature("mintPeggedToken(uint256,address,uint256)", 1 ether, user, 0)
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "mintPeggedToken capped",
             user,
             abi.encodeWithSignature(
@@ -159,82 +159,82 @@ contract TestMinterZeroPrice is TestMinterSetUp {
                 type(uint256).max
             )
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "redeemPeggedToken",
             user,
             abi.encodeCall(IMinter_v3.redeemPeggedToken, (1 ether, user, 0))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "mintLeveragedToken",
             user,
             abi.encodeCall(IMinter_v3.mintLeveragedToken, (1 ether, user, 0))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "redeemLeveragedToken",
             user,
             abi.encodeCall(IMinter_v3.redeemLeveragedToken, (1 ether, user, 0))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "mintPeggedTokenDryRun",
             user,
             abi.encodeWithSignature("mintPeggedTokenDryRun(uint256)", 1 ether)
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "mintPeggedTokenDryRun capped",
             user,
             abi.encodeWithSignature("mintPeggedTokenDryRun(uint256,uint256)", 1 ether, type(uint256).max)
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "redeemPeggedTokenDryRun",
             user,
             abi.encodeCall(IMinter_v3.redeemPeggedTokenDryRun, (1 ether))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "mintLeveragedTokenDryRun",
             user,
             abi.encodeCall(IMinter_v3.mintLeveragedTokenDryRun, (1 ether))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "redeemLeveragedTokenDryRun",
             user,
             abi.encodeCall(IMinter_v3.redeemLeveragedTokenDryRun, (1 ether))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "freeMintPeggedToken",
             zeroFee,
             abi.encodeCall(IMinter_v3.freeMintPeggedToken, (1 ether, zeroFee))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "freeMintLeveragedToken",
             zeroFee,
             abi.encodeCall(IMinter_v3.freeMintLeveragedToken, (1 ether, zeroFee))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "freeRedeemPeggedToken for collateral",
             zeroFee,
             abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (1 ether, 0, zeroFee))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "freeRedeemPeggedToken for leveraged",
             zeroFee,
             abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (0, 1 ether, zeroFee))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "freeRedeemLeveragedToken",
             zeroFee,
             abi.encodeCall(IMinter_v3.freeRedeemLeveragedToken, (1 ether, zeroFee))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "freeRedeemDryRun for collateral",
             zeroFee,
             abi.encodeCall(IMinter_v3.freeRedeemDryRun, (1 ether, 0))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "freeRedeemDryRun for leveraged",
             zeroFee,
             abi.encodeCall(IMinter_v3.freeRedeemDryRun, (0, 1 ether))
         );
-        _answersOrRefusesByName(
+        _answersOrRevertsByName(
             "redeemPeggedForCollateralRatio",
             user,
             abi.encodeCall(IMinter_v3.redeemPeggedForCollateralRatio, (1.5 ether, 5 ether, 5 ether, 5 ether, 5 ether))

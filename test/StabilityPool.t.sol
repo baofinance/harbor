@@ -139,7 +139,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         test_initOnly(stabilityPoolCollateral);
     }
 
-    /// Only the owner upgrades the pool: anyone else is refused, and the owner's upgrade installs the new
+    /// Only the owner upgrades the pool: for anyone else it reverts, and the owner's upgrade installs the new
     /// implementation.
     function testUpgrade() public {
         // Only owner can upgrade
@@ -217,7 +217,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         test_initOnly(stabilityPool);
     }
 
-    /// Initialisation refuses an early-withdrawal fee above 100%, naming the fee.
+    /// Initialisation reverts on an early-withdrawal fee above 100%, naming the fee.
     function test_initialize_invalidFee_reverts() public {
         address implementation = _newStabilityPoolImplementation();
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
@@ -227,7 +227,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         );
     }
 
-    /// Initialisation refuses a zero fee receiver.
+    /// Initialisation reverts on a zero fee receiver.
     function test_initialize_invalidFeeAddress_reverts() public {
         address implementation = _newStabilityPoolImplementation();
         // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be
@@ -243,7 +243,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 }
 
 contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
-    /// Only the owner grants the pool's roles: anyone else is refused, and the owner's grant takes effect.
+    /// Only the owner grants the pool's roles: for anyone else it reverts, and the owner's grant takes effect.
     function test_access() public {
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
@@ -258,10 +258,10 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         );
     }
 
-    /// A depositor's round trip through the pool: a deposit beyond the caller's balance is refused by the token;
-    /// deposits and withdrawals move tokens and stake one-for-one; a withdrawal beyond the stake is refused; the
+    /// A depositor's round trip through the pool: a deposit beyond the caller's balance reverts in the token;
+    /// deposits and withdrawals move tokens and stake one-for-one; a withdrawal beyond the stake reverts; the
     /// last holder's full withdrawal stops at the pool's supply floor, which stays theirs; a deposit-all takes the
-    /// caller's whole balance; and a deposit that would credit less than the caller's minimum is refused.
+    /// caller's whole balance; and a deposit that would credit less than the caller's minimum reverts.
     function test_depositWithdraw() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // more than holding
@@ -375,9 +375,9 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
     }
 
     /// A withdrawal debits the caller's own stake, so paying for another account's deposit gives the payer nothing
-    /// to withdraw: inside its own window, and even naming the stake's owner as the receiver, the payer is refused
-    /// against its zero balance.
-    function test_withdraw_isRefusedToThePayerOfADepositForAnotherAccount() public {
+    /// to withdraw: inside its own window, and even naming the stake's owner as the receiver, the payer's withdrawal
+    /// reverts against its zero balance.
+    function test_withdraw_revertsForThePayerOfADepositForAnotherAccount() public {
         (uint256 payment, ) = setUp_collateral(2 ether, 0 ether, user1);
         vm.startPrank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(payment, user2, 0);

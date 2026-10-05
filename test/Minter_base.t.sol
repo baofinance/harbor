@@ -425,11 +425,11 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         setUpContract();
     }
 
-    /// @dev A caught revert must be the minter's leverage-cap refusal of the market as it stands: below
+    /// @dev A caught revert must be the minter's leverage-cap revert on the market as it stands: below
     ///      `MINIMUM_COLLATERAL_RATIO` no route sells leverage. Asserted whole - the ratio the minter judged is the one
-    ///      `collateralRatio()` reports, since both price at the mid and a refused call leaves the market as it was -
-    ///      so a graph draws a gap for exactly that refusal, and any other revert fails the test instead.
-    function _requireLeverageCapRefusal(bytes memory reason) internal view {
+    ///      `collateralRatio()` reports, since both price at the mid and a reverted call leaves the market as it was -
+    ///      so a graph draws a gap for exactly that revert, and any other revert fails the test instead.
+    function _requireLeverageCapRevert(bytes memory reason) internal view {
         assertEq(
             reason,
             abi.encodeWithSelector(
@@ -437,7 +437,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
                 IMinter_v3(minter).collateralRatio(),
                 IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()
             ),
-            "the only refusal drawn as a gap is the leverage cap's"
+            "the only revert drawn as a gap is the leverage cap's"
         );
     }
 
@@ -539,18 +539,18 @@ contract TestMinterInit is TestMinterSetUp {
         Minter_v3(impl).initialize(address(this), owner());
     }
 
-    /// Only the owner upgrades the minter: a stranger and a holder of the zero-fee role are refused, and the owner's
+    /// Only the owner upgrades the minter: for a stranger and a holder of the zero-fee role it reverts, and the owner's
     /// upgrade to a new implementation keeps the config, both token balances and the collateral record.
-    function test_upgrade_isRefusedToAnyoneButTheOwner() public {
+    function test_upgrade_revertsForAnyoneButTheOwner() public {
         setUp_collateral(3 ether, 1 ether);
         IMinter.Config memory configBefore = IMinter(minter).config();
         uint256 peggedBefore = IMinter(minter).peggedTokenBalance();
         uint256 leveragedBefore = IMinter(minter).leveragedTokenBalance();
         uint256 collateralBefore = IMinter(minter).collateralTokenBalance();
 
-        address[2] memory refused = [makeAddr("stranger"), zeroFee];
-        for (uint256 i = 0; i < refused.length; i++) {
-            vm.startPrank(refused[i]);
+        address[2] memory unauthorised = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < unauthorised.length; i++) {
+            vm.startPrank(unauthorised[i]);
             vm.expectRevert(IHarborOwnable.Unauthorized.selector);
             UUPSUpgradeable(minter).upgradeToAndCall(impl, "");
             vm.stopPrank();
