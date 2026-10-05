@@ -1114,6 +1114,39 @@ contract TestMinterRedeemLeveragedAcrossBands is TestMinterSetUp {
         _redeemAndCheck(leveragedIn, _expectedRedemption(leveragedIn), bounds[0], bounds[1]); // two bounds crossed
     }
 
+    /// An offer above the leveraged supply redeems exactly the supply, however large - here the largest short of the
+    /// whole-balance sentinel: the holder of all of it burns the supply and is paid as a redemption of exactly the
+    /// supply - its claim on the whole residual, walked down through every band to the peg, less each slice's fee - and
+    /// the dry run of the offer reports the same.
+    function test_redeemLeveraged_anOfferAboveTheSupply_redeemsExactlyTheSupply() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8, the user holding the whole leveraged supply
+        uint256 supply = IMinter(minter).leveragedTokenBalance();
+        assertEq(IERC20(leveragedToken).balanceOf(user), supply, "precondition: the user holds the whole supply");
+        Outcome memory expected = _expectedRedemption(supply);
+        uint256 offer = type(uint256).max - 1;
+
+        (, uint256 dryRunFee, uint256 dryRunBurned, uint256 dryRunPaid, , ) = IMinter(minter)
+            .redeemLeveragedTokenDryRun(offer);
+        assertEq(dryRunBurned, supply, "the dry run burns exactly the supply");
+        assertEq(dryRunPaid, expected.paid, "pays a redemption of exactly the supply");
+        assertEq(dryRunFee, expected.fee, "and charges its fee");
+
+        uint256 feeBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        vm.startPrank(user);
+        IERC20(leveragedToken).approve(minter, offer);
+        uint256 paid = IMinter(minter).redeemLeveragedToken(offer, user, 0);
+        vm.stopPrank();
+
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "exactly the supply is burned");
+        assertEq(paid, expected.paid, "the redeemer is paid a redemption of exactly the supply");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeBefore,
+            expected.fee,
+            "the fee receiver is paid its fee"
+        );
+    }
+
     /// @dev The leveraged whose redemption takes the ratio to about `targetRatio`, by the ratio's definition: the share
     ///      of the supply that the collateral above the target is of the collateral above the peg. The fee comes out of
     ///      the collateral returned, so the backing falls by the whole claim.

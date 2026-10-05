@@ -1283,6 +1283,21 @@ contract TestMinterMintPeggedAtTheMinimumCollateralRatio is TestMinterSetUp {
             );
     }
 
+    /// @dev Places the market exactly at the min CR by price - the least price that reaches it, `minimum x pegged /
+    ///      backing`, rounded up - and returns the min CR.
+    function _priceExactlyAtTheMinimumCollateralRatio() internal returns (uint256 minimum) {
+        minimum = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(
+            Math.mulDiv(
+                minimum,
+                IMinter(minter).peggedTokenBalance(),
+                IMinter(minter).collateralTokenBalance(),
+                Math.Rounding.Ceil
+            )
+        );
+        assertEq(IMinter(minter).collateralRatio(), minimum, "precondition: exactly at the min CR");
+    }
+
     /// A retail pegged mint from below the min CR reverts naming the ratio and the minimum and takes nothing; its dry
     /// run reports nothing used, no fee, nothing minted and the band's incentive ratio.
     function test_mintPegged_belowTheMinimumCollateralRatio_reverts() public {
@@ -1311,17 +1326,7 @@ contract TestMinterMintPeggedAtTheMinimumCollateralRatio is TestMinterSetUp {
     /// reverts, and its dry run reports nothing.
     function test_mintPegged_atTheMinimumCollateralRatio_reverts() public {
         setUp_collateral(100 ether, 10 ether); // a ratio of 1.1
-        uint256 minimum = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
-        // the least price that reaches the min CR: `minimum x pegged / backing`, rounded up
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(
-            Math.mulDiv(
-                minimum,
-                IMinter(minter).peggedTokenBalance(),
-                IMinter(minter).collateralTokenBalance(),
-                Math.Rounding.Ceil
-            )
-        );
-        assertEq(IMinter(minter).collateralRatio(), minimum, "precondition: exactly at the min CR");
+        uint256 minimum = _priceExactlyAtTheMinimumCollateralRatio();
 
         (, , uint256 used, uint256 minted, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
         assertEq(used + minted, 0, "the dry run reports nothing");
@@ -1404,6 +1409,27 @@ contract TestMinterMintPeggedAtTheMinimumCollateralRatio is TestMinterSetUp {
         vm.stopPrank();
         assertEq(used, plainUsed, "the capped mint uses the cut");
         assertEq(minted, plainMinted, "and mints the same");
+    }
+
+    /// Exactly at the min CR the fee-capped mint takes nothing either, and a caller that named a minimum is told it was
+    /// missed rather than handed a silent zero: the mint reverts naming the pegged token, the nothing it would mint and
+    /// the minimum. The cap is one no band reaches, so only the min CR stops the mint.
+    function test_mintPeggedCapped_atTheMinimumCollateralRatio_withAMinimum_reverts() public {
+        setUp_collateral(100 ether, 10 ether); // a ratio of 1.1
+        _priceExactlyAtTheMinimumCollateralRatio();
+        uint256 cap = 1 ether; // a cap no band reaches
+        uint256 minPeggedOut = 1;
+
+        bytes memory revertData = abi.encodeWithSelector(
+            IMinter_v3.MintInsufficientAmount.selector,
+            peggedToken,
+            0,
+            minPeggedOut
+        );
+        vm.startPrank(user);
+        vm.expectRevert(revertData);
+        IMinter_v3(minter).mintPeggedToken(1 ether, user, minPeggedOut, cap);
+        vm.stopPrank();
     }
 
     /// A market holding pegged alone reads a ratio of exactly one, so a retail pegged mint reverts; the zero-fee mint
