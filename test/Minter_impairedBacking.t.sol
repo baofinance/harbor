@@ -138,37 +138,35 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function testFuzz_collateralRatioTracksHeldCollateral(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
         _recogniseImpairmentIfThereIsAny();
 
-        uint256 expected = Math.mulDiv(_heldAsCollateral(), _price(), anchorClaims);
-        assertApproxEqAbs(
+        // the value held over the claims, floored once - as the ratio is defined, so exactly
+        assertEq(
             IMinter(minter).collateralRatio(),
-            expected,
-            1, // one wei, from the two floored divisions
+            Math.mulDiv(_heldAsCollateral(), _price(), peggedClaims),
             "collateral ratio must follow the collateral held"
         );
     }
 
-    /// An anchor token is worth its face value while covered and its share of what remains once not.
+    /// A pegged token is worth its face value while covered and its share of what remains once not.
     /// The expectation is computed from the collateral held, not from the ratio the Minter reports —
     /// comparing it against that ratio would compare two figures that are wrong together.
-    function testFuzz_anchorPriceIsShareOfWhatIsHeld(uint256 dropBps) public {
+    function testFuzz_peggedPriceIsShareOfWhatIsHeld(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
         _recogniseImpairmentIfThereIsAny();
 
-        uint256 covered = Math.mulDiv(_heldAsCollateral(), _price(), anchorClaims);
-        assertApproxEqAbs(
+        // the lesser of par and the value held over the claims, floored once - exactly
+        assertEq(
             IMinter(minter).peggedTokenPrice(),
-            covered < 1 ether ? covered : 1 ether,
-            1,
-            "anchor prices at par, or at its share of what is held"
+            Math.min(1 ether, Math.mulDiv(_heldAsCollateral(), _price(), peggedClaims)),
+            "the pegged token prices at par, or at its share of what is held"
         );
     }
 
@@ -358,33 +356,41 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     function testFuzz_leverageRatioTracksHeldCollateral(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(dropBps);
         _recogniseImpairmentIfThereIsAny();
 
-        uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
-        uint256 expected = heldValue <= anchorClaims
+        // the value held over the residual, both at 36 decimals: floored to 18 first, the value moves the answer a wei
+        uint256 heldValueE36 = _heldAsCollateral() * _price();
+        uint256 claimsE36 = peggedClaims * 1 ether;
+        uint256 expected = heldValueE36 <= claimsE36
             ? type(uint256).max
-            : Math.mulDiv(heldValue, 1 ether, heldValue - anchorClaims);
+            : Math.mulDiv(heldValueE36, 1 ether, heldValueE36 - claimsE36);
 
-        assertApproxEqAbs(IMinter(minter).leverageRatio(), expected, 1, "leverage must follow the cover held");
+        assertEq(IMinter(minter).leverageRatio(), expected, "leverage must follow the cover held");
     }
 
-    /// The sail claim is the residual of what is held, and is worth nothing once cover is gone.
-    function testFuzz_sailPriceIsResidualOfWhatIsHeld(uint256 dropBps) public {
+    /// The leveraged token's claim is the residual of what is held, and is worth nothing once cover is gone.
+    function testFuzz_leveragedPriceIsResidualOfWhatIsHeld(uint256 dropBps) public {
         dropBps = bound(dropBps, 0, 9_000);
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
-        uint256 sailSupply = IMinter(minter).leveragedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
+        uint256 leveragedSupply = IMinter(minter).leveragedTokenBalance();
 
         _impair(dropBps);
         _recogniseImpairmentIfThereIsAny();
 
-        uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
-        uint256 expected = heldValue <= anchorClaims ? 0 : Math.mulDiv(heldValue - anchorClaims, 1 ether, sailSupply);
+        // the residual at 36 decimals, divided once by the leveraged supply: floored to 18 first, it moves a wei
+        uint256 heldValueE36 = _heldAsCollateral() * _price();
+        uint256 claimsE36 = peggedClaims * 1 ether;
+        uint256 expected = heldValueE36 <= claimsE36 ? 0 : (heldValueE36 - claimsE36) / leveragedSupply;
 
-        assertApproxEqAbs(IMinter(minter).leveragedTokenPrice(), expected, 1, "sail is the residual of what is held");
+        assertEq(
+            IMinter(minter).leveragedTokenPrice(),
+            expected,
+            "the leveraged token is the residual of what is held"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -716,18 +722,20 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     //////////////////////////////////////////////////////////////*/
 
     /// Genesis opens a market through this path, and it consults no fee schedule — so no band forbids
-    /// it under a recognised impairment. What must be right is the price: a depegged anchor is minted
+    /// it under a recognised impairment. What must be right is the price: a depegged pegged token is minted
     /// at its depressed value, which yields more tokens per unit of collateral, not fewer.
-    function test_impairedBacking_freeAnchorMintPricesAtTheDepressedPrice() public {
+    function test_impairedBacking_freePeggedMintPricesAtTheDepressedPrice() public {
         setUp_collateral(100 ether, 40 ether);
-        uint256 anchorClaims = IMinter(minter).peggedTokenBalance();
+        uint256 peggedClaims = IMinter(minter).peggedTokenBalance();
 
         _impair(3_000);
         _recogniseImpairment();
+        assertLt(IMinter(minter).peggedTokenPrice(), 1 ether, "the pegged token is below its peg");
 
-        uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
-        uint256 anchorPrice = Math.min(1 ether, Math.mulDiv(heldValue, 1 ether, anchorClaims));
-        uint256 expected = Math.mulDiv(Math.mulDiv(1 ether, _rate(), 1 ether), _price(), anchorPrice);
+        // The collateral added is worth collateralAdded x price, and a pegged token held x price / claims: the price
+        // cancels, so the mint is collateralAdded x claims / held, floored once.
+        uint256 collateralAdded = Math.mulDiv(1 ether, _rate(), 1 ether);
+        uint256 expected = Math.mulDiv(collateralAdded, peggedClaims, _heldAsCollateral());
 
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
@@ -735,7 +743,7 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
         vm.stopPrank();
 
-        assertApproxEqAbs(minted, expected, 1, "a depegged anchor is minted at its depressed price");
+        assertEq(minted, expected, "a depegged pegged token is minted at its depressed price");
     }
 
     /// The zero-fee leveraged redemption pays what the residual is worth. Once cover is gone that is nothing, and it
