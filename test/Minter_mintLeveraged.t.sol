@@ -23,17 +23,25 @@ contract TestMinterMintLeveraged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
     // Free Mint Leveraged
     //---------------------------------------------------------------------------------------------
+    /// @dev Mints `collateralIn` of the zero-fee actor's wrapped by the zero-fee route and checks every balance it moves.
+    ///      The record is credited with the wrapped at the low rate, rounded down, and the mint buys that collateral's
+    ///      value at the high price, a leveraged token per pegged unit - the leveraged price of the markets this suite
+    ///      builds.
     function _freeMintLeveragedToken(uint256 collateralIn) private {
-        // the high price, the one the mint reads
-        (, uint256 price, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-
         uint256 ownerCollateralDecrease;
         if (collateralIn == type(uint256).max) {
             ownerCollateralDecrease = IERC20(Deployed.wstETH).balanceOf(zeroFee);
         } else {
             ownerCollateralDecrease = collateralIn;
         }
-        uint256 receiverLeveragedIncrease = (price * ownerCollateralDecrease) / 1 ether;
+        uint256 credited;
+        uint256 receiverLeveragedIncrease;
+        {
+            // the high price and the low rate, the ones the mint reads
+            (, uint256 price, uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            credited = Math.mulDiv(ownerCollateralDecrease, rate, 1 ether);
+            receiverLeveragedIncrease = (price * credited) / 1 ether;
+        }
 
         uint256 leveragedPriceBefore = IMinter(minter).leveragedTokenPrice();
         uint256 ownerCollateralBefore = IERC20(Deployed.wstETH).balanceOf(zeroFee);
@@ -41,15 +49,9 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 receiverLeveragedBefore = IERC20(leveragedToken).balanceOf(receiver);
         uint256 minterCollateralBefore = IMinter(minter).collateralTokenBalance();
         uint256 minterWstETHBefore = IERC20(Deployed.wstETH).balanceOf(minter);
-        uint256 minterLeveragedBefore = IMinter(minter).leveragedTokenBalance();
+        // the leveraged supply, which the minter's leveragedTokenBalance() reports
         uint256 leveragedSupplyBefore = IERC20(leveragedToken).totalSupply();
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
-
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            IERC20(Deployed.wstETH).balanceOf(minter),
-            "collaterals balance before freeMintLeveraged"
-        );
 
         vm.startPrank(zeroFee);
         vm.expectEmit(true, true, true, true, minter);
@@ -61,11 +63,6 @@ contract TestMinterMintLeveraged is TestMinterMint {
             IMinter(minter).leveragedTokenPrice(),
             leveragedPriceBefore,
             "free mint leveraged doesn't change the leveraged price"
-        );
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            IERC20(Deployed.wstETH).balanceOf(minter),
-            "collaterals balance after freeMintLeveraged"
         );
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount free minted leveraged compared to price");
         assertEq(
@@ -85,8 +82,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         );
         assertEq(
             IMinter(minter).collateralTokenBalance(),
-            minterCollateralBefore + ownerCollateralDecrease,
-            "stETH collateral transferred"
+            minterCollateralBefore + credited,
+            "the record is credited with the wrapped at the rate"
         );
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(minter),
@@ -95,7 +92,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         );
         assertEq(
             IMinter(minter).leveragedTokenBalance(),
-            minterLeveragedBefore + receiverLeveragedIncrease,
+            leveragedSupplyBefore + receiverLeveragedIncrease,
             "levereged token balance"
         );
         assertEq(
@@ -115,6 +112,11 @@ contract TestMinterMintLeveraged is TestMinterMint {
     /// mint adding exactly its collateral's value in leveraged tokens at an unchanged leveraged price and raising the
     /// collateral ratio.
     function test_freeMintLeveraged() public {
+        // a wrapped-to-underlying rate away from one, so what the minter credits is told apart from what it takes in
+        {
+            (uint256 startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, 1.25 ether);
+        }
         // mint noaccess
         assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole));
         vm.startPrank(sender);
@@ -156,8 +158,10 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.stopPrank();
         // 4 ----------------------------------------------
 
-        // the high price, the one the mint reads
-        (, uint256 price, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        // the high price and the low rate, the ones the mint reads, and the collateral an ether of wrapped is
+        // credited as
+        (, uint256 price, uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 credited = Math.mulDiv(1 ether, rate, 1 ether);
         // got to add some pegged tokens or collateral ratio checks don't work
 
         // first mint
@@ -172,8 +176,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // 5 ---------------------------
         assertEq(
             IERC20(leveragedToken).balanceOf(receiver),
-            (1 ether * price) / IMinter(minter).leveragedTokenPrice(),
-            "1 ether worth of leveraged"
+            (credited * price) / IMinter(minter).leveragedTokenPrice(),
+            "the credited collateral's worth of leveraged"
         );
         // collateral ratio is undefined for just minting leveraged tokens
         assertEq(
@@ -181,7 +185,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             1 ether * 1 ether,
             unicode"now we have collateral but no pegged, collateral ratio = x/0 = ∞"
         );
-        assertEq(IERC20(leveragedToken).balanceOf(receiver), price);
+        assertEq(IERC20(leveragedToken).balanceOf(receiver), (credited * price) / 1 ether);
 
         // mint with some collateral ratio
         vm.startPrank(zeroFee);
@@ -196,8 +200,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // and a free leveraged mint keeps the leveraged price, so both mints bought their collateral's value at one each
         assertEq(
             IERC20(leveragedToken).balanceOf(receiver),
-            (2 ether * price) / IMinter(minter).leveragedTokenPrice(),
-            "2 ether worth of leveraged"
+            (2 * credited * price) / IMinter(minter).leveragedTokenPrice(),
+            "twice the credited collateral's worth of leveraged"
         );
 
         // more than one mint
@@ -222,6 +226,10 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 collateralRatio;
     }
 
+    /// @dev Mints leveraged with `collateralIn` of the sender's wrapped by the retail route - the sentinel passed on as
+    ///      given - and checks every balance it moves, charged at the top band's incentive, the band the markets this
+    ///      suite builds mint in: the holding grows by the wrapped kept, and the record by that at the low rate,
+    ///      rounded down.
     function _mintLeveragedToken(uint256 collateralIn) private {
         uint256 senderCollateralDecrease;
         if (collateralIn == type(uint256).max) {
@@ -306,14 +314,19 @@ contract TestMinterMintLeveraged is TestMinterMint {
         );
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(minter),
-            IMinter(minter).collateralTokenBalance(),
+            before.minterCollateral + senderCollateralDecrease - mintLeveragedFee + mintLeveragedSubsidy,
             "wstETH has minter owning it"
         );
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            before.minterCollateralBalance + senderCollateralDecrease - mintLeveragedFee + mintLeveragedSubsidy,
-            "minter is tracking the new collateral"
-        );
+        {
+            // the record is credited with the wrapped kept at the low rate, the one the mint reads, rounded down
+            (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            assertEq(
+                IMinter(minter).collateralTokenBalance(),
+                before.minterCollateralBalance +
+                    Math.mulDiv(senderCollateralDecrease - mintLeveragedFee + mintLeveragedSubsidy, rate, 1 ether),
+                "minter is tracking the new collateral"
+            );
+        }
 
         assertGt(IMinter(minter).collateralRatio(), before.collateralRatio, "collateral ratio <= before");
     }
@@ -531,8 +544,11 @@ contract TestMinterMintLeveraged is TestMinterMint {
     /// with the rest; a minimum equal to the dry run's forecast is met, one wei more reverts naming both, and the
     /// max sentinel spends the caller's whole balance for exactly the forecast.
     function test_mintLeveragedNormal() public {
+        // a wrapped-to-underlying rate away from one, so what the minter credits is told apart from what it takes in
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 1.25 ether);
         setUp_collateral(10 ether, 0);
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(4000 ether); // put the collateral ratio to 2, so no excess fees
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2 * price); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         // first mint

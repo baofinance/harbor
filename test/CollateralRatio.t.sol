@@ -281,8 +281,10 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             );
             vm.expectRevert(belowMinimum);
             IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
-        } else if (data.incentiveRatio < 1 ether) {
-            // minting pegged is allowed
+        } else {
+            // minting pegged is allowed: this sweep's config disallows it nowhere above the min CR - the revert where
+            // a config does is Minter_mint's to test
+            assertLt(data.incentiveRatio, 1 ether, "the config allows minting pegged above the min CR");
             snap = vm.snapshotState();
             beforeHolding = readHoldings();
             IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
@@ -299,10 +301,6 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             );
             compareHoldings(beforeHolding, afterHolding, deltas, "mintPegged");
             vm.revertToState(snap);
-        } else {
-            // minting pegged is disallowed
-            vm.expectRevert(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, peggedToken));
-            IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
         }
 
         // redeem pegged

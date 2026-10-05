@@ -556,7 +556,23 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // a pegged mint is served only above the min CR and stops at it, so the pegged price is par before and after
         assertEq(pre.peggedPrice, 1 ether, "mp pegged price at par before");
         assertEq(post.peggedPrice, 1 ether, "mp pegged price at par after");
-        // assertApprox(post.leveragedPrice, pre.leveragedPrice, 20000, 0.000000000002 ether, "mp leveraged price");
+        {
+            // The pegged minted is at most the record's gain at par, so the residual - the record at the price, less
+            // the pegged - never falls. It rises by under the rounding the assertions above allow, in pegged wei: the
+            // wrapped wei the minter may keep beyond this test's figure, at the rate and the price; this figure's own
+            // floor; and what the pegged minted may fall short of the figure by. The leveraged supply does not move,
+            // and the leveraged price's own floor turns the rise into at most that over the supply, rounded up.
+            uint256 wrappedWeiWorth = Math.mulDiv(1, p * r, 1e36, Math.Rounding.Ceil);
+            uint256 residualRise = wrappedWeiWorth +
+                1 +
+                Math.max(2 * wrappedWeiWorth, Math.mulDiv(1, p, 1 ether, Math.Rounding.Ceil));
+            assertGe(post.leveragedPrice, pre.leveragedPrice, "mp leveraged price never falls");
+            assertLe(
+                post.leveragedPrice,
+                pre.leveragedPrice + Math.ceilDiv(residualRise * 1 ether, post.minterLeveraged),
+                "mp leveraged price rises by no more than rounding"
+            );
+        }
     }
 
     function _redeemPegged(uint256 wrapped) internal override {
@@ -715,7 +731,21 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertApprox(pre.peggedPrice, pre.collateralRatio, 0, 0, "rp depegged CR");
             assertGe(post.peggedPrice, pre.peggedPrice, "rp depegged pegged price");
         }
-        // assertApprox(post.leveragedPrice, pre.leveragedPrice, 1, 0, "rp leveraged price");
+        // Above the peg the record gives up the wrapped released, valued at the rate and rounded up: under a collateral
+        // wei more than the pegged's worth, or under (1 + rate) 1e18ths of one less. So the residual falls by under the
+        // price and rises by under (1 + rate) times it, at 1e36; the leveraged supply does not move, and the leveraged
+        // price's own floor turns each into at most that over the supply, rounded up. Below the peg there is no
+        // residual before or after, and the leveraged price is nothing either side.
+        assertGe(
+            post.leveragedPrice + Math.ceilDiv(p, post.minterLeveraged),
+            pre.leveragedPrice,
+            "rp leveraged price falls by no more than rounding"
+        );
+        assertLe(
+            post.leveragedPrice,
+            pre.leveragedPrice + Math.ceilDiv((1 + r) * p, post.minterLeveraged * 1 ether),
+            "rp leveraged price rises by no more than rounding"
+        );
     }
 
     function _mintLeveraged(uint256 wrapped) internal override {
