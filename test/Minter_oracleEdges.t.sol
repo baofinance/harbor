@@ -56,11 +56,6 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
         uint256 midRate;
     }
 
-    /// @dev The number of entry points `_entryPoint` lists.
-    uint256 private constant ENTRY_POINTS = 33;
-    /// @dev The one entry point that needs an impaired market and the owner to call it.
-    uint256 private constant RECOGNISE_IMPAIRMENT = 32;
-
     function setUpConfig() internal virtual override {
         setUp_config_likely();
     }
@@ -571,121 +566,6 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
 
     // The entry points that read the oracle -----------------------------------------------------------------------
 
-    /// @dev Entry point `entryPoint`: its name, the account that calls it, and the call. The dry runs appear twice, with
-    ///      an amount and with zero, because a dry run that uses nothing falls back to the incentive-ratio lookup.
-    function _entryPoint(
-        uint256 entryPoint
-    ) private view returns (string memory name, address caller, bytes memory call) {
-        caller = zeroFee;
-        if (entryPoint == 0) {
-            name = "collateralRatio";
-            call = abi.encodeCall(IMinter_v3.collateralRatio, ());
-        } else if (entryPoint == 1) {
-            name = "leverageRatio";
-            call = abi.encodeCall(IMinter_v3.leverageRatio, ());
-        } else if (entryPoint == 2) {
-            name = "leveragedMintable";
-            call = abi.encodeCall(IMinter_v3.leveragedMintable, ());
-        } else if (entryPoint == 3) {
-            name = "leveragedTokenPrice";
-            call = abi.encodeCall(IMinter_v3.leveragedTokenPrice, ());
-        } else if (entryPoint == 4) {
-            name = "peggedTokenPrice";
-            call = abi.encodeCall(IMinter_v3.peggedTokenPrice, ());
-        } else if (entryPoint == 5) {
-            name = "impairment";
-            call = abi.encodeCall(IMinter_v3.impairment, ());
-        } else if (entryPoint == 6) {
-            name = "mintPeggedTokenIncentiveRatio";
-            call = abi.encodeCall(IMinter_v3.mintPeggedTokenIncentiveRatio, ());
-        } else if (entryPoint == 7) {
-            name = "redeemPeggedTokenIncentiveRatio";
-            call = abi.encodeCall(IMinter_v3.redeemPeggedTokenIncentiveRatio, ());
-        } else if (entryPoint == 8) {
-            name = "mintLeveragedTokenIncentiveRatio";
-            call = abi.encodeCall(IMinter_v3.mintLeveragedTokenIncentiveRatio, ());
-        } else if (entryPoint == 9) {
-            name = "redeemLeveragedTokenIncentiveRatio";
-            call = abi.encodeCall(IMinter_v3.redeemLeveragedTokenIncentiveRatio, ());
-        } else if (entryPoint == 10) {
-            name = "redeemPeggedForCollateralRatio";
-            call = abi.encodeCall(IMinter_v3.redeemPeggedForCollateralRatio, (1.5 ether, type(uint256).max, 0, 1, 0));
-        } else if (entryPoint == 11) {
-            name = "harvestable";
-            call = abi.encodeCall(IMinter_v3.harvestable, ());
-        } else if (entryPoint == 12) {
-            name = "mintPeggedTokenDryRun";
-            call = abi.encodeWithSignature("mintPeggedTokenDryRun(uint256)", 1 ether);
-        } else if (entryPoint == 13) {
-            name = "mintPeggedTokenDryRun(0)";
-            call = abi.encodeWithSignature("mintPeggedTokenDryRun(uint256)", 0);
-        } else if (entryPoint == 14) {
-            name = "mintPeggedTokenDryRun(capped)";
-            call = abi.encodeWithSignature("mintPeggedTokenDryRun(uint256,uint256)", 1 ether, 0.05 ether);
-        } else if (entryPoint == 15) {
-            name = "redeemPeggedTokenDryRun";
-            call = abi.encodeCall(IMinter_v3.redeemPeggedTokenDryRun, (1_000 ether));
-        } else if (entryPoint == 16) {
-            name = "redeemPeggedTokenDryRun(0)";
-            call = abi.encodeCall(IMinter_v3.redeemPeggedTokenDryRun, (0));
-        } else if (entryPoint == 17) {
-            name = "mintLeveragedTokenDryRun";
-            call = abi.encodeCall(IMinter_v3.mintLeveragedTokenDryRun, (1 ether));
-        } else if (entryPoint == 18) {
-            name = "mintLeveragedTokenDryRun(0)";
-            call = abi.encodeCall(IMinter_v3.mintLeveragedTokenDryRun, (0));
-        } else if (entryPoint == 19) {
-            name = "redeemLeveragedTokenDryRun";
-            call = abi.encodeCall(IMinter_v3.redeemLeveragedTokenDryRun, (1_000 ether));
-        } else if (entryPoint == 20) {
-            name = "redeemLeveragedTokenDryRun(0)";
-            call = abi.encodeCall(IMinter_v3.redeemLeveragedTokenDryRun, (0));
-        } else if (entryPoint == 21) {
-            name = "freeRedeemDryRun";
-            call = abi.encodeCall(IMinter_v3.freeRedeemDryRun, (1_000 ether, 1_000 ether));
-        } else if (entryPoint == 22) {
-            name = "mintPeggedToken";
-            call = abi.encodeWithSignature("mintPeggedToken(uint256,address,uint256)", 1 ether, zeroFee, 0);
-        } else if (entryPoint == 23) {
-            name = "mintPeggedToken(capped)";
-            call = abi.encodeWithSignature(
-                "mintPeggedToken(uint256,address,uint256,uint256)",
-                1 ether,
-                zeroFee,
-                0,
-                0.05 ether
-            );
-        } else if (entryPoint == 24) {
-            name = "redeemPeggedToken";
-            call = abi.encodeCall(IMinter_v3.redeemPeggedToken, (1_000 ether, zeroFee, 0));
-        } else if (entryPoint == 25) {
-            name = "mintLeveragedToken";
-            call = abi.encodeCall(IMinter_v3.mintLeveragedToken, (1 ether, zeroFee, 0));
-        } else if (entryPoint == 26) {
-            name = "redeemLeveragedToken";
-            call = abi.encodeCall(IMinter_v3.redeemLeveragedToken, (1_000 ether, zeroFee, 0));
-        } else if (entryPoint == 27) {
-            name = "freeMintPeggedToken";
-            call = abi.encodeCall(IMinter_v3.freeMintPeggedToken, (1 ether, zeroFee));
-        } else if (entryPoint == 28) {
-            name = "freeRedeemPeggedToken";
-            call = abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (1_000 ether, 1_000 ether, zeroFee));
-        } else if (entryPoint == 29) {
-            name = "freeMintLeveragedToken";
-            call = abi.encodeCall(IMinter_v3.freeMintLeveragedToken, (1 ether, zeroFee));
-        } else if (entryPoint == 30) {
-            name = "freeRedeemLeveragedToken";
-            call = abi.encodeCall(IMinter_v3.freeRedeemLeveragedToken, (1_000 ether, zeroFee));
-        } else if (entryPoint == 31) {
-            name = "donateWrappedCollateral";
-            call = abi.encodeCall(IMinter_v3.donateWrappedCollateral, (1 ether));
-        } else {
-            name = "recogniseImpairment";
-            caller = owner();
-            call = abi.encodeCall(IMinter_v3.recogniseImpairment, ());
-        }
-    }
-
     /// @dev Counts the calls to the oracle's `latestAnswer` among recorded account accesses.
     function _oracleReads(VmSafe.AccountAccess[] memory accesses) private view returns (uint256 reads) {
         for (uint256 i = 0; i < accesses.length; ++i) {
@@ -708,10 +588,11 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
     /// checked and reported before the test decides, so one run shows each that reads more than once.
     function test_everyEntryPointReadsTheOracleOnce() public {
         Band memory band = _openBand(50, 50);
+        EntryPoint[] memory points = _oracleReadingEntryPoints(zeroFee, 1 ether, 1_000 ether);
         uint256 wrong = 0;
-        for (uint256 entryPoint = 0; entryPoint < ENTRY_POINTS; ++entryPoint) {
+        for (uint256 i = 0; i < points.length; ++i) {
             uint256 snapshot = vm.snapshotState();
-            if (entryPoint == RECOGNISE_IMPAIRMENT) {
+            if (bytes4(points[i].call) == IMinter_v3.recogniseImpairment.selector) {
                 // an impaired rate, so there is something to recognise
                 MockWrappedPriceOracle(priceOracle).setLatestAnswer(
                     band.minPrice,
@@ -720,16 +601,15 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
                     band.maxRate
                 );
             }
-            (string memory name, address caller, bytes memory call) = _entryPoint(entryPoint);
-            vm.startPrank(caller);
+            vm.startPrank(points[i].caller);
             vm.startStateDiffRecording();
-            (bool served, ) = minter.call(call);
+            (bool served, ) = minter.call(points[i].call);
             uint256 reads = _oracleReads(vm.stopAndReturnStateDiff());
             vm.stopPrank();
             vm.revertToState(snapshot);
 
-            assertTrue(served, string.concat(name, " is served"));
-            console2.log(string.concat(name, " reads the oracle"), reads);
+            assertTrue(served, string.concat(points[i].name, " is served"));
+            console2.log(string.concat(points[i].name, " reads the oracle"), reads);
             if (reads != 1) {
                 ++wrong;
             }
@@ -742,14 +622,14 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
     function test_aRevertingOracle_revertsEveryEntryPointWithItsOwnError() public {
         bytes memory oracleDown = abi.encodeWithSignature("OracleDown()");
         vm.mockCallRevert(priceOracle, abi.encodeWithSelector(IWrappedPriceOracle.latestAnswer.selector), oracleDown);
-        for (uint256 entryPoint = 0; entryPoint < ENTRY_POINTS; ++entryPoint) {
-            (string memory name, address caller, bytes memory call) = _entryPoint(entryPoint);
-            vm.startPrank(caller);
-            (bool served, bytes memory reason) = minter.call(call);
+        EntryPoint[] memory points = _oracleReadingEntryPoints(zeroFee, 1 ether, 1_000 ether);
+        for (uint256 i = 0; i < points.length; ++i) {
+            vm.startPrank(points[i].caller);
+            (bool served, bytes memory reason) = minter.call(points[i].call);
             vm.stopPrank();
 
-            assertFalse(served, string.concat(name, " is served"));
-            assertEq(reason, oracleDown, string.concat(name, " reverts with the oracle's own error"));
+            assertFalse(served, string.concat(points[i].name, " is served"));
+            assertEq(reason, oracleDown, string.concat(points[i].name, " reverts with the oracle's own error"));
         }
     }
 }

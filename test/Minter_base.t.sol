@@ -480,6 +480,189 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         }
         vm.stopPrank();
     }
+
+    /// @dev One of the minter's entry points as a test calls it: its name, the account that calls it, and the call.
+    struct EntryPoint {
+        string name;
+        address caller;
+        bytes call;
+    }
+
+    /// @dev Every entry point that reads the price oracle - the market's measures and incentive ratios, the mints,
+    ///      redemptions and their dry runs, the zero-fee routes, and the reads of the backing and the harvest - called
+    ///      by `retail` on the retail routes, by the zero-fee holder on the zero-fee ones and by the owner to recognise
+    ///      an impairment, with `mintAmount` of wrapped and `redeemAmount` of pegged or leveraged, sized to a suite's
+    ///      market. The dry runs appear with an amount and with zero, because a dry run that uses nothing falls back to
+    ///      the incentive-ratio lookup; the zero-fee pegged redemption and its dry run with each leg alone and both.
+    function _oracleReadingEntryPoints(
+        address retail,
+        uint256 mintAmount,
+        uint256 redeemAmount
+    ) internal view returns (EntryPoint[] memory points) {
+        points = new EntryPoint[](37);
+        points[0] = EntryPoint("collateralRatio", retail, abi.encodeCall(IMinter_v3.collateralRatio, ()));
+        points[1] = EntryPoint("leverageRatio", retail, abi.encodeCall(IMinter_v3.leverageRatio, ()));
+        points[2] = EntryPoint("leveragedMintable", retail, abi.encodeCall(IMinter_v3.leveragedMintable, ()));
+        points[3] = EntryPoint("leveragedTokenPrice", retail, abi.encodeCall(IMinter_v3.leveragedTokenPrice, ()));
+        points[4] = EntryPoint("peggedTokenPrice", retail, abi.encodeCall(IMinter_v3.peggedTokenPrice, ()));
+        points[5] = EntryPoint("impairment", retail, abi.encodeCall(IMinter_v3.impairment, ()));
+        points[6] = EntryPoint(
+            "mintPeggedTokenIncentiveRatio",
+            retail,
+            abi.encodeCall(IMinter_v3.mintPeggedTokenIncentiveRatio, ())
+        );
+        points[7] = EntryPoint(
+            "redeemPeggedTokenIncentiveRatio",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemPeggedTokenIncentiveRatio, ())
+        );
+        points[8] = EntryPoint(
+            "mintLeveragedTokenIncentiveRatio",
+            retail,
+            abi.encodeCall(IMinter_v3.mintLeveragedTokenIncentiveRatio, ())
+        );
+        points[9] = EntryPoint(
+            "redeemLeveragedTokenIncentiveRatio",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemLeveragedTokenIncentiveRatio, ())
+        );
+        points[10] = EntryPoint(
+            "redeemPeggedForCollateralRatio",
+            retail,
+            abi.encodeCall(
+                IMinter_v3.redeemPeggedForCollateralRatio,
+                (1.5 ether, redeemAmount, redeemAmount, redeemAmount, redeemAmount)
+            )
+        );
+        points[11] = EntryPoint("harvestable", retail, abi.encodeCall(IMinter_v3.harvestable, ()));
+        points[12] = EntryPoint(
+            "mintPeggedTokenDryRun",
+            retail,
+            abi.encodeWithSignature("mintPeggedTokenDryRun(uint256)", mintAmount)
+        );
+        points[13] = EntryPoint(
+            "mintPeggedTokenDryRun(0)",
+            retail,
+            abi.encodeWithSignature("mintPeggedTokenDryRun(uint256)", 0)
+        );
+        points[14] = EntryPoint(
+            "mintPeggedTokenDryRun(capped)",
+            retail,
+            abi.encodeWithSignature("mintPeggedTokenDryRun(uint256,uint256)", mintAmount, 0.05 ether)
+        );
+        points[15] = EntryPoint(
+            "redeemPeggedTokenDryRun",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemPeggedTokenDryRun, (redeemAmount))
+        );
+        points[16] = EntryPoint(
+            "redeemPeggedTokenDryRun(0)",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemPeggedTokenDryRun, (0))
+        );
+        points[17] = EntryPoint(
+            "mintLeveragedTokenDryRun",
+            retail,
+            abi.encodeCall(IMinter_v3.mintLeveragedTokenDryRun, (mintAmount))
+        );
+        points[18] = EntryPoint(
+            "mintLeveragedTokenDryRun(0)",
+            retail,
+            abi.encodeCall(IMinter_v3.mintLeveragedTokenDryRun, (0))
+        );
+        points[19] = EntryPoint(
+            "redeemLeveragedTokenDryRun",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemLeveragedTokenDryRun, (redeemAmount))
+        );
+        points[20] = EntryPoint(
+            "redeemLeveragedTokenDryRun(0)",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemLeveragedTokenDryRun, (0))
+        );
+        points[21] = EntryPoint(
+            "freeRedeemDryRun",
+            retail,
+            abi.encodeCall(IMinter_v3.freeRedeemDryRun, (redeemAmount, redeemAmount))
+        );
+        points[22] = EntryPoint(
+            "freeRedeemDryRun(collateral leg)",
+            retail,
+            abi.encodeCall(IMinter_v3.freeRedeemDryRun, (redeemAmount, 0))
+        );
+        points[23] = EntryPoint(
+            "freeRedeemDryRun(leveraged leg)",
+            retail,
+            abi.encodeCall(IMinter_v3.freeRedeemDryRun, (0, redeemAmount))
+        );
+        points[24] = EntryPoint(
+            "mintPeggedToken",
+            retail,
+            abi.encodeWithSignature("mintPeggedToken(uint256,address,uint256)", mintAmount, retail, 0)
+        );
+        points[25] = EntryPoint(
+            "mintPeggedToken(capped)",
+            retail,
+            abi.encodeWithSignature(
+                "mintPeggedToken(uint256,address,uint256,uint256)",
+                mintAmount,
+                retail,
+                0,
+                0.05 ether
+            )
+        );
+        points[26] = EntryPoint(
+            "redeemPeggedToken",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemPeggedToken, (redeemAmount, retail, 0))
+        );
+        points[27] = EntryPoint(
+            "mintLeveragedToken",
+            retail,
+            abi.encodeCall(IMinter_v3.mintLeveragedToken, (mintAmount, retail, 0))
+        );
+        points[28] = EntryPoint(
+            "redeemLeveragedToken",
+            retail,
+            abi.encodeCall(IMinter_v3.redeemLeveragedToken, (redeemAmount, retail, 0))
+        );
+        points[29] = EntryPoint(
+            "freeMintPeggedToken",
+            zeroFee,
+            abi.encodeCall(IMinter_v3.freeMintPeggedToken, (mintAmount, zeroFee))
+        );
+        points[30] = EntryPoint(
+            "freeRedeemPeggedToken",
+            zeroFee,
+            abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (redeemAmount, redeemAmount, zeroFee))
+        );
+        points[31] = EntryPoint(
+            "freeRedeemPeggedToken(collateral leg)",
+            zeroFee,
+            abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (redeemAmount, 0, zeroFee))
+        );
+        points[32] = EntryPoint(
+            "freeRedeemPeggedToken(leveraged leg)",
+            zeroFee,
+            abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (0, redeemAmount, zeroFee))
+        );
+        points[33] = EntryPoint(
+            "freeMintLeveragedToken",
+            zeroFee,
+            abi.encodeCall(IMinter_v3.freeMintLeveragedToken, (mintAmount, zeroFee))
+        );
+        points[34] = EntryPoint(
+            "freeRedeemLeveragedToken",
+            zeroFee,
+            abi.encodeCall(IMinter_v3.freeRedeemLeveragedToken, (redeemAmount, zeroFee))
+        );
+        points[35] = EntryPoint(
+            "donateWrappedCollateral",
+            zeroFee,
+            abi.encodeCall(IMinter_v3.donateWrappedCollateral, (mintAmount))
+        );
+        points[36] = EntryPoint("recogniseImpairment", owner(), abi.encodeCall(IMinter_v3.recogniseImpairment, ()));
+    }
 }
 
 contract TestMinterInit is TestMinterSetUp {

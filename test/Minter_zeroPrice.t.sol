@@ -10,7 +10,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 /// @notice A zero collateral price is legitimate - the oracle gives one only when it is - and the minter handles it:
-/// every entry point that reads the price answers or reverts by name, and a pegged token, redeemed below the peg,
+/// every entry point that reads the oracle answers or reverts by name, and a pegged token, redeemed below the peg,
 /// pays its share of the backing in kind whatever the price, zero included.
 contract TestMinterZeroPrice is TestMinterSetUp {
     address user;
@@ -116,129 +116,13 @@ contract TestMinterZeroPrice is TestMinterSetUp {
         assertTrue(selector != bytes4(keccak256("Error(string)")), string.concat(name, ": reverted with a string"));
     }
 
-    /// Every entry point that reads the price, given a zero price, answers or reverts by name.
-    function test_everyPriceReadingEntryPoint_atAZeroPrice_answersOrRevertsByName() public {
-        _answersOrRevertsByName("collateralRatio", user, abi.encodeCall(IMinter_v3.collateralRatio, ()));
-        _answersOrRevertsByName("leverageRatio", user, abi.encodeCall(IMinter_v3.leverageRatio, ()));
-        _answersOrRevertsByName("leveragedMintable", user, abi.encodeCall(IMinter_v3.leveragedMintable, ()));
-        _answersOrRevertsByName("peggedTokenPrice", user, abi.encodeCall(IMinter_v3.peggedTokenPrice, ()));
-        _answersOrRevertsByName("leveragedTokenPrice", user, abi.encodeCall(IMinter_v3.leveragedTokenPrice, ()));
-        _answersOrRevertsByName(
-            "mintPeggedTokenIncentiveRatio",
-            user,
-            abi.encodeCall(IMinter_v3.mintPeggedTokenIncentiveRatio, ())
-        );
-        _answersOrRevertsByName(
-            "redeemPeggedTokenIncentiveRatio",
-            user,
-            abi.encodeCall(IMinter_v3.redeemPeggedTokenIncentiveRatio, ())
-        );
-        _answersOrRevertsByName(
-            "mintLeveragedTokenIncentiveRatio",
-            user,
-            abi.encodeCall(IMinter_v3.mintLeveragedTokenIncentiveRatio, ())
-        );
-        _answersOrRevertsByName(
-            "redeemLeveragedTokenIncentiveRatio",
-            user,
-            abi.encodeCall(IMinter_v3.redeemLeveragedTokenIncentiveRatio, ())
-        );
-        _answersOrRevertsByName(
-            "mintPeggedToken",
-            user,
-            abi.encodeWithSignature("mintPeggedToken(uint256,address,uint256)", 1 ether, user, 0)
-        );
-        _answersOrRevertsByName(
-            "mintPeggedToken capped",
-            user,
-            abi.encodeWithSignature(
-                "mintPeggedToken(uint256,address,uint256,uint256)",
-                1 ether,
-                user,
-                0,
-                type(uint256).max
-            )
-        );
-        _answersOrRevertsByName(
-            "redeemPeggedToken",
-            user,
-            abi.encodeCall(IMinter_v3.redeemPeggedToken, (1 ether, user, 0))
-        );
-        _answersOrRevertsByName(
-            "mintLeveragedToken",
-            user,
-            abi.encodeCall(IMinter_v3.mintLeveragedToken, (1 ether, user, 0))
-        );
-        _answersOrRevertsByName(
-            "redeemLeveragedToken",
-            user,
-            abi.encodeCall(IMinter_v3.redeemLeveragedToken, (1 ether, user, 0))
-        );
-        _answersOrRevertsByName(
-            "mintPeggedTokenDryRun",
-            user,
-            abi.encodeWithSignature("mintPeggedTokenDryRun(uint256)", 1 ether)
-        );
-        _answersOrRevertsByName(
-            "mintPeggedTokenDryRun capped",
-            user,
-            abi.encodeWithSignature("mintPeggedTokenDryRun(uint256,uint256)", 1 ether, type(uint256).max)
-        );
-        _answersOrRevertsByName(
-            "redeemPeggedTokenDryRun",
-            user,
-            abi.encodeCall(IMinter_v3.redeemPeggedTokenDryRun, (1 ether))
-        );
-        _answersOrRevertsByName(
-            "mintLeveragedTokenDryRun",
-            user,
-            abi.encodeCall(IMinter_v3.mintLeveragedTokenDryRun, (1 ether))
-        );
-        _answersOrRevertsByName(
-            "redeemLeveragedTokenDryRun",
-            user,
-            abi.encodeCall(IMinter_v3.redeemLeveragedTokenDryRun, (1 ether))
-        );
-        _answersOrRevertsByName(
-            "freeMintPeggedToken",
-            zeroFee,
-            abi.encodeCall(IMinter_v3.freeMintPeggedToken, (1 ether, zeroFee))
-        );
-        _answersOrRevertsByName(
-            "freeMintLeveragedToken",
-            zeroFee,
-            abi.encodeCall(IMinter_v3.freeMintLeveragedToken, (1 ether, zeroFee))
-        );
-        _answersOrRevertsByName(
-            "freeRedeemPeggedToken for collateral",
-            zeroFee,
-            abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (1 ether, 0, zeroFee))
-        );
-        _answersOrRevertsByName(
-            "freeRedeemPeggedToken for leveraged",
-            zeroFee,
-            abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (0, 1 ether, zeroFee))
-        );
-        _answersOrRevertsByName(
-            "freeRedeemLeveragedToken",
-            zeroFee,
-            abi.encodeCall(IMinter_v3.freeRedeemLeveragedToken, (1 ether, zeroFee))
-        );
-        _answersOrRevertsByName(
-            "freeRedeemDryRun for collateral",
-            zeroFee,
-            abi.encodeCall(IMinter_v3.freeRedeemDryRun, (1 ether, 0))
-        );
-        _answersOrRevertsByName(
-            "freeRedeemDryRun for leveraged",
-            zeroFee,
-            abi.encodeCall(IMinter_v3.freeRedeemDryRun, (0, 1 ether))
-        );
-        _answersOrRevertsByName(
-            "redeemPeggedForCollateralRatio",
-            user,
-            abi.encodeCall(IMinter_v3.redeemPeggedForCollateralRatio, (1.5 ether, 5 ether, 5 ether, 5 ether, 5 ether))
-        );
+    /// Every entry point that reads the oracle - for the price, or only for the rate - given a zero price, answers or
+    /// reverts by name.
+    function test_everyOracleReadingEntryPoint_atAZeroPrice_answersOrRevertsByName() public {
+        EntryPoint[] memory points = _oracleReadingEntryPoints(user, 1 ether, 1 ether);
+        for (uint256 i = 0; i < points.length; ++i) {
+            _answersOrRevertsByName(points[i].name, points[i].caller, points[i].call);
+        }
     }
 }
 
