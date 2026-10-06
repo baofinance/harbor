@@ -93,6 +93,7 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
     /// @dev The rebalance itself, external so the caller can observe the one limit it can reach.
     function rebalanceProbe() external {
         vm.startPrank(bountyReceiver);
+        // The manager is the deployed v1 one or a v2 one: the v1 interface, whose `rebalance` v2 carries too.
         IStabilityPoolManager(market.manager).rebalance(bountyReceiver, 0);
         vm.stopPrank();
     }

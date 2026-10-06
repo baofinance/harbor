@@ -9,6 +9,7 @@ import {Token} from "@bao/Token.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
 
 /// @title TestStabilityPoolExtra
@@ -240,18 +241,18 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
     // Test non-asset token sweep
     function testSweepNonAssetToken() public {
         // Mint reward tokens to the pool
-        rewardToken.mint(address(stabilityPoolCollateral), REWARD_AMOUNT);
+        MockERC20(rewardToken).mint(address(stabilityPoolCollateral), REWARD_AMOUNT);
 
         // Record balances before sweep
-        uint256 rebalancerBalanceBefore = rewardToken.balanceOf(rebalancer);
+        uint256 rebalancerBalanceBefore = IERC20(rewardToken).balanceOf(rebalancer);
 
         // Sweep non-asset token
         vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(address(rewardToken), REWARD_AMOUNT, rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(rewardToken, REWARD_AMOUNT, rebalancer);
 
         // Verify the token was swept without affecting pool state
         assertEq(
-            rewardToken.balanceOf(rebalancer),
+            IERC20(rewardToken).balanceOf(rebalancer),
             rebalancerBalanceBefore + REWARD_AMOUNT,
             "Rebalancer should receive swept tokens"
         );

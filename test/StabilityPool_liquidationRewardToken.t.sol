@@ -55,20 +55,20 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
     function test_theNamedTokenIsCreditedAtOnce_toTheHoldersWhoBearTheLoss() public {
         _twoDepositors();
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
-        _sweepAndFund(address(rewardToken), LIQUIDATED, RETURNED);
+        _sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
 
         vm.startPrank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);
-        emit IStabilityPool_v3.Liquidated(peggedToken, LIQUIDATED, address(rewardToken), RETURNED);
-        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(address(rewardToken), LIQUIDATED, RETURNED);
+        emit IStabilityPool_v3.Liquidated(peggedToken, LIQUIDATED, rewardToken, RETURNED);
+        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, LIQUIDATED, RETURNED);
         vm.stopPrank();
 
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore - LIQUIDATED, "the loss is on the books");
 
         // Claimable now, with no time passed: a liquidation reward accrues, it does not stream. Each share floors
         // once in the integral and once in the claim, so together the two may fall short of the whole by 2 wei.
-        uint256 one = _claimable(user1, address(rewardToken));
-        uint256 two = _claimable(user2, address(rewardToken));
+        uint256 one = _claimable(user1, rewardToken);
+        uint256 two = _claimable(user2, rewardToken);
         assertApproxEqAbs(one + two, RETURNED, 2, "the whole reward is claimable at once");
         assertApproxEqAbs(one, RETURNED / 4, 1, "one bore a quarter of the loss and is paid a quarter");
         assertApproxEqAbs(two, (RETURNED * 3) / 4, 1, "two bore three quarters and is paid three quarters");
@@ -79,7 +79,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         vm.startPrank(user3);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_ONE, user3, 0);
         vm.stopPrank();
-        assertEq(_claimable(user3, address(rewardToken)), 0, "a later depositor bore no loss and is paid nothing");
+        assertEq(_claimable(user3, rewardToken), 0, "a later depositor bore no loss and is paid nothing");
     }
 
     /// The collateral is a token like any other the pool distributes: named, it is credited the same way.
@@ -97,7 +97,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
             2,
             "the collateral is claimable at once"
         );
-        assertEq(_claimable(user1, address(rewardToken)), 0, "and no other token was credited");
+        assertEq(_claimable(user1, rewardToken), 0, "and no other token was credited");
     }
 
     /// A liquidation in a token the pool does not distribute reverts by name: a reward accrued in it would be stranded.
@@ -117,13 +117,13 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
     function test_notifyLiquidation_revertsOnARetiredToken() public {
         _twoDepositors();
         vm.startPrank(rewardManager);
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(address(rewardToken));
+        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(rewardToken);
         vm.stopPrank();
-        _sweepAndFund(address(rewardToken), LIQUIDATED, 0);
+        _sweepAndFund(rewardToken, LIQUIDATED, 0);
 
         vm.startPrank(rebalancer);
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
-        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(address(rewardToken), LIQUIDATED, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, LIQUIDATED, 0);
         vm.stopPrank();
     }
 
@@ -133,7 +133,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
 
         vm.startPrank(user1);
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(address(rewardToken), 0, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, 0, 0);
         vm.stopPrank();
     }
 }

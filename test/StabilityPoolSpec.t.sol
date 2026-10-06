@@ -317,27 +317,27 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         // only rewardDepositors
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
 
         // Distribute rewards
         vm.startPrank(rewardDepositor);
-        rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
+        IERC20(rewardToken).transfer(stabilityPoolCollateral, REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
         vm.stopPrank();
 
-        assertEq(IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(address(rewardToken)))[0], 0);
+        assertEq(IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0], 0);
 
-        assertEq(IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(address(rewardToken)))[0], 0);
+        assertEq(IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0], 0);
 
         skip(3.5 days);
         assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(address(rewardToken)))[0],
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
             REWARD_AMOUNT / 4,
             0.01e18
         );
 
         assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(address(rewardToken)))[0],
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0],
             REWARD_AMOUNT / 4,
             0.01e18
         );
@@ -345,13 +345,13 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         skip(3.5 days);
         // Check rewards
         assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(address(rewardToken)))[0],
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
             REWARD_AMOUNT / 2,
             0.01e18
         );
 
         assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(address(rewardToken)))[0],
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0],
             REWARD_AMOUNT / 2,
             0.01e18
         );
@@ -472,7 +472,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         // Distribute rewards
         vm.startPrank(rewardDepositor);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
         vm.stopPrank();
         skip(7 days); // Wait for rewards to accumulate
 
@@ -480,19 +480,19 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         uint256 totalDeposits = DEPOSIT_AMOUNT * 6; // 1 + 2 + 3 = 6 units
 
         assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(address(rewardToken)))[0],
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
             (REWARD_AMOUNT * DEPOSIT_AMOUNT) / totalDeposits, // 1/6 share
             0.01e18
         );
 
         assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(address(rewardToken)))[0],
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0],
             (REWARD_AMOUNT * DEPOSIT_AMOUNT * 2) / totalDeposits, // 2/6 share
             0.01e18
         );
 
         assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(address(rewardToken)))[0],
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken))[0],
             (REWARD_AMOUNT * DEPOSIT_AMOUNT * 3) / totalDeposits, // 3/6 share
             0.01e18
         );
@@ -505,23 +505,23 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         // Try to accumulate reward without registering token first - should revert
         vm.prank(rewardDepositor);
-        rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
+        IERC20(rewardToken).transfer(stabilityPoolCollateral, REWARD_AMOUNT);
 
         address[] memory activeTokensBefore = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
-        assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
+        assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(rewardToken));
         vm.prank(owner());
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(address(rewardToken));
-        assertFalse(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
+        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(rewardToken);
+        assertFalse(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(rewardToken));
 
         // This call should fail as the token isn't registered yet
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
         vm.prank(rewardDepositor);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
 
         // Now register the token properly with the REWARD_MANAGER_ROLE
         vm.prank(rewardManager);
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
-        assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(rewardToken);
+        assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(rewardToken));
 
         // Verify token is registered
         address[] memory activeTokens = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
@@ -529,14 +529,14 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         // Now we should be able to accumulate rewards
         vm.startPrank(rewardDepositor);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
         vm.stopPrank();
         skip(7 days); // Wait for rewards to accumulate
 
         // Verify rewards are claimable
         uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
             user1,
-            aa(address(rewardToken))
+            aa(rewardToken)
         )[0];
         assertApproxEqRel(claimable, REWARD_AMOUNT, 0.01e18, "User1 should have claimable rewards after registration");
     }

@@ -10,7 +10,9 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
@@ -117,6 +119,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
             // here too, so that a column read against a local run compares the RULE and not the fee schedule: a
             // deployed conversion paid its pool exactly 0.99 of fair value before this, and the 0.01 was the
             // bounty, not the rule.
+            // The deployed manager is v1, whose interface this is.
             vm.startPrank(IBaoOwnable(market.manager).owner());
             IStabilityPoolManager(market.manager).updateRebalanceBountyRatio(0);
             IStabilityPoolManager(market.manager).updateHarvestBountyRatio(0);
@@ -223,16 +226,16 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
             ruleUnderTest.buildManager(market.minter, market.collateralPool, market.leveragedPool),
             abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), deployedOwner))
         );
-        IStabilityPoolManager(market.manager).updateRebalanceThreshold(1.3 ether);
+        IStabilityPoolManager_v2(market.manager).updateRebalanceThreshold(1.3 ether);
 
         vm.startPrank(deployedOwner);
         IBaoRoles(market.collateralPool).grantRoles(
             market.manager,
-            IStabilityPool(market.collateralPool).REBALANCER_ROLE()
+            IStabilityPool_v3(market.collateralPool).REBALANCER_ROLE()
         );
         IBaoRoles(market.leveragedPool).grantRoles(
             market.manager,
-            IStabilityPool(market.leveragedPool).REBALANCER_ROLE()
+            IStabilityPool_v3(market.leveragedPool).REBALANCER_ROLE()
         );
         IBaoRoles(market.minter).grantRoles(market.manager, IMinter(market.minter).ZERO_FEE_ROLE());
         vm.stopPrank();
@@ -246,7 +249,8 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
     }
 
     /// @dev The genesis pegged, split between the pools as the run asked for. Whatever the two shares leave
-    /// over stays here, an ordinary pegged holder beside the pools.
+    /// over stays here, an ordinary pegged holder beside the pools. The pools are the deployed ones or their v3
+    /// upgrade, so the deposits go through the base `IStabilityPool`, whose `deposit` both versions carry.
     function _fundInitialConditions(uint256 collateralPoolShare, uint256 leveragedPoolShare) internal virtual {
         uint256 held = IERC20(market.pegged).balanceOf(address(this));
         IERC20(market.pegged).approve(market.collateralPool, type(uint256).max);

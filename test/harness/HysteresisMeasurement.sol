@@ -81,6 +81,8 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
         }
         uint256 topUp = Math.min(target - held, IERC20(market.pegged).balanceOf(address(this)));
         if (topUp > 0) {
+            // The pool is a deployed v2 one or a v3 one, so the deposit goes through the base interface v2 implements,
+            // whose `deposit` v3 carries too.
             IStabilityPool(market.leveragedPool).deposit(topUp, address(this), 0);
         }
     }

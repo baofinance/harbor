@@ -6,7 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 
@@ -113,10 +113,10 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
         uint256 toCollateral = Math.mulDiv(held, collateralPoolShare, 1 ether);
         uint256 toLeveraged = Math.mulDiv(held, leveragedPoolShare, 1 ether);
         if (toCollateral > 0) {
-            IStabilityPool(market.collateralPool).deposit(toCollateral, address(this), 0);
+            IStabilityPool_v3(market.collateralPool).deposit(toCollateral, address(this), 0);
         }
         if (toLeveraged > 0) {
-            IStabilityPool(stabilityPoolLeveraged).deposit(toLeveraged, address(this), 0);
+            IStabilityPool_v3(stabilityPoolLeveraged).deposit(toLeveraged, address(this), 0);
         }
     }
 }

@@ -8,7 +8,7 @@ import {BaoTest} from "@bao-test/BaoTest.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 /// @notice The StabilityPool's fixture-agnostic conservation checks and the raw accumulations under them, shared by
 /// every test that drives the pool through stateful sequences: the stateful invariant (StabilityPoolInvariant), the
@@ -119,7 +119,7 @@ abstract contract StabilityPoolConservation is BaoTest {
     /// under-credit: at dust scale the LAST claimer can fall a few wei short).
     function _assertSpSolvent(address pool, address[] memory actors, SpConservationGhosts memory g) internal view {
         assertGe(
-            IERC20(IStabilityPool(pool).ASSET_TOKEN()).balanceOf(pool),
+            IERC20(IStabilityPool_v3(pool).ASSET_TOKEN()).balanceOf(pool),
             IERC20(pool).totalSupply(),
             "asset balance below total supply"
         );
@@ -243,7 +243,7 @@ abstract contract MockStabilityPoolConservation is StabilityPoolConservation {
         }
         assertGe(
             divisor + _balanceSumSlack(maxSupplyEver, calls, actors.length),
-            IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY(),
+            IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY(),
             "reward divisor below the pool floor: the integral cap's worst-case divisor is unsound"
         );
     }

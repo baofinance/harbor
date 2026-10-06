@@ -166,6 +166,8 @@ abstract contract MarketUnderTest {
     /// propagates unchanged.
     function _rebalanceUnlessTheRuleReverts(address keeper) internal returns (bool rebalanced) {
         _vm.startPrank(keeper);
+        // The manager is the deployed v1 one or a v2 one, so the call goes through the v1 interface the deployed one
+        // implements; v2 carries the same `rebalance` and `rebalanceable`.
         try IStabilityPoolManager(market.manager).rebalance(keeper, 0) {
             rebalanced = true;
         } catch (bytes memory err) {

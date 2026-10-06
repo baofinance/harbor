@@ -7,7 +7,6 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
@@ -20,7 +19,7 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
     address user3;
     address user4;
-    MockERC20 rewardToken;
+    address rewardToken;
     uint256 constant INITIAL_BALANCE = 1000 ether;
     uint256 price;
 
@@ -32,18 +31,20 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
         user4 = makeAddr("user4");
 
         // Create a reward token
-        rewardToken = new MockERC20("Reward Token", "RWD", 18);
+        rewardToken = address(new MockERC20("Reward Token", "RWD", 18));
 
         // Register reward token
-        vm.prank(rewardManager);
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
+        vm.startPrank(rewardManager);
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(rewardToken);
+        vm.stopPrank();
 
         // Mint reward tokens
-        rewardToken.mint(rewardDepositor, 1000 ether);
+        MockERC20(rewardToken).mint(rewardDepositor, 1000 ether);
 
         // Approve the stabilityPool to spend reward tokens
-        vm.prank(rewardDepositor);
-        rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
+        vm.startPrank(rewardDepositor);
+        IERC20(rewardToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
         // Give users tokens for deposits
         deal(peggedToken, user1, INITIAL_BALANCE);
@@ -52,17 +53,21 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
         deal(peggedToken, user4, INITIAL_BALANCE);
 
         // Set approvals
-        vm.prank(user1);
+        vm.startPrank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
-        vm.prank(user2);
+        vm.startPrank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
-        vm.prank(user3);
+        vm.startPrank(user3);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
-        vm.prank(user4);
+        vm.startPrank(user4);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
@@ -71,7 +76,7 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
     ///      out, hand the pool the collateral, and notify it naming the token. Every pool distributes the collateral.
     function _liquidate(address pool, uint256 assets) internal returns (uint256 returned) {
         returned = (assets * 1 ether) / price;
-        address assetToken = IStabilityPool(pool).ASSET_TOKEN();
+        address assetToken = IStabilityPool_v3(pool).ASSET_TOKEN();
         vm.startPrank(rebalancer);
         ITokenHolder(pool).sweep(assetToken, assets, rebalancer);
         deal(wrappedCollateralToken, rebalancer, returned);
@@ -85,10 +90,9 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
     }
 }
 
-/// @title TestStabilityPoolRebalance
-/// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool contract.
-/// It extends the TestStabilityPoolSetUp to include more complex scenarios and edge cases.
-/// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool
+/// @notice The pool's side of a liquidation: losses written down pro rata and capped at the floor, the loss per unit
+///         rounded up with the error carried into later losses, who may sweep, and deposits and withdrawals after a
+///         loss.
 contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     // Constants for testing
     uint256 constant DEPOSIT_AMOUNT = 100 ether;
@@ -106,13 +110,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     // so every post-loss balance is an exact rational and the pool conserves value to the wei.
     function test_rebalance_singleLoss_exactProRata() public {
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(100 ether, user1, 0);
         vm.stopPrank();
         vm.startPrank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(200 ether, user2, 0);
         vm.stopPrank();
         vm.startPrank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(300 ether, user3, 0);
         vm.stopPrank();
 
         // Lose 60 of 600 (exactly 1/10): loss*1e18 / 600e18 = 1e17 divides evenly, so the ceiling division
@@ -134,13 +138,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     // fee). Their balance drops by exactly the withdrawal; the others are untouched; value stays conserved.
     function test_rebalance_lossThenWithdraw_exactProRata() public {
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(100 ether, user1, 0);
         vm.stopPrank();
         vm.startPrank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(200 ether, user2, 0);
         vm.stopPrank();
         vm.startPrank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(300 ether, user3, 0);
         vm.stopPrank();
 
         // Clean 1/10 loss -> 90 / 180 / 270 (see test_rebalance_singleLoss_exactProRata).
@@ -148,12 +152,12 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // user1 withdraws 40 of their 90, inside an active request window so no fee is charged.
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(40 ether, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(40 ether, user1, 0);
         vm.stopPrank();
 
         uint256 b1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
@@ -171,13 +175,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     // users never sum above supply, and the shortfall is bounded by the rounding the pool retains.
     function test_rebalance_sequentialLosses_conserved() public {
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(100 ether, user1, 0);
         vm.stopPrank();
         vm.startPrank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(200 ether, user2, 0);
         vm.stopPrank();
         vm.startPrank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(300 ether, user3, 0);
         vm.stopPrank();
 
         // 100/600 does not divide evenly; the ceiling division retains a remainder for the pool.
@@ -206,16 +210,16 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     // MIN_TOTAL_ASSET_SUPPLY. Every user keeps a positive proportional share; shares never sum above the floor.
     function test_rebalance_lossWipesToFloor() public {
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(100 ether, user1, 0);
         vm.stopPrank();
         vm.startPrank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(200 ether, user2, 0);
         vm.stopPrank();
         vm.startPrank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(300 ether, user3, 0);
         vm.stopPrank();
 
-        uint256 minSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         // Sweep the entire withdrawable amount (supply - floor); notifyLoss caps the loss at supply - floor.
         _liquidate(600 ether - minSupply);
 
@@ -247,24 +251,22 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // the small-loss error correction, not the floor cap on the sweep
         depositAmount = bound(
             depositAmount,
-            IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY() + 1 ether,
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY() + 1 ether,
             1_000_000 ether
         );
-
-        // depositAmount = 100_000 ether; // 100 thousand tokens
-        // sweepAmount = 1; // 1 wei
 
         deal(peggedToken, user1, depositAmount);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0);
 
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        vm.stopPrank();
 
         uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         assertEq(initialBalance, depositAmount, "Initial balance should match deposit");
 
         // Verify initial lastAssetLossError
-        assertEq(IStabilityPool(stabilityPoolCollateral).lastAssetLossError(), 0, "lastAssetLossError should be 0");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "lastAssetLossError should be 0");
 
         // Sweep a tiny amount (1 wei)
         uint256 totalSupplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
@@ -291,7 +293,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             } else {
                 // When sweep amount is very close to total supply, just ensure supply doesn't go negative
                 // and remains reasonable (could be as low as MIN_TOTAL_ASSET_SUPPLY)
-                uint256 minSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+                uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
                 assertGe(
                     IERC20(stabilityPoolCollateral).totalSupply(),
                     minSupply,
@@ -300,7 +302,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             }
         } else {
             // Complete liquidation case - supply should be minimum supply
-            uint256 minSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+            uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
             assertEq(
                 IERC20(stabilityPoolCollateral).totalSupply(),
                 minSupply,
@@ -309,7 +311,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         }
 
         // Check that lastAssetLossError was updated appropriately
-        uint256 lossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         // For very small losses, the error correction mechanism may completely absorb the loss
         if (sweepAmount < totalSupplyBefore / 100) {
             // Very small loss - error correction may absorb it entirely, resulting in zero error
@@ -360,12 +362,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // Make a deposit
         deal(peggedToken, user1, initialDeposit);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(initialDeposit, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(initialDeposit, user1, 0);
+        vm.stopPrank();
 
         // Verify initial state
         uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        assertEq(IStabilityPool(stabilityPoolCollateral).lastAssetLossError(), 0, "Initial loss error should be 0");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "Initial loss error should be 0");
 
         // Create a very small loss (1 wei)
         uint256 tinyLossAmount = 1;
@@ -373,7 +376,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // Get post-loss state
         uint256 newBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 newLossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 newLossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         uint256 balanceReduction = initialBalance - newBalance;
 
         // Calculate the exact expected error based on the contract's formula
@@ -395,7 +398,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         uint256 finalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).lastAssetLossError(),
+            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
             newLossError - 1 ether,
             "Loss error should be reduced after second sweep"
         );
@@ -415,12 +418,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // Make a deposit
         deal(peggedToken, user1, initialDeposit);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(initialDeposit, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(initialDeposit, user1, 0);
+        vm.stopPrank();
 
         // Verify initial state
         uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 initialLossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 initialLossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         assertEq(initialLossError, 0, "Initial loss error should be 0");
 
         // Create a very small loss (1 wei)
@@ -429,7 +433,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // Get post-loss state
         uint256 newBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 newLossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 newLossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         uint256 balanceReduction = initialBalance - newBalance;
 
         // Calculate the exact expected error based on the contract's formula
@@ -453,7 +457,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         _liquidate(largerLossAmount);
 
         uint256 finalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 finalLossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 finalLossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         assertApproxEqAbs(
             finalLossError,
             newLossError - 1e6 ether,
@@ -469,30 +473,28 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertLt(finalLossError, newLossError, "Error should be reduced after larger sweep");
     }
 
-    // Test trying to sweep with admin role but not rebalancer role
+    // An account that is neither the owner nor a rebalancer cannot sweep
     function testSweepWithoutRebalancerRole() public {
-        // Give user4 admin role but not rebalancer role
-        // vm.prank(admin);
-        // accessManager.grantRole(ADMIN, user4);
-
-        // User4 tries to sweep tokens
-        vm.prank(user4);
+        vm.startPrank(user4);
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, 100, user4);
+        vm.stopPrank();
     }
 
     // Test the complete liquidation scenario (loss >= supply.amount)
-    // Test the complete liquidation scenario (loss >= supply.amount)
     function testCompleteLiquidation() public {
         // 1. Multiple users make deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.stopPrank();
 
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT / 2, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT / 2, user3, 0);
+        vm.stopPrank();
 
         // 2. Verify initial balances
         uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
@@ -509,7 +511,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         _liquidate(totalSupply);
 
         // 4. Verify all balances are now reduced to proportional shares of MIN_TOTAL_ASSET_SUPPLY
-        uint256 minSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
 
         // Calculate theoretical proportional balances based on original deposits
         uint256 totalOriginalDeposits = DEPOSIT_AMOUNT + (DEPOSIT_AMOUNT * 2) + (DEPOSIT_AMOUNT / 2); // 350 ether
@@ -554,32 +556,33 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // 5. Verify lastAssetLossError retains accumulated error from ceiling division
         // In complete liquidation, error tracking continues to function normally
         // The accumulated error will be consumed by future losses
-        uint256 lossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         assertEq(lossError, 50 ether, "lastAssetLossError should be 50 ether after complete liquidation");
         assertLe(lossError, totalSupply * 1 ether, "lastAssetLossError should be reasonable");
 
         // 6. Test what happens when users try to withdraw after complete liquidation
         // User1 tries to withdraw more than their actual balance (should fail)
         uint256 withdrawAmount = actualUser1Balance + 1; // One wei more than actual
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 s3, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 s3, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(s3) + 1);
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IStabilityPool.WithdrawAmountExceedsBalance.selector,
+                IStabilityPool_v3.WithdrawAmountExceedsBalance.selector,
                 withdrawAmount,
                 actualUser1Balance
             )
         );
-        IStabilityPool(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
 
         // A partial withdrawal at the floor would leave the total in the (0, MIN_TOTAL_ASSET_SUPPLY) dust zone, so it
         // reverts rather than silently paying 0 (only a request for the whole remaining supply could drain to 0).
-        vm.prank(user1);
-        vm.expectRevert(IStabilityPool.WithdrawZeroAmount.selector);
-        IStabilityPool(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
+        vm.expectRevert(IStabilityPool_v3.WithdrawZeroAmount.selector);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
+        vm.stopPrank();
 
         // The revert leaves user1's balance unchanged.
         assertEq(
@@ -589,8 +592,9 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // 7. Make a new deposit after complete liquidation to verify the system still works
-        vm.prank(user4);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 5, user4, 0);
+        vm.startPrank(user4);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 5, user4, 0);
+        vm.stopPrank();
 
         // 8. Verify the new deposit worked correctly
         assertEq(
@@ -629,7 +633,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // The error system tracks accumulated rounding differences from ceiling division
         // Error can increase or decrease depending on loss magnitude and existing error balance
         assertLt(
-            IStabilityPool(stabilityPoolCollateral).lastAssetLossError(),
+            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
             1000 ether,
             "Accumulated error should remain bounded"
         );
@@ -651,15 +655,15 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertEq(initialSupply, 0, "Pool should start with zero supply");
 
         // 2. Verify initial lastAssetLossError
-        uint256 initialError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 initialError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         assertEq(initialError, 0, "Initial lastAssetLossError should be 0");
 
         // 3. Transfer some tokens to the pool (without using deposit)
         uint256 directAmount = 1_000_000 * 1e18;
         deal(peggedToken, user1, directAmount * 2);
         vm.startPrank(user1);
-        MockERC20(peggedToken).approve(stabilityPoolCollateral, directAmount);
-        MockERC20(peggedToken).transfer(stabilityPoolCollateral, directAmount);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, directAmount);
+        IERC20(peggedToken).transfer(stabilityPoolCollateral, directAmount);
         vm.stopPrank();
 
         // 4. Verify tokens were transferred to the pool
@@ -679,12 +683,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertEq(finalSupply, 0, "Pool supply should remain zero");
 
         // 8. Verify lastAssetLossError remains at zero
-        uint256 finalError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+        uint256 finalError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         assertEq(finalError, 0, "lastAssetLossError should remain 0");
 
         // 9. Verify normal operation still works after zero-supply sweep
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user1),
@@ -697,8 +702,9 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // 1. Initial setup - user1 makes a significant deposit
         uint256 depositAmount = 1000 ether;
 
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        vm.stopPrank();
 
         // Record initial balance
         uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
@@ -731,12 +737,14 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
     function testProductResetAfterCompleteLiquidation() public {
         // 1. Initial setup with multiple users
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT, "tas#1");
 
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT * 2, "tas#2");
 
         // 2. Record initial product value
@@ -766,14 +774,16 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // 5. Make deposits from multiple users after liquidation
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
+        vm.stopPrank();
         // After complete liquidation, MIN_TOTAL_ASSET_SUPPLY remains, so total = DEPOSIT_AMOUNT + MIN_TOTAL_ASSET_SUPPLY
-        uint256 minSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT + minSupply, "tas#3");
 
-        vm.prank(user4);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user4, 0);
+        vm.startPrank(user4);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user4, 0);
+        vm.stopPrank();
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT * 3 + minSupply, "tas#4");
 
         // 6. Verify product continues from reduced state after new deposits
@@ -817,11 +827,11 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // 10. Test withdrawal after liquidation
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.warp(block.timestamp + 2 hours);
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, owner(), 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, owner(), 0);
+        vm.stopPrank();
         assertEq(
             IERC20(stabilityPoolCollateral).totalSupply(),
             DEPOSIT_AMOUNT * 2 + minSupply - DEPOSIT_AMOUNT / 2, // Account for MIN_TOTAL_ASSET_SUPPLY
