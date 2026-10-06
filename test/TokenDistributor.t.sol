@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-//import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
@@ -10,7 +9,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -25,8 +23,6 @@ import {Deployed} from "@bao/Deployed.sol";
 import {Array} from "@bao-test/utils/Array.sol";
 
 contract TestTokenDistributorSetUp is BaoTest, Array {
-    using ECDSA for bytes32;
-
     address tokenDistributor;
 
     address owner;
@@ -53,7 +49,7 @@ contract TestTokenDistributorSetUp is BaoTest, Array {
         tokenDistributor = address(
             TokenDistributor_v1(
                 UnsafeUpgrades.deployUUPSProxy(
-                    address(new TokenDistributor_v1()), //"TokenDistributor_v1.sol",
+                    address(new TokenDistributor_v1()),
                     abi.encodeCall(TokenDistributor_v1.initialize, (owner, name))
                 )
             )
@@ -94,7 +90,7 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
         UnsafeUpgrades.deployUUPSProxy(
-            impl, //"TokenDistributor_v1.sol",
+            impl,
             abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
         );
 
@@ -106,7 +102,7 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         vm.expectEmit();
         emit Initializable.Initialized(1);
         UnsafeUpgrades.deployUUPSProxy(
-            impl, //"TokenDistributor_v1.sol",
+            impl,
             abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
         );
     }
@@ -476,7 +472,6 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         ITokenHolder(tokenDistributor).sweep(token1, 1 ether, recipient1);
         ITokenDistributor(tokenDistributor).removeToken(token1);
 
-        //console.log("about to try 1 ether");
         ITokenHolder(tokenDistributor).sweep(token1, 1 ether, recipient1);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);
@@ -485,7 +480,6 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(IERC20(token2).balanceOf(recipient1), 0 ether);
         assertEq(IERC20(token2).balanceOf(recipient2), 0 ether);
 
-        //console.log("about to try -1");
         ITokenHolder(tokenDistributor).sweep(token2, type(uint256).max, recipient2); // 12
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);

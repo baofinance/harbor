@@ -2,8 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SignedMath.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
@@ -176,13 +174,6 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         // write a gnuplot data file line of both holders' claims and each reward token's distribution
         doActions();
 
-        // get claimable
-        // uint256 claimableSTEAM = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), steam);
-        // uint256 claimableCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-        //     address(this),
-        //     wrappedCollateralToken
-        // );
-
         ClaimAmounts memory claim;
         // get claim - wrap in a snapshot to avoid changes of state
         claim.STEAM1 = IERC20(steam).balanceOf(address(this));
@@ -277,12 +268,6 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             vm.stopPrank();
             rebalance2 = true;
         }
-
-        // if (!deposited2 && currentX >= startX + 6 days) {
-        //     vm.prank(rewardDepositor);
-        //     IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 2 ether);
-        //     deposited2 = true;
-        // }
     }
 }
 
