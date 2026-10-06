@@ -5,8 +5,7 @@ import {RebalanceFairnessSetUp} from "@harbor-test/deployment/RebalanceFairness.
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
@@ -24,17 +23,17 @@ import {console2} from "forge-std/console2.sol";
 /// Two scan dimensions:
 ///   - **Price drop %** (5–25%): determines liquidation severity — how much haETH the
 ///     stayer loses in the rebalance, and thus the pool-share imbalance afterward.
-///   - **Leveraged %** (10–75%): fraction of total Minter wCOL that backs leveraged tokens.
-///     Higher leveraged % → more total wCOL → harvest income is larger relative to Alice's
-///     private wCOL appreciation → the Coll SP gap closes less.
+///   - **Leveraged %** (10–75%): fraction of total Minter wrapped collateral that backs leveraged tokens.
+///     Higher leveraged % → more total wrapped collateral → harvest income is larger relative to Alice's
+///     private wrapped collateral appreciation → the collateral pool gap closes less.
 ///
 /// APR is fixed at 10% — the gap % is APR-invariant because both the harvest and the
-/// wCOL appreciation on the rebalance reward scale linearly with the rate multiplier.
-/// (The harvest comes from yield on the *entire* Minter wCOL pool, while Alice's private
+/// wrapped collateral appreciation on the rebalance reward scale linearly with the rate multiplier.
+/// (The harvest comes from yield on the *entire* Minter wrapped collateral pool, while Alice's private
 /// appreciation comes from yield on *only her* rebalance reward. Both scale with rate, so
 /// the ratio — and hence the gap % — is constant across APR.)
 ///
-/// The Lev SP gap is always equal to the raw harvest-share gap (Charlie's lev token reward
+/// The leveraged pool gap is always equal to the raw harvest-share gap (Charlie's leveraged token reward
 /// doesn't appreciate), so it depends only on liquidation severity and pool proportions.
 contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     /// @dev Set by `_openCSV`. `results/rebalance_fairness_scan.gp` plots it by the matching basename.
@@ -51,11 +50,11 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     function _initScanParams() internal {
         // Price drop in %: determines liquidation severity.
         // Must be large enough for the starting CR to fall below the 1.30 threshold.
-        // CR_start = 1 / (1 - levPct/100). Required drop > 1 - 1.30/CR_start.
-        //   lev=10%  → CR=1.111 → already below threshold, any drop triggers
-        //   lev=25%  → CR=1.333 → need > 2.5%
-        //   lev=50%  → CR=2.000 → need > 35%
-        //   lev=75%  → CR=4.000 → need > 67.5%
+        // CR_start = 1 / (1 - leveragedPct/100). Required drop > 1 - 1.30/CR_start.
+        //   leveraged=10%  → CR=1.111 → already below threshold, any drop triggers
+        //   leveraged=25%  → CR=1.333 → need > 2.5%
+        //   leveraged=50%  → CR=2.000 → need > 35%
+        //   leveraged=75%  → CR=4.000 → need > 67.5%
         // Points where CR stays above threshold are skipped (no rebalance, no gap).
         priceDropPctValues.push(5);
         priceDropPctValues.push(10);
@@ -69,10 +68,10 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         priceDropPctValues.push(70);
 
         // Leveraged fraction of total Minter collateral (%)
-        // 10% → tiny lev side, harvest pool barely above pegged backing
-        // 25% → current test setup (800K lev / 3.2M total)
-        // 50% → equal lev/pegged split (2.4M lev / 4.8M total)
-        // 75% → lev-dominated system (7.2M lev / 9.6M total)
+        // 10% → tiny leveraged side, harvest pool barely above pegged backing
+        // 25% → current test setup (800K leveraged / 3.2M total)
+        // 50% → equal leveraged/pegged split (2.4M leveraged / 4.8M total)
+        // 75% → leveraged-dominated system (7.2M leveraged / 9.6M total)
         leveragedPctValues.push(10);
         leveragedPctValues.push(25);
         leveragedPctValues.push(50);
@@ -102,27 +101,27 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     ///      which is already 18-decimal.
     function _writeRow(
         uint256 priceDropPct,
-        uint256 levPct,
+        uint256 leveragedPct,
         uint256 liquidFracPct,
         uint256 aliceWeekly,
         uint256 bobWeekly,
-        uint256 collGapPct,
+        uint256 collateralPoolGapPct,
         uint256 charlieWeekly,
         uint256 daveWeekly,
-        uint256 levGapPct
+        uint256 leveragedPoolGapPct
     ) internal {
         writeLine(
             CSV_FILE,
             ua(
                 priceDropPct * 1e18,
-                levPct * 1e18,
+                leveragedPct * 1e18,
                 liquidFracPct,
                 aliceWeekly,
                 bobWeekly,
-                collGapPct,
+                collateralPoolGapPct,
                 charlieWeekly,
                 daveWeekly,
-                levGapPct
+                leveragedPoolGapPct
             )
         );
     }
@@ -131,13 +130,13 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
 
     /// @dev Set up Scenario B up to the post-rebalance state, BEFORE re-deposits.
     ///      Returns 0 if the rebalance didn't trigger (CR above threshold).
-    function _setupToPostRebalance(uint256 priceDropPct, uint256 levPct) internal returns (uint256 liquidFracE18) {
+    function _setupToPostRebalance(uint256 priceDropPct, uint256 leveragedPct) internal returns (uint256 liquidFracE18) {
         uint256 each = 100 ether;
 
-        uint256 levCollateral = (PEGGED_COLLATERAL * levPct) / (100 - levPct);
+        uint256 leveragedCollateral = (PEGGED_COLLATERAL * leveragedPct) / (100 - leveragedPct);
 
         _mintPegged(eve, PEGGED_COLLATERAL);
-        _mintLeveraged(eve, levCollateral);
+        _mintLeveraged(eve, leveragedCollateral);
 
         vm.startPrank(eve);
         IERC20(pegged).transfer(alice, each);
@@ -159,16 +158,16 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         _withdrawAll(stabilityPoolCollateral, bob);
         _withdrawAll(stabilityPoolLeveraged, dave);
 
-        uint256 collBefore = IERC20(pegged).balanceOf(stabilityPoolCollateral);
-        try IStabilityPoolManager(stabilityPoolManager).rebalance(makeAddr("bounty"), 0) {
-            uint256 collAfter = IERC20(pegged).balanceOf(stabilityPoolCollateral);
-            liquidFracE18 = ((collBefore - collAfter) * 1 ether) / collBefore;
+        uint256 collateralPoolBefore = IERC20(pegged).balanceOf(stabilityPoolCollateral);
+        try IStabilityPoolManager_v2(stabilityPoolManager).rebalance(makeAddr("bounty"), 0) {
+            uint256 collateralPoolAfter = IERC20(pegged).balanceOf(stabilityPoolCollateral);
+            liquidFracE18 = ((collateralPoolBefore - collateralPoolAfter) * 1 ether) / collateralPoolBefore;
         } catch (bytes memory reason) {
             // Only the manager's two reverts, which leave nothing liquidated and so no row: at or above its threshold
             // there is nothing to rebalance, and at or below the peg nothing a rebalance could repair. The ratio and
             // threshold are the ones it judged, since a reverted call leaves both as they were.
             uint256 collateralRatio_ = IMinter(minter).collateralRatio();
-            uint256 rebalanceThreshold_ = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
+            uint256 rebalanceThreshold_ = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
             assertEq(
                 reason,
                 collateralRatio_ >= rebalanceThreshold_
@@ -222,12 +221,12 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         skip(1 days);
         oracleRate = (oracleRate * rateMultiplier) / 1 ether;
         mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-        IStabilityPoolManager(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
         skip(8 days);
 
         oracleRate = (oracleRate * rateMultiplier) / 1 ether;
         mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-        IStabilityPoolManager(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
         skip(8 days);
 
         aliceWeekly = (_totalDollars(alice) - aliceBefore) / 2;
@@ -271,13 +270,13 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         _openCSV();
 
         for (uint256 l = 0; l < leveragedPctValues.length; l++) {
-            uint256 levPct = leveragedPctValues[l];
+            uint256 leveragedPct = leveragedPctValues[l];
 
             for (uint256 p = 0; p < priceDropPctValues.length; p++) {
                 uint256 priceDropPct = priceDropPctValues[p];
                 uint256 snap = vm.snapshotState();
 
-                uint256 liquidFracE18 = _setupToPostRebalance(priceDropPct, levPct);
+                uint256 liquidFracE18 = _setupToPostRebalance(priceDropPct, leveragedPct);
 
                 if (liquidFracE18 > 0) {
                     _applyFeeAndRedeposit(0); // no fee
@@ -287,7 +286,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
 
                     _writeRow(
                         priceDropPct,
-                        levPct,
+                        leveragedPct,
                         liquidFracPct,
                         aliceW,
                         bobW,
@@ -302,16 +301,16 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
                             "  drop=",
                             LibString.toString(priceDropPct),
                             "% ",
-                            "lev=",
-                            LibString.toString(levPct),
+                            "leveraged=",
+                            LibString.toString(leveragedPct),
                             "% ",
                             "liqFrac=",
                             BaoTestLib.toStringScaled(liquidFracPct, 18),
                             "% | ",
-                            "coll_gap=",
+                            "collateral_gap=",
                             BaoTestLib.toStringScaled(_gapPct(bobW, aliceW), 18),
                             "% ",
-                            "lev_gap=",
+                            "leveraged_gap=",
                             BaoTestLib.toStringScaled(_gapPct(daveW, charlieW), 18),
                             "%"
                         )
@@ -322,8 +321,8 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
                             "  drop=",
                             LibString.toString(priceDropPct),
                             "% ",
-                            "lev=",
-                            LibString.toString(levPct),
+                            "leveraged=",
+                            LibString.toString(leveragedPct),
                             "% ",
                             "-- CR still above threshold, no rebalance --"
                         )
@@ -358,11 +357,11 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     // to remaining depositors would help fairness even more).
 
     /// @dev Set by `_openFeeCSV`. `results/rebalance_fairness_fee_scan.gp` plots it by the matching
-    ///      basename, and mirrors DESIGN_PRICE_DROP / DESIGN_LEV_PCT below in its captions.
+    ///      basename, and mirrors DESIGN_PRICE_DROP / DESIGN_LEVERAGED_PCT below in its captions.
     string FEE_CSV;
 
     uint256 constant DESIGN_PRICE_DROP = 10;
-    uint256 constant DESIGN_LEV_PCT = 25;
+    uint256 constant DESIGN_LEVERAGED_PCT = 25;
 
     function _openFeeCSV() internal {
         FEE_CSV = openFile(
@@ -385,14 +384,14 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         uint256 liquidFracPct,
         uint256 aliceWeekly,
         uint256 bobWeekly,
-        uint256 collGapPct,
+        uint256 collateralPoolGapPct,
         uint256 charlieWeekly,
         uint256 daveWeekly,
-        uint256 levGapPct
+        uint256 leveragedPoolGapPct
     ) internal {
         writeLine(
             FEE_CSV,
-            ua(feePct, liquidFracPct, aliceWeekly, bobWeekly, collGapPct, charlieWeekly, daveWeekly, levGapPct)
+            ua(feePct, liquidFracPct, aliceWeekly, bobWeekly, collateralPoolGapPct, charlieWeekly, daveWeekly, leveragedPoolGapPct)
         );
     }
 
@@ -408,7 +407,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             uint256 feePct = feePctValues[f];
             uint256 snap = vm.snapshotState();
 
-            uint256 liquidFracE18 = _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEV_PCT);
+            uint256 liquidFracE18 = _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEVERAGED_PCT);
             require(liquidFracE18 > 0, "design case must trigger rebalance");
 
             _applyFeeAndRedeposit(feePct);
@@ -417,33 +416,33 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
 
             // At high fees, Bob may earn less than Alice — gap goes negative (Alice is better off).
             // Use signed gap: positive = Bob earns more, negative = Alice earns more.
-            uint256 collGapPct;
-            uint256 levGapPct;
+            uint256 collateralPoolGapPct;
+            uint256 leveragedPoolGapPct;
             if (bobW >= aliceW) {
-                collGapPct = _gapPct(bobW, aliceW);
+                collateralPoolGapPct = _gapPct(bobW, aliceW);
             } else {
                 // Negative gap: encode as 0 for now (Alice is winning — fee overshot)
-                collGapPct = 0;
+                collateralPoolGapPct = 0;
             }
             if (daveW >= charlieW) {
-                levGapPct = _gapPct(daveW, charlieW);
+                leveragedPoolGapPct = _gapPct(daveW, charlieW);
             } else {
-                levGapPct = 0;
+                leveragedPoolGapPct = 0;
             }
 
             uint256 liquidFracPct = liquidFracE18 * 100;
-            _writeFeeRow(feePct * 1 ether, liquidFracPct, aliceW, bobW, collGapPct, charlieW, daveW, levGapPct);
+            _writeFeeRow(feePct * 1 ether, liquidFracPct, aliceW, bobW, collateralPoolGapPct, charlieW, daveW, leveragedPoolGapPct);
 
             console2.log(
                 string.concat(
                     "  fee=",
                     LibString.toString(feePct),
                     "% | ",
-                    "coll_gap=",
-                    BaoTestLib.toStringScaled(collGapPct, 18),
+                    "collateral_gap=",
+                    BaoTestLib.toStringScaled(collateralPoolGapPct, 18),
                     "% ",
-                    "lev_gap=",
-                    BaoTestLib.toStringScaled(levGapPct, 18),
+                    "leveraged_gap=",
+                    BaoTestLib.toStringScaled(leveragedPoolGapPct, 18),
                     "%"
                 )
             );
@@ -457,14 +456,14 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
 
     // ── Test 3: Timeline with weekly compounding ───────────────────────
     //
-    // Shows haXXX-equivalent position over 12 weeks for all actors. Every week:
+    // Shows pegged-equivalent position over 12 weeks for all actors. Every week:
     //   1. Eve mints leveraged (CR recovery towards 1.40)
     //   2. Rate bumps, harvest fires
-    //   3. Alice compounds (claim wCOL, freeMint haXXX, re-deposit)
-    //   4. Charlie compounds wCOL harvest only (hsXXX rebalance reward stays claimable)
+    //   3. Alice compounds (claim wrapped collateral, freeMint pegged, re-deposit)
+    //   4. Charlie compounds wrapped collateral harvest only (leveraged rebalance reward stays claimable)
     //
     // Two scenarios: fee=0% and fee=10% on Bob/Dave's withdrawal.
-    // haXXX-equivalent = deposit + wCOL-in-haXXX + hsXXX-in-haXXX.
+    // pegged-equivalent = deposit + wrapped collateral-in-pegged + leveraged-in-pegged.
 
     /// @dev Set by `_openTimelineCSV`. `results/rebalance_fairness_timeline.gp` plots it by the
     ///      matching basename, and mirrors TOTAL_WEEKS below in its x-range.
@@ -474,27 +473,27 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     uint256 constant TARGET_CR = 1.40 ether;
     uint256 constant CR_RECOVERY_WEEKS = 4;
 
-    // ── haXXX-equivalent valuation ─────────────────────────────────────
+    // ── pegged-equivalent valuation ─────────────────────────────────────
 
-    function _levToHaXXX(uint256 levAmount) internal view returns (uint256) {
-        if (levAmount == 0) return 0;
-        return (levAmount * IMinter(minter).leveragedTokenPrice()) / 1 ether;
+    function _leveragedToPegged(uint256 leveragedAmount) internal view returns (uint256) {
+        if (leveragedAmount == 0) return 0;
+        return (leveragedAmount * IMinter(minter).leveragedTokenPrice()) / 1 ether;
     }
 
-    function _haXXXEquivalent(address who) internal view returns (uint256) {
+    function _peggedEquivalent(address who) internal view returns (uint256) {
         uint256 peggedBal = IERC20(pegged).balanceOf(who) +
             IERC20(stabilityPoolCollateral).balanceOf(who) +
             IERC20(stabilityPoolLeveraged).balanceOf(who);
-        uint256 wcolColl = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
-        uint256 wcolLev = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
-        uint256 wcolWallet = IERC20(wrappedCollateral).balanceOf(who);
-        // wCOL → COL (× rate) → haXXX (× price): combined × rate × price / 1e36
-        uint256 wcolInHaXXX = ((((wcolColl + wcolLev + wcolWallet) * oracleRate) / 1 ether) * oraclePrice) / 1 ether;
-        uint256 levInHaXXX = _levToHaXXX(
+        uint256 collateralPoolWrappedCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
+        uint256 leveragedPoolWrappedCollateral = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
+        uint256 walletWrappedCollateral = IERC20(wrappedCollateral).balanceOf(who);
+        // wrapped collateral → collateral (× rate) → pegged (× price): combined × rate × price / 1e36
+        uint256 wrappedCollateralInPegged = ((((collateralPoolWrappedCollateral + leveragedPoolWrappedCollateral + walletWrappedCollateral) * oracleRate) / 1 ether) * oraclePrice) / 1 ether;
+        uint256 leveragedInPegged = _leveragedToPegged(
             IERC20(leveraged).balanceOf(who) +
                 IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0]
         );
-        return peggedBal + wcolInHaXXX + levInHaXXX;
+        return peggedBal + wrappedCollateralInPegged + leveragedInPegged;
     }
 
     // ── CR recovery ────────────────────────────────────────────────────
@@ -503,58 +502,61 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         uint256 currentCR = IMinter(minter).collateralRatio();
         if (currentCR >= targetCR) return;
 
-        // wCOL needed ≈ pegged × (targetCR - currentCR) / price
+        // wrapped collateral needed ≈ pegged × (targetCR - currentCR) / price
         uint256 peggedSupply = IERC20(pegged).totalSupply();
-        uint256 wcolNeeded = (peggedSupply * (targetCR - currentCR)) / oraclePrice;
+        uint256 wrappedCollateralNeeded = (peggedSupply * (targetCR - currentCR)) / oraclePrice;
 
-        deal(wrappedCollateral, address(this), wcolNeeded);
-        IERC20(wrappedCollateral).approve(minter, wcolNeeded);
+        deal(wrappedCollateral, address(this), wrappedCollateralNeeded);
+        IERC20(wrappedCollateral).approve(minter, wrappedCollateralNeeded);
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        vm.prank(IBaoOwnable(minter).owner());
+        vm.startPrank(IBaoOwnable(minter).owner());
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
-        IMinter(minter).freeMintLeveragedToken(wcolNeeded, eve);
+        vm.stopPrank();
+        IMinter(minter).freeMintLeveragedToken(wrappedCollateralNeeded, eve);
     }
 
     // ── Compound ───────────────────────────────────────────────────────
 
-    /// @dev Compound an actor's rewards from a pool back into haXXX deposit.
+    /// @dev Compound an actor's rewards from a pool back into pegged deposit.
     ///
     /// Two paths:
-    ///   1. wCOL (harvest + coll rebalance reward): claim wCOL → freeMint haXXX → deposit
-    ///   2. hsXXX (lev rebalance reward): claim hsXXX → freeRedeem → wCOL → freeMint haXXX → deposit
+    ///   1. wrapped collateral (harvest + collateral pool rebalance reward): claim wrapped collateral → freeMint pegged → deposit
+    ///   2. leveraged (leveraged pool rebalance reward): claim leveraged → freeRedeem → wrapped collateral → freeMint pegged → deposit
     ///
     /// Both use free (zero-fee) operations for simulation clarity.
     function _compoundActor(address who, address pool) internal {
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        vm.prank(IBaoOwnable(minter).owner());
+        vm.startPrank(IBaoOwnable(minter).owner());
         IBaoRoles(minter).grantRoles(who, zeroFeeRole);
+        vm.stopPrank();
 
-        // Step 1: Claim and convert hsXXX (if any) → wCOL via freeRedeem
-        uint256 levClaimable = IMultipleRewardAccumulator(pool).claimable(who, aa(leveraged))[0];
-        if (levClaimable > 0) {
+        // Step 1: Claim and convert leveraged (if any) → wrapped collateral via freeRedeem
+        uint256 leveragedClaimable = IMultipleRewardAccumulator(pool).claimable(who, aa(leveraged))[0];
+        if (leveragedClaimable > 0) {
             vm.startPrank(who);
             IMultipleRewardAccumulator(pool).claim();
-            uint256 levBal = IERC20(leveraged).balanceOf(who);
-            IERC20(leveraged).approve(minter, levBal);
-            IMinter(minter).freeRedeemLeveragedToken(levBal, who); // → wCOL to who
+            uint256 leveragedBalance = IERC20(leveraged).balanceOf(who);
+            IERC20(leveraged).approve(minter, leveragedBalance);
+            IMinter(minter).freeRedeemLeveragedToken(leveragedBalance, who); // → wrapped collateral to who
             vm.stopPrank();
         }
 
-        // Step 2: Claim wCOL (harvest + any coll rebalance reward)
-        uint256 wcolClaimable = IMultipleRewardAccumulator(pool).claimable(who, aa(wrappedCollateral))[0];
-        if (wcolClaimable > 0) {
-            vm.prank(who);
+        // Step 2: Claim wrapped collateral (harvest + any collateral pool rebalance reward)
+        uint256 wrappedCollateralClaimable = IMultipleRewardAccumulator(pool).claimable(who, aa(wrappedCollateral))[0];
+        if (wrappedCollateralClaimable > 0) {
+            vm.startPrank(who);
             IMultipleRewardAccumulator(pool).claim();
+            vm.stopPrank();
         }
 
-        // Step 3: Convert all wCOL in wallet → haXXX → deposit
-        uint256 wcolBal = IERC20(wrappedCollateral).balanceOf(who);
-        if (wcolBal > 0) {
+        // Step 3: Convert all wrapped collateral in wallet → pegged → deposit
+        uint256 wrappedCollateralBalance = IERC20(wrappedCollateral).balanceOf(who);
+        if (wrappedCollateralBalance > 0) {
             vm.startPrank(who);
-            IERC20(wrappedCollateral).approve(minter, wcolBal);
-            uint256 peggedMinted = IMinter(minter).freeMintPeggedToken(wcolBal, who);
+            IERC20(wrappedCollateral).approve(minter, wrappedCollateralBalance);
+            uint256 peggedMinted = IMinter(minter).freeMintPeggedToken(wrappedCollateralBalance, who);
             IERC20(pegged).approve(pool, peggedMinted);
-            IStabilityPool(pool).deposit(peggedMinted, who, 0);
+            IStabilityPool_v3(pool).deposit(peggedMinted, who, 0);
             vm.stopPrank();
         }
     }
@@ -582,7 +584,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     // ── Shared weekly cycle ──────────────────────────────────────────
 
     /// @dev Run `weeks` weekly cycles (CR recovery + harvest + compound) and return
-    ///      the final haXXX-equivalent for Bob and Dave. Also returns Alice and Charlie
+    ///      the final pegged-equivalent for Bob and Dave. Also returns Alice and Charlie
     ///      for CSV output.
     struct WeeklyResult {
         uint256 aliceEq;
@@ -602,15 +604,15 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             skip(1 days);
             oracleRate = (oracleRate * rateMultiplier) / 1 ether;
             mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-            IStabilityPoolManager(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
+            IStabilityPoolManager_v2(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
             skip(8 days);
             _compoundActor(alice, stabilityPoolCollateral);
             _compoundActor(charlie, stabilityPoolLeveraged);
         }
-        r.aliceEq = _haXXXEquivalent(alice);
-        r.bobEq = _haXXXEquivalent(bob);
-        r.charlieEq = _haXXXEquivalent(charlie);
-        r.daveEq = _haXXXEquivalent(dave);
+        r.aliceEq = _peggedEquivalent(alice);
+        r.bobEq = _peggedEquivalent(bob);
+        r.charlieEq = _peggedEquivalent(charlie);
+        r.daveEq = _peggedEquivalent(dave);
     }
 
     // ── Test 3: Timeline ───────────────────────────────────────────────
@@ -627,17 +629,17 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             uint256 feePct = feePctValues[f];
             uint256 snap = vm.snapshotState();
 
-            uint256 liquidFracE18 = _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEV_PCT);
+            uint256 liquidFracE18 = _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEVERAGED_PCT);
             require(liquidFracE18 > 0, "design case must trigger rebalance");
             _applyFeeAndRedeposit(feePct);
 
             _writeTimelineRow(
                 feePct,
                 0,
-                _haXXXEquivalent(alice),
-                _haXXXEquivalent(bob),
-                _haXXXEquivalent(charlie),
-                _haXXXEquivalent(dave)
+                _peggedEquivalent(alice),
+                _peggedEquivalent(bob),
+                _peggedEquivalent(charlie),
+                _peggedEquivalent(dave)
             );
 
             for (uint256 w = 1; w <= TOTAL_WEEKS; w++) {
@@ -647,16 +649,16 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
                 skip(1 days);
                 oracleRate = (oracleRate * rateMultiplier) / 1 ether;
                 mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-                IStabilityPoolManager(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
+                IStabilityPoolManager_v2(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
                 skip(8 days);
                 _compoundActor(alice, stabilityPoolCollateral);
                 _compoundActor(charlie, stabilityPoolLeveraged);
 
                 WeeklyResult memory r;
-                r.aliceEq = _haXXXEquivalent(alice);
-                r.bobEq = _haXXXEquivalent(bob);
-                r.charlieEq = _haXXXEquivalent(charlie);
-                r.daveEq = _haXXXEquivalent(dave);
+                r.aliceEq = _peggedEquivalent(alice);
+                r.bobEq = _peggedEquivalent(bob);
+                r.charlieEq = _peggedEquivalent(charlie);
+                r.daveEq = _peggedEquivalent(dave);
 
                 _writeTimelineRow(feePct, w, r.aliceEq, r.bobEq, r.charlieEq, r.daveEq);
 
@@ -688,10 +690,10 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     // ── Test 4: Break-even fee ─────────────────────────────────────────
     //
     // Binary-search for the minimum withdrawal fee that makes dodging unprofitable
-    // at a given time horizon (12 weeks). "Unprofitable" = Bob's haXXX-eq at week 12
-    // is ≤ what he'd have had if he'd stayed (= Alice's haXXX-eq at week 12 with fee=0).
+    // at a given time horizon (12 weeks). "Unprofitable" = Bob's pegged-equivalent at week 12
+    // is ≤ what he'd have had if he'd stayed (= Alice's pegged-equivalent at week 12 with fee=0).
     //
-    // We also find the break-even fee for the Lev SP (Charlie vs Dave).
+    // We also find the break-even fee for the leveraged pool (Charlie vs Dave).
 
     /// @dev Set by the break-even scan when it opens its file.
     string BE_CSV;
@@ -699,14 +701,14 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     function test_breakEvenFee() public {
         // Baseline: Scenario A (everyone stays) — run 12 weeks with compounding.
         // In Scenario A there is no dodge, so Bob stays in the pool through the rebalance.
-        // We measure Bob's haXXX-eq at week 12 as the "stayed" reference.
-        // The break-even fee is the minimum fee that makes Scenario B Bob's haXXX-eq ≤ Scenario A Bob's.
+        // We measure Bob's pegged-equivalent at week 12 as the "stayed" reference.
+        // The break-even fee is the minimum fee that makes Scenario B Bob's pegged-equivalent ≤ Scenario A Bob's.
         uint256 snap0 = vm.snapshotState();
         WeeklyResult memory baseline;
         {
             uint256 each = 100 ether;
             _mintPegged(eve, PEGGED_COLLATERAL);
-            _mintLeveraged(eve, (PEGGED_COLLATERAL * DESIGN_LEV_PCT) / (100 - DESIGN_LEV_PCT));
+            _mintLeveraged(eve, (PEGGED_COLLATERAL * DESIGN_LEVERAGED_PCT) / (100 - DESIGN_LEVERAGED_PCT));
             vm.startPrank(eve);
             IERC20(pegged).transfer(alice, each);
             IERC20(pegged).transfer(bob, each);
@@ -722,7 +724,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             // Price drop + rebalance (everyone stays)
             oraclePrice = (oraclePrice * (100 - DESIGN_PRICE_DROP)) / 100;
             mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-            IStabilityPoolManager(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
             // Fred/George deposit after rebalance (same as Scenario B)
             _deposit(stabilityPoolCollateral, fred, each);
             _deposit(stabilityPoolLeveraged, george, each);
@@ -740,26 +742,26 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         );
 
         // Binary search: min fee where Scenario B bob_12wk ≤ Scenario A bob_12wk
-        uint256 collBreakEven = _findBreakEvenFee(baseline.bobEq, true);
+        uint256 collateralPoolBreakEven = _findBreakEvenFee(baseline.bobEq, true);
         // Binary search: min fee where Scenario B dave_12wk ≤ Scenario A dave_12wk
-        uint256 levBreakEven = _findBreakEvenFee(baseline.daveEq, false);
+        uint256 leveragedPoolBreakEven = _findBreakEvenFee(baseline.daveEq, false);
 
         // feeBps is in basis points: 1 bp = 0.01%. Display as X.XX%
         console2.log(
             string.concat(
-                "Break-even fee (12 weeks, Coll SP): ",
-                BaoTestLib.toStringScaled(collBreakEven * 1e14, 16),
+                "Break-even fee (12 weeks, collateral pool): ",
+                BaoTestLib.toStringScaled(collateralPoolBreakEven * 1e14, 16),
                 "% (",
-                LibString.toString(collBreakEven),
+                LibString.toString(collateralPoolBreakEven),
                 " bp)"
             )
         );
         console2.log(
             string.concat(
-                "Break-even fee (12 weeks, Lev SP):  ",
-                BaoTestLib.toStringScaled(levBreakEven * 1e14, 16),
+                "Break-even fee (12 weeks, leveraged pool):  ",
+                BaoTestLib.toStringScaled(leveragedPoolBreakEven * 1e14, 16),
                 "% (",
-                LibString.toString(levBreakEven),
+                LibString.toString(leveragedPoolBreakEven),
                 " bp)"
             )
         );
@@ -772,15 +774,15 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         string[] memory cols = new string[](6);
 
         cols[0] = "Coll";
-        cols[1] = BaoTestLib.toStringScaled(collBreakEven, 16);
+        cols[1] = BaoTestLib.toStringScaled(collateralPoolBreakEven, 16);
         cols[2] = BaoTestLib.toStringScaled(TOTAL_WEEKS * 1 ether, 18);
         cols[3] = BaoTestLib.toStringScaled(DESIGN_PRICE_DROP * 1 ether, 18);
-        cols[4] = BaoTestLib.toStringScaled(DESIGN_LEV_PCT * 1 ether, 18);
+        cols[4] = BaoTestLib.toStringScaled(DESIGN_LEVERAGED_PCT * 1 ether, 18);
         cols[5] = BaoTestLib.toStringScaled(FIXED_APR_PCT * 1 ether, 18);
         writeLine(BE_CSV, cols);
 
         cols[0] = "Lev";
-        cols[1] = BaoTestLib.toStringScaled(levBreakEven, 16);
+        cols[1] = BaoTestLib.toStringScaled(leveragedPoolBreakEven, 16);
         writeLine(BE_CSV, cols);
 
         console2.log("");
@@ -788,10 +790,10 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     }
 
     /// @dev Binary search over fee % (0–100, in basis points for precision) to find the
-    ///      minimum fee where the dodger's 12-week haXXX-eq ≤ stayerBaseline.
-    ///      `isColl` selects Bob (Coll SP) or Dave (Lev SP).
+    ///      minimum fee where the dodger's 12-week pegged-equivalent ≤ stayerBaseline.
+    ///      `isCollateralPool` selects Bob (collateral pool) or Dave (leveraged pool).
     ///      Returns fee in basis points (1 bp = 0.01%).
-    function _findBreakEvenFee(uint256 stayerBaseline, bool isColl) internal returns (uint256 feeBps) {
+    function _findBreakEvenFee(uint256 stayerBaseline, bool isCollateralPool) internal returns (uint256 feeBps) {
         uint256 lo = 0; // 0 bp
         uint256 hi = 10000; // 100% in bp
 
@@ -800,7 +802,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             uint256 mid = (lo + hi) / 2;
             uint256 snap = vm.snapshotState();
 
-            _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEV_PCT);
+            _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEVERAGED_PCT);
             // _applyFeeAndRedeposit takes fee in whole %, but we need bp precision.
             // Apply fee manually: deal reduced balance to bob/dave.
             {
@@ -816,7 +818,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             _deposit(stabilityPoolLeveraged, george, each);
 
             WeeklyResult memory r = _runWeeks(TOTAL_WEEKS);
-            uint256 dodgerEq = isColl ? r.bobEq : r.daveEq;
+            uint256 dodgerEq = isCollateralPool ? r.bobEq : r.daveEq;
 
             if (dodgerEq > stayerBaseline) {
                 lo = mid + 1; // fee too low, dodging still profitable

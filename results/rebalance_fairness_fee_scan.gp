@@ -11,7 +11,7 @@ set datafile separator comma
 # Income gap = (returner_weekly_$ - stayer_weekly_$) / returner_weekly_$ * 100, so 0 is fair.
 #
 # The design case is a 10% price drop at 25% leveraged, which liquidates 37.5%. The first two figures
-# mirror DESIGN_PRICE_DROP and DESIGN_LEV_PCT in that test and the third is what they produce; change
+# mirror DESIGN_PRICE_DROP and DESIGN_LEVERAGED_PCT in that test and the third is what they produce; change
 # either constant and the captions below go stale, because nothing checks them.
 #
 # CSV columns: 1=Fee_pct, 2=LiquidFrac_pct,

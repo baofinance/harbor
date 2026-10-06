@@ -9,8 +9,8 @@ import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -46,13 +46,13 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
     uint256 oraclePrice;
     uint256 oracleRate;
 
-    // Cast — 6 SP actors + Eve who holds only leveraged tokens
-    address alice; // Stays in Collateral SP
-    address bob; // Withdraws from Coll SP before rebalance, re-deposits after
-    address charlie; // Stays in Leveraged SP
-    address dave; // Withdraws from Lev SP before rebalance, re-deposits after
-    address fred; // Outside SPs, deposits into Coll SP after rebalance
-    address george; // Outside SPs, deposits into Lev SP after rebalance
+    // Cast — 6 stability pool actors + Eve who holds only leveraged tokens
+    address alice; // Stays in collateral pool
+    address bob; // Withdraws from collateral pool before rebalance, re-deposits after
+    address charlie; // Stays in leveraged pool
+    address dave; // Withdraws from leveraged pool before rebalance, re-deposits after
+    address fred; // Outside stability pools, deposits into collateral pool after rebalance
+    address george; // Outside stability pools, deposits into leveraged pool after rebalance
     address eve; // Holds only leveraged tokens (the market maker / leveraged-side liquidity)
 
     function setUp() public virtual {
@@ -104,7 +104,7 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         george = makeAddr("george");
         eve = makeAddr("eve");
 
-        // Approve both pools for the 6 SP actors (Eve doesn't deposit into pools)
+        // Approve both pools for the 6 stability pool actors (Eve doesn't deposit into pools)
         address[6] memory actors = [alice, bob, charlie, dave, fred, george];
         for (uint256 i = 0; i < actors.length; i++) {
             vm.startPrank(actors[i]);
@@ -131,7 +131,7 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         peggedMinted = IMinter(minter).freeMintPeggedToken(collateralAmount, to);
     }
 
-    function _mintLeveraged(address to, uint256 collateralAmount) internal returns (uint256 levMinted) {
+    function _mintLeveraged(address to, uint256 collateralAmount) internal returns (uint256 leveragedMinted) {
         deal(wrappedCollateral, address(this), collateralAmount);
         IERC20(wrappedCollateral).approve(minter, collateralAmount);
 
@@ -140,28 +140,28 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
         vm.stopPrank();
 
-        levMinted = IMinter(minter).freeMintLeveragedToken(collateralAmount, to);
+        leveragedMinted = IMinter(minter).freeMintLeveragedToken(collateralAmount, to);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // SP helpers
+    // Stability pool helpers
     // ═══════════════════════════════════════════════════════════════
 
     function _deposit(address pool, address who, uint256 amount) internal {
         vm.startPrank(who);
-        IStabilityPool(pool).deposit(amount, who, 0);
+        IStabilityPool_v3(pool).deposit(amount, who, 0);
         vm.stopPrank();
     }
 
     function _withdrawAll(address pool, address who) internal {
         // Use request + window to avoid early withdrawal fee
         vm.startPrank(who);
-        IStabilityPool(pool).requestWithdrawal();
+        IStabilityPool_v3(pool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(who);
+        (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(who);
         vm.warp(uint256(start) + 1);
         vm.startPrank(who);
-        IStabilityPool(pool).withdraw(type(uint256).max, who, 0);
+        IStabilityPool_v3(pool).withdraw(type(uint256).max, who, 0);
         vm.stopPrank();
     }
 
@@ -169,7 +169,7 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
     function _triggerHarvest() internal returns (uint256 harvested) {
         oracleRate = (oracleRate * 1001) / 1000;
         mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-        harvested = IStabilityPoolManager(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
+        harvested = IStabilityPoolManager_v2(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
     }
 
     /// @dev Convert a fxSAVE amount to fxUSD using the current oracle rate.
@@ -187,36 +187,36 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
 
     /// @dev Convert a leveraged-token amount to fxUSD via the Minter's `leveragedTokenPrice()`.
     /// `leveragedTokenPrice()` returns NAV in pegged-token (haETH) units, so:
-    ///   $ = lev × levPrice / oraclePrice    (haETH-equivalent → fxUSD)
-    function _levToFxUSD(uint256 levAmount) internal view returns (uint256) {
-        if (levAmount == 0) {
+    ///   $ = leveraged × leveragedPrice / oraclePrice    (haETH-equivalent → fxUSD)
+    function _leveragedToFxUSD(uint256 leveragedAmount) internal view returns (uint256) {
+        if (leveragedAmount == 0) {
             return 0;
         }
-        uint256 levPrice = IMinter(minter).leveragedTokenPrice();
-        return (levAmount * levPrice) / oraclePrice;
+        uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
+        return (leveragedAmount * leveragedPrice) / oraclePrice;
     }
 
-    /// @dev Compute an actor's total dollar value across wallet, both SPs, and claimable rewards.
-    /// Position (haETH) → $ via price, fxSAVE rewards → $ via rate, lev tokens → $ via levTokenPrice.
+    /// @dev Compute an actor's total dollar value across wallet, both stability pools, and claimable rewards.
+    /// Position (haETH) → $ via price, fxSAVE rewards → $ via rate, leveraged tokens → $ via leveragedTokenPrice().
     function _totalDollars(address who) internal view returns (uint256) {
-        uint256 peggedColl = IERC20(stabilityPoolCollateral).balanceOf(who);
-        uint256 peggedLev = IERC20(stabilityPoolLeveraged).balanceOf(who);
+        uint256 peggedCollateralPool = IERC20(stabilityPoolCollateral).balanceOf(who);
+        uint256 peggedLeveragedPool = IERC20(stabilityPoolLeveraged).balanceOf(who);
         uint256 peggedWallet = IERC20(pegged).balanceOf(who);
-        uint256 fxSAVEcoll = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[
+        uint256 fxSAVECollateralPool = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[
             0
         ];
-        uint256 fxSAVElev = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
-        uint256 levWallet = IERC20(leveraged).balanceOf(who);
-        uint256 levClaimable = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
+        uint256 fxSAVELeveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
+        uint256 leveragedWallet = IERC20(leveraged).balanceOf(who);
+        uint256 leveragedClaimable = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
         return
-            _haETHToFxUSD(peggedColl + peggedLev + peggedWallet) +
-            _fxSAVEToFxUSD(fxSAVEcoll + fxSAVElev) +
-            _levToFxUSD(levWallet + levClaimable);
+            _haETHToFxUSD(peggedCollateralPool + peggedLeveragedPool + peggedWallet) +
+            _fxSAVEToFxUSD(fxSAVECollateralPool + fxSAVELeveragedPool) +
+            _leveragedToFxUSD(leveragedWallet + leveragedClaimable);
     }
 
     /// @dev Emit one row for the rebalance-fairness doc table.
-    /// `Position` is the actor's pegged + lev-token holdings.
-    /// `Reb` is the rebalance reward delta (postRebal - preRebal) in both fxSAVE and lev tokens.
+    /// `Position` is the actor's pegged + leveraged-token holdings.
+    /// `Reb` is the rebalance reward delta (postRebal - preRebal) in both fxSAVE and leveraged tokens.
     /// `Harv` is the harvest accumulation since postRebal (fxSAVE only).
     function _logTableRow(
         string memory name,
@@ -241,16 +241,16 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
             );
         }
         {
-            uint256 preFxsave = preRebalSnap.fxSAVE_collSP + preRebalSnap.fxSAVE_levSP;
-            uint256 postRebFxsave = postRebalSnap.fxSAVE_collSP + postRebalSnap.fxSAVE_levSP;
+            uint256 preFxsave = preRebalSnap.fxSAVE_collateralPool + preRebalSnap.fxSAVE_leveragedPool;
+            uint256 postRebFxsave = postRebalSnap.fxSAVE_collateralPool + postRebalSnap.fxSAVE_leveragedPool;
             ClaimableSnapshot memory cur = _snapshotClaimable(who);
-            uint256 curFxsave = cur.fxSAVE_collSP + cur.fxSAVE_levSP;
+            uint256 curFxsave = cur.fxSAVE_collateralPool + cur.fxSAVE_leveragedPool;
             console2.log(
                 string.concat(
                     "    reb_fxSAVE=",
                     FmtLib.sci(postRebFxsave - preFxsave),
                     " reb_lev=",
-                    FmtLib.sci(postRebalSnap.levToken_levSP - preRebalSnap.levToken_levSP),
+                    FmtLib.sci(postRebalSnap.leveragedToken_leveragedPool - preRebalSnap.leveragedToken_leveragedPool),
                     " harv_fxSAVE=",
                     FmtLib.sci(curFxsave - postRebFxsave),
                     "\n    total_$=",
@@ -260,7 +260,7 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         }
     }
 
-    /// @dev Emit a labelled stage table for all 6 SP actors plus Eve.
+    /// @dev Emit a labelled stage table for all 6 stability pool actors plus Eve.
     /// Eve never deposits, so her snapshots are always zero.
     function _logStageTable(
         string memory label,
@@ -307,20 +307,20 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
                 "Minter fxSAVE:         ",
                 FmtLib.sci(IERC20(wrappedCollateral).balanceOf(minter)),
                 "\n",
-                "Coll SP pegged bal:    ",
+                "collateral pool pegged bal:    ",
                 FmtLib.sci(IERC20(pegged).balanceOf(stabilityPoolCollateral)),
                 "\n",
-                "Lev SP pegged bal:     ",
+                "leveraged pool pegged bal:     ",
                 FmtLib.sci(IERC20(pegged).balanceOf(stabilityPoolLeveraged)),
                 "\n",
-                "Coll SP fxSAVE bal:    ",
+                "collateral pool fxSAVE bal:    ",
                 FmtLib.sci(IERC20(wrappedCollateral).balanceOf(stabilityPoolCollateral)),
                 "\n",
-                "Lev SP lev token bal:  ",
+                "leveraged pool leveraged token bal:  ",
                 FmtLib.sci(IERC20(leveraged).balanceOf(stabilityPoolLeveraged)),
                 "\n",
                 "Rebalance threshold:   ",
-                FmtLib.sci(IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold())
+                FmtLib.sci(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold())
             )
         );
     }
@@ -330,15 +330,15 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
     // ═══════════════════════════════════════════════════════════════
 
     struct ClaimableSnapshot {
-        uint256 fxSAVE_collSP; // fxSAVE claimable from Coll SP (rebal + harvest combined)
-        uint256 fxSAVE_levSP; // fxSAVE claimable from Lev SP (harvest only — rebal pays lev tokens)
-        uint256 levToken_levSP; // leveraged token claimable from Lev SP (rebal only)
+        uint256 fxSAVE_collateralPool; // fxSAVE claimable from collateral pool (rebal + harvest combined)
+        uint256 fxSAVE_leveragedPool; // fxSAVE claimable from leveraged pool (harvest only — rebal pays leveraged tokens)
+        uint256 leveragedToken_leveragedPool; // leveraged token claimable from leveraged pool (rebal only)
     }
 
     function _snapshotClaimable(address who) internal view returns (ClaimableSnapshot memory s) {
-        s.fxSAVE_collSP = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
-        s.fxSAVE_levSP = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
-        s.levToken_levSP = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
+        s.fxSAVE_collateralPool = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
+        s.fxSAVE_leveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
+        s.leveragedToken_leveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
     }
 
     function _logActor(string memory name, address who) internal view {
@@ -351,10 +351,10 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
                 "  pegged (wallet):               ",
                 FmtLib.sci(IERC20(pegged).balanceOf(who)),
                 "\n",
-                "  Coll SP deposit:               ",
+                "  collateral pool deposit:               ",
                 FmtLib.sci(IERC20(stabilityPoolCollateral).balanceOf(who)),
                 "\n",
-                "  Lev SP deposit:                ",
+                "  leveraged pool deposit:                ",
                 FmtLib.sci(IERC20(stabilityPoolLeveraged).balanceOf(who)),
                 "\n",
                 "  fxSAVE (wallet):               ",
@@ -363,25 +363,25 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
                 "  leveraged (wallet):            ",
                 FmtLib.sci(IERC20(leveraged).balanceOf(who)),
                 "\n",
-                "  claimable fxSAVE (coll SP):    ",
-                FmtLib.sci(c.fxSAVE_collSP),
+                "  claimable fxSAVE (collateral pool):    ",
+                FmtLib.sci(c.fxSAVE_collateralPool),
                 "\n",
-                "  claimable fxSAVE (lev SP):     ",
-                FmtLib.sci(c.fxSAVE_levSP),
+                "  claimable fxSAVE (leveraged pool):     ",
+                FmtLib.sci(c.fxSAVE_leveragedPool),
                 "\n",
-                "  claimable lev tokens (lev SP): ",
-                FmtLib.sci(c.levToken_levSP)
+                "  claimable leveraged tokens (leveraged pool): ",
+                FmtLib.sci(c.leveragedToken_leveragedPool)
             )
         );
     }
 
     function _logAllActors() internal view {
-        _logActor("Alice (Coll, stays)", alice);
-        _logActor("Bob (Coll, leaves+returns)", bob);
-        _logActor("Charlie (Lev, stays)", charlie);
-        _logActor("Dave (Lev, leaves+returns)", dave);
-        _logActor("Fred (new->Coll)", fred);
-        _logActor("George (new->Lev)", george);
+        _logActor("Alice (Collateral, stays)", alice);
+        _logActor("Bob (Collateral, leaves+returns)", bob);
+        _logActor("Charlie (Leveraged, stays)", charlie);
+        _logActor("Dave (Leveraged, leaves+returns)", dave);
+        _logActor("Fred (new->Collateral)", fred);
+        _logActor("George (new->Leveraged)", george);
     }
 
     /// @notice Log the separated rebalance vs harvest breakdown for all actors.
@@ -397,35 +397,35 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
     ) internal pure {
         console2.log(string.concat("\n=== ", label, " ==="));
         string[6] memory names = [
-            "Alice (Coll, stays)",
-            "Bob (Coll, returns)",
-            "Charlie (Lev, stays)",
-            "Dave (Lev, returns)",
-            "Fred (new->Coll)",
-            "George (new->Lev)"
+            "Alice (Collateral, stays)",
+            "Bob (Collateral, returns)",
+            "Charlie (Leveraged, stays)",
+            "Dave (Leveraged, returns)",
+            "Fred (new->Collateral)",
+            "George (new->Leveraged)"
         ];
 
         for (uint256 i = 0; i < 6; i++) {
-            uint256 fxSAVE_coll = isHarvestDelta
-                ? current[i].fxSAVE_collSP - preRebal[i].fxSAVE_collSP
-                : current[i].fxSAVE_collSP;
-            uint256 fxSAVE_lev = isHarvestDelta
-                ? current[i].fxSAVE_levSP - preRebal[i].fxSAVE_levSP
-                : current[i].fxSAVE_levSP;
-            uint256 levToken = isHarvestDelta
-                ? current[i].levToken_levSP - preRebal[i].levToken_levSP
-                : current[i].levToken_levSP;
+            uint256 collateralPoolFxSAVE = isHarvestDelta
+                ? current[i].fxSAVE_collateralPool - preRebal[i].fxSAVE_collateralPool
+                : current[i].fxSAVE_collateralPool;
+            uint256 leveragedPoolFxSAVE = isHarvestDelta
+                ? current[i].fxSAVE_leveragedPool - preRebal[i].fxSAVE_leveragedPool
+                : current[i].fxSAVE_leveragedPool;
+            uint256 leveragedTokens = isHarvestDelta
+                ? current[i].leveragedToken_leveragedPool - preRebal[i].leveragedToken_leveragedPool
+                : current[i].leveragedToken_leveragedPool;
             console2.log(
                 string.concat(
                     "  ",
                     names[i],
                     "\n",
-                    "    fxSAVE (coll SP): ",
-                    FmtLib.sci(fxSAVE_coll),
-                    "  |  fxSAVE (lev SP): ",
-                    FmtLib.sci(fxSAVE_lev),
-                    "  |  lev tokens: ",
-                    FmtLib.sci(levToken)
+                    "    fxSAVE (collateral pool): ",
+                    FmtLib.sci(collateralPoolFxSAVE),
+                    "  |  fxSAVE (leveraged pool): ",
+                    FmtLib.sci(leveragedPoolFxSAVE),
+                    "  |  leveraged tokens: ",
+                    FmtLib.sci(leveragedTokens)
                 )
             );
         }
@@ -457,7 +457,7 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
         _mintPegged(eve, 2_400_000 ether);
         _mintLeveraged(eve, 800_000 ether);
 
-        // Eve distributes pegged to the 6 SP actors and keeps the leveraged tokens herself.
+        // Eve distributes pegged to the 6 stability pool actors and keeps the leveraged tokens herself.
         vm.startPrank(eve);
         IERC20(pegged).transfer(alice, each);
         IERC20(pegged).transfer(bob, each);
@@ -481,8 +481,8 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
     function test_scenarioA_everyoneStays() public {
         uint256 each = _bootstrap();
 
-        // Deposit into pools: Coll SP = Alice + Bob, Lev SP = Charlie + Dave (equal pool sizes).
-        // Fred and George stay in their wallets. Eve holds the leveraged tokens, no SP.
+        // Deposit into pools: collateral pool = Alice + Bob, leveraged pool = Charlie + Dave (equal pool sizes).
+        // Fred and George stay in their wallets. Eve holds the leveraged tokens, in no stability pool.
         _deposit(stabilityPoolCollateral, alice, each);
         _deposit(stabilityPoolCollateral, bob, each);
         _deposit(stabilityPoolLeveraged, charlie, each);
@@ -502,27 +502,27 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
 
         // Snapshot before rebalance
         ClaimableSnapshot[6] memory preRebal = _snapshotAll();
-        uint256 collPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolCollateral);
-        uint256 levPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolLeveraged);
+        uint256 collateralPoolPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolCollateral);
+        uint256 leveragedPoolPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolLeveraged);
 
         // Rebalance
-        uint256 liquidated = IStabilityPoolManager(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+        uint256 liquidated = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
 
-        uint256 collLiquidated = collPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolCollateral);
-        uint256 levLiquidated = levPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolLeveraged);
+        uint256 collateralPoolLiquidated = collateralPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolCollateral);
+        uint256 leveragedPoolLiquidated = leveragedPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolLeveraged);
         console2.log("");
         console2.log("--- LIQUIDATION SPLIT ---");
         console2.log("Total liquidated:      %e", liquidated);
-        console2.log("From Coll SP:          %e", collLiquidated);
-        console2.log("From Lev SP:           %e", levLiquidated);
+        console2.log("From collateral pool:          %e", collateralPoolLiquidated);
+        console2.log("From leveraged pool:           %e", leveragedPoolLiquidated);
 
         // ── Asserts: rebalance ──────────────────────────────────────
         // Total liquidated to bring CR from 1.20 → 1.30: 75 pegged (37.5 from each pool)
         assertApproxEqAbs(liquidated, 75 ether, 1e16, "scenarioA: total liquidated == 75");
-        assertApproxEqAbs(collLiquidated, 37.5 ether, 1e16, "scenarioA: coll liquidated == 37.5");
-        assertApproxEqAbs(levLiquidated, 37.5 ether, 1e16, "scenarioA: lev liquidated == 37.5");
+        assertApproxEqAbs(collateralPoolLiquidated, 37.5 ether, 1e16, "scenarioA: collateral pool liquidated == 37.5");
+        assertApproxEqAbs(leveragedPoolLiquidated, 37.5 ether, 1e16, "scenarioA: leveraged pool liquidated == 37.5");
 
-        // Each Coll SP depositor lost 18.75 pegged → 81.25 remaining
+        // Each collateral pool depositor lost 18.75 pegged → 81.25 remaining
         assertApproxEqAbs(
             IERC20(stabilityPoolCollateral).balanceOf(alice),
             81.25 ether,
@@ -536,35 +536,35 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
             "scenarioA: bob 81.25 after rebalance"
         );
 
-        // Each Coll SP depositor receives 18.75 haETH / price fxSAVE rebalance reward
+        // Each collateral pool depositor receives 18.75 haETH / price fxSAVE rebalance reward
         // (since rate = 1.0). At price = 0.9/4000, that's 18.75 / (0.9/4000) ≈ 83,333.33 fxSAVE.
-        // Each Lev SP depositor receives 31.25 lev tokens (price-invariant — the lev mint formula
+        // Each leveraged pool depositor receives 31.25 leveraged tokens (price-invariant — the leveraged mint formula
         // has price in both numerator and denominator).
         {
-            uint256 expectedCollRebal = (18.75 ether * 1 ether) / oraclePrice;
+            uint256 expectedCollateralPoolReward = (18.75 ether * 1 ether) / oraclePrice;
             assertApproxEqAbs(
-                _snapshotClaimable(alice).fxSAVE_collSP - preRebal[0].fxSAVE_collSP,
-                expectedCollRebal,
+                _snapshotClaimable(alice).fxSAVE_collateralPool - preRebal[0].fxSAVE_collateralPool,
+                expectedCollateralPoolReward,
                 1e15,
                 "scenarioA: alice rebalance fxSAVE == 83333.33"
             );
             assertApproxEqAbs(
-                _snapshotClaimable(bob).fxSAVE_collSP - preRebal[1].fxSAVE_collSP,
-                expectedCollRebal,
+                _snapshotClaimable(bob).fxSAVE_collateralPool - preRebal[1].fxSAVE_collateralPool,
+                expectedCollateralPoolReward,
                 1e15,
                 "scenarioA: bob rebalance fxSAVE == 83333.33"
             );
             assertApproxEqAbs(
-                _snapshotClaimable(charlie).levToken_levSP - preRebal[2].levToken_levSP,
+                _snapshotClaimable(charlie).leveragedToken_leveragedPool - preRebal[2].leveragedToken_leveragedPool,
                 31.25 ether,
                 1e15,
-                "scenarioA: charlie rebalance lev tokens == 31.25"
+                "scenarioA: charlie rebalance leveraged tokens == 31.25"
             );
             assertApproxEqAbs(
-                _snapshotClaimable(dave).levToken_levSP - preRebal[3].levToken_levSP,
+                _snapshotClaimable(dave).leveragedToken_leveragedPool - preRebal[3].leveragedToken_leveragedPool,
                 31.25 ether,
                 1e15,
-                "scenarioA: dave rebalance lev tokens == 31.25"
+                "scenarioA: dave rebalance leveraged tokens == 31.25"
             );
         }
 
@@ -586,8 +586,7 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
             console2.log("Week 1 harvested: %e", harvested1);
             skip(8 days); // full reward distribution period
 
-            // Expected: Minter wstETH after rebalance ≈ 3,033,333 fxSAVE × 0.001 ≈ 3030 fxSAVE.
-            // (Was 0.7576 ether in the old 1× test → scaled by 4000.)
+            // Expected: Minter fxSAVE after rebalance ≈ 3,033,333 fxSAVE × 0.001 ≈ 3030 fxSAVE.
             assertApproxEqRel(harvested1, 3030 ether, 0.01 ether, "scenarioA: week 1 harvest ~= 3030");
 
             postHarvest1 = _snapshotAll();
@@ -605,8 +604,7 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
             console2.log("Week 2 harvested: %e", harvested2);
             skip(8 days);
 
-            // Week 2 harvest is slightly less because the Minter's wCOL was reduced by week 1 harvest.
-            // Was 0.7568 ether in old test → scaled by 4000.
+            // Week 2 harvest is slightly less because the Minter's wrapped collateral was reduced by week 1 harvest.
             assertApproxEqRel(harvested2, 3027 ether, 0.01 ether, "scenarioA: week 2 harvest ~= 3027");
 
             ClaimableSnapshot[6] memory postHarvest2 = _snapshotAll();
@@ -624,39 +622,38 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
     }
 
     /// @dev Per-actor week 1 harvest assertions for Scenario A.
-    /// Each SP depositor gets ~758 fxSAVE: total weekly harvest 3030 → 50% to each pool (1515) →
-    /// 50% to each depositor within the pool (757.5). Was 0.190 in the old 1× test, scaled by 4000.
+    /// Each stability pool depositor gets ~758 fxSAVE: total weekly harvest 3030 → 50% to each pool (1515) →
+    /// 50% to each depositor within the pool (757.5).
     function _assertScenarioAWeek1(
         ClaimableSnapshot[6] memory postRebal,
         ClaimableSnapshot[6] memory postHarvest1
     ) internal pure {
-        uint256 alice_w1 = postHarvest1[0].fxSAVE_collSP - postRebal[0].fxSAVE_collSP;
-        uint256 bob_w1 = postHarvest1[1].fxSAVE_collSP - postRebal[1].fxSAVE_collSP;
-        uint256 charlie_w1 = postHarvest1[2].fxSAVE_levSP - postRebal[2].fxSAVE_levSP;
-        uint256 dave_w1 = postHarvest1[3].fxSAVE_levSP - postRebal[3].fxSAVE_levSP;
+        uint256 alice_w1 = postHarvest1[0].fxSAVE_collateralPool - postRebal[0].fxSAVE_collateralPool;
+        uint256 bob_w1 = postHarvest1[1].fxSAVE_collateralPool - postRebal[1].fxSAVE_collateralPool;
+        uint256 charlie_w1 = postHarvest1[2].fxSAVE_leveragedPool - postRebal[2].fxSAVE_leveragedPool;
+        uint256 dave_w1 = postHarvest1[3].fxSAVE_leveragedPool - postRebal[3].fxSAVE_leveragedPool;
 
         assertApproxEqRel(alice_w1, 758 ether, 0.01 ether, "scenarioA: alice w1 harvest ~= 758");
         assertApproxEqRel(bob_w1, 758 ether, 0.01 ether, "scenarioA: bob w1 harvest ~= 758");
         assertApproxEqRel(charlie_w1, 758 ether, 0.01 ether, "scenarioA: charlie w1 harvest ~= 758");
         assertApproxEqRel(dave_w1, 758 ether, 0.01 ether, "scenarioA: dave w1 harvest ~= 758");
 
-        // Equal harvest for all 4 SP depositors (proportional to equal deposit size)
+        // Equal harvest for all 4 stability pool depositors (proportional to equal deposit size)
         assertEq(alice_w1, bob_w1, "scenarioA: alice == bob w1 harvest");
         assertEq(charlie_w1, dave_w1, "scenarioA: charlie == dave w1 harvest");
 
-        // Fred and George get nothing (not in SPs)
-        assertEq(postHarvest1[4].fxSAVE_collSP, 0, "scenarioA: fred no harvest");
-        assertEq(postHarvest1[5].fxSAVE_levSP, 0, "scenarioA: george no harvest");
+        // Fred and George get nothing (not in stability pools)
+        assertEq(postHarvest1[4].fxSAVE_collateralPool, 0, "scenarioA: fred no harvest");
+        assertEq(postHarvest1[5].fxSAVE_leveragedPool, 0, "scenarioA: george no harvest");
     }
 
     /// @dev 2-week per-actor harvest totals for Scenario A.
-    /// Was 0.379 fxSAVE in old test → scaled to ~1515 in the 4000× test.
     function _assertScenarioATotals(
         ClaimableSnapshot[6] memory postRebal,
         ClaimableSnapshot[6] memory postHarvest2
     ) internal pure {
-        uint256 alice_total = postHarvest2[0].fxSAVE_collSP - postRebal[0].fxSAVE_collSP;
-        uint256 charlie_total = postHarvest2[2].fxSAVE_levSP - postRebal[2].fxSAVE_levSP;
+        uint256 alice_total = postHarvest2[0].fxSAVE_collateralPool - postRebal[0].fxSAVE_collateralPool;
+        uint256 charlie_total = postHarvest2[2].fxSAVE_leveragedPool - postRebal[2].fxSAVE_leveragedPool;
         assertApproxEqRel(alice_total, 1515 ether, 0.01 ether, "scenarioA: alice 2wk harvest ~= 1515");
         assertApproxEqRel(charlie_total, 1515 ether, 0.01 ether, "scenarioA: charlie 2wk harvest ~= 1515");
     }
@@ -697,18 +694,18 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
 
         // Step 2: Rebalance (Alice and Charlie absorb all losses)
         ClaimableSnapshot[6] memory preRebal = _snapshotAll();
-        uint256 collPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolCollateral);
-        uint256 levPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolLeveraged);
+        uint256 collateralPoolPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolCollateral);
+        uint256 leveragedPoolPeggedBefore = IERC20(pegged).balanceOf(stabilityPoolLeveraged);
 
-        uint256 liquidated = IStabilityPoolManager(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+        uint256 liquidated = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
 
-        uint256 collLiquidated = collPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolCollateral);
-        uint256 levLiquidated = levPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolLeveraged);
+        uint256 collateralPoolLiquidated = collateralPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolCollateral);
+        uint256 leveragedPoolLiquidated = leveragedPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolLeveraged);
         console2.log("");
         console2.log("--- LIQUIDATION SPLIT ---");
         console2.log("Total liquidated:      %e", liquidated);
-        console2.log("From Coll SP:          %e", collLiquidated);
-        console2.log("From Lev SP:           %e", levLiquidated);
+        console2.log("From collateral pool:          %e", collateralPoolLiquidated);
+        console2.log("From leveraged pool:           %e", leveragedPoolLiquidated);
 
         ClaimableSnapshot[6] memory postRebal = _snapshotAll();
         _logBreakdown("REBALANCE REWARDS (static, one-off)", preRebal, postRebal, true);
@@ -718,8 +715,8 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
         // ── Asserts: rebalance ──────────────────────────────────────
         // Same total liquidation as Scenario A — Alice and Charlie alone absorb everything
         assertApproxEqAbs(liquidated, 75 ether, 1e16, "scenarioB: total liquidated == 75");
-        assertApproxEqAbs(collLiquidated, 37.5 ether, 1e16, "scenarioB: coll liquidated == 37.5");
-        assertApproxEqAbs(levLiquidated, 37.5 ether, 1e16, "scenarioB: lev liquidated == 37.5");
+        assertApproxEqAbs(collateralPoolLiquidated, 37.5 ether, 1e16, "scenarioB: collateral pool liquidated == 37.5");
+        assertApproxEqAbs(leveragedPoolLiquidated, 37.5 ether, 1e16, "scenarioB: leveraged pool liquidated == 37.5");
 
         // Alice and Charlie each lose 37.5 → 62.5 remaining
         assertApproxEqAbs(
@@ -735,21 +732,21 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
             "scenarioB: charlie 62.5 after rebalance"
         );
 
-        // Alice gets the full Coll SP rebal reward = 37.5 / price fxSAVE ≈ 166,666.67 fxSAVE.
-        // Charlie gets the full Lev SP rebal reward = 62.5 lev tokens (price-invariant).
+        // Alice gets the full collateral pool rebal reward = 37.5 / price fxSAVE ≈ 166,666.67 fxSAVE.
+        // Charlie gets the full leveraged pool rebal reward = 62.5 leveraged tokens (price-invariant).
         {
             uint256 expectedAliceRebal = (37.5 ether * 1 ether) / oraclePrice;
             assertApproxEqAbs(
-                postRebal[0].fxSAVE_collSP - preRebal[0].fxSAVE_collSP,
+                postRebal[0].fxSAVE_collateralPool - preRebal[0].fxSAVE_collateralPool,
                 expectedAliceRebal,
                 1e15,
                 "scenarioB: alice rebalance fxSAVE == 166666.67"
             );
             assertApproxEqAbs(
-                postRebal[2].levToken_levSP - preRebal[2].levToken_levSP,
+                postRebal[2].leveragedToken_leveragedPool - preRebal[2].leveragedToken_leveragedPool,
                 62.5 ether,
                 1e15,
-                "scenarioB: charlie rebalance lev tokens == 62.5"
+                "scenarioB: charlie rebalance leveraged tokens == 62.5"
             );
         }
 
@@ -769,19 +766,19 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
         _logStageTable("scenarioB Stage 3 - After rebalance + re-deposits (CR=1.30, rate=1)", preRebal, postRebal);
 
         // ── Asserts: pool composition after re-deposits ─────────────
-        // Coll SP: Alice 62.5 + Bob 100 + Fred 100 = 262.5
+        // Collateral pool: Alice 62.5 + Bob 100 + Fred 100 = 262.5
         assertApproxEqAbs(
             IERC20(pegged).balanceOf(stabilityPoolCollateral),
             262.5 ether,
             1e15,
-            "scenarioB: coll SP total == 262.5"
+            "scenarioB: collateral pool total == 262.5"
         );
-        // Lev SP: Charlie 62.5 + Dave 100 + George 100 = 262.5
+        // Leveraged pool: Charlie 62.5 + Dave 100 + George 100 = 262.5
         assertApproxEqAbs(
             IERC20(pegged).balanceOf(stabilityPoolLeveraged),
             262.5 ether,
             1e15,
-            "scenarioB: lev SP total == 262.5"
+            "scenarioB: leveraged pool total == 262.5"
         );
 
         // ── Week 1 harvest (0.1% bump) ──────────────────────────────
@@ -792,7 +789,7 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
             console2.log("Week 1 harvested: %e", harvested1);
             skip(8 days);
 
-            // Same Minter wstETH after rebalance as Sc A (same total liquidation), so harvest is identical
+            // Same Minter fxSAVE after rebalance as Scenario A (same total liquidation), so harvest is identical
             assertApproxEqRel(harvested1, 3030 ether, 0.01 ether, "scenarioB: week 1 harvest ~= 3030");
 
             postHarvest1 = _snapshotAll();
@@ -827,18 +824,18 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
 
     /// @dev Per-actor harvest assertions for Scenario B week 1.
     /// Each pool has 262.5 pegged after re-deposits (Alice 62.5 + Bob 100 + Fred 100; Charlie/Dave/George same).
-    /// Coll SP gets 50% of 3030 = 1515 fxSAVE harvest. Alice 62.5/262.5 × 1515 ≈ 361; Bob/Fred 100/262.5 × 1515 ≈ 577.
-    /// (Was 0.0903 / 0.1444 in the old 1× test → scaled by 4000.)
+    /// The collateral pool gets 50% of 3030 = 1515 fxSAVE harvest. Alice 62.5/262.5 × 1515 ≈ 361; Bob/Fred
+    /// 100/262.5 × 1515 ≈ 577.
     function _assertScenarioBWeek1(
         ClaimableSnapshot[6] memory postRebal,
         ClaimableSnapshot[6] memory postHarvest1
     ) internal pure {
-        uint256 alice_w1 = postHarvest1[0].fxSAVE_collSP - postRebal[0].fxSAVE_collSP;
-        uint256 bob_w1 = postHarvest1[1].fxSAVE_collSP - postRebal[1].fxSAVE_collSP;
-        uint256 fred_w1 = postHarvest1[4].fxSAVE_collSP - postRebal[4].fxSAVE_collSP;
-        uint256 charlie_w1 = postHarvest1[2].fxSAVE_levSP - postRebal[2].fxSAVE_levSP;
-        uint256 dave_w1 = postHarvest1[3].fxSAVE_levSP - postRebal[3].fxSAVE_levSP;
-        uint256 george_w1 = postHarvest1[5].fxSAVE_levSP - postRebal[5].fxSAVE_levSP;
+        uint256 alice_w1 = postHarvest1[0].fxSAVE_collateralPool - postRebal[0].fxSAVE_collateralPool;
+        uint256 bob_w1 = postHarvest1[1].fxSAVE_collateralPool - postRebal[1].fxSAVE_collateralPool;
+        uint256 fred_w1 = postHarvest1[4].fxSAVE_collateralPool - postRebal[4].fxSAVE_collateralPool;
+        uint256 charlie_w1 = postHarvest1[2].fxSAVE_leveragedPool - postRebal[2].fxSAVE_leveragedPool;
+        uint256 dave_w1 = postHarvest1[3].fxSAVE_leveragedPool - postRebal[3].fxSAVE_leveragedPool;
+        uint256 george_w1 = postHarvest1[5].fxSAVE_leveragedPool - postRebal[5].fxSAVE_leveragedPool;
 
         assertApproxEqRel(alice_w1, 361 ether, 0.01 ether, "scenarioB: alice w1 harvest ~= 361");
         assertApproxEqRel(bob_w1, 577 ether, 0.01 ether, "scenarioB: bob w1 harvest ~= 577");
@@ -857,15 +854,14 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
     }
 
     /// @dev 2-week per-actor harvest totals for Scenario B.
-    /// Was 0.181 / 0.289 in old 1× test → scaled by 4000.
     function _assertScenarioBTotals(
         ClaimableSnapshot[6] memory postRebal,
         ClaimableSnapshot[6] memory postHarvest2
     ) internal pure {
-        uint256 alice_total = postHarvest2[0].fxSAVE_collSP - postRebal[0].fxSAVE_collSP;
-        uint256 bob_total = postHarvest2[1].fxSAVE_collSP - postRebal[1].fxSAVE_collSP;
-        uint256 charlie_total = postHarvest2[2].fxSAVE_levSP - postRebal[2].fxSAVE_levSP;
-        uint256 dave_total = postHarvest2[3].fxSAVE_levSP - postRebal[3].fxSAVE_levSP;
+        uint256 alice_total = postHarvest2[0].fxSAVE_collateralPool - postRebal[0].fxSAVE_collateralPool;
+        uint256 bob_total = postHarvest2[1].fxSAVE_collateralPool - postRebal[1].fxSAVE_collateralPool;
+        uint256 charlie_total = postHarvest2[2].fxSAVE_leveragedPool - postRebal[2].fxSAVE_leveragedPool;
+        uint256 dave_total = postHarvest2[3].fxSAVE_leveragedPool - postRebal[3].fxSAVE_leveragedPool;
 
         assertApproxEqRel(alice_total, 722 ether, 0.01 ether, "scenarioB: alice 2wk harvest ~= 722");
         assertApproxEqRel(bob_total, 1155 ether, 0.01 ether, "scenarioB: bob 2wk harvest ~= 1155");
