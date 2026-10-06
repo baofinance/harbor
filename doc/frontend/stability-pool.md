@@ -22,7 +22,7 @@ function REWARD_PERIOD_LENGTH() external view returns (uint40);
 ### Write Functions
 
 ```solidity
-function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesMinted);
+function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 assetsDeposited);
 function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256);
 function requestWithdrawal() external;
 function claim() external;
@@ -102,7 +102,7 @@ await pool.deposit(maxUint256, receiver, BigInt(0));
 
 ```typescript
 const ERROR_MESSAGES: Record<string, string> = {
-  DepositZeroAmount: "Cannot deposit zero amount",
+  ZeroInputBalance: "Cannot deposit zero amount",
   DepositAmountLessThanMinimum: "Amount below minimum deposit",
   InvalidReceiver: "Invalid receiver address",
   "ERC20: insufficient allowance": "Please approve token first",

@@ -320,10 +320,10 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IStabilityPool_v3
     // solhint-disable-next-line explicit-types
-    function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
+    function totalAssetSupplyHistory(uint index) external view returns (uint40 updatedAt, uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory record = $.totalAssetSupplyHistory[index];
-        atDay = record.updatedAt;
+        updatedAt = record.updatedAt;
         amount = record.amount;
     }
 
@@ -339,8 +339,6 @@ contract StabilityPool_v3 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.lastAssetLossError;
     }
-
-    // expose claimable from parent via interface
 
     /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the configured withdrawal request window for an account.
@@ -373,8 +371,6 @@ contract StabilityPool_v3 is
     }
 
     /// @inheritdoc IStabilityPool_v3
-    /// @notice The minimum single-call deposit — an alias for MIN_TOTAL_ASSET_SUPPLY: the deposit floor is
-    ///         enforced on the resulting total supply (see deposit).
     // solhint-disable-next-line func-name-mixedcase
     function MIN_DEPOSIT() external view returns (uint256) {
         return MIN_TOTAL_ASSET_SUPPLY;

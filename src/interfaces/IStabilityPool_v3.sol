@@ -19,28 +19,24 @@ interface IStabilityPool_v3 {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Emitted when user deposit asset into this contract.
-    /// @param owner The address of asset owner.
-    /// @param receiver The address of receiver of the asset in this contract.
-    /// @param amount The amount of asset deposited.
+    /// @notice Emitted by a deposit.
+    /// @param owner The account that paid the pegged in.
+    /// @param receiver The account credited with it.
+    /// @param amount The pegged credited.
     event Deposit(address indexed owner, address indexed receiver, uint256 amount);
 
-    /// @notice Emitted when the amount of deposited asset changed due to liquidation or deposit or unlock.
-    /// @param owner The address of asset owner.
-    /// @param newDeposit The new amount of deposited asset.
-    /// @param loss The amount of asset used by liquidation.
+    /// @notice Emitted when an account's balance changes: by a deposit or a withdrawal, or when a checkpoint brings
+    ///         the balance up to date with the losses since the account's last one.
+    /// @param owner The account.
+    /// @param newDeposit Its balance after the change.
+    /// @param loss The part of the balance the losses since its last checkpoint took; 0 for a deposit or withdrawal.
     event UserDepositChange(address indexed owner, uint256 newDeposit, uint256 loss);
 
-    /// @notice Emitted when user withdraw asset.
-    /// @param owner The address of asset owner.
-    /// @param reciever The address of receiver of the asset.
-    /// @param amount The amount of token to withdraw.
-    event Withdraw(address indexed owner, address indexed reciever, uint256 amount);
-
-    /// @notice Emitted when a reward token is gained.
-    /// @param rewardToken address of the reward token
-    /// @param rewardAmount The amount of token gained.
-    event RewardReceived(address rewardToken, uint256 rewardAmount);
+    /// @notice Emitted by a withdrawal.
+    /// @param owner The account withdrawing.
+    /// @param receiver The account paid.
+    /// @param amount The pegged paid to `receiver`, after any early-withdrawal fee.
+    event Withdraw(address indexed owner, address indexed receiver, uint256 amount);
 
     /// @notice Emitted when the rebalancer records a liquidation.
     /// @param liquidatedToken The asset token, the pool's pegged.
@@ -54,79 +50,64 @@ interface IStabilityPool_v3 {
         uint256 liquidatedToAmount
     );
 
-    /// @notice Emitted when a withdrawal request is created
-    /// @param owner The address creating the request
-    /// @param start The timestamp when withdrawal without fee starts
-    /// @param end The timestamp when the withdrawal window ends
+    /// @notice Emitted when an account requests a withdrawal window.
+    /// @param owner The account.
+    /// @param start The timestamp from which a withdrawal pays no fee.
+    /// @param end The last timestamp at which a withdrawal pays no fee.
     event WithdrawalRequested(address indexed owner, uint64 start, uint64 end);
 
-    /// @notice Emitted when a withdrawal request is updated (typically ended early after a withdraw)
-    /// @param owner The address whose request was updated
-    /// @param start The original/unchanged start timestamp
-    /// @param end The new end timestamp (often current time - 1)
+    /// @notice Emitted when a withdrawal clears the account's request.
+    /// @param owner The account.
+    /// @param start The request's start, as it was.
+    /// @param end Always 0: the request is cleared.
     event WithdrawalRequestUpdated(address indexed owner, uint64 start, uint64 end);
 
-    /// @notice Emitted when a withdrawal request is cancelled due to a deposit
-    /// @param owner The address whose request was cancelled
+    /// @notice Emitted when a deposit by the account cancels its request.
+    /// @param owner The account.
     event WithdrawalRequestCancelled(address indexed owner);
 
-    /// @notice Emitted when an early withdrawal fee is charged
-    /// @param owner The address paying the fee
-    /// @param amount The fee amount
+    /// @notice Emitted when a withdrawal pays the early-withdrawal fee.
+    /// @param owner The account withdrawing.
+    /// @param amount The fee, paid to the fee address.
     event EarlyWithdrawalFee(address indexed owner, uint256 amount);
-
-    /// @notice Emitted when the early withdrawal fee is updated
-    /// @param newFee The new fee ratio (scaled by 1e18)
-    event EarlyWithdrawalFeeUpdated(uint256 newFee);
-
-    /// @notice Emitted when the fee address is updated
-    /// @param newFeeAddress The new fee address
-    event FeeAddressUpdated(address newFeeAddress);
-
-    /// @notice Emitted when the withdrawal window parameters are updated
-    /// @param newStartDelay The new start delay (seconds from now to start)
-    /// @param newEndWindow The window period (seconds duration after start)
-    event WithdrawalWindowUpdated(uint256 newStartDelay, uint256 newEndWindow);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Thrown when the deposited amount is zero.
-    error DepositZeroAmount();
-
-    /// @dev Thrown when the deposited amount is less than the minimum.
+    /// @dev Thrown by a deposit when the amount credited is below the caller's `minAmount`, or when the total it
+    ///      leaves is below `MIN_TOTAL_ASSET_SUPPLY` - then `amount` is that total and `minAmount` the floor.
     error DepositAmountLessThanMinimum(uint256 amount, uint256 minAmount);
 
-    /// @dev Thrown when a deposit would push total supply above the ceiling `MAX_TOTAL_ASSET_SUPPLY`.
+    /// @dev Thrown by a deposit when the total it leaves is above the ceiling `MAX_TOTAL_ASSET_SUPPLY`: `amount` is that
+    ///      total, `maxAmount` the ceiling.
     error DepositAmountExceedsMaximum(uint256 amount, uint256 maxAmount);
 
-    /// @dev Thrown when the withdrawn amount is zero.
+    /// @dev Thrown by a withdrawal when nothing would leave: a request for 0, or one the floor cap or the fee leaves
+    ///      at 0.
     error WithdrawZeroAmount();
 
-    /// @dev Thrown when the deposited amount is less than the minimum.
+    /// @dev Thrown by a withdrawal when the amount it would pay, after the fee, is below the caller's `minAmount`.
     error WithdrawAmountLessThanMinimum(uint256 amount, uint256 minAmount);
 
-    /// @dev Thrown when the withdrawn amount is zero.
+    /// @dev Thrown by a withdrawal of an explicit amount above the caller's balance.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
 
-    /// @dev Thrown when a receiver address is not valid
+    /// @dev Thrown for a deposit or a withdrawal to `address(0)`, a transfer from or to `address(0)`, or a transfer to
+    ///      oneself.
     error InvalidReceiver(address receiver);
 
-    /// @dev Thrown when a provided fee is invalid
+    /// @dev Thrown by `initialize` for an early-withdrawal fee above 100% (1e18).
     error InvalidFee(uint256 fee);
 
-    /// @dev Thrown when the fee address is invalid (zero address)
+    /// @dev Thrown by `initialize` for a zero fee address.
     error InvalidFeeAddress(address feeAddress);
 
-    /// @dev Thrown when withdrawal window parameters are invalid
+    /// @dev Thrown by the constructor for a zero start delay or window duration, or either above 365 days.
     error InvalidWithdrawalWindow(uint256 startDelay, uint256 endWindow);
 
     /// @dev Thrown when the minimum total asset supply is zero (the reward-integral floor requires it to be positive)
     error InvalidMinTotalAssetSupply(uint256 minTotalAssetSupply);
-
-    /// @dev Thrown when attempting to withdraw without an active request or after it ended
-    error NoActiveWithdrawalRequest(address owner);
 
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
@@ -136,10 +117,12 @@ interface IStabilityPool_v3 {
     function REBALANCER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
     /// @notice Role whose holders are exempt from the early-withdrawal fee on `withdraw`. Held by the
-    ///         AutoCompounders and by the HarborYield Router so protocol exits to haXXX aren't penalised.
+    ///         AutoCompounders and by the HarborYield Router, so the yield layer's exits are not charged it.
     function EXEMPT_WITHDRAWAL_FEE_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the minimum the amount of assets the pool can hold if non-zero.
+    /// @notice The floor: once the pool holds it, the total supply never falls below it. A deposit must leave the total
+    ///         at or above it, and every outflow - a withdrawal, a sweep of the pegged, a loss - is capped at the
+    ///         headroom above it.
     function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
 
     /// @notice The supply ceiling: total asset supply may never exceed this. It is the mirror of
@@ -150,23 +133,28 @@ interface IStabilityPool_v3 {
     // solhint-disable-next-line func-name-mixedcase
     function MAX_TOTAL_ASSET_SUPPLY() external view returns (uint256 token);
 
-    /// @notice Return the minimum the amount of assets that can be deposited in one call.
+    /// @notice The same value as `MIN_TOTAL_ASSET_SUPPLY`, for callers that read it by this name. It is not a minimum
+    ///         for each deposit: the floor applies to the total a deposit leaves, so a pool at or above the floor
+    ///         accepts any deposit.
     function MIN_DEPOSIT() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the address of underlying token of this contract.
+    /// @notice The pegged token the pool holds, in which its balances are counted.
     function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the total amount of asset deposited to this contract.
+    /// @notice The pool's total supply: deposits less withdrawals and losses. The same as `totalSupply()`.
     function totalAssetSupply() external view returns (uint256 amount);
 
-    /// @notice Return the historical total asset deposited to this contract.
+    /// @notice Entry `index` of the supply history: when it was written, and the total supply then. Every deposit,
+    ///         withdrawal and loss writes one, several in one block keeping only the last. Entry 0 is
+    ///         (initialize time - 1, 0); past the last entry both read 0.
     // solhint-disable-next-line explicit-types
-    function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
+    function totalAssetSupplyHistory(uint index) external view returns (uint40 updatedAt, uint256 amount);
 
-    /// @notice Return the amount of assets currently attributed to 'account'.
+    /// @notice An account's balance after the losses since its last checkpoint. The same as `balanceOf(account)`.
     function assetBalanceOf(address account) external view returns (uint256 amount);
 
-    /// @notice Error trackers for the error correction in the loss calculation.
+    /// @notice The loss the last loss over-applied by rounding its loss per unit up, scaled by the loss factor's
+    ///         precision. It is carried into the next loss, which it reduces.
     function lastAssetLossError() external view returns (uint256);
 
     /// @notice The most asset supply a single liquidation loss may write down: the pool's headroom above
@@ -176,9 +164,9 @@ interface IStabilityPool_v3 {
     ///         supply is at or below the floor.
     function maxAssetLoss() external view returns (uint256 amount);
 
-    /// @notice Get the withdrawal request window for an account
-    /// @return start The timestamp when fee-free withdrawal starts
-    /// @return end The timestamp when the withdrawal window ends
+    /// @notice An account's withdrawal request; both 0 when it has none.
+    /// @return start The timestamp from which a withdrawal pays no fee.
+    /// @return end The last timestamp at which a withdrawal pays no fee.
     function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end);
 
     /// @notice The current early withdrawal fee ratio (scaled by 1e18)
@@ -207,33 +195,34 @@ interface IStabilityPool_v3 {
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Deposit some asset to this contract.
-    /// @dev Use `amount=uint256(-1)` if you want to deposit all asset held.
-    /// @param assetAmount The amount of asset to deposit.
-    /// @param receiver The address of recipient for the deposited asset.
-    /// @param minAmount The minimum amount to deposit
-    /// @return sharesMinted the amount of shares sent to 'receiver'
-    function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesMinted);
+    /// @notice Deposit pegged, crediting `receiver` one-for-one.
+    /// @dev Reverts if the total it leaves is below `MIN_TOTAL_ASSET_SUPPLY` or above `MAX_TOTAL_ASSET_SUPPLY`. A
+    ///      deposit by an account whose withdrawal request has not ended - before its window opens, or during it -
+    ///      cancels that request.
+    /// @param assetAmount The pegged to deposit, or `type(uint256).max` for the caller's whole balance.
+    /// @param receiver The account credited.
+    /// @param minAmount The least the caller accepts being credited.
+    /// @return assetsDeposited The pegged credited to `receiver`.
+    function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 assetsDeposited);
 
-    /// @notice Withdraw asset from this contract.
+    /// @notice Withdraw pegged from the caller's balance, paying `receiver`.
     /// @dev
-    /// - Requires an existing withdrawal request (created via requestWithdrawal()).
-    /// - Fee rules:
-    ///   - Before start: allowed, early-withdrawal fee applies.
-    ///   - During [start, end]: allowed, no fee applies.
-    ///   - After end: allowed, early-withdrawal fee applies.
-    /// - Calling withdraw ends the request window immediately (both start and end are zeroed).
-    /// - Use `assetAmount=type(uint256).max` to withdraw full balance.
-    /// @param assetAmount The amount of asset to withdraw.
-    /// @param receiver The address of recipient for the withdrawn asset.
-    /// @param minAmount The minimum acceptable withdrawn amount (post-fee), to protect against slippage/fee changes.
-    /// @return sharesBurned the amount of shares sent to 'receiver'
-    function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesBurned);
+    /// - A request is not needed. The window decides whether the early-withdrawal fee applies:
+    ///   - with no request, before the window's start, or after its end, the fee applies, unless the caller holds
+    ///     `EXEMPT_WITHDRAWAL_FEE_ROLE`;
+    ///   - during [start, end], both ends included, no fee applies.
+    /// - The amount leaving is capped at the headroom above `MIN_TOTAL_ASSET_SUPPLY`, and the fee is taken out of it.
+    /// - A successful withdrawal clears the caller's request (start and end zeroed).
+    /// @param assetAmount The pegged to withdraw, or `type(uint256).max` for the whole balance.
+    /// @param receiver The account paid.
+    /// @param minAmount The least the caller accepts being paid, after the fee.
+    /// @return assetsWithdrawn The pegged paid to `receiver`, after any fee.
+    function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 assetsWithdrawn);
 
-    /// @notice Create or update a withdrawal request for msg.sender.
-    /// @dev Sets a window: start = now + startDelay; end = start + endWindow (window period).
-    /// - A deposit made during an active window cancels the request (start and end are zeroed).
-    /// - A successful withdraw clears the request immediately (start and end are zeroed).
+    /// @notice Open a fee-free withdrawal window for the caller, replacing any request it has.
+    /// @dev The window is [now + startDelay, now + startDelay + endWindow] (see `getWithdrawalWindow`).
+    /// - A deposit by the caller before the window ends - before it opens, or during it - cancels the request.
+    /// - A successful withdrawal clears it.
     function requestWithdrawal() external;
 
     /*//////////////////////////////////////////////////////////////
