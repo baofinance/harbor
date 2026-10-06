@@ -20,10 +20,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     address manager;
     address receiver;
 
-    // Test parameters to loop through
-    // TODO: make these fuzz possibilities (for all tests!)
-    // TODO: test for no reward tokens
-    // TODO: test for zero reward period
+    // Test parameters to loop through: no reward tokens, one, and several
     uint256[] rewardCounts;
 
     // Error message constants
@@ -36,9 +33,10 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         receiver = makeAddr("receiver");
 
         // Setup test parameters
-        rewardCounts = new uint256[](2);
-        rewardCounts[0] = 1;
-        rewardCounts[1] = 3;
+        rewardCounts = new uint256[](3);
+        rewardCounts[0] = 0;
+        rewardCounts[1] = 1;
+        rewardCounts[2] = 3;
     }
 
     function createMultipleRewardCompoundingAccumulator(
@@ -64,21 +62,24 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         tokenAddresses = new address[](rewardCount);
         // Deploy tokens
         for (uint256 i = 0; i < rewardCount; i++) {
-            string memory i_str = vm.toString(i);
-            string memory token_name = string.concat("Name_", i_str);
-            string memory token_symbol = string.concat("Symbol_", i_str);
-            tokenAddresses[i] = address(new MockERC20(token_name, token_symbol, 18));
+            string memory index = vm.toString(i);
+            string memory tokenName = string.concat("Name_", index);
+            string memory tokenSymbol = string.concat("Symbol_", index);
+            tokenAddresses[i] = address(new MockERC20(tokenName, tokenSymbol, 18));
 
             MockERC20(tokenAddresses[i]).mint(deployer, 1000000 * 1 ether);
             // Approve tokens
-            MockERC20(tokenAddresses[i]).approve(address(accumulator), type(uint256).max);
+            IERC20(tokenAddresses[i]).approve(address(accumulator), type(uint256).max);
 
             // Register reward token
-            vm.prank(manager);
+            vm.startPrank(manager);
             accumulator.registerRewardToken(tokenAddresses[i]);
+            vm.stopPrank();
         }
     }
 
+    /// A set-up accumulator holds its period, its registered tokens in order, no historical tokens and its owner - with
+    /// no reward tokens, one and several.
     function testInitialization() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -102,11 +103,12 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             // Check historical rewards is empty
             assertEq(accumulator.historicalRewardTokens().length, 0);
 
-            // Check deployer has default admin role
+            // Check the deployer owns it
             assertEq(accumulator.owner(), deployer);
         }
     }
 
+    /// checkpoint cannot be re-entered.
     function testReentrantCheckpoint() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -119,6 +121,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         }
     }
 
+    /// claim() cannot be re-entered.
     function testReentrantClaim() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -132,6 +135,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         }
     }
 
+    /// claim(address[]) cannot be re-entered.
     function testReentrantClaimVector() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint40 periodLength = 1 weeks;
@@ -146,6 +150,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         }
     }
 
+    /// claim(address,uint256) cannot be re-entered.
     function testReentrantClaimSingle() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint40 periodLength = 1 weeks;
@@ -167,69 +172,64 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         uint256 userPoolShare;
     }
 
+    /// A global checkpoint accrues each token's stream into its integral; a user checkpoint records the integral, its
+    /// time and the user's share of what accrued; a second period's deposits add to both - with no reward tokens, one
+    /// and several.
     function testCheckpoint() public {
-        // TODO: fuzz this
-
         for (uint256 i = 0; i < rewardCounts.length; i++) {
-            TestParams memory t;
-            t.rewardCount = rewardCounts[i];
-            t.periodLength = 1 weeks;
-            t.baseRewardAmount = 2233 ether;
-            t.totalPoolShare = 1234 ether;
-            t.userPoolShare = 456 ether;
+            TestParams memory params;
+            params.rewardCount = rewardCounts[i];
+            params.periodLength = 1 weeks;
+            params.baseRewardAmount = 2233 ether;
+            params.totalPoolShare = 1234 ether;
+            params.userPoolShare = 456 ether;
 
-            uint256[3] memory timestamp;
             uint256 globalSnapshot;
 
             (
                 IMockMultipleRewardCompoundingAccumulator accumulator,
                 address[] memory tokenAddresses
-            ) = _setupAccumulator(t.rewardCount, t.periodLength);
+            ) = _setupAccumulator(params.rewardCount, params.periodLength);
 
             // Set pool shares
-            accumulator.setTotalPoolShare(t.totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(t.userPoolShare, 1 ether);
+            accumulator.setTotalPoolShare(params.totalPoolShare, 1 ether);
+            accumulator.setUserPoolShare(params.userPoolShare, 1 ether);
 
             // Deposit rewards
-            for (uint256 j = 0; j < t.rewardCount; j++) {
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
+            for (uint256 j = 0; j < params.rewardCount; j++) {
+                uint256 depositAmount = params.baseRewardAmount * (j + 1);
                 accumulator.depositReward(tokenAddresses[j], depositAmount);
             }
 
             // Test global checkpoint
-            // TODO: get rid of timestamp array and replace with block.timestamp
-            timestamp[0] = block.timestamp;
-            vm.warp(timestamp[0] + t.periodLength);
-            assertEq(block.timestamp, timestamp[0] + t.periodLength, "warp failed");
-
+            vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(address(0));
 
-            for (uint256 j = 0; j < t.rewardCount; j++) {
+            for (uint256 j = 0; j < params.rewardCount; j++) {
                 globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / t.periodLength;
+                uint256 depositAmount = params.baseRewardAmount * (j + 1);
+                uint256 rate = depositAmount / params.periodLength;
 
                 assertApproxEqRel(
                     globalSnapshot,
-                    (rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare,
+                    (rate * params.periodLength * 1 ether * 1 ether) / params.totalPoolShare,
                     0.0001e18, // Allow 0.01% error
                     string.concat("Global integral mismatch for token ", vm.toString(j))
                 );
             }
 
             // Test user checkpoint
-            timestamp[1] = block.timestamp;
-            vm.warp(timestamp[1] + t.periodLength);
+            vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(deployer);
 
-            for (uint256 j = 0; j < t.rewardCount; j++) {
+            for (uint256 j = 0; j < params.rewardCount; j++) {
                 globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / t.periodLength;
+                uint256 depositAmount = params.baseRewardAmount * (j + 1);
+                uint256 rate = depositAmount / params.periodLength;
 
                 assertApproxEqRel(
                     globalSnapshot,
-                    (rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare,
+                    (rate * params.periodLength * 1 ether * 1 ether) / params.totalPoolShare,
                     0.0001e18, // Allow 0.01% error
                     string.concat("User integral mismatch for token ", vm.toString(j))
                 );
@@ -238,11 +238,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
                 (uint256 userTimestamp, uint256 userIntegral, uint256 userPending, uint256 userClaimed) = accumulator
                     .userRewardSnapshot(deployer, tokenAddresses[j]);
 
-                assertEq(userTimestamp, timestamp[1] + t.periodLength);
+                assertEq(userTimestamp, block.timestamp);
                 assertEq(userIntegral, globalSnapshot);
                 assertApproxEqRel(
                     userPending,
-                    (depositAmount * t.userPoolShare) / t.totalPoolShare,
+                    (depositAmount * params.userPoolShare) / params.totalPoolShare,
                     0.0001e18, // Allow 0.01% error
                     string.concat("User pending mismatch for token ", vm.toString(j))
                 );
@@ -250,23 +250,22 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             }
 
             // Deposit again and checkpoint
-            for (uint256 j = 0; j < t.rewardCount; j++) {
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
+            for (uint256 j = 0; j < params.rewardCount; j++) {
+                uint256 depositAmount = params.baseRewardAmount * (j + 1);
                 accumulator.depositReward(tokenAddresses[j], depositAmount);
             }
 
-            timestamp[2] = block.timestamp;
-            vm.warp(timestamp[2] + t.periodLength);
+            vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(deployer);
 
-            for (uint256 j = 0; j < t.rewardCount; j++) {
+            for (uint256 j = 0; j < params.rewardCount; j++) {
                 globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / t.periodLength;
+                uint256 depositAmount = params.baseRewardAmount * (j + 1);
+                uint256 rate = depositAmount / params.periodLength;
 
                 assertApproxEqRel(
                     globalSnapshot,
-                    ((rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare) * 2,
+                    ((rate * params.periodLength * 1 ether * 1 ether) / params.totalPoolShare) * 2,
                     0.001e18, // Allow 0.1% error for accumulated calculations
                     string.concat("Global integral mismatch #2 for token ", vm.toString(j))
                 );
@@ -275,7 +274,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
                 (uint256 userTimestamp, uint256 userIntegral, uint256 userPending, uint256 userClaimed) = accumulator
                     .userRewardSnapshot(deployer, tokenAddresses[j]);
 
-                assertEq(userTimestamp, timestamp[2] + t.periodLength);
+                assertEq(userTimestamp, block.timestamp);
                 assertEq(
                     userIntegral,
                     globalSnapshot,
@@ -283,7 +282,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
                 );
                 assertApproxEqRel(
                     userPending,
-                    ((depositAmount * t.userPoolShare) / t.totalPoolShare) * 2,
+                    ((depositAmount * params.userPoolShare) / params.totalPoolShare) * 2,
                     0.001e18, // Allow 0.1% error for accumulated calculations
                     string.concat("Global user pending mismatch #2 for token ", vm.toString(j))
                 );
@@ -352,11 +351,10 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     ///    are generous and not practical constraints for any realistic scenario.
     /// ═══════════════════════════════════════════════════════════════════════════════
 
-    /// @notice Replicates the mainnet failure: uint192 integral overflow in _accumulateReward.
-    /// Two tokens registered, only token0 gets deposits. Token1 develops finishAt=0 state.
-    /// After enough deposit cycles, token0's integral exceeds uint192 max.
-    /// v2 (uint256 integral): succeeds. v1 (uint192 integral): reverts with Panic(0x11).
-    function test_accumulateReward_Uint192Overflow() public virtual {
+    /// @notice The integral is a full uint256: with two tokens registered and only token0 funded - token1 left with
+    /// finishAt 0 and lastUpdate set - deposit cycles take token0's integral past uint192's max, the width the integral
+    /// once had, and the deposits still succeed.
+    function test_accumulateReward_integralGrowsPastUint192Max() public virtual {
         uint40 periodLength = 1 weeks;
 
         // Setup with 2 tokens — token1 will never receive deposits (mainnet scenario)
@@ -389,12 +387,12 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         assertGt(integral, (uint256(type(uint192).max) * 90) / 100, "Should be close to uint192 max");
         assertLe(integral, uint256(type(uint192).max), "Should still be under uint192 max");
 
-        // 7th cycle: pushes integral past uint192 max — v2 succeeds (uint256)
+        // the 7th cycle takes the integral past uint192's max, and the deposit succeeds
         vm.warp(block.timestamp + periodLength);
         accumulator.depositReward(tokens[0], depositAmount);
 
         integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        assertGt(integral, type(uint192).max, "v2: integral should exceed uint192 max");
+        assertGt(integral, type(uint192).max, "the integral exceeds uint192 max");
     }
 
     /// @notice Verify integral growth matches the theoretical formula:
@@ -575,11 +573,10 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         assertLt(integral, type(uint192).max, "Still within v1 uint192 bounds (62x headroom)");
     }
 
-    /// @notice Realistic mainnet scenario: BTC MIN_DEPOSIT pool (1e13 wei) with
-    /// fresh product (magnitude=1e36) receiving 1e16/week (~$600 at BTC $60k).
-    /// Demonstrates Table 2: $600/wk to BTC MIN_DEPOSIT pool overflows v1 in ~7 weeks.
-    /// v2 survives. v1 override expects Panic(0x11).
-    function test_integralBounds_MinPool_RealisticOverflow() public virtual {
+    /// @notice A realistic minimum-deposit pool - a BTC MIN_DEPOSIT pool (1e13 wei) with a fresh product (magnitude
+    /// 1e36) receiving 1e16 a week, about $600 at $60k a BTC - takes its integral past uint192's max in seven weeks
+    /// (Table 2) and keeps accruing.
+    function test_integralBounds_minimumDepositPool_passesUint192MaxInSevenWeeks() public virtual {
         uint40 periodLength = 1 weeks;
         (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
             1,
@@ -603,12 +600,12 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         assertGt(integral, (uint256(type(uint192).max) * 90) / 100, "Near uint192 max after 6 weeks");
         assertLe(integral, type(uint192).max, "Still under uint192 max");
 
-        // 7th week: v2 survives past uint192 max
+        // the 7th week takes the integral past uint192's max
         vm.warp(block.timestamp + periodLength);
         accumulator.depositReward(tokens[0], weeklyReward);
 
         integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        assertGt(integral, type(uint192).max, "v2: integral exceeds uint192 max");
+        assertGt(integral, type(uint192).max, "the integral exceeds uint192 max");
     }
 
     /// @notice Minimum meaningful reward (rate=1/sec) to a large pool still
@@ -656,9 +653,9 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             uint256[] memory pending
         ) = _stakeAndAccruePending(2);
 
-        uint256[] memory balBefore = new uint256[](2);
-        balBefore[0] = IERC20(tokenAddresses[0]).balanceOf(deployer);
-        balBefore[1] = IERC20(tokenAddresses[1]).balanceOf(deployer);
+        uint256[] memory balanceBefore = new uint256[](2);
+        balanceBefore[0] = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        balanceBefore[1] = IERC20(tokenAddresses[1]).balanceOf(deployer);
 
         uint256[] memory amounts = IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses);
 
@@ -666,12 +663,12 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         assertEq(amounts[0], pending[0], "amounts[0] == pending[0]");
         assertEq(amounts[1], pending[1], "amounts[1] == pending[1]");
         assertEq(
-            IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore[0],
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore[0],
             pending[0],
             "balance[0] increased by pending[0]"
         );
         assertEq(
-            IERC20(tokenAddresses[1]).balanceOf(deployer) - balBefore[1],
+            IERC20(tokenAddresses[1]).balanceOf(deployer) - balanceBefore[1],
             pending[1],
             "balance[1] increased by pending[1]"
         );
@@ -685,11 +682,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             uint256[] memory pending
         ) = _stakeAndAccruePending(1);
 
-        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
         uint256 returned = IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], type(uint256).max);
 
         assertEq(returned, pending[0], "returned == pending");
-        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore, returned, "balance increase == returned");
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore, returned, "balance increase == returned");
     }
 
     /// @notice claim([t, t]) returns [pending, 0]: first entry claims the full pending; second
@@ -753,9 +750,8 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         accumulator.checkpoint(deployer);
         pending = new uint256[](rewardCount);
         for (uint256 j = 0; j < rewardCount; j++) {
-            (, , uint256 p, ) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-            require(p > 0, "no pending: bad setup");
-            pending[j] = p;
+            (, , pending[j], ) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
+            require(pending[j] > 0, "no pending: bad setup");
         }
     }
 
@@ -769,11 +765,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         ) = _stakeAndAccruePending(1);
 
         uint256 cap = pending[0] / 3;
-        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
 
         IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], cap);
 
-        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore, cap, "transferred == cap");
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore, cap, "transferred == cap");
         (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
         assertEq(claimedAfter, cap, "claimed += cap");
         assertEq(pendingAfter, pending[0] - cap, "pending -= cap");
@@ -787,11 +783,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             uint256[] memory pending
         ) = _stakeAndAccruePending(1);
 
-        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
 
         IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], pending[0] * 10);
 
-        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore, pending[0], "transferred == full pending");
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore, pending[0], "transferred == full pending");
         (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
         assertEq(pendingAfter, 0, "pending zeroed");
         assertEq(claimedAfter, pending[0], "claimed == original pending");
@@ -814,9 +810,9 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         }
         cap = cap / 2;
 
-        uint256[] memory balBefore = new uint256[](3);
+        uint256[] memory balanceBefore = new uint256[](3);
         for (uint256 j = 0; j < 3; j++) {
-            balBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
+            balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
         }
 
         IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], cap);
@@ -826,7 +822,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         for (uint256 j = 0; j < 3; j++) {
             string memory tag = string.concat(" (token ", vm.toString(j), ")");
             assertEq(
-                IERC20(tokenAddresses[j]).balanceOf(deployer) - balBefore[j],
+                IERC20(tokenAddresses[j]).balanceOf(deployer) - balanceBefore[j],
                 cap,
                 string.concat("transferred == cap per token", tag)
             );
@@ -847,11 +843,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             uint256[] memory pending
         ) = _stakeAndAccruePending(1);
 
-        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
 
         IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], 0);
 
-        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer), balBefore, "no tokens transferred");
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer), balanceBefore, "no tokens transferred");
         (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
         assertEq(pendingAfter, pending[0], "pending unchanged");
         assertEq(claimedAfter, 0, "claimed unchanged");
@@ -859,38 +855,42 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
 
     // ═══════════════════════════════════════════════════════════════════════
     // Historical token behaviour — claimable/claimed/claim work for
-    // deregistered tokens. Verifies the §N plan assumption that the SP
-    // accumulator treats active and historical tokens identically for claims.
+    // deregistered tokens: the StabilityPool's accumulator treats active and
+    // historical tokens alike for claims.
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @dev Distribute 1000 ether over one period, checkpoint deployer (100% shares),
     /// then deregister so the token is in historicalRewardTokens with a known
     /// exact pending. Returns the exact pendingAtCheckpoint read from storage
     /// (the authoritative source — no math replication needed).
-    function _earnCheckpointDeregister() internal returns (address acc, address token, uint256 pendingAtCheckpoint) {
-        (IMockMultipleRewardCompoundingAccumulator tmpAcc, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
-        acc = address(tmpAcc);
+    function _earnCheckpointDeregister()
+        internal
+        returns (address accumulator, address token, uint256 pendingAtCheckpoint)
+    {
+        (IMockMultipleRewardCompoundingAccumulator mock, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
+        accumulator = address(mock);
         token = tokens[0];
 
-        IMockMultipleRewardCompoundingAccumulator(acc).setTotalPoolShare(1000 ether, 1 ether);
-        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(1000 ether, 1 ether); // deployer owns 100%
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setTotalPoolShare(1000 ether, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(1000 ether, 1 ether); // deployer owns 100%
 
-        IMockMultipleRewardCompoundingAccumulator(acc).depositReward(token, 1000 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).depositReward(token, 1000 ether);
         vm.warp(block.timestamp + 1 weeks);
 
         // Checkpoint deployer: locks accrued rewards into snapshot.pending.
-        IMultipleRewardAccumulator(acc).checkpoint(deployer);
-        (, , pendingAtCheckpoint, ) = IMockMultipleRewardCompoundingAccumulator(acc).userRewardSnapshot(
+        IMultipleRewardAccumulator(accumulator).checkpoint(deployer);
+        (, , pendingAtCheckpoint, ) = IMockMultipleRewardCompoundingAccumulator(accumulator).userRewardSnapshot(
             deployer,
             token
         );
         require(pendingAtCheckpoint > 0, "_earnCheckpointDeregister: no pending");
 
         // Move token to historical set.
-        vm.prank(manager);
-        IMockMultipleRewardCompoundingAccumulator(acc).unregisterRewardToken(token);
+        vm.startPrank(manager);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).unregisterRewardToken(token);
+        vm.stopPrank();
         assertFalse(
-            IMockMultipleRewardCompoundingAccumulator(acc).isActiveRewardToken(token),
+            IMockMultipleRewardCompoundingAccumulator(accumulator).isActiveRewardToken(token),
             "token should be historical"
         );
     }
@@ -899,39 +899,39 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     /// After checkpoint + deregistration, the integral is frozen and temporal rewards
     /// are zero, so claimable = snapshot.pending exactly.
     function test_historicalToken_claimable_correctAfterDeregistration() public {
-        (address acc, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+        (address accumulator, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
 
-        uint256 claimable = IMultipleRewardAccumulator(acc).claimable(deployer, aa(token))[0];
+        uint256 claimable = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
         assertEq(claimable, pendingAtCheckpoint, "claimable == snapshot.pending (exact)");
     }
 
     /// @notice claim(vector) transfers exactly snapshot.pending for a historical token.
     function test_historicalToken_claim_vector_transfersCorrectAmount() public {
-        (address acc, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+        (address accumulator, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
 
-        address[] memory toks = new address[](1);
-        toks[0] = token;
-        uint256 balBefore = IERC20(token).balanceOf(deployer);
+        uint256 balanceBefore = IERC20(token).balanceOf(deployer);
 
-        IMultipleRewardAccumulator(acc).claim(toks);
+        IMultipleRewardAccumulator(accumulator).claim(aa(token));
 
-        assertEq(IERC20(token).balanceOf(deployer) - balBefore, pendingAtCheckpoint, "received == snapshot.pending");
+        assertEq(
+            IERC20(token).balanceOf(deployer) - balanceBefore,
+            pendingAtCheckpoint,
+            "received == snapshot.pending"
+        );
     }
 
     /// @notice After a full claim, claimed == original pending and claimable == 0.
     function test_historicalToken_claimed_tracksPaymentToZero() public {
-        (address acc, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+        (address accumulator, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
 
-        address[] memory toks = new address[](1);
-        toks[0] = token;
-        IMultipleRewardAccumulator(acc).claim(toks);
+        IMultipleRewardAccumulator(accumulator).claim(aa(token));
 
-        (, , uint256 pendingAfter, uint256 claimedAfter) = IMockMultipleRewardCompoundingAccumulator(acc)
+        (, , uint256 pendingAfter, uint256 claimedAfter) = IMockMultipleRewardCompoundingAccumulator(accumulator)
             .userRewardSnapshot(deployer, token);
         assertEq(claimedAfter, pendingAtCheckpoint, "claimed == original pending");
         assertEq(pendingAfter, 0, "pending zeroed after full claim");
         assertEq(
-            IMultipleRewardAccumulator(acc).claimable(deployer, aa(token))[0],
+            IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0],
             0,
             "claimable == 0 after full claim"
         );
@@ -941,54 +941,61 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     /// Uses manager (never checkpointed) with global shares set to 0: pending=0,
     /// accrual = 0*integral = 0, temporal = 0 => claimable = 0.
     function test_historicalToken_zeroShares_hasZeroClaimable() public {
-        (address acc, address token, ) = _earnCheckpointDeregister();
+        (address accumulator, address token, ) = _earnCheckpointDeregister();
 
         // Set global shares to 0. manager was never checkpointed so snapshot.pending = 0.
-        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(0, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(0, 1 ether);
 
-        assertEq(IMultipleRewardAccumulator(acc).claimable(manager, aa(token))[0], 0, "zero shares: zero claimable");
+        assertEq(
+            IMultipleRewardAccumulator(accumulator).claimable(manager, aa(token))[0],
+            0,
+            "zero shares: zero claimable"
+        );
     }
 
     /// @notice Gap scenario: if shares decrease AFTER rewards accumulate into the integral
     /// but BEFORE the user snapshot is checkpointed, the claim uses the post-change share
-    /// count. This demonstrates why AC's _beforeTokenTransfer must checkpoint historical
+    /// count. This demonstrates why the AutoCompounder's _beforeTokenTransfer must checkpoint historical
     /// tokens before allowing share transfers.
     function test_historicalToken_gapScenario_shareCountUsedAtClaimTime() public {
-        (IMockMultipleRewardCompoundingAccumulator tmpAcc, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
-        address acc = address(tmpAcc);
+        (IMockMultipleRewardCompoundingAccumulator mock, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
+        address accumulator = address(mock);
         address token = tokens[0];
 
-        IMockMultipleRewardCompoundingAccumulator(acc).setTotalPoolShare(1000 ether, 1 ether);
-        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(1000 ether, 1 ether); // deployer has 100%
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setTotalPoolShare(1000 ether, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(1000 ether, 1 ether); // deployer has 100%
 
-        IMockMultipleRewardCompoundingAccumulator(acc).depositReward(token, 1000 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).depositReward(token, 1000 ether);
         vm.warp(block.timestamp + 1 weeks);
 
         // Global checkpoint only — deployer's user snapshot is NOT updated.
-        IMultipleRewardAccumulator(acc).checkpoint(address(0));
+        IMultipleRewardAccumulator(accumulator).checkpoint(address(0));
 
         // Deregister: no more rewards accumulate.
-        vm.prank(manager);
-        IMockMultipleRewardCompoundingAccumulator(acc).unregisterRewardToken(token);
+        vm.startPrank(manager);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).unregisterRewardToken(token);
+        vm.stopPrank();
 
         // Correct entitlement (1000e18 shares = 100%): read from view before changing shares.
-        uint256 correctEntitlement = IMultipleRewardAccumulator(acc).claimable(deployer, aa(token))[0];
+        uint256 correctEntitlement = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
         assertGt(correctEntitlement, 0, "should have earned rewards");
 
         // Shares halved WITHOUT prior checkpoint — this is the gap.
-        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(500 ether, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(500 ether, 1 ether);
 
         // What the view reports with the post-gap share count.
-        uint256 gapEntitlement = IMultipleRewardAccumulator(acc).claimable(deployer, aa(token))[0];
+        uint256 gapEntitlement = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
         assertLt(gapEntitlement, correctEntitlement, "gap: half shares gives less claimable");
 
         // Claim transfers exactly what the view reported — no surprise, no rounding.
-        address[] memory toks = new address[](1);
-        toks[0] = token;
-        uint256 balBefore = IERC20(token).balanceOf(deployer);
-        IMultipleRewardAccumulator(acc).claim(toks);
+        uint256 balanceBefore = IERC20(token).balanceOf(deployer);
+        IMultipleRewardAccumulator(accumulator).claim(aa(token));
 
-        assertEq(IERC20(token).balanceOf(deployer) - balBefore, gapEntitlement, "received == gapEntitlement (exact)");
+        assertEq(
+            IERC20(token).balanceOf(deployer) - balanceBefore,
+            gapEntitlement,
+            "received == gapEntitlement (exact)"
+        );
     }
 
     /// @notice After a partial cap-bound claim, the remainder is still claimable in a second uncapped call
@@ -1003,11 +1010,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         uint256 firstCap = pending[0] / 4;
         IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], firstCap);
 
-        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
         IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], type(uint256).max);
 
         assertEq(
-            IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore,
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore,
             pending[0] - firstCap,
             "second claim drains the remainder"
         );
