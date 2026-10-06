@@ -358,6 +358,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
 
 struct Balances {
     uint256 totalPegged;
+    uint256 totalLeveraged;
     uint256 minterPegged;
     uint256 minterCollateral;
     uint256 bountyReceiverCollateral;
@@ -370,6 +371,7 @@ struct Balances {
 contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
     function _readBalances() internal view returns (Balances memory balances) {
         balances.totalPegged = IERC20(peggedToken).totalSupply();
+        balances.totalLeveraged = IERC20(leveragedToken).totalSupply();
         balances.minterPegged = IMinter(minter).peggedTokenBalance();
 
         balances.bountyReceiverCollateral = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver);
@@ -485,17 +487,18 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
             before.poolLeveragedLeveraged,
             "leveraged Pool should have more leveraged after rebalance"
         );
-        // bounty receiver
-        // assertGt(
-        //     after_.bountyReceiverCollateral,
-        //     before.bountyReceiverCollateral,
-        //     "Bounty receiver should have collateral after rebalance"
-        // );
-        // assertGt(
-        //     after_.bountyReceiverLeveraged,
-        //     before.bountyReceiverLeveraged,
-        //     "Bounty receiver should have leveraged after rebalance"
-        // );
+        // bounty receiver: its ratio of each leg's proceeds, floored, the proceeds read from the minter's side - the
+        // collateral the minter paid out (the rebalance pays no fee) and the leveraged it minted - not from the receiver
+        assertEq(
+            after_.bountyReceiverCollateral - before.bountyReceiverCollateral,
+            ((before.minterCollateral - after_.minterCollateral) * bountyRatio) / 1 ether,
+            "Bounty receiver is paid its ratio of the collateral proceeds"
+        );
+        assertEq(
+            after_.bountyReceiverLeveraged - before.bountyReceiverLeveraged,
+            ((after_.totalLeveraged - before.totalLeveraged) * bountyRatio) / 1 ether,
+            "Bounty receiver is paid its ratio of the leveraged proceeds"
+        );
 
         // collateral cannot be created or destroyed
         assertEq(
