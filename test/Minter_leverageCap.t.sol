@@ -7,7 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
 import {LocalMarket} from "@harbor-test/harness/LocalMarket.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -57,10 +57,10 @@ contract MinterLeverageCapTest is LocalMarket {
         uint256 floor = IMinter_v3(market.minter).MINIMUM_COLLATERAL_RATIO();
         assertGe(IMinter(market.minter).collateralRatio(), floor, "precondition: the market is above the floor");
         uint256 leveragedPoolPeggedBefore = IERC20(market.pegged).balanceOf(market.leveragedPool);
-        uint256 threshold = IStabilityPoolManager(market.manager).rebalanceThreshold();
+        uint256 threshold = IStabilityPoolManager_v2(market.manager).rebalanceThreshold();
 
         vm.startPrank(keeper);
-        IStabilityPoolManager(market.manager).rebalance(keeper, 0);
+        IStabilityPoolManager_v2(market.manager).rebalance(keeper, 0);
         vm.stopPrank();
 
         // The sizing floors the pegged it burns to the wei, and the ratio it lands on is `backing x price /
