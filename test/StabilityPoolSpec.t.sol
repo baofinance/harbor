@@ -7,7 +7,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
@@ -17,8 +17,6 @@ import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalan
 /// @notice Specification tests for the StabilityPool contract
 /// @dev Based on the testing approach from rebalance-pool
 contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
-    MockERC20 liquidationToken;
-
     // Constants for test configuration
 
     uint256 constant DEPOSIT_AMOUNT = 100 ether;
@@ -26,11 +24,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     function setUp() public override {
         super.setUp();
-
-        liquidationToken = new MockERC20("Liquidation Token", "LQT", 18);
-
-        // Mint initial tokens
-        liquidationToken.mint(rebalancer, INITIAL_BALANCE);
 
         setUp_collateral(1000 ether, 1000 ether);
     }
@@ -46,7 +39,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     function testDeposit() public {
         // User1 deposits
         vm.startPrank(user1);
-        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        uint256 deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
         vm.stopPrank();
 
         // Check deposit results
@@ -58,7 +51,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     function testDepositWithMin() public {
         // User1 deposits with minimum amount requirement
         vm.startPrank(user1);
-        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, DEPOSIT_AMOUNT);
+        uint256 deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, DEPOSIT_AMOUNT);
         vm.stopPrank();
 
         // Check deposit results
@@ -71,24 +64,24 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IStabilityPool.DepositAmountLessThanMinimum.selector,
+                IStabilityPool_v3.DepositAmountLessThanMinimum.selector,
                 DEPOSIT_AMOUNT,
                 DEPOSIT_AMOUNT + 1
             )
         );
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, DEPOSIT_AMOUNT + 1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, DEPOSIT_AMOUNT + 1);
         vm.stopPrank();
     }
 
     // The deposit floor is on the RESULTING TOTAL, not the per-deposit amount: once the pool is established
     // (total >= MIN_TOTAL_ASSET_SUPPLY) a deposit far below the floor must still be accepted — it cannot take the
-    // total below the floor. (The previous per-deposit floor wrongly rejected such deposits.)
+    // total below the floor.
     function test_deposit_smallIntoEstablishedPool_succeeds() public {
-        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
 
         // Establish the pool well above the floor (user1 is provisioned + approved by the setup).
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
         vm.stopPrank();
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         assertGt(supplyBefore, floor, "pool established above the floor");
@@ -97,7 +90,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         deal(peggedToken, user2, 1);
         vm.startPrank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, 1);
-        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(1, user2, 0);
+        uint256 deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(1, user2, 0);
         vm.stopPrank();
 
         assertEq(deposited, 1, "dust deposit accepted");
@@ -108,7 +101,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     // The floor still bites where it matters: a first deposit that would leave the pool with a non-zero total
     // below MIN_TOTAL_ASSET_SUPPLY reverts (the resulting total, not the per-deposit amount, is the trigger).
     function test_deposit_firstBelowFloor_reverts() public {
-        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "pool starts empty");
 
         uint256 belowFloor = floor - 1;
@@ -116,9 +109,9 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, belowFloor);
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPool.DepositAmountLessThanMinimum.selector, belowFloor, floor)
+            abi.encodeWithSelector(IStabilityPool_v3.DepositAmountLessThanMinimum.selector, belowFloor, floor)
         );
-        IStabilityPool(stabilityPoolCollateral).deposit(belowFloor, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(belowFloor, user1, 0);
         vm.stopPrank();
     }
 
@@ -127,19 +120,19 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     // theirs, redeemable as soon as anyone else deposits). Keeping supply out of the (0, floor) dust zone is what makes
     // the reward divisor's floor structural - see StabilityPool_v3._capToFloor.
     function test_withdraw_lastHolderCannotTakeTheFloor() public {
-        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         uint256 depositAmount = 3 * floor; // sole holder, well above the floor
 
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(start) + 1); // inside the no-fee window
 
         uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
         vm.stopPrank();
 
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "the floor is retained, never drained to 0");
@@ -158,19 +151,19 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     // A partial withdrawal that would leave the total in the (0, floor) dust zone is clamped to leave exactly the floor.
     function test_withdraw_partialLeavingDustClampedToFloor() public {
-        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         uint256 depositAmount = 2 * floor;
 
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
 
         // Request 1.5*floor: leaves floor/2 (dust) if honoured, so it must clamp to leave exactly the floor.
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(depositAmount - floor / 2, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(depositAmount - floor / 2, user1, 0);
         vm.stopPrank();
 
         assertEq(
@@ -184,16 +177,16 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     // again as soon as anyone else deposits and lifts supply above the floor. So "you cannot be the last one out" costs
     // a holder nothing but the wait for a successor - and the successor's own deposit is never used to pay it out.
     function test_withdraw_retainedFloorRedeemableOnceAnotherDeposits() public {
-        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
 
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(3 * floor, user1, 0);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * floor, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
         vm.stopPrank();
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "the floor is retained, never drained to 0");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), floor, "the retained floor is still user1's");
@@ -202,7 +195,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         deal(peggedToken, user2, joining);
         vm.startPrank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, joining);
-        IStabilityPool(stabilityPoolCollateral).deposit(joining, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(joining, user2, 0);
         vm.stopPrank();
 
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor + joining, "the newcomer adds to the floor");
@@ -211,12 +204,12 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         // With supply now above the floor there is headroom, so user1 can finally take the floor they were holding.
         uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start2, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start2, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(start2) + 1);
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
         vm.stopPrank();
 
         assertEq(
@@ -231,28 +224,28 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     // A non-sole holder cannot drain the pool to 0: a full-balance withdrawal is clamped to leave the floor and the
     // other holder's stake untouched - one holder can never take another's.
     function test_withdraw_nonSoleHolderCannotDrainOthersStake() public {
-        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
 
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(5 * floor, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * floor, user1, 0);
         vm.stopPrank();
         // user2 is a small legit holder (a sub-floor deposit into an established pool is allowed)
         deal(peggedToken, user2, floor / 2);
         vm.startPrank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, floor / 2);
-        IStabilityPool(stabilityPoolCollateral).deposit(floor / 2, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(floor / 2, user2, 0);
         vm.stopPrank();
         uint256 user2Balance = IERC20(stabilityPoolCollateral).balanceOf(user2);
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
 
         // user1 requests their FULL balance in the no-fee window - but they are NOT the sole holder
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user1);
-        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
         vm.stopPrank();
 
         // Clamped to leave exactly the floor - the pool did NOT drain to 0, and user2 keeps their full stake.
@@ -266,11 +259,11 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         );
     }
 
-    // MIN_DEPOSIT is retained on the interface but is now an alias for MIN_TOTAL_ASSET_SUPPLY (no separate value).
+    // MIN_DEPOSIT returns MIN_TOTAL_ASSET_SUPPLY: there is no separate per-deposit minimum.
     function test_MIN_DEPOSIT_aliasesMinTotalAssetSupply() public view {
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).MIN_DEPOSIT(),
-            IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_DEPOSIT(),
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
             "MIN_DEPOSIT aliases MIN_TOTAL_ASSET_SUPPLY"
         );
     }
@@ -278,7 +271,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     function testDepositMaxAmount() public {
         // User1 deposits max amount
         vm.startPrank(user1);
-        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, user1, 0);
+        uint256 deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(type(uint256).max, user1, 0);
         vm.stopPrank();
 
         // Check deposit results
@@ -289,16 +282,18 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     function testWithdraw() public {
         // Setup: User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // User1 withdraws half
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start + 1);
         vm.startPrank(user1);
-        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
+        uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
         vm.stopPrank();
 
         // Check withdrawal results
@@ -309,11 +304,13 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     function testRewardDistribution() public {
         // Setup: Users deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
 
         // only rewardDepositors
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
@@ -359,8 +356,9 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     function testSweepByRebalancer() public {
         // Setup: User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // Record initial balance
         uint256 initialBalance = IERC20(stabilityPoolCollateral).totalSupply();
@@ -410,47 +408,57 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     function testSweepFailsByUnauthorized() public {
         // Setup: User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // Unauthorized user tries to sweep
-        vm.prank(user2);
+        vm.startPrank(user2);
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 4, user2);
+        vm.stopPrank();
     }
 
     function testMultipleDepositWithdrawCycles() public {
         // User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // User2 deposits
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.stopPrank();
 
         // User1 withdraws half
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start + 1);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
+        vm.stopPrank();
 
         // User3 deposits
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
+        vm.stopPrank();
 
         // User2 withdraws all
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
         vm.warp(start + 1);
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user2, 0);
+        vm.stopPrank();
 
         // User1 deposits more
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // Check final balances
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT / 2 + DEPOSIT_AMOUNT + DEPOSIT_AMOUNT);
@@ -461,14 +469,17 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     function testRewardsAfterMultipleDeposits() public {
         // Users deposit different amounts
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.stopPrank();
 
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
+        vm.stopPrank();
 
         // Distribute rewards
         vm.startPrank(rewardDepositor);
@@ -500,27 +511,32 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
     function testRewardTokenRegistration() public {
         // User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // Try to accumulate reward without registering token first - should revert
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         IERC20(rewardToken).transfer(stabilityPoolCollateral, REWARD_AMOUNT);
+        vm.stopPrank();
 
         address[] memory activeTokensBefore = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
         assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(rewardToken));
-        vm.prank(owner());
+        vm.startPrank(owner());
         IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(rewardToken);
+        vm.stopPrank();
         assertFalse(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(rewardToken));
 
         // This call should fail as the token isn't registered yet
+        vm.startPrank(rewardDepositor);
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
-        vm.prank(rewardDepositor);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
+        vm.stopPrank();
 
         // Now register the token properly with the REWARD_MANAGER_ROLE
-        vm.prank(rewardManager);
+        vm.startPrank(rewardManager);
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(rewardToken);
+        vm.stopPrank();
         assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(rewardToken));
 
         // Verify token is registered
