@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 import {TestStabilityPoolBaseSetUp} from "@harbor-test/StabilityPoolBaseSetUp.t.sol";
@@ -12,8 +12,6 @@ import {TestStabilityPoolBaseSetUp} from "@harbor-test/StabilityPoolBaseSetUp.t.
 /// @title TestStabilityPoolLoss
 /// @notice Consolidated test suite for loss-related functionality in StabilityPool
 contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
-    uint256 constant MIN_TOTAL_ASSET_SUPPLY = 1 ether;
-
     // Constants for tolerance in assertions
     uint256 constant TOLERANCE_SMALL = 1000; // 1000 wei absolute tolerance for small amounts
     uint256 constant TOLERANCE_LARGE = 10000; // 10000 wei absolute tolerance for large amounts
@@ -35,7 +33,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         vm.startPrank(user1);
         IERC20(peggedToken).approve(pool, depositAmount);
-        IStabilityPool(pool).deposit(depositAmount, user1, 0);
+        IStabilityPool_v3(pool).deposit(depositAmount, user1, 0);
         vm.stopPrank();
 
         uint256 initialTotalAssets = IERC20(pool).totalSupply();
@@ -73,11 +71,13 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         deal(peggedToken, user1, user1Deposit_);
         deal(peggedToken, user2, user2Deposit_);
 
-        vm.prank(user1);
-        IStabilityPool(pool).deposit(user1Deposit_, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(pool).deposit(user1Deposit_, user1, 0);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IStabilityPool(pool).deposit(user2Deposit_, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(pool).deposit(user2Deposit_, user2, 0);
+        vm.stopPrank();
 
         // Pre-loss checks
         assertEq(IERC20(pool).totalSupply(), totalDeposit);
@@ -123,7 +123,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         vm.startPrank(user1);
         IERC20(peggedToken).approve(pool, depositAmount);
-        IStabilityPool(pool).deposit(depositAmount, user1, 0);
+        IStabilityPool_v3(pool).deposit(depositAmount, user1, 0);
         vm.stopPrank();
 
         // Action: Simulate loss through sweep
@@ -135,12 +135,14 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Action: User withdraws
         uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
-        vm.prank(user1);
-        IStabilityPool(pool).requestWithdrawal();
-        (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(pool).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(user1);
         vm.warp(start + 1);
-        vm.prank(user1);
-        IStabilityPool(pool).withdraw(withdrawAmount, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(pool).withdraw(withdrawAmount, user1, 0);
+        vm.stopPrank();
 
         // Assert correct withdrawal with tolerance
         assertApproxEqAbs(IERC20(peggedToken).balanceOf(user1), initialAssetBalance + withdrawAmount, TOLERANCE_SMALL);
@@ -156,6 +158,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // Only test with the first pool to simplify
         address pool = stabilityPools[0];
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
 
         uint256 intendedLossAmount = (depositAmount * lossPercentage) / 100;
         if (lossPercentage == 100) {
@@ -167,7 +170,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         vm.startPrank(user1);
         IERC20(peggedToken).approve(pool, depositAmount);
-        IStabilityPool(pool).deposit(depositAmount, user1, 0);
+        IStabilityPool_v3(pool).deposit(depositAmount, user1, 0);
         vm.stopPrank();
 
         // Action: Simulate loss through sweep
@@ -177,10 +180,10 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 actualLossAmount;
         uint256 expectedRemaining;
 
-        if (depositAmount - intendedLossAmount < MIN_TOTAL_ASSET_SUPPLY) {
+        if (depositAmount - intendedLossAmount < floor) {
             // Loss is limited by MIN_TOTAL_ASSET_SUPPLY protection
-            actualLossAmount = depositAmount - MIN_TOTAL_ASSET_SUPPLY;
-            expectedRemaining = MIN_TOTAL_ASSET_SUPPLY;
+            actualLossAmount = depositAmount - floor;
+            expectedRemaining = floor;
         } else {
             // Normal loss without protection intervention
             actualLossAmount = intendedLossAmount;
@@ -201,16 +204,18 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         );
 
         // Test withdrawal after near-total loss if there's anything left
-        if (remainingBalance > MIN_TOTAL_ASSET_SUPPLY) {
-            uint256 withdrawableAmount = remainingBalance - MIN_TOTAL_ASSET_SUPPLY;
+        if (remainingBalance > floor) {
+            uint256 withdrawableAmount = remainingBalance - floor;
             uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
-            vm.prank(user1);
-            IStabilityPool(pool).requestWithdrawal();
-            (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(user1);
+            vm.startPrank(user1);
+            IStabilityPool_v3(pool).requestWithdrawal();
+            vm.stopPrank();
+            (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(user1);
             vm.warp(start + 1);
-            vm.prank(user1);
-            IStabilityPool(pool).withdraw(withdrawableAmount, user1, 0);
+            vm.startPrank(user1);
+            IStabilityPool_v3(pool).withdraw(withdrawableAmount, user1, 0);
+            vm.stopPrank();
 
             // Allow for some rounding in the withdrawal
             assertApproxEqAbs(
@@ -220,7 +225,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             );
 
             // Should be approximately MIN_TOTAL_ASSET_SUPPLY left
-            assertApproxEqAbs(IERC20(pool).balanceOf(user1), MIN_TOTAL_ASSET_SUPPLY, TOLERANCE_SMALL);
+            assertApproxEqAbs(IERC20(pool).balanceOf(user1), floor, TOLERANCE_SMALL);
         }
     }
 
@@ -240,7 +245,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         vm.startPrank(user1);
         IERC20(peggedToken).approve(pool, depositAmount);
-        IStabilityPool(pool).deposit(depositAmount, user1, 0);
+        IStabilityPool_v3(pool).deposit(depositAmount, user1, 0);
         vm.stopPrank();
 
         // Get reward token balance
@@ -248,8 +253,9 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         IERC20(rewardToken).approve(pool, rewardAmount);
 
         // Distribute rewards using the rewardDepositor account
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(rewardToken, rewardAmount);
+        vm.stopPrank();
         skip(8 days);
 
         // Action: Simulate loss through sweep
@@ -293,7 +299,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         vm.startPrank(user1);
         IERC20(peggedToken).approve(pool, depositAmount);
-        IStabilityPool(pool).deposit(depositAmount, user1, 0);
+        IStabilityPool_v3(pool).deposit(depositAmount, user1, 0);
         vm.stopPrank();
 
         // Apply sequential losses
@@ -333,7 +339,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         deal(peggedToken, user1, 120 ether);
         vm.startPrank(user1);
         IERC20(peggedToken).approve(pool, type(uint256).max);
-        IStabilityPool(pool).deposit(120 ether, user1, 0);
+        IStabilityPool_v3(pool).deposit(120 ether, user1, 0);
         vm.stopPrank();
         uint256 supplyBefore = IERC20(pool).totalSupply();
         _liquidate(pool, 30 ether);
@@ -350,11 +356,11 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         deal(peggedToken, user3, 300 ether);
         vm.startPrank(user2);
         IERC20(peggedToken).approve(pool, type(uint256).max);
-        IStabilityPool(pool).deposit(200 ether, user2, 0);
+        IStabilityPool_v3(pool).deposit(200 ether, user2, 0);
         vm.stopPrank();
         vm.startPrank(user3);
         IERC20(peggedToken).approve(pool, type(uint256).max);
-        IStabilityPool(pool).deposit(300 ether, user3, 0);
+        IStabilityPool_v3(pool).deposit(300 ether, user3, 0);
         vm.stopPrank();
         supplyBefore = IERC20(pool).totalSupply();
         _liquidate(pool, 100 ether);
@@ -372,11 +378,13 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         deal(peggedToken, user1, user1Deposit);
         deal(peggedToken, user2, user2Deposit);
 
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(user1Deposit, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(user1Deposit, user1, 0);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
+        vm.stopPrank();
 
         // First loss
         uint256 firstLoss = 60 ether; // 20% loss
@@ -402,18 +410,19 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 user1RemainingBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 user1WithdrawAmount = user1RemainingBalance / 2;
 
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.warp(block.timestamp + 2 hours);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(user1WithdrawAmount, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(user1WithdrawAmount, user1, 0);
+        vm.stopPrank();
 
         // User3 deposits
         uint256 user3Deposit = 50 ether;
         deal(peggedToken, user3, user3Deposit);
 
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(user3Deposit, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(user3Deposit, user3, 0);
+        vm.stopPrank();
 
         // Second loss
         uint256 secondLoss = 40 ether;
@@ -437,8 +446,8 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // Calculate total withdrawable amount (total balances minus MIN_TOTAL_ASSET_SUPPLY protection)
         uint256 totalUserBalances = user1FinalBalance + user2FinalBalance + user3FinalBalance;
-        uint256 totalWithdrawable = totalUserBalances > MIN_TOTAL_ASSET_SUPPLY
-            ? totalUserBalances - MIN_TOTAL_ASSET_SUPPLY
+        uint256 totalWithdrawable = totalUserBalances > IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY()
+            ? totalUserBalances - IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY()
             : 0;
 
         if (totalWithdrawable > 0) {
@@ -448,32 +457,36 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             uint256 user3Withdrawable = totalWithdrawable - user1Withdrawable - user2Withdrawable; // Handle rounding
 
             if (user1Withdrawable > 0) {
-                vm.prank(user1);
-                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.startPrank(user1);
+                IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
                 vm.warp(block.timestamp + 2 hours);
-                vm.prank(user1);
-                IStabilityPool(stabilityPoolCollateral).withdraw(user1Withdrawable, user1, 0);
+                IStabilityPool_v3(stabilityPoolCollateral).withdraw(user1Withdrawable, user1, 0);
+                vm.stopPrank();
             }
 
             if (user2Withdrawable > 0) {
-                vm.prank(user2);
-                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.startPrank(user2);
+                IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
                 vm.warp(block.timestamp + 2 hours);
-                vm.prank(user2);
-                IStabilityPool(stabilityPoolCollateral).withdraw(user2Withdrawable, user2, 0);
+                IStabilityPool_v3(stabilityPoolCollateral).withdraw(user2Withdrawable, user2, 0);
+                vm.stopPrank();
             }
 
             if (user3Withdrawable > 0) {
-                vm.prank(user3);
-                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.startPrank(user3);
+                IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
                 vm.warp(block.timestamp + 2 hours);
-                vm.prank(user3);
-                IStabilityPool(stabilityPoolCollateral).withdraw(user3Withdrawable, user3, 0);
+                IStabilityPool_v3(stabilityPoolCollateral).withdraw(user3Withdrawable, user3, 0);
+                vm.stopPrank();
             }
         }
 
         // Pool should be left with approximately MIN_TOTAL_ASSET_SUPPLY due to protection
-        assertApproxEqAbs(IERC20(stabilityPoolCollateral).totalSupply(), MIN_TOTAL_ASSET_SUPPLY, TOLERANCE_LARGE);
+        assertApproxEqAbs(
+            IERC20(stabilityPoolCollateral).totalSupply(),
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            TOLERANCE_LARGE
+        );
     }
 }
 
@@ -482,7 +495,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
     address immediateReward = wrappedCollateralToken;
     address delayedReward = steam;
 
-    uint256 constant delayedAmount = 1 weeks * 1e14; // removes rounding TODO: do a test that uses random numbers
+    uint256 constant delayedAmount = 1 weeks * 1e14; // a whole number per second of the reward period: no rate rounding
 
     uint256 constant user1Deposit = 100 ether;
     uint256 constant user2Deposit = 200 ether;
@@ -539,8 +552,9 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
             uint256 claimableImmediate = IERC20(immediateReward).balanceOf(user);
             uint256 claimableDelayed = IERC20(delayedReward).balanceOf(user);
             uint256 snap = vm.snapshotState();
-            vm.prank(user);
+            vm.startPrank(user);
             IMultipleRewardAccumulator(pool).claim();
+            vm.stopPrank();
             claimableImmediate = IERC20(immediateReward).balanceOf(user) - claimableImmediate;
             claimableDelayed = IERC20(delayedReward).balanceOf(user) - claimableDelayed;
             vm.revertToState(snap);
@@ -564,12 +578,14 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         // Phase 1: Initial setup
         /////////////////////////
         deal(peggedToken, user1, user1Deposit);
-        vm.prank(user1);
-        IStabilityPool(pool).deposit(user1Deposit, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(pool).deposit(user1Deposit, user1, 0);
+        vm.stopPrank();
 
         deal(peggedToken, user2, user2Deposit);
-        vm.prank(user2);
-        IStabilityPool(pool).deposit(user2Deposit, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(pool).deposit(user2Deposit, user2, 0);
+        vm.stopPrank();
 
         uint256 startTime = block.timestamp;
 
@@ -584,10 +600,10 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
 
         // load up with rewards
         deal(steam, rewardDepositor, IERC20(steam).balanceOf(pool) + delayedAmount);
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         IERC20(steam).approve(pool, type(uint256).max);
-        vm.prank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(steam, delayedAmount);
+        vm.stopPrank();
 
         _checkRewards("after notify");
         _checkRewards("after notify", user1, 0, 0);
@@ -607,7 +623,6 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         vm.warp(startTime + daycount * 1 days); // 2/7 of the reward period
 
         uint256 totalSupply = IERC20(pool).totalSupply();
-        vm.prank(rebalancer);
         uint256 immediateAmount = _liquidate(totalSupply / 2);
         // 1 notifyLiquidation --------------------------------------------------------
 
@@ -627,13 +642,13 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         daycount = 4;
         vm.warp(startTime + daycount * 1 days); // 4/7 of the reward period
 
-        vm.prank(rebalancer);
         immediateAmount += _liquidate(totalSupply);
         // 2 notifyLiquidation ---------------------------------------------
 
         // Calculate expected user balances after complete liquidation
-        assertApproxEqAbs(IERC20(pool).balanceOf(user1), uint256(1 ether) / 3, 100, "User1 1/3 share");
-        assertApproxEqAbs(IERC20(pool).balanceOf(user2), uint256(2 ether) / 3, 100, "User2 2/3 share");
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
+        assertApproxEqAbs(IERC20(pool).balanceOf(user1), floor / 3, 100, "User1 1/3 share");
+        assertApproxEqAbs(IERC20(pool).balanceOf(user2), (2 * floor) / 3, 100, "User2 2/3 share");
 
         // Test liquidation rewards preservation and delayed reward preservation
         _checkRewards("4 days, full");
@@ -656,8 +671,9 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
 
         // phase 4 deal more rewards - users still receive them due to retained proportional shares
         deal(steam, rewardDepositor, IERC20(steam).balanceOf(pool) + delayedAmount * 10);
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(steam, delayedAmount * 10);
+        vm.stopPrank();
 
         // Users receive rewards from both original and new distributions
         _checkRewards("new reward");
@@ -708,12 +724,13 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         /////////////////////////////////
 
         deal(peggedToken, user3, user3Deposit);
-        vm.prank(user3);
-        IStabilityPool(pool).deposit(user3Deposit, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(pool).deposit(user3Deposit, user3, 0);
+        vm.stopPrank();
 
         assertEq(
             IERC20(pool).totalSupply(),
-            user3Deposit + 1 ether, // 1 ether is the MIN_TOTAL_ASSET_SUPPLY
+            user3Deposit + floor, // the complete liquidation left the floor
             "Pool should accept new deposits after emptying"
         );
         assertEq(IERC20(pool).balanceOf(user3), user3Deposit, "User3 new deposit balance");

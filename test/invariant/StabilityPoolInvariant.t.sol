@@ -9,7 +9,6 @@ import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
@@ -74,12 +73,12 @@ contract StabilityPoolInvariantHandler is Test {
         address[] memory rewardTokens_
     ) {
         POOL = pool;
-        ASSET_TOKEN = IStabilityPool(pool).ASSET_TOKEN();
+        ASSET_TOKEN = IStabilityPool_v3(pool).ASSET_TOKEN();
         LIQUIDATION_TOKEN = liquidationToken;
         REBALANCER = rebalancer;
         REWARD_DEPOSITOR = rewardDepositor;
         PRICE = price;
-        MIN_TOTAL_ASSET_SUPPLY = IStabilityPool(pool).MIN_DEPOSIT();
+        MIN_TOTAL_ASSET_SUPPLY = IStabilityPool_v3(pool).MIN_DEPOSIT();
         _actors = actors_;
         _rewardTokens = rewardTokens_;
     }
@@ -124,7 +123,7 @@ contract StabilityPoolInvariantHandler is Test {
         deal(ASSET_TOKEN, actor, amount);
         vm.startPrank(actor);
         IERC20(ASSET_TOKEN).approve(POOL, amount);
-        IStabilityPool(POOL).deposit(amount, receiver, 0);
+        IStabilityPool_v3(POOL).deposit(amount, receiver, 0);
         vm.stopPrank();
         everHeldShares[receiver] = true;
 
@@ -151,12 +150,12 @@ contract StabilityPoolInvariantHandler is Test {
         amount = bound(amount, 1, cap);
 
         vm.startPrank(actor);
-        IStabilityPool(POOL).requestWithdrawal();
+        IStabilityPool_v3(POOL).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(POOL).getWithdrawalRequest(actor);
+        (uint64 start, ) = IStabilityPool_v3(POOL).getWithdrawalRequest(actor);
         vm.warp(start);
         vm.startPrank(actor);
-        IStabilityPool(POOL).withdraw(amount, actor, 0);
+        IStabilityPool_v3(POOL).withdraw(amount, actor, 0);
         vm.stopPrank();
         _afterAction(address(0));
     }
@@ -172,7 +171,7 @@ contract StabilityPoolInvariantHandler is Test {
         amount = bound(amount, 1, cap);
 
         vm.startPrank(actor);
-        IStabilityPool(POOL).withdraw(amount, actor, 0);
+        IStabilityPool_v3(POOL).withdraw(amount, actor, 0);
         vm.stopPrank();
         _afterAction(address(0));
     }

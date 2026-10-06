@@ -9,7 +9,6 @@ import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
@@ -40,7 +39,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     function setUp() public override {
         super.setUp();
         pool = stabilityPoolCollateral;
-        minSupply = IStabilityPool(pool).MIN_DEPOSIT();
+        minSupply = IStabilityPool_v3(pool).MIN_DEPOSIT();
     }
 
     // ─── helpers (shared by all tests below) ───
@@ -58,7 +57,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         deal(peggedToken, actor, amount);
         vm.startPrank(actor);
         IERC20(peggedToken).approve(pool, amount);
-        IStabilityPool(pool).deposit(amount, actor, 0);
+        IStabilityPool_v3(pool).deposit(amount, actor, 0);
         vm.stopPrank();
     }
 
@@ -476,7 +475,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
             uint256 balance = IERC20(pool).balanceOf(actor);
             if (balance > 3) {
                 vm.startPrank(actor);
-                IStabilityPool(pool).withdraw(balance / 3, actor, 0); // partial exit — another aggregate re-floor
+                IStabilityPool_v3(pool).withdraw(balance / 3, actor, 0); // partial exit — another aggregate re-floor
                 vm.stopPrank();
                 _assertDivisorGeSumBalance(actors);
             }
@@ -523,7 +522,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
             vm.startPrank(actors[i]);
             // was RED before the withdrawal cap: the last actor's balance exceeded the remaining supply, the
             // supply update underflowed, and SafeCast.toUint128 reverted. The cap now pays what the pool holds.
-            IStabilityPool(pool).withdraw(type(uint256).max, actors[i], 0);
+            IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[i], 0);
             vm.stopPrank();
         }
         // after every full exit the over-credit is written off: capping the recorded balance at supply burns
@@ -549,11 +548,11 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
                 continue;
             }
             vm.startPrank(actors[i]);
-            IStabilityPool(pool).withdraw(type(uint256).max, actors[i], 0);
+            IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[i], 0);
             vm.stopPrank();
         }
 
-        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         assertEq(IERC20(pool).totalSupply(), floor, "the exits leave the floor, never an emptied pool");
         assertGe(
             MockStabilityPool(pool).__rewardDivisor(),
@@ -671,7 +670,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         _assertDivisorGeSumBalance(actors);
 
         vm.startPrank(actors[1]); // 2nd operation
-        IStabilityPool(pool).withdraw(2e23, actors[1], 0);
+        IStabilityPool_v3(pool).withdraw(2e23, actors[1], 0);
         vm.stopPrank();
         assertEq(MockStabilityPool(pool).__rewardDivisorGap(), gap, "withdraw leaves the gap unchanged");
         _assertDivisorGeSumBalance(actors);
@@ -695,7 +694,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// `DecrementalFloatingPoint_v2.mul` precondition ("Caller should make sure `factor` is always > 0", justified as
     /// "Minimum balance prevents factor=0") silently depends on, so it is pinned rather than assumed.
     function test_liquidationToFloor_productSurvivesAtTheLossPerUnitBound() public {
-        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         // `MIN * FACTOR_PRECISION` is exactly MAX_TOTAL_ASSET_SUPPLY, the largest supply the deposit cap admits.
         _deposit(actors[0], floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION);
@@ -716,7 +715,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// necessary but not sufficient (the real constraint is the relative `supply <= MIN * FACTOR_PRECISION`), and now it
     /// is enforced.
     function test_deposit_pastLossPerUnitBound_reverts() public {
-        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         uint256 max = IStabilityPool_v3(pool).MAX_TOTAL_ASSET_SUPPLY();
         assertEq(max, floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION, "MAX == MIN * FACTOR_PRECISION");
 
@@ -727,7 +726,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         vm.startPrank(depositor);
         IERC20(peggedToken).approve(pool, max + 1);
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.DepositAmountExceedsMaximum.selector, max + 1, max));
-        IStabilityPool(pool).deposit(max + 1, depositor, 0);
+        IStabilityPool_v3(pool).deposit(max + 1, depositor, 0);
         vm.stopPrank();
     }
 
@@ -735,7 +734,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// the supply at the minimum and caps the swept pegged at the same headroom, so held pegged equals supply: the pool
     /// holds exactly enough to honour what it owes.
     function test_liquidationPastFloor_staysSolvent() public {
-        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         _deposit(actors[0], 1e20);
 
@@ -753,7 +752,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// to zero. A seeded pool never returns to zero - which is what keeps `supply == 0` implying never-liquidated,
     /// hence gap == 0 and a zero reward divisor (see `test_negativeGapDrain_neverStrandsSubFloorDivisor`).
     function test_liquidationPastFloor_lastHolderCannotDrainTheFloor() public {
-        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         _deposit(actors[0], 1e20);
         _loss(IERC20(pool).totalSupply() - floor / 2);
@@ -761,8 +760,8 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         assertEq(IERC20(peggedToken).balanceOf(pool), IERC20(pool).totalSupply(), "floored and solvent");
 
         vm.startPrank(actors[0]);
-        vm.expectRevert(IStabilityPool.WithdrawZeroAmount.selector);
-        IStabilityPool(pool).withdraw(type(uint256).max, actors[0], 0);
+        vm.expectRevert(IStabilityPool_v3.WithdrawZeroAmount.selector);
+        IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[0], 0);
         vm.stopPrank();
 
         assertEq(IERC20(pool).totalSupply(), floor, "the floor is retained, not drained");
@@ -772,7 +771,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// @dev Floor the pool via an over-sized liquidation and return the sole depositor; asserts held equals supply
     /// (solvent at the floor) as the shared precondition for the pokes below.
     function _liquidatePastFloor() internal returns (address depositor) {
-        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         depositor = actors[0];
         _deposit(depositor, 1e20);
@@ -783,13 +782,13 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// @dev Full exit inside the no-fee withdrawal window; returns the pegged received.
     function _exit(address who) internal returns (uint256 received) {
         vm.startPrank(who);
-        IStabilityPool(pool).requestWithdrawal();
+        IStabilityPool_v3(pool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(who);
+        (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(who);
         vm.warp(uint256(start) + 1);
         uint256 before = IERC20(peggedToken).balanceOf(who);
         vm.startPrank(who);
-        IStabilityPool(pool).withdraw(type(uint256).max, who, 0);
+        IStabilityPool_v3(pool).withdraw(type(uint256).max, who, 0);
         vm.stopPrank();
         received = IERC20(peggedToken).balanceOf(who) - before;
     }
@@ -833,7 +832,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// stays at the floor and held pegged stays equal to it.
     function test_liquidationPastFloor_secondLossStaysSolvent() public {
         _liquidatePastFloor();
-        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         _loss(IERC20(peggedToken).balanceOf(pool));
 
         uint256 supply = IERC20(pool).totalSupply();

@@ -5,7 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ERC20} from "@solady/tokens/ERC20.sol";
 
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
@@ -49,7 +48,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _mintPegged(fxUSD.minter, user, amount);
         vm.startPrank(user);
         IERC20(peggedToken).approve(stabilityPool, amount);
-        IStabilityPool(stabilityPool).deposit(amount, user, 0);
+        IStabilityPool_v3(stabilityPool).deposit(amount, user, 0);
         vm.stopPrank();
     }
 
@@ -205,7 +204,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 10 ether);
 
         vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
         IERC20(stabilityPool).transfer(address(0), 1 ether);
         vm.stopPrank();
     }
@@ -215,7 +214,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 10 ether);
 
         vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, user1));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, user1));
         IERC20(stabilityPool).transfer(user1, 1 ether);
         vm.stopPrank();
     }
@@ -237,7 +236,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 10 ether);
 
         vm.startPrank(address(0));
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
         IERC20(stabilityPool).transfer(user1, 1 ether);
         vm.stopPrank();
     }

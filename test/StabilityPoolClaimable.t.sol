@@ -2,11 +2,12 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
@@ -23,9 +24,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Create reward tokens
         rewardToken1 = address(new MockERC20("Reward Token 1", "RWD1", 18));
-        vm.label(rewardToken1, MockERC20(rewardToken1).symbol());
+        vm.label(rewardToken1, IERC20Metadata(rewardToken1).symbol());
         rewardToken2 = address(new MockERC20("Reward Token 2", "RWD2", 18));
-        vm.label(rewardToken2, MockERC20(rewardToken2).symbol());
+        vm.label(rewardToken2, IERC20Metadata(rewardToken2).symbol());
 
         // register reward tokens
         vm.startPrank(rewardManager);
@@ -53,21 +54,25 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
     function _depositForUsers() internal {
         // User 1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // User 2 deposits
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
 
         // User 3 deposits
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
+        vm.stopPrank();
     }
 
     function _depositRewardAndWait(address token, uint256 amount) internal {
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(token, amount);
+        vm.stopPrank();
         skip(8 days);
     }
 
@@ -105,13 +110,13 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
     /// (rate = amount/period loses amount mod period, < period) plus <=1 wei of per-user integral flooring.
     function test_reward_sumEqualsDistributed() public {
         vm.startPrank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
         vm.stopPrank();
         vm.startPrank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
         vm.stopPrank();
         vm.startPrank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
         vm.stopPrank();
 
         uint256 rewardAmount = 123.456789 ether; // non-round, so the split truncates
@@ -134,12 +139,14 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         _depositRewardAndWait(rewardToken1, rewardAmount);
 
         // User2 withdraws half their deposit
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
         vm.warp(start + 1);
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
+        vm.stopPrank();
 
         // Distribute more rewards - should be split proportionally to current deposits
         _depositRewardAndWait(rewardToken1, rewardAmount);
@@ -199,12 +206,14 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         uint256 user3Balance = IERC20(stabilityPoolCollateral).balanceOf(user3);
 
         // User2 withdraws half their deposit
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
         vm.warp(uint256(start) + 1);
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
+        vm.stopPrank();
 
         // Advance time once more before second distribution
         vm.warp(block.timestamp + 1 hours);
@@ -263,8 +272,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Rebalancer sweeps some non-asset tokens
         MockERC20(rewardToken2).mint(address(stabilityPoolCollateral), 100 ether);
-        vm.prank(rebalancer);
+        vm.startPrank(rebalancer);
         ITokenHolder(stabilityPoolCollateral).sweep(rewardToken2, 100 ether, rebalancer);
+        vm.stopPrank();
 
         // Check claimable amounts - should remain unchanged for the first reward token
         assertEq(
@@ -355,8 +365,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         _depositRewardAndWait(rewardToken1, rewardAmount);
 
         // User1 makes an additional deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
         // Record claimable amounts after first distribution but before second
         uint256 claimableAfterFirstUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
@@ -417,29 +428,34 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
     function testClaimableThroughComplexScenario() public {
         // Initial deposit for users 1 and 2
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
 
         // Distribute first reward
         _depositRewardAndWait(rewardToken1, 200 ether);
 
         // User 3 joins with a deposit
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user3, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user3, 0);
+        vm.stopPrank();
 
         // Distribute second reward
         _depositRewardAndWait(rewardToken1, 300 ether);
 
         // User 1 withdraws half
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
+        vm.stopPrank();
 
         // Skip ahead in time
         vm.warp(block.timestamp + 3 days);
@@ -448,8 +464,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         _depositRewardAndWait(rewardToken1, 150 ether);
 
         // Sweep some asset tokens to simulate a loss
-        vm.prank(rebalancer);
+        vm.startPrank(rebalancer);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 4, rebalancer);
+        vm.stopPrank();
 
         // Distribute fourth reward
         _depositRewardAndWait(rewardToken1, 100 ether);
@@ -485,13 +502,15 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
     function testClaimableWithMinimumDeposit() public {
         // First make a normal deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
 
-        // Then make a small deposit for user2 (but still above minimum)
-        uint256 smallDeposit = 1 ether; // Changed from 1 wei to 1 ether (minimum allowed)
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(smallDeposit, user2, 0);
+        // Then make a small deposit for user2
+        uint256 smallDeposit = 1 ether; // a tenth of user1's
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(smallDeposit, user2, 0);
+        vm.stopPrank();
 
         // Distribute rewards
         uint256 rewardAmount = 101 ether;
@@ -518,13 +537,15 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
     function testClaimableWithSmallDeposit() public {
         // First make a large deposit
         uint256 largeDeposit = DEPOSIT_AMOUNT * 100; // 1000 ether
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(largeDeposit, user1, 0);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(largeDeposit, user1, 0);
+        vm.stopPrank();
 
-        // Then make a minimum deposit for user2
-        uint256 smallDeposit = 1 ether; // Minimum allowed
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(smallDeposit, user2, 0);
+        // Then make a small deposit for user2
+        uint256 smallDeposit = 1 ether; // a thousandth of user1's
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(smallDeposit, user2, 0);
+        vm.stopPrank();
 
         // Distribute rewards
         uint256 rewardAmount = 1001 ether;
@@ -565,8 +586,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         )[0];
 
         // Rebalancer sweeps ALL asset tokens - this should trigger _notifyLoss for everything
-        vm.prank(rebalancer);
+        vm.startPrank(rebalancer);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT * 3, rebalancer);
+        vm.stopPrank();
 
         // Users should still be able to claim their rewards despite total loss of assets
         assertApproxEqRel(
