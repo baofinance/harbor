@@ -34,7 +34,8 @@ abstract contract MarketReader {
     function poolSymbol(address pool, bool isCollateralPool) public view virtual returns (string memory);
 }
 
-/// @notice The lineage DEPLOYED today: `Minter_v2` beside `StabilityPool_v1`/`_v2`.
+/// @notice The lineage DEPLOYED today: `Minter_v2` beside `StabilityPool_v2`, a pool from before v3's `name()` and
+/// `symbol()`.
 contract MarketReaderV2Lineage is MarketReader {
     /// @dev The market's configuration, which is where this lineage's pool names have to come from. Set once
     /// at construction: what this reader IS, not something it is told later.

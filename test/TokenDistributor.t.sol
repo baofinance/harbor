@@ -89,10 +89,7 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
-        UnsafeUpgrades.deployUUPSProxy(
-            impl,
-            abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
-        );
+        UnsafeUpgrades.deployUUPSProxy(impl, abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init")));
 
         // second proxy for the same implementation - this works because the state is in the proxy
         vm.expectEmit();
@@ -101,10 +98,7 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1);
-        UnsafeUpgrades.deployUUPSProxy(
-            impl,
-            abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
-        );
+        UnsafeUpgrades.deployUUPSProxy(impl, abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init")));
     }
 }
 
@@ -124,7 +118,10 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
             IERC165(tokenDistributor).supportsInterface(type(ITokenDistributor).interfaceId),
             "advertises ITokenDistributor"
         );
-        assertTrue(IERC165(tokenDistributor).supportsInterface(type(IBaoOwnable).interfaceId), "advertises IBaoOwnable");
+        assertTrue(
+            IERC165(tokenDistributor).supportsInterface(type(IBaoOwnable).interfaceId),
+            "advertises IBaoOwnable"
+        );
         assertTrue(IERC165(tokenDistributor).supportsInterface(type(IBaoRoles).interfaceId), "advertises IBaoRoles");
         assertFalse(
             IERC165(tokenDistributor).supportsInterface(type(ITokenHolder).interfaceId),

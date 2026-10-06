@@ -723,7 +723,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         uint256 returned = IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], type(uint256).max);
 
         assertEq(returned, pending[0], "returned == pending");
-        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore, returned, "balance increase == returned");
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore,
+            returned,
+            "balance increase == returned"
+        );
     }
 
     /// @notice claim([t, t]) returns [pending, 0]: first entry claims the full pending; second
@@ -824,7 +828,11 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
 
         IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], pending[0] * 10);
 
-        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore, pending[0], "transferred == full pending");
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore,
+            pending[0],
+            "transferred == full pending"
+        );
         (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
         assertEq(pendingAfter, 0, "pending zeroed");
         assertEq(claimedAfter, pending[0], "claimed == original pending");

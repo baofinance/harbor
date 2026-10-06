@@ -10,11 +10,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {MultipleRewardCompoundingAccumulator} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol";
 
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -32,7 +32,8 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
-/// @custom:oz-upgrades-from src/minter/StabilityPool_v1.sol:StabilityPool_v1
+// /// @custom:oz-upgrades-from src/minter/StabilityPool_v1.sol:StabilityPool_v1 - removed: StabilityPool_v1 is
+// parked in deprecated/src, and validate needs a predecessor named only on a family's latest version
 // solhint-disable-next-line contract-name-capwords
 contract StabilityPool_v2 is
     Initializable,

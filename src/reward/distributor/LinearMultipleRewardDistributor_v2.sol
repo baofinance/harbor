@@ -10,8 +10,8 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {LinearReward} from "./LinearReward.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {LinearReward} from "@harbor/reward/distributor/LinearReward.sol";
 
 // solhint-disable no-empty-blocks
 // solhint-disable not-rely-on-time

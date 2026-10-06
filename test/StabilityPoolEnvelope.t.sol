@@ -1848,11 +1848,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         (, , , uint256 peggedMinted, , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
         assertEq(peggedMinted, 0, "pegged minting reverts while the pegged is uncovered");
         (, , , uint256 leveragedCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
-        assertEq(
-            leveragedCollateralOut,
-            0,
-            "leveraged redemption reverts while it stands behind an uncovered pegged"
-        );
+        assertEq(leveragedCollateralOut, 0, "leveraged redemption reverts while it stands behind an uncovered pegged");
 
         // below the peg there is nothing a rebalance can repair: it reverts by name, and the pool keeps its pegged
         // for when the price brings the market back above the peg

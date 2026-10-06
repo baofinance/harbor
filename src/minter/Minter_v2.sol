@@ -15,7 +15,7 @@ import {Token} from "@bao/Token.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 // different ERC20 mint/burn interfaces
 import {IMintable} from "@bao/interfaces/IMintable.sol";
@@ -23,11 +23,11 @@ import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {IReservePool} from "src/interfaces/IReservePool.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
-import {ConfigIncentiveLib} from "src/minter/library/ConfigIncentiveLib.sol";
-import {Config_v1} from "src/minter/library/Config_v1.sol";
+import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
+import {Config_v1} from "@harbor/minter/library/Config_v1.sol";
 
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
@@ -97,7 +97,8 @@ import {Config_v1} from "src/minter/library/Config_v1.sol";
 /// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
 /// we add this:
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
-/// @custom:oz-upgrades-from src/minter/Minter_v1.sol:Minter_v1
+// /// @custom:oz-upgrades-from src/minter/Minter_v1.sol:Minter_v1 - removed: Minter_v1 is parked in
+// deprecated/src, and validate needs a predecessor named only on a family's latest version
 // solhint-disable-next-line contract-name-capwords
 contract Minter_v2 is
     Initializable,

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ConfigIncentiveLib} from "src/minter/library/ConfigIncentiveLib.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 /// @title Config_v1 Library
 /// @notice Handles validation and storage-efficient formatting for infrequently called config operations

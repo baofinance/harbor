@@ -516,7 +516,11 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             return maxCollateral;
         }
         uint256 creditedPegged = Math.mulDiv(p, rate, 1 ether);
-        uint256 creditAtAQuarter = Math.mulDiv(flatBound / 4, Math.mulDiv(creditedPegged, price, 1 ether), measurePrice);
+        uint256 creditAtAQuarter = Math.mulDiv(
+            flatBound / 4,
+            Math.mulDiv(creditedPegged, price, 1 ether),
+            measurePrice
+        );
         uint256 creditedLeveraged = creditAtAQuarter > creditedPegged ? creditAtAQuarter - creditedPegged : 0;
         return Math.min(maxCollateral, Math.mulDiv(creditedLeveraged, 1 ether, rate));
     }
@@ -532,7 +536,8 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             return minCollateral;
         }
         int256 incentiveRatio = initial(config.mintLeveragedIncentiveConfig.incentiveRatios);
-        uint256 leastKept = minToken + (incentiveRatio < 0 ? Math.mulDiv(minToken, uint256(-incentiveRatio), 1 ether) : 0);
+        uint256 leastKept = minToken +
+            (incentiveRatio < 0 ? Math.mulDiv(minToken, uint256(-incentiveRatio), 1 ether) : 0);
         uint256 leastCredit = Math.mulDiv(leastKept, rate, 1 ether, Math.Rounding.Ceil);
         uint256 leastPeggedSupply = Math.mulDiv(4 * leastCredit, measurePrice, flatBound, Math.Rounding.Ceil);
         uint256 leastCreditedPegged = Math.mulDiv(leastPeggedSupply, 1 ether, price, Math.Rounding.Ceil) + 1;
@@ -654,11 +659,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
     /// @dev What `pegged` redeems for, as the minter defines it, at 36 decimals: a pegged unit's worth of collateral each
     ///      at or above the peg, at the price `p`; each token's share of the record below it.
-    function _collateralRedeemedForE36(
-        Measures memory pre,
-        uint256 pegged,
-        uint256 p
-    ) internal pure returns (uint256) {
+    function _collateralRedeemedForE36(Measures memory pre, uint256 pegged, uint256 p) internal pure returns (uint256) {
         return
             pre.collateralRatio < 1 ether
                 ? Math.mulDiv(pegged, pre.minterUnderlying * 1 ether, pre.minterPegged)

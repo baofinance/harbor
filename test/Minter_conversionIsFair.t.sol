@@ -65,7 +65,11 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
         // this test holds the whole pegged supply, and converts a share of it from a ten-thousandth to a half
         assertGt(peggedIn, 0, "precondition: the share converted is something");
-        assertGe(IERC20(peggedToken).balanceOf(address(this)), peggedIn, "precondition: this test holds what it converts");
+        assertGe(
+            IERC20(peggedToken).balanceOf(address(this)),
+            peggedIn,
+            "precondition: this test holds what it converts"
+        );
 
         if (!IMinter_v3(minter).leveragedMintable()) {
             uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
@@ -124,7 +128,11 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
         uint256 peggedIn = 1 ether;
         // this test holds the whole pegged supply
-        assertGe(IERC20(peggedToken).balanceOf(address(this)), peggedIn, "precondition: this test holds what it converts");
+        assertGe(
+            IERC20(peggedToken).balanceOf(address(this)),
+            peggedIn,
+            "precondition: this test holds what it converts"
+        );
 
         marketActions.setCollateralRatioByPrice(collateralRatio);
 
@@ -183,7 +191,11 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
         // this test holds the whole pegged supply, and converts a share of it from a ten-thousandth to a half
         assertGt(peggedIn, 0, "precondition: the share converted is something");
-        assertGe(IERC20(peggedToken).balanceOf(address(this)), peggedIn, "precondition: this test holds what it converts");
+        assertGe(
+            IERC20(peggedToken).balanceOf(address(this)),
+            peggedIn,
+            "precondition: this test holds what it converts"
+        );
 
         _assertOneConversionStaysWithinTheBound(peggedIn);
     }

@@ -14,10 +14,10 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 /// @title StabilityPoolManager
 /// @author Based on original Liquidator and Harvester contracts

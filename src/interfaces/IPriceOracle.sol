@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IPriceOracleErrors} from "./IPriceOracleErrors.sol";
+import {IPriceOracleErrors} from "@harbor/interfaces/IPriceOracleErrors.sol";
 
 /// @notice Base interface for price oracles providing validated price data
 /// @dev Defines basic validation errors and functionality for price oracles

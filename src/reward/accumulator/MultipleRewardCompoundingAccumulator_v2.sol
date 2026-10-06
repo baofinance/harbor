@@ -7,10 +7,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {LinearMultipleRewardDistributor} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
 
 // solhint-disable not-rely-on-time
 

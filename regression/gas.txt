@@ -32,7 +32,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | leveragedTokenBalance                            |  10374 | 1.037e+04 |
 | leveragedTokenPrice                              |  29635 | 2.964e+04 |
 | mintLeveragedToken                               | 169805 | 1.698e+05 |
-| mintLeveragedTokenDryRun                         |  79296 | 7.930e+04 |
+| mintLeveragedTokenDryRun                         |  79591 | 7.959e+04 |
 | mintLeveragedTokenIncentiveRatio                 |  31132 | 3.113e+04 |
 | mintPeggedToken(uint256,address,uint256)         | 181547 | 1.815e+05 |
 | mintPeggedToken(uint256,address,uint256,uint256) | 156626 | 1.566e+05 |

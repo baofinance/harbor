@@ -505,8 +505,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         uint256 restreamed = depositAmount1 +
             remainder0 +
             depositAmount2 +
-            expectedRate0 *
-            (timestamp0 + rewardPeriodLength - timestamp2);
+            expectedRate0 * (timestamp0 + rewardPeriodLength - timestamp2);
 
         assertEq(stream.lastUpdate, timestamp2);
         assertEq(stream.finishAt, timestamp2 + rewardPeriodLength);
