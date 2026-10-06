@@ -99,7 +99,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
 
     function test_redeemPeggedRange_(uint256 p, uint256 l, uint256 w) public virtual {
         p = bound(p, minCollateral, maxCollateral);
-        l = bound(l, minCollateral, maxCollateral);
+        l = bound(l, minCollateral, _mostLeveragedSide(p, config.redeemPeggedIncentiveConfig));
         w = bound(w, minTokenPegged, maxToken);
         setUp_collateral(p, l, user);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
@@ -134,7 +134,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         uint256 leveragedPerPeggedE18 = Math.mulDiv(minimum, price, measurePrice, Math.Rounding.Ceil) - 1 ether;
         p = bound(
             p,
-            minCollateral,
+            _leastPeggedSideToMintLeveraged(),
             Math.min(maxCollateral, Math.mulDiv(maxCollateral - 1 ether, 1 ether, leveragedPerPeggedE18))
         );
         {
@@ -143,7 +143,11 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
             uint256 leastLeveraged = creditNeeded > creditedPegged
                 ? Math.ceilDiv((creditNeeded - creditedPegged) * 1 ether, rate)
                 : 0;
-            l = bound(l, Math.max(minCollateral, leastLeveraged), maxCollateral);
+            l = bound(
+                l,
+                Math.max(minCollateral, leastLeveraged),
+                _mostLeveragedSide(p, config.mintLeveragedIncentiveConfig)
+            );
         }
         w = bound(w, minToken, maxToken);
         setUp_collateral(p, l, user);
@@ -460,6 +464,18 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
 
     function _mintPegged(uint256 wrapped) internal virtual;
     function _redeemPegged(uint256 wrapped) internal virtual;
+
+    /// @dev The least the pegged side may hold in the leveraged mint's range test: the whole range, unless a contract's
+    ///      expectations need a market large enough to take the least offer below some collateral ratio.
+    function _leastPeggedSideToMintLeveraged() internal view virtual returns (uint256) {
+        return minCollateral;
+    }
+
+    /// @dev The most the leveraged side may hold beside `p` on the pegged side in a range test of an action priced by
+    ///      `schedule`: the whole range, unless a contract's expectations hold only below some collateral ratio.
+    function _mostLeveragedSide(uint256, IMinter.IncentiveConfig memory) internal view virtual returns (uint256) {
+        return maxCollateral;
+    }
     function _mintLeveraged(uint256 wrapped) internal virtual;
     function _redeemLeveraged(uint256 wrapped) internal virtual;
 }
@@ -475,6 +491,52 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // (doubledResult / 2) is the floor division
         // (doubledResult % 2) is 1 if we need to round up, 0 otherwise
         return (doubledResult / 2) + (doubledResult % 2);
+    }
+
+    /// @dev The collateral ratio `schedule` is flat below - its highest band's bound, where that band's incentive
+    ///      differs from the first band's, as a subsidy's must, since it has to end somewhere - or no limit, where the
+    ///      schedule is flat throughout. This contract's expectations are flat ones, so they hold only below it.
+    function _flatBelow(IMinter.IncentiveConfig memory schedule) internal pure returns (uint256) {
+        uint256 highest = schedule.incentiveRatios.length - 1;
+        if (schedule.incentiveRatios[highest] == schedule.incentiveRatios[0]) {
+            return type(uint256).max;
+        }
+        return schedule.collateralRatioBandUpperBounds[highest - 1];
+    }
+
+    /// @dev Where `schedule` is flat only below a bound, the market starts at no more than a quarter of it, so the
+    ///      action has room: the leveraged side's credit at most what takes the market there, at the measure price,
+    ///      beside the pegged the pegged side mints at the set-up price.
+    function _mostLeveragedSide(
+        uint256 p,
+        IMinter.IncentiveConfig memory schedule
+    ) internal view override returns (uint256) {
+        uint256 flatBound = _flatBelow(schedule);
+        if (flatBound == type(uint256).max) {
+            return maxCollateral;
+        }
+        uint256 creditedPegged = Math.mulDiv(p, rate, 1 ether);
+        uint256 creditAtAQuarter = Math.mulDiv(flatBound / 4, Math.mulDiv(creditedPegged, price, 1 ether), measurePrice);
+        uint256 creditedLeveraged = creditAtAQuarter > creditedPegged ? creditAtAQuarter - creditedPegged : 0;
+        return Math.min(maxCollateral, Math.mulDiv(creditedLeveraged, 1 ether, rate));
+    }
+
+    /// @dev Where the leveraged mint's schedule is flat only below a bound, the pegged side is large enough that the
+    ///      least offer fits below it from a market at a quarter of it: the three quarters left take the least offer's
+    ///      credit, with its subsidy, once the pegged supply is 4/3 of that credit's worth at the measure price over the
+    ///      bound - a little more for the helper's margin, taken as 4 - and the pegged side is the wrapped that mints
+    ///      that supply, at the set-up price and rate.
+    function _leastPeggedSideToMintLeveraged() internal view override returns (uint256) {
+        uint256 flatBound = _flatBelow(config.mintLeveragedIncentiveConfig);
+        if (flatBound == type(uint256).max) {
+            return minCollateral;
+        }
+        int256 incentiveRatio = initial(config.mintLeveragedIncentiveConfig.incentiveRatios);
+        uint256 leastKept = minToken + (incentiveRatio < 0 ? Math.mulDiv(minToken, uint256(-incentiveRatio), 1 ether) : 0);
+        uint256 leastCredit = Math.mulDiv(leastKept, rate, 1 ether, Math.Rounding.Ceil);
+        uint256 leastPeggedSupply = Math.mulDiv(4 * leastCredit, measurePrice, flatBound, Math.Rounding.Ceil);
+        uint256 leastCreditedPegged = Math.mulDiv(leastPeggedSupply, 1 ether, price, Math.Rounding.Ceil) + 1;
+        return Math.max(minCollateral, Math.mulDiv(leastCreditedPegged, 1 ether, rate, Math.Rounding.Ceil) + 1);
     }
 
     function _mintPegged(uint256 wrapped) internal override {
@@ -590,6 +652,19 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         }
     }
 
+    /// @dev What `pegged` redeems for, as the minter defines it, at 36 decimals: a pegged unit's worth of collateral each
+    ///      at or above the peg, at the price `p`; each token's share of the record below it.
+    function _collateralRedeemedForE36(
+        Measures memory pre,
+        uint256 pegged,
+        uint256 p
+    ) internal pure returns (uint256) {
+        return
+            pre.collateralRatio < 1 ether
+                ? Math.mulDiv(pegged, pre.minterUnderlying * 1 ether, pre.minterPegged)
+                : Math.mulDiv(pegged, 1e36, p);
+    }
+
     function _redeemPegged(uint256 wrapped) internal override {
         // REDEEM PEGGED FLAT
         // console2.log("wrapped=%s", wrapped);
@@ -602,6 +677,16 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             mulDivNearest(wrapped, p * r, pre.peggedPrice * 1e18),
             IMinter(minter).peggedTokenBalance()
         );
+        // The flat expectation covers a redemption that ends below the schedule's flat bound, judged by this test's own
+        // arithmetic: the record less the collateral the pegged is worth, against the pegged left. Redeemed at par, x
+        // pegged take the market there at x = (B P - U p) / (B - 1), so the pegged is bounded to a hundredth short of
+        // that - which leaves pegged as well, the market starting at no more than a quarter of the bound
+        // (`_mostLeveragedSide`).
+        uint256 flatBound = _flatBelow(config.redeemPeggedIncentiveConfig);
+        if (flatBound != type(uint256).max) {
+            uint256 toTheBound = (flatBound * pre.minterPegged - pre.minterUnderlying * p) / (flatBound - 1 ether);
+            pegged = bound(pegged, 0, Math.mulDiv(toTheBound, 99, 100));
+        }
         // console2.log("pegged=%s", pegged);
         // adjust wrapped
         wrapped = mulDivNearest(pegged, pre.peggedPrice * 1e18, r * p);
@@ -613,28 +698,23 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             int256 incentiveRatio = initial(config.redeemPeggedIncentiveConfig.incentiveRatios); // assume flat
             if (incentiveRatio < 0) {
                 fee = 0;
-                // the whole subsidy; capped by a limited reserve after the redemption
-                subsidy = (uint256(-incentiveRatio) * wrapped) / 1e18;
+                // the whole subsidy, as the minter pays it: on the exact collateral the pegged redeems for, at the
+                // rate, rounded down once; capped by a limited reserve after the redemption
+                subsidy = Math.mulDiv(_collateralRedeemedForE36(pre, pegged, p), uint256(-incentiveRatio), r * 1 ether);
             } else {
                 fee = (uint256(incentiveRatio) * wrapped) / 1e18;
                 subsidy = 0;
             }
         }
 
-        // A schedule whose highest band charges otherwise is flat only below its last bound - a subsidy has to end
-        // somewhere - so the flat expectation covers a redemption that ends below it, judged by this test's own
-        // arithmetic: the record less the collateral the pegged is worth, against the pegged left.
-        {
-            IMinter.IncentiveConfig memory schedule = config.redeemPeggedIncentiveConfig;
-            uint256 highest = schedule.incentiveRatios.length - 1;
-            if (schedule.incentiveRatios[highest] != schedule.incentiveRatios[0]) {
-                uint256 peggedAfter = pre.minterPegged - pegged;
-                vm.assume(
-                    peggedAfter > 0 &&
-                        Math.mulDiv(pre.minterUnderlying - (wrapped * r) / 1e18, p, peggedAfter) <
-                            schedule.collateralRatioBandUpperBounds[highest - 1]
-                );
-            }
+        if (flatBound != type(uint256).max) {
+            uint256 peggedAfter = pre.minterPegged - pegged;
+            assertGt(peggedAfter, 0, "precondition: the redemption leaves pegged");
+            assertLt(
+                Math.mulDiv(pre.minterUnderlying - (wrapped * r) / 1e18, p, peggedAfter),
+                flatBound,
+                "precondition: the redemption ends below the schedule's flat bound"
+            );
         }
 
         if (subsidyLimitRatio > 0) {
@@ -703,12 +783,9 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         assertEq(post.minterLeveraged, pre.minterLeveraged, "rp minter leveraged");
 
         {
-            // What the pegged redeems for, as the minter defines it: a pegged unit's worth of collateral each at or
-            // above the peg, each token's share of the record below it - at 36 decimals - and the whole wrapped that
-            // releases. It leaves the minter exactly, and the record gives it up valued at the rate, rounded up.
-            uint256 collateralE36 = pre.collateralRatio < 1 ether
-                ? Math.mulDiv(pegged, pre.minterUnderlying * 1 ether, pre.minterPegged)
-                : Math.mulDiv(pegged, 1e36, p);
+            // The whole wrapped what the pegged redeems for releases leaves the minter exactly, and the record gives it
+            // up valued at the rate, rounded up.
+            uint256 collateralE36 = _collateralRedeemedForE36(pre, pegged, p);
             assertEq(post.minterWrapped, pre.minterWrapped - collateralE36 / r, "rp minter wrapped");
             assertEq(
                 post.minterUnderlying,
@@ -768,6 +845,23 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         if (IMinter(minter).collateralRatio() > 1 ether) {
             (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
+            // The flat expectation covers a mint that ends below the schedule's flat bound, judged by this test's own
+            // arithmetic: the record grown by the offer net of the fee, with the whole subsidy, at the rate. So the
+            // offer is bounded to a hundredth short of what takes the market there - room `_mostLeveragedSide` and
+            // `_leastPeggedSideToMintLeveraged` leave for at least the least offer.
+            uint256 flatBound = _flatBelow(config.mintLeveragedIncentiveConfig);
+            if (flatBound != type(uint256).max) {
+                int256 incentiveRatio = initial(config.mintLeveragedIncentiveConfig.incentiveRatios);
+                uint256 room = Math.mulDiv(flatBound, IMinter(minter).peggedTokenBalance(), p) -
+                    IMinter(minter).collateralTokenBalance();
+                uint256 mostOffer = Math.mulDiv(
+                    Math.mulDiv(room, 1 ether, r),
+                    0.99 ether,
+                    1 ether + (incentiveRatio < 0 ? uint256(-incentiveRatio) : 0)
+                );
+                wrapped = bound(wrapped, minToken, Math.min(maxToken, mostOffer));
+            }
+
             Measures memory pre;
 
             uint256 fee;
@@ -783,20 +877,14 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 }
             }
 
-            // A schedule whose highest band charges otherwise is flat only below its last bound - a subsidy has to end
-            // somewhere - so the flat expectation covers a mint that ends below it, judged by this test's own
-            // arithmetic: the record grown by the input net of the fee, with the whole subsidy.
-            {
-                IMinter.IncentiveConfig memory schedule = config.mintLeveragedIncentiveConfig;
-                uint256 highest = schedule.incentiveRatios.length - 1;
-                if (schedule.incentiveRatios[highest] != schedule.incentiveRatios[0]) {
-                    uint256 collateralAfter = IMinter(minter).collateralTokenBalance() +
-                        ((wrapped - fee + subsidy) * r) / 1e18;
-                    vm.assume(
-                        Math.mulDiv(collateralAfter, p, IMinter(minter).peggedTokenBalance()) <
-                            schedule.collateralRatioBandUpperBounds[highest - 1]
-                    );
-                }
+            if (flatBound != type(uint256).max) {
+                uint256 collateralAfter = IMinter(minter).collateralTokenBalance() +
+                    ((wrapped - fee + subsidy) * r) / 1e18;
+                assertLt(
+                    Math.mulDiv(collateralAfter, p, IMinter(minter).peggedTokenBalance()),
+                    flatBound,
+                    "precondition: the mint ends below the schedule's flat bound"
+                );
             }
 
             if (subsidyLimitRatio > 0) {
