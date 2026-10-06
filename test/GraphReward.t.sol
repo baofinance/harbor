@@ -6,7 +6,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -35,7 +34,7 @@ abstract contract TestGraphReward is GraphSweepTestBase, TestStabilityPoolSetUp 
         deal(peggedToken, address(this), initialPoolDeposit * 100);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
-        IStabilityPool(stabilityPoolCollateral).deposit(initialPoolDeposit, address(this), 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(initialPoolDeposit, address(this), 0);
 
         rewardFile = openFile(
             "reward",
@@ -250,7 +249,7 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
 
         if (!depositedInPool && currentX >= startX + 5 days) {
             uint256 user2Deposit = (initialPoolDeposit * 2) / 3;
-            IStabilityPool(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
             currentPoolDeposit += user2Deposit;
             depositedInPool = true;
         }

@@ -11,7 +11,6 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
@@ -224,7 +223,7 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
         );
 
         assertEq(IStabilityPoolManager_v2(addresses.manager).MINTER(), addresses.minter, "the manager of this minter");
-        address[] memory pools = IStabilityPoolManager(addresses.manager).stabilityPools();
+        address[] memory pools = IStabilityPoolManager_v2(addresses.manager).stabilityPools();
         assertEq(pools.length, 2, "and of two pools");
         assertTrue(
             (pools[0] == addresses.collateralPool && pools[1] == addresses.leveragedPool) ||

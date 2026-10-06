@@ -5,7 +5,7 @@ import {DeployETHfxUSDSetUp} from "@harbor-test/deployment/DeployETHfxUSD.t.sol"
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
@@ -30,12 +30,23 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
     /// The StabilityPoolManager's four operating ratios and fee receiver are set by the deploy, from the
     /// market config and the deployer's treasury.
     function test_deployedStabilityPoolManagerIsConfiguredFromMarketConfig() public view {
-        IStabilityPoolManager deployedManager = IStabilityPoolManager(stabilityPoolManager);
-        assertEq(deployedManager.rebalanceThreshold(), cfg.rebalanceThreshold(), "rebalanceThreshold");
-        assertEq(deployedManager.rebalanceBountyRatio(), cfg.rebalanceBountyRatio(), "rebalanceBountyRatio");
-        assertEq(deployedManager.harvestBountyRatio(), cfg.harvestBountyRatio(), "harvestBountyRatio");
-        assertEq(deployedManager.harvestCutRatio(), cfg.harvestCutRatio(), "harvestCutRatio");
-        assertEq(deployedManager.feeReceiver(), deployRun.treasury(), "feeReceiver");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            cfg.rebalanceThreshold(),
+            "rebalanceThreshold"
+        );
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyRatio(),
+            cfg.rebalanceBountyRatio(),
+            "rebalanceBountyRatio"
+        );
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(),
+            cfg.harvestBountyRatio(),
+            "harvestBountyRatio"
+        );
+        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(), cfg.harvestCutRatio(), "harvestCutRatio");
+        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).feeReceiver(), deployRun.treasury(), "feeReceiver");
     }
 
     /// Every Minter dependency is set by the deploy — no configuration step is outstanding once

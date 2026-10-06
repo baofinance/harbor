@@ -10,7 +10,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
@@ -74,7 +74,7 @@ contract RewardSystemSetUp is BaoTest, Array {
         uint256 peggedMinted = IMinter(minter).freeMintPeggedToken(amount, user);
         vm.startPrank(user);
         IERC20(pegged).approve(stabilityPoolCollateral, peggedMinted);
-        IStabilityPool(stabilityPoolCollateral).deposit(peggedMinted, user, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(peggedMinted, user, 0);
         vm.stopPrank();
     }
 
@@ -86,7 +86,7 @@ contract RewardSystemSetUp is BaoTest, Array {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Accumulator v3 coverage (via SP deployed with deployment scripts)
+// Accumulator v3, through a stability pool the deployment scripts deploy
 // ═══════════════════════════════════════════════════════════════
 
 contract AccumulatorTest is RewardSystemSetUp {
@@ -145,7 +145,7 @@ contract AccumulatorTest is RewardSystemSetUp {
     }
 
     function test_checkpointBeforeAnyRewardTokens() public {
-        // Deploy a fresh SP with no reward tokens registered — but we can't easily do that
+        // Deploy a fresh stability pool with no reward tokens registered — but we can't easily do that
         // via the deployment framework. Instead, checkpoint with address(0) which is the
         // "distribute all" path — exercises the early return when called before deposits change.
         IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(makeAddr("nobody"));

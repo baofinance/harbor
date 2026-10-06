@@ -5,7 +5,7 @@ import {DeployETHfxUSDSetUp} from "@harbor-test/deployment/DeployETHfxUSD.t.sol"
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Genesis_v2} from "@harbor/minter/Genesis_v2.sol";
 import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
@@ -99,14 +99,10 @@ contract AddressResolversTest is DeployETHfxUSDSetUp {
 
     /// The StabilityPoolManager's baked-in minter, and the two pools it manages, are what the resolvers name.
     function test_stabilityPoolManagerNamesTheMinterAndBothPools() public {
-        IStabilityPoolManager deployedManager = IStabilityPoolManager(deployRun.stabilityPoolManagerAddress(market));
-        assertEq(
-            StabilityPoolManagerMinter(address(deployedManager)).MINTER(),
-            deployRun.minterAddress(market),
-            "MINTER"
-        );
+        address deployedManager = deployRun.stabilityPoolManagerAddress(market);
+        assertEq(IStabilityPoolManager_v2(deployedManager).MINTER(), deployRun.minterAddress(market), "MINTER");
 
-        address[] memory pools = deployedManager.stabilityPools();
+        address[] memory pools = IStabilityPoolManager_v2(deployedManager).stabilityPools();
         assertEq(pools.length, 2, "pool count");
         assertEq(
             pools[0],
@@ -163,9 +159,4 @@ contract AddressResolversTest is DeployETHfxUSDSetUp {
             "minter holds REQUESTER_ROLE on the resolved reserve pool"
         );
     }
-}
-
-/// @dev `MINTER` is declared on StabilityPoolManager_v2 rather than on IStabilityPoolManager.
-interface StabilityPoolManagerMinter {
-    function MINTER() external view returns (address);
 }

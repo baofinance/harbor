@@ -43,9 +43,6 @@ contract TestGraphsFees is GraphTestBase, TestCollateralRatioRangeSetUp {
                 "Redeem Leveraged Fees"
             )
         );
-
-        // IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
-        // IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
     }
 
     function setDown() internal override {

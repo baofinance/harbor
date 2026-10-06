@@ -8,8 +8,8 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
@@ -54,8 +54,9 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is GraphTestBase, Test
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         // The probe puts one pegged token through the conversion to read the rate it is given, on the
         // same free path the rebalance itself uses.
-        vm.prank(owner());
+        vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
 
         _refillThePools();
 
@@ -101,7 +102,7 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is GraphTestBase, Test
             }
             uint256 depositing = Math.min(wanted, peggedHeld);
             if (depositing > 0) {
-                IStabilityPool(pools[i]).deposit(depositing, address(this), 0);
+                IStabilityPool_v3(pools[i]).deposit(depositing, address(this), 0);
             }
         }
     }
@@ -138,7 +139,7 @@ abstract contract TestGraphsRebalanceSupplyTrajectoryBase is GraphTestBase, Test
             uint256 leveragedPrice = IMinter_v3(minter).leveragedTokenPrice();
             uint256 appliedOverFair = _appliedOverFair();
 
-            IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
 
             writeLine(
                 file,

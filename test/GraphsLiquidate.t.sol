@@ -7,8 +7,8 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
@@ -95,16 +95,16 @@ contract TestGraphsLiquidatePartial is TestGraphsLiquidateSetUp {
         m.beforePrice = IMinter(minter).leveragedTokenPrice();
 
         uint256 snap = vm.snapshotState();
-        IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
         (m.afterCR_collateral, m.afterPrice_collateral, m.afterPegged_collateral) = _rebalanceAndRead(m);
         vm.revertToState(snap);
 
-        IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
         (m.afterCR_leveraged, m.afterPrice_leveraged, m.afterPegged_leveraged) = _rebalanceAndRead(m);
         vm.revertToState(snap);
 
-        IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
-        IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
         (m.afterCR_both, m.afterPrice_both, m.afterPegged_both) = _rebalanceAndRead(m);
         vm.revertToState(snap);
 
@@ -132,8 +132,8 @@ contract TestGraphsLiquidatePartial is TestGraphsLiquidateSetUp {
     function _rebalanceAndRead(
         PartialMeasures memory m
     ) private returns (uint256 collateralRatioAfter, uint256 leveragedPriceAfter, uint256 peggedAfter) {
-        if (IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
-            IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        if (IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable()) {
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
             collateralRatioAfter = IMinter(minter).collateralRatio();
             leveragedPriceAfter = IMinter(minter).leveragedTokenPrice();
         } else {
@@ -165,10 +165,10 @@ contract TestGraphsLiquidate is TestGraphsLiquidateSetUp {
         uint256 peggedForCollateralPool = (collateralPoolShare * minterPegged) / 1 ether;
         uint256 peggedForLeveragedPool = (leveragedPoolShare * minterPegged) / 1 ether;
         if (peggedForCollateralPool > 0) {
-            IStabilityPool(stabilityPoolCollateral).deposit(peggedForCollateralPool, address(this), 0);
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(peggedForCollateralPool, address(this), 0);
         }
         if (peggedForLeveragedPool > 0) {
-            IStabilityPool(stabilityPoolLeveraged).deposit(peggedForLeveragedPool, address(this), 0);
+            IStabilityPool_v3(stabilityPoolLeveraged).deposit(peggedForLeveragedPool, address(this), 0);
         }
         user = address(this);
 
@@ -249,8 +249,8 @@ contract TestGraphsLiquidate is TestGraphsLiquidateSetUp {
 
         uint256 snap = vm.snapshotState();
 
-        if (IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
-            IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        if (IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable()) {
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
         }
 
         Measures memory post = _readMeasures();

@@ -8,9 +8,8 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
@@ -82,8 +81,8 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
 
             uint256 peggedOutstanding = IMinter(minter).peggedTokenBalance();
             uint256 perPool = Math.mulDiv(peggedOutstanding, share, 2 ether);
-            IStabilityPool(stabilityPoolCollateral).deposit(perPool, address(this), 0);
-            IStabilityPool(stabilityPoolLeveraged).deposit(perPool, address(this), 0);
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(perPool, address(this), 0);
+            IStabilityPool_v3(stabilityPoolLeveraged).deposit(perPool, address(this), 0);
 
             marketActions.setCollateralRatioByPrice(distressedCollateralRatio);
             assertFalse(IMinter_v3(minter).leveragedMintable(), "each point starts where the market sells no leverage");
@@ -92,7 +91,7 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
             // rebalance uses, against the manager's own threshold, with the headroom arguments opened up
             // so the answer is the full ask.
             (uint256 askCollateral, uint256 askLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
-                IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold(),
+                IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
                 type(uint256).max,
                 type(uint256).max,
                 IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
@@ -101,7 +100,7 @@ contract TestGraphsRebalanceBindingLimits is GraphTestBase, TestStabilityPoolMan
             uint256 allowedToLose = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss() +
                 IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss();
 
-            uint256 taken = IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+            uint256 taken = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
 
             writeLine(
                 file,

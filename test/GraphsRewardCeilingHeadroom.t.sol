@@ -9,8 +9,8 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {MinterClaimRescaleLib} from "@harbor-test/MinterClaimRescaleLib.sol";
@@ -67,12 +67,13 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-        vm.prank(owner());
+        vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
 
         uint256 perPool = Math.mulDiv(IMinter(minter).peggedTokenBalance(), POOL_SHARE, 1 ether);
-        IStabilityPool(stabilityPoolCollateral).deposit(perPool, address(this), 0);
-        IStabilityPool(stabilityPoolLeveraged).deposit(perPool, address(this), 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(perPool, address(this), 0);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(perPool, address(this), 0);
 
         file = openFile(
             "reward_ceiling_headroom",
@@ -138,7 +139,7 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
     }
 
     function test_doesTheRewardCeilingBindWithoutTheConversionCap() public {
-        uint256 threshold = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
+        uint256 threshold = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
 
         for (uint256 above = FIRST_ABOVE_PEG; above <= LAST_ABOVE_PEG; above = (above * 12) / 5) {
             uint256 snapshot = vm.snapshotState();

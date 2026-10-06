@@ -11,7 +11,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
 
@@ -152,7 +152,7 @@ contract MinterAndStabilityPoolsDeployTest is PartialDeploySetUp {
         assertTrue(
             IBaoRoles(collateralPool).hasAllRoles(
                 manager,
-                IStabilityPool(collateralPool).REBALANCER_ROLE() |
+                IStabilityPool_v3(collateralPool).REBALANCER_ROLE() |
                     IMultipleRewardDistributor(collateralPool).REWARD_DEPOSITOR_ROLE()
             ),
             "manager holds REBALANCER | REWARD_DEPOSITOR on the collateral pool"
@@ -162,7 +162,7 @@ contract MinterAndStabilityPoolsDeployTest is PartialDeploySetUp {
         assertTrue(
             IBaoRoles(leveragedPool).hasAllRoles(
                 manager,
-                IStabilityPool(leveragedPool).REBALANCER_ROLE() |
+                IStabilityPool_v3(leveragedPool).REBALANCER_ROLE() |
                     IMultipleRewardDistributor(leveragedPool).REWARD_DEPOSITOR_ROLE()
             ),
             "manager holds REBALANCER | REWARD_DEPOSITOR on the leveraged pool"
