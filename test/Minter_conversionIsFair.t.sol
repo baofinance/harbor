@@ -63,7 +63,9 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 share = bound(shareSeed, 0.0001 ether, 0.5 ether);
         marketActions.setCollateralRatioByPrice(collateralRatio);
         uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
-        vm.assume(peggedIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= peggedIn);
+        // this test holds the whole pegged supply, and converts a share of it from a ten-thousandth to a half
+        assertGt(peggedIn, 0, "precondition: the share converted is something");
+        assertGe(IERC20(peggedToken).balanceOf(address(this)), peggedIn, "precondition: this test holds what it converts");
 
         if (!IMinter_v3(minter).leveragedMintable()) {
             uint256 peggedSupply = IMinter(minter).peggedTokenBalance();
@@ -121,7 +123,8 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
     function testFuzz_thePoolIsNeverPaidLessThanTheRetailRoute(uint256 ratioSeed) public {
         uint256 collateralRatio = bound(ratioSeed, LOWEST_RATIO, HIGHEST_RATIO);
         uint256 peggedIn = 1 ether;
-        vm.assume(IERC20(peggedToken).balanceOf(address(this)) >= peggedIn);
+        // this test holds the whole pegged supply
+        assertGe(IERC20(peggedToken).balanceOf(address(this)), peggedIn, "precondition: this test holds what it converts");
 
         marketActions.setCollateralRatioByPrice(collateralRatio);
 
@@ -141,7 +144,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
 
             uint256 collateralOut = IMinter_v3(minter).redeemPeggedToken(peggedIn, address(this), 0);
             uint256 ratioAtTheMint = IMinter(minter).collateralRatio();
-            vm.assume(ratioAtTheMint < release);
+            assertLt(ratioAtTheMint, release, "precondition: the retail redemption leaves the market below the floor");
             vm.expectRevert(
                 abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioAtTheMint, release)
             );
@@ -178,7 +181,9 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         uint256 share = bound(shareSeed, 0.0001 ether, 0.5 ether);
         marketActions.setCollateralRatioByPrice(collateralRatio);
         uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), share, 1 ether);
-        vm.assume(peggedIn > 0 && IERC20(peggedToken).balanceOf(address(this)) >= peggedIn);
+        // this test holds the whole pegged supply, and converts a share of it from a ten-thousandth to a half
+        assertGt(peggedIn, 0, "precondition: the share converted is something");
+        assertGe(IERC20(peggedToken).balanceOf(address(this)), peggedIn, "precondition: this test holds what it converts");
 
         _assertOneConversionStaysWithinTheBound(peggedIn);
     }

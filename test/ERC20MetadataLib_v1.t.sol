@@ -156,35 +156,43 @@ contract ERC20MetadataLib_v1_Test is Test {
                                 fuzz
     //////////////////////////////////////////////////////////////////////////*/
 
+    /// @dev `length` bytes of the fuzzer's `raw`, repeated to fill - or NULs, where it gave none - so each test bounds
+    ///      the length it needs rather than rejecting the lengths the fuzzer happens to generate.
+    function _ofLength(bytes memory raw, uint256 length) internal pure returns (bytes memory filled) {
+        filled = new bytes(length);
+        if (raw.length == 0) {
+            return filled;
+        }
+        for (uint256 i = 0; i < length; i++) {
+            filled[i] = raw[i % raw.length];
+        }
+    }
+
     /// @dev any non-empty string up to 31 chars round-trips through packSymbol/unpackSymbol,
     ///      including strings with embedded NULs.
-    function testFuzz_packSymbol_roundTrip(bytes memory raw) public view {
-        vm.assume(raw.length > 0 && raw.length <= 31);
-        string memory s = string(raw);
+    function testFuzz_packSymbol_roundTrip(bytes memory raw, uint256 length) public view {
+        string memory s = string(_ofLength(raw, bound(length, 1, 31)));
         assertEq(ERC20MetadataLib_v1.unpackSymbol(mock.packSymbol(s)), s);
     }
 
     /// @dev any non-empty string up to 63 chars round-trips through packName/unpackName,
     ///      including strings with embedded NULs.
-    function testFuzz_packName_roundTrip(bytes memory raw) public view {
-        vm.assume(raw.length > 0 && raw.length <= 63);
-        string memory s = string(raw);
+    function testFuzz_packName_roundTrip(bytes memory raw, uint256 length) public view {
+        string memory s = string(_ofLength(raw, bound(length, 1, 63)));
         (bytes32 b0, bytes32 b1) = mock.packName(s);
         assertEq(ERC20MetadataLib_v1.unpackName(b0, b1), s);
     }
 
     /// @dev any string longer than 31 chars is rejected by packSymbol.
-    function testFuzz_packSymbol_tooLong(bytes memory raw) public {
-        vm.assume(raw.length > 31 && raw.length <= 256);
-        string memory s = string(raw);
+    function testFuzz_packSymbol_tooLong(bytes memory raw, uint256 length) public {
+        string memory s = string(_ofLength(raw, bound(length, 32, 256)));
         vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
         mock.packSymbol(s);
     }
 
     /// @dev any string longer than 63 chars is rejected by packName.
-    function testFuzz_packName_tooLong(bytes memory raw) public {
-        vm.assume(raw.length > 63 && raw.length <= 256);
-        string memory s = string(raw);
+    function testFuzz_packName_tooLong(bytes memory raw, uint256 length) public {
+        string memory s = string(_ofLength(raw, bound(length, 64, 256)));
         vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
         mock.packName(s);
     }

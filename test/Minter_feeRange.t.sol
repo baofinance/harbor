@@ -125,15 +125,30 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     }
 
     function test_mintLeveragedRange_(uint256 p, uint256 l, uint256 w) public virtual {
-        p = bound(p, minCollateral, maxCollateral);
-        l = bound(l, minCollateral, maxCollateral);
+        // Every run sells leverage: there is no fee to range over where the mint reverts, and the revert below the min
+        // CR is `Minter_leverageCap`'s to assert. The pegged side's credited collateral mints that many pegged at the
+        // set-up price, and repriced the market reads its credited collateral at the measure price over them - so the
+        // leveraged side is bounded below by the least whose credit reaches the min CR, and the pegged side above by
+        // the most that leaves such a leveraged side within range.
+        uint256 minimum = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        uint256 leveragedPerPeggedE18 = Math.mulDiv(minimum, price, measurePrice, Math.Rounding.Ceil) - 1 ether;
+        p = bound(
+            p,
+            minCollateral,
+            Math.min(maxCollateral, Math.mulDiv(maxCollateral - 1 ether, 1 ether, leveragedPerPeggedE18))
+        );
+        {
+            uint256 creditedPegged = Math.mulDiv(p, rate, 1 ether);
+            uint256 creditNeeded = Math.ceilDiv(minimum * Math.mulDiv(creditedPegged, price, 1 ether), measurePrice);
+            uint256 leastLeveraged = creditNeeded > creditedPegged
+                ? Math.ceilDiv((creditNeeded - creditedPegged) * 1 ether, rate)
+                : 0;
+            l = bound(l, Math.max(minCollateral, leastLeveraged), maxCollateral);
+        }
         w = bound(w, minToken, maxToken);
         setUp_collateral(p, l, user);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-        // A leveraged deposit small beside the pegged one puts the market's genesis at the peg, below the floor at
-        // which leverage is sold. There is no fee to range over where the mint reverts, and the revert
-        // is `Minter_leverageCap`'s to assert; the fee arithmetic is measured where a mint exists.
-        vm.assume(IMinter_v3(minter).leveragedMintable());
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "precondition: the repriced market sells leverage");
         _mintLeveraged(w);
     }
 

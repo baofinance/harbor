@@ -305,8 +305,9 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
             collateralIn,
             maxFeeRatio
         );
-        // With nothing taken there is no realised ratio to bound (the getter reports the band's rate).
-        vm.assume(dryCollateralUsed > 0);
+        // With nothing taken there would be no realised ratio to bound (the getter reports the band's rate); the
+        // band's fee at this market's ratio is within the least cap drawn, so something is always taken.
+        assertGt(dryCollateralUsed, 0, "precondition: the capped mint takes collateral");
 
         // Fee and collateral used are each floored independently out of the 1e36-scaled internals, so
         // the reported ratio can exceed the exact one by at most one wei of fee spread over the amount
