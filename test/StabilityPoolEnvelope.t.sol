@@ -19,9 +19,7 @@ import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -208,9 +206,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         mockOracle = MockWrappedPriceOracle(deployRun.installMockPriceOracle(mktConfigs[0]));
         marketActions = new MarketActions(minter);
 
-        address spOwner = IBaoOwnable(stabilityPool).owner();
-        uint256 rebalancerRole = IStabilityPool(stabilityPool).REBALANCER_ROLE();
-        vm.startPrank(spOwner);
+        address stabilityPoolOwner = IBaoOwnable(stabilityPool).owner();
+        uint256 rebalancerRole = IStabilityPool_v3(stabilityPool).REBALANCER_ROLE();
+        vm.startPrank(stabilityPoolOwner);
         IBaoRoles(stabilityPool).grantRoles(address(this), rebalancerRole); // to arrange prior losses
         vm.stopPrank();
 
@@ -242,7 +240,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     // ─── config integrity (layer 1: config sources must agree; no deploy, no mocks) ───
 
     /// @notice The peg and market configs paired in the deploy must AGREE on minTotalSupply, the StabilityPool's floor.
-    /// The SP deploy reads it from the MARKET config, so an override placed only on the peg is silently ignored and the
+    /// The stability pool deploy reads it from the MARKET config, so an override placed only on the peg is silently ignored and the
     /// deployed floor is not the intended one - which is exactly how the minDepositHuge variant deployed the base 2e14
     /// rather than its intended 1e24 (the override was on the peg alone). Asserting the two sources cannot diverge
     /// catches an override on the wrong config object, deploy-free and mock-free.
@@ -252,7 +250,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             assertEq(
                 IHarborConfig(address(markets[i])).minTotalSupply(),
                 peg.minTotalSupply(),
-                "market minTotalSupply diverges from the peg's - an override lands on a config the SP deploy ignores"
+                "market minTotalSupply diverges from the peg's - an override lands on a config the stability pool deploy ignores"
             );
         }
     }
@@ -268,7 +266,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         IHarborConfig cfg = IHarborConfig(address(markets[0]));
 
         assertEq(
-            IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
+            IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
             cfg.minTotalSupply(),
             "deployed supply floor is not the configured one"
         );
@@ -277,7 +275,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             _expectedMaxTotalAssetSupply(cfg.minTotalSupply()),
             "deployed supply ceiling is not MIN * FACTOR_PRECISION (saturated at the supply field)"
         );
-        (uint256 startDelay, uint256 endWindow) = IStabilityPool(stabilityPool).getWithdrawalWindow();
+        (uint256 startDelay, uint256 endWindow) = IStabilityPool_v3(stabilityPool).getWithdrawalWindow();
         assertEq(startDelay, cfg.stabilityPoolWithdrawalDelay(), "deployed withdrawal delay is not the configured one");
         assertEq(
             endWindow,
@@ -285,7 +283,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             "deployed withdrawal window is not the configured one"
         );
         assertEq(
-            IStabilityPool(stabilityPool).getEarlyWithdrawalFee(),
+            IStabilityPool_v3(stabilityPool).getEarlyWithdrawalFee(),
             cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
             "deployed early-withdrawal fee is not the configured one"
         );
@@ -376,7 +374,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// collateral still covers the pegged claim, which is what keeps the leveraged buffer mintable and the reward
     /// large.
     function _belowRebalanceThreshold() internal view returns (uint256) {
-        uint256 threshold = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
+        uint256 threshold = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
         assertGt(threshold, 1 ether, "a threshold at or below parity leaves no covered ratio to rebalance from");
         return 1 ether + (threshold - 1 ether) / 10;
     }
@@ -516,7 +514,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     function _deposit(address who, uint256 amount) internal {
         vm.startPrank(who);
-        IStabilityPool(stabilityPool).deposit(amount, who, 0);
+        IStabilityPool_v3(stabilityPool).deposit(amount, who, 0);
         vm.stopPrank();
     }
 
@@ -534,12 +532,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// @dev Full exit inside the no-fee withdrawal window.
     function _withdrawAll(address who) internal {
         vm.startPrank(who);
-        IStabilityPool(stabilityPool).requestWithdrawal();
+        IStabilityPool_v3(stabilityPool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(stabilityPool).getWithdrawalRequest(who);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPool).getWithdrawalRequest(who);
         vm.warp(uint256(start) + 1);
         vm.startPrank(who);
-        IStabilityPool(stabilityPool).withdraw(type(uint256).max, who, 0);
+        IStabilityPool_v3(stabilityPool).withdraw(type(uint256).max, who, 0);
         vm.stopPrank();
     }
 
@@ -563,7 +561,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     function _seedMarket() internal {
         // Three equal tranches of collateral: pegged and leveraged at genesis, then pegged again.
         // Value 3X against a pegged claim of 2X is a collateral ratio of 1.5.
-        uint256 tranche = _collateralFor(IStabilityPool(stabilityPool).MIN_DEPOSIT()) + 1 ether;
+        uint256 tranche = _collateralFor(IStabilityPool_v3(stabilityPool).MIN_DEPOSIT()) + 1 ether;
         marketActions.mint(tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
         marketActions.mint(tranche, 0, address(this)); // the pegged tranche that takes it to 1.5
 
@@ -593,9 +591,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     function _seedPool() internal {
         // The pegged to deposit was already minted by `_seedMarket`; this establishes only the pool's own floor.
-        uint256 minDeposit = IStabilityPool(stabilityPool).MIN_DEPOSIT();
+        uint256 minDeposit = IStabilityPool_v3(stabilityPool).MIN_DEPOSIT();
         IERC20(pegged).approve(stabilityPool, type(uint256).max);
-        IStabilityPool(stabilityPool).deposit(minDeposit, address(this), 0);
+        IStabilityPool_v3(stabilityPool).deposit(minDeposit, address(this), 0);
     }
 
     // ─── arrange: bring the real system to a StartState the action acts against ───
@@ -608,12 +606,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             IERC20(pegged).transfer(background, s.existingDeposits);
             vm.startPrank(background);
             IERC20(pegged).approve(stabilityPool, type(uint256).max);
-            IStabilityPool(stabilityPool).deposit(s.existingDeposits, background, 0);
+            IStabilityPool_v3(stabilityPool).deposit(s.existingDeposits, background, 0);
             vm.stopPrank();
         }
 
         if (s.priorLossFraction > 0) {
-            uint256 minDeposit = IStabilityPool(stabilityPool).MIN_DEPOSIT();
+            uint256 minDeposit = IStabilityPool_v3(stabilityPool).MIN_DEPOSIT();
             uint256 held = IERC20(pegged).balanceOf(stabilityPool);
             uint256 headroom = held > minDeposit ? held - minDeposit : 0;
             uint256 loss = (headroom * s.priorLossFraction) / 1e18;
@@ -641,7 +639,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 lossSeed
     ) public {
         Envelope memory e = buildEnvelope();
-        uint256 minDeposit = IStabilityPool(stabilityPool).MIN_DEPOSIT();
+        uint256 minDeposit = IStabilityPool_v3(stabilityPool).MIN_DEPOSIT();
 
         uint256 n = bound(nSeed, 1, _min(e.maxPoolUsers, MAX_FUZZ_USERS));
         uint256 collateralUSD = bound(collateralSeed, e.minCollateralUSD, e.maxCollateralUSD);
@@ -815,7 +813,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         address user = users[0];
         deal(pegged, user, amount);
         vm.startPrank(user);
-        IStabilityPool(stabilityPool).deposit(amount, user, 0);
+        IStabilityPool_v3(stabilityPool).deposit(amount, user, 0);
         vm.stopPrank();
         assertEq(IERC20(stabilityPool).balanceOf(user), amount, "deposit past 2^104 credited exactly");
         assertEq(IERC20(stabilityPool).totalSupply(), supplyBefore + amount, "supply records the deposit exactly");
@@ -837,7 +835,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             address user = users[i];
             deal(pegged, user, half);
             vm.startPrank(user);
-            IStabilityPool(stabilityPool).deposit(half, user, 0);
+            IStabilityPool_v3(stabilityPool).deposit(half, user, 0);
             vm.stopPrank();
         }
         assertEq(IERC20(stabilityPool).totalSupply(), supplyBefore + 2 * half, "accumulated supply records exactly");
@@ -856,7 +854,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         vm.expectRevert(
             abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, 128, supplyBefore + amount)
         );
-        IStabilityPool(stabilityPool).deposit(amount, user, 0);
+        IStabilityPool_v3(stabilityPool).deposit(amount, user, 0);
         vm.stopPrank();
     }
 
@@ -890,14 +888,14 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             IERC20(pegged).transfer(holder, share);
             vm.startPrank(holder);
             IERC20(pegged).approve(stabilityPool, share);
-            IStabilityPool(stabilityPool).deposit(share, holder, 0);
+            IStabilityPool_v3(stabilityPool).deposit(share, holder, 0);
             vm.stopPrank();
         }
         assertEq(IERC20(stabilityPool).totalSupply(), supplyBefore + share * n, "every deposit recorded exactly");
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD);
         assertTrue(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
         );
         uint256 injected = _rebalance();
@@ -910,9 +908,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         for (uint256 i = 0; i < n; i++) {
             actors[i + 2] = crowd[i];
         }
-        SpConservationGhosts memory g = _rewardGhosts(injected, share * n, n + 2);
+        StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, share * n, n + 2);
         _assertRewardConserved(stabilityPool, actors, g);
-        _assertSpSolvent(stabilityPool, actors, g);
+        _assertStabilityPoolSolvent(stabilityPool, actors, g);
     }
 
     // ─── scatter-gun stress sweep: push each permissionless action PAST the envelope to LOCATE the constraint ───
@@ -974,13 +972,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // log-scale over the full PHYSICAL input range [MIN_DEPOSIT, uint256 max]: the fuzzer locates the field break
         // within it, rather than a range sized to the field under test. _logScale samples every order of magnitude
         // equally, so the boundary (many orders below the max) is actually reached.
-        uint256 w = _logScale(wSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
+        uint256 w = _logScale(wSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
 
         address user = users[0];
         deal(pegged, user, w);
         uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
         vm.startPrank(user);
-        try IStabilityPool(stabilityPool).deposit(w, user, 0) {
+        try IStabilityPool_v3(stabilityPool).deposit(w, user, 0) {
             vm.stopPrank();
             bool exact = IERC20(stabilityPool).balanceOf(user) == w &&
                 IERC20(stabilityPool).totalSupply() == supplyBefore + w;
@@ -1013,7 +1011,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         );
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD));
         // log-scale over the full physical input range - see testFuzz_deposit_sweep
-        uint256 w = _logScale(wSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
+        uint256 w = _logScale(wSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
 
         try this.depositThenWithdrawProbe(w, users[0]) returns (uint256 returned, uint256 residual) {
             bool exact = returned == w && residual == 0;
@@ -1048,13 +1046,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     function depositThenWithdrawProbe(uint256 w, address user) external returns (uint256 returned, uint256 residual) {
         deal(pegged, user, w);
         vm.startPrank(user);
-        IStabilityPool(stabilityPool).deposit(w, user, 0);
-        IStabilityPool(stabilityPool).requestWithdrawal();
+        IStabilityPool_v3(stabilityPool).deposit(w, user, 0);
+        IStabilityPool_v3(stabilityPool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool(stabilityPool).getWithdrawalRequest(user);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPool).getWithdrawalRequest(user);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user);
-        IStabilityPool(stabilityPool).withdraw(type(uint256).max, user, 0);
+        IStabilityPool_v3(stabilityPool).withdraw(type(uint256).max, user, 0);
         vm.stopPrank();
         returned = IERC20(pegged).balanceOf(user);
         residual = IERC20(stabilityPool).balanceOf(user);
@@ -1092,7 +1090,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 rewardBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
         address keeper = makeAddr("keeper");
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
         injectedToPool = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
     }
@@ -1114,14 +1112,14 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 injected,
         uint256 maxSupplyEver,
         uint256 calls
-    ) internal view returns (SpConservationGhosts memory g) {
+    ) internal view returns (StabilityPoolConservationGhosts memory g) {
         g.tokens = new address[](1);
         g.tokens[0] = wrappedCollateral;
         g.injected = new uint256[](1);
         g.injected[0] = injected;
         g.maxSupplyEver = maxSupplyEver;
         g.calls = calls;
-        g.minSupply = IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
+        g.minSupply = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
     }
 
     /// @notice Harvest happy path across the envelope: a full pool of stakers, yield accrued on Minter-held collateral,
@@ -1140,8 +1138,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // returns to the pools later through the FeeReceiver split - a separate flow). Under the production config
         // (1% bounty + 99% cut) that residual is ZERO, so assert against the deployed ratios, not a fixed premise.
         uint256 residualRatio = 1e18 -
-            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() -
-            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio() -
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         if (residualRatio > 0) {
             assertGt(injected, 0, "harvest delivered the pools' residual share");
         } else {
@@ -1152,9 +1150,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         vm.warp(block.timestamp + 8 days); // whole stream distributable
 
-        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
         _assertRewardConserved(stabilityPool, _allActors(), g);
-        _assertSpSolvent(stabilityPool, _allActors(), g);
+        _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
     }
 
     /// @notice The harvest HOLDS at the envelope corner. At the envelope-MAX pool, cheapest collateral (largest
@@ -1176,14 +1174,14 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         mockOracle.setLatestAnswer(currentPrice, currentRate);
 
         uint256 residualRatio = 1e18 -
-            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() -
-            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio() -
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         uint256 harvestableBefore = IMinter(minter).harvestable();
         uint256 rewardBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
 
         address keeper = makeAddr("harvestKeeper");
         vm.startPrank(keeper);
-        uint256 swept = IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0); // MUST NOT revert - defers at the corner
+        uint256 swept = IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0); // MUST NOT revert - defers at the corner
         vm.stopPrank();
         uint256 injected = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
 
@@ -1223,8 +1221,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         address keeper = makeAddr("harvestRecoveryKeeper");
 
         uint256 residualRatio = 1e18 -
-            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() -
-            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio() -
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         uint256 harvestable0 = IMinter(minter).harvestable();
         // Only markets whose single-step corner yield EXCEEDS one period's capacity form a deferred backlog; where the
         // capacity already dwarfs the yield (huge MIN) or the config sends no residual to the pools (full bounty + cut),
@@ -1235,7 +1233,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         uint256 pool0 = IERC20(token).balanceOf(stabilityPool);
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
         uint256 injected1 = IERC20(token).balanceOf(stabilityPool) - pool0;
         uint256 backlog = IMinter(minter).harvestable();
@@ -1259,7 +1257,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
                 "after a full period the distributed stream frees capacity for the next deposit"
             );
             vm.startPrank(keeper);
-            uint256 swept = IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+            uint256 swept = IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
             vm.stopPrank();
             assertGt(
                 swept,
@@ -1284,8 +1282,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// `_testCut` (all cut), isolating each half of the shared cap. The band pins the skim to the pool-proportional
     /// amount and rejects a skim on the whole (mostly-deferred) harvestable, which is orders of magnitude larger.
     function test_envelope_harvestSkimCappedWithPoolDeposit() public {
-        uint256 skimRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() +
-            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        uint256 skimRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio() +
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         uint256 residualRatio = 1e18 - skimRatio;
         // needs a real skim AND a residual to the pools; the zero-fee and full-cut markets have nothing to prove here
         if (skimRatio == 0 || residualRatio == 0) {
@@ -1309,12 +1307,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         address keeper = makeAddr("harvestSkimKeeper");
         uint256 poolCollBefore = IERC20(token).balanceOf(stabilityPool);
-        uint256 poolLevBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
+        uint256 leveragedPoolBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
         vm.startPrank(keeper);
-        uint256 swept = IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        uint256 swept = IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
         uint256 distributed = (IERC20(token).balanceOf(stabilityPool) - poolCollBefore) +
-            (IERC20(token).balanceOf(stabilityPoolLeveraged) - poolLevBefore);
+            (IERC20(token).balanceOf(stabilityPoolLeveraged) - leveragedPoolBefore);
         uint256 skim = swept - distributed; // the bounty + cut that left the minter
 
         // the skim is the ratio slice of what was DISTRIBUTED, not of the whole (mostly-deferred) harvestable
@@ -1340,7 +1338,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         IERC20(pegged).transfer(who, amount);
         vm.startPrank(who);
         IERC20(pegged).approve(pool, amount);
-        IStabilityPool(pool).deposit(amount, who, 0);
+        IStabilityPool_v3(pool).deposit(amount, who, 0);
         vm.stopPrank();
     }
 
@@ -1349,8 +1347,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// floor(residual * itsHoldings / total) and the remainder stays in the minter, rather than one pool being handed it
     /// as a systematic advantage.
     function test_harvest_bothPoolsFloored() public {
-        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
-        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         if (1e18 - bountyRatio - cutRatio == 0) {
             return; // no residual to split under a full-cut config
         }
@@ -1388,20 +1386,20 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 expectedLev = Math.mulDiv(grossLev, residualRatio, 1e18);
         uint256 expectedCol = Math.mulDiv(grossCol, residualRatio, 1e18);
 
-        uint256 colBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
-        uint256 levBefore = IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged);
+        uint256 collateralPoolBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
+        uint256 leveragedPoolBefore = IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged);
         address keeper = makeAddr("harvestKeeper");
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
 
         assertEq(
-            IERC20(wrappedCollateral).balanceOf(stabilityPool) - colBefore,
+            IERC20(wrappedCollateral).balanceOf(stabilityPool) - collateralPoolBefore,
             expectedCol,
             "collateral pool got exactly the net of its floored gross share, not a conserving complement"
         );
         assertEq(
-            IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged) - levBefore,
+            IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged) - leveragedPoolBefore,
             expectedLev,
             "leveraged pool got exactly the net of its floored gross share, not the split remainder"
         );
@@ -1415,8 +1413,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// the leveraged pool then enters and a keeper harvests the PURE backlog (no fresh yield), the backlog must still
     /// go to the collateral pool - a pool that held nothing when it accrued earns none of it.
     function test_harvest_deferredBacklogNotReSplitToLaterEntrant() public {
-        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
-        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         if (1e18 - bountyRatio - cutRatio == 0) {
             return; // a full-cut config sends nothing to the pools, so no backlog forms to leak
         }
@@ -1432,11 +1430,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // Mint the late entrant's pegged NOW (its collateral folds into the corner yield) but hold it in-wallet, so the
         // leveraged pool is still empty at harvest #1 and takes no share of the backlog it will later skim.
         address lateEntrant = makeAddr("lateEntrant");
-        uint256 levHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+        uint256 leveragedPoolHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPoolLeveraged).totalSupply();
-        uint256 levHold = _min(IERC20(pegged).balanceOf(stabilityPool), levHeadroom); // ~ the collateral pool's holding
-        _mintPeggedAtLeast(levHold);
-        IERC20(pegged).transfer(lateEntrant, levHold);
+        uint256 leveragedPoolHold = _min(IERC20(pegged).balanceOf(stabilityPool), leveragedPoolHeadroom); // ~ the collateral pool's holding
+        _mintPeggedAtLeast(leveragedPoolHold);
+        IERC20(pegged).transfer(lateEntrant, leveragedPoolHold);
 
         currentRate = e.maxWrapRate; // one un-harvested min->max step: the largest yield the envelope declares
         mockOracle.setLatestAnswer(currentPrice, currentRate);
@@ -1451,15 +1449,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // Harvest #1: only the collateral pool holds, so it takes the whole residual (capped); the excess defers.
         address keeper = makeAddr("harvestKeeper");
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
         uint256 backlog = IMinter(minter).harvestable();
         assertGt(backlog, 0, "harvest #1 deferred a backlog owed to the collateral pool");
 
         // The leveraged pool enters AFTER the backlog accrued.
         vm.startPrank(lateEntrant);
-        IERC20(pegged).approve(stabilityPoolLeveraged, levHold);
-        IStabilityPool(stabilityPoolLeveraged).deposit(levHold, lateEntrant, 0);
+        IERC20(pegged).approve(stabilityPoolLeveraged, leveragedPoolHold);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(leveragedPoolHold, lateEntrant, 0);
         vm.stopPrank();
 
         // Free the stream capacity, accrue NO fresh yield: the next harvest works the PURE backlog.
@@ -1470,21 +1468,21 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // fairness property under test, not the dust rule zeroing a tiny share.
         uint256 residualBacklog = backlog - (backlog * bountyRatio) / 1e18 - (backlog * cutRatio) / 1e18;
         uint256 total = IERC20(pegged).balanceOf(stabilityPool) + IERC20(pegged).balanceOf(stabilityPoolLeveraged);
-        uint256 levUncapped = (residualBacklog * IERC20(pegged).balanceOf(stabilityPoolLeveraged)) / total;
+        uint256 leveragedPoolUncapped = (residualBacklog * IERC20(pegged).balanceOf(stabilityPoolLeveraged)) / total;
         assertGt(
-            levUncapped,
+            leveragedPoolUncapped,
             IMultipleRewardDistributor_v3(stabilityPoolLeveraged).REWARD_PERIOD_LENGTH(),
             "the leveraged pool's re-split share clears the dust floor (so a zero receipt is fairness, not dust)"
         );
 
         // Harvest #2 on the pure backlog: measure what the late-entrant leveraged pool receives.
-        uint256 levBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
+        uint256 leveragedPoolBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
-        uint256 levGot = IERC20(token).balanceOf(stabilityPoolLeveraged) - levBefore;
+        uint256 leveragedPoolGot = IERC20(token).balanceOf(stabilityPoolLeveraged) - leveragedPoolBefore;
 
-        assertEq(levGot, 0, "the deferred backlog is not re-split to a pool that held nothing when it accrued");
+        assertEq(leveragedPoolGot, 0, "the deferred backlog is not re-split to a pool that held nothing when it accrued");
     }
 
     /// @notice A pool's deferred harvest backlog drains to THAT pool across periods, never to the co-pool. At the
@@ -1492,8 +1490,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// collateral pool holds. The leveraged pool then enters and, over several draining harvests of the PURE backlog
     /// (no fresh yield), receives none of it - the whole backlog is owed to the collateral pool and streams only there.
     function test_harvest_owedDrainsToOwningPoolAcrossPeriods() public {
-        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
-        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         if (1e18 - bountyRatio - cutRatio == 0) {
             return; // full cut: nothing streams to the pools, so no backlog forms
         }
@@ -1505,11 +1503,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS); // collateral pool only
 
         address lateEntrant = makeAddr("lateEntrantDrain");
-        uint256 levHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+        uint256 leveragedPoolHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPoolLeveraged).totalSupply();
-        uint256 levHold = _min(IERC20(pegged).balanceOf(stabilityPool), levHeadroom);
-        _mintPeggedAtLeast(levHold);
-        IERC20(pegged).transfer(lateEntrant, levHold);
+        uint256 leveragedPoolHold = _min(IERC20(pegged).balanceOf(stabilityPool), leveragedPoolHeadroom);
+        _mintPeggedAtLeast(leveragedPoolHold);
+        IERC20(pegged).transfer(lateEntrant, leveragedPoolHold);
 
         currentRate = e.maxWrapRate;
         mockOracle.setLatestAnswer(currentPrice, currentRate);
@@ -1523,14 +1521,14 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         address keeper = makeAddr("harvestKeeper");
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
         assertGt(IMinter(minter).harvestable(), 0, "harvest #1 deferred a backlog owed to the collateral pool");
 
         // the leveraged pool enters AFTER the backlog accrued
         vm.startPrank(lateEntrant);
-        IERC20(pegged).approve(stabilityPoolLeveraged, levHold);
-        IStabilityPool(stabilityPoolLeveraged).deposit(levHold, lateEntrant, 0);
+        IERC20(pegged).approve(stabilityPoolLeveraged, leveragedPoolHold);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(leveragedPoolHold, lateEntrant, 0);
         vm.stopPrank();
 
         // drain the PURE backlog (no fresh yield) over several periods: it is owed to the collateral pool, so it
@@ -1538,18 +1536,18 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 period = IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH();
         for (uint256 i = 0; i < 3; i++) {
             vm.warp(block.timestamp + period + 1);
-            uint256 colBefore = IERC20(token).balanceOf(stabilityPool);
-            uint256 levBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
+            uint256 collateralPoolBefore = IERC20(token).balanceOf(stabilityPool);
+            uint256 leveragedPoolBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
             vm.startPrank(keeper);
-            IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+            IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
             vm.stopPrank();
             assertEq(
-                IERC20(token).balanceOf(stabilityPoolLeveraged) - levBefore,
+                IERC20(token).balanceOf(stabilityPoolLeveraged) - leveragedPoolBefore,
                 0,
                 "the leveraged pool receives none of the collateral pool's backlog on any draining harvest"
             );
             assertGt(
-                IERC20(token).balanceOf(stabilityPool) - colBefore,
+                IERC20(token).balanceOf(stabilityPool) - collateralPoolBefore,
                 0,
                 "the collateral pool's backlog drains to the collateral pool"
             );
@@ -1561,8 +1559,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// decrease)`. So a bounty receiver is never short-changed or over-paid relative to the harvestable consumed, and
     /// the cut (the remainder) is proportional too. Checked at a normal harvest AND at the deferred corner.
     function test_harvest_bountyMatchesHarvestableDecrease() public {
-        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
-        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
 
         Envelope memory e = buildEnvelope();
@@ -1594,7 +1592,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 keeperBefore = IERC20(token).balanceOf(keeper);
         uint256 poolsBefore = IERC20(token).balanceOf(stabilityPool) + IERC20(token).balanceOf(stabilityPoolLeveraged);
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
         vm.stopPrank();
         uint256 drop = harvestableBefore - IMinter(minter).harvestable();
         uint256 bounty = IERC20(token).balanceOf(keeper) - keeperBefore;
@@ -1634,9 +1632,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         assertGt(cap, 0, "cap is positive");
 
         // stream a reward, then the capacity drops by exactly committed = queued + rate * period
-        address spOwner = IBaoOwnable(stabilityPool).owner();
+        address stabilityPoolOwner = IBaoOwnable(stabilityPool).owner();
         uint256 depositorRole = IMultipleRewardDistributor_v3(stabilityPool).REWARD_DEPOSITOR_ROLE();
-        vm.startPrank(spOwner);
+        vm.startPrank(stabilityPoolOwner);
         IBaoRoles(stabilityPool).grantRoles(address(this), depositorRole);
         vm.stopPrank();
         uint256 reward = 1e24; // well within the cap, so depositReward streams it without overflowing
@@ -1661,7 +1659,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// formula-free: re-deriving `integralCap` here would copy `_REWARD_PRECISION`/`_INTEGRAL_HEADROOM` (both internal)
     /// and could only re-assert the implementation against itself.
     function test_maxDepositReward_capIndependentOfLiveShare() public {
-        uint256 floor = IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 floor = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
         uint256 capBefore = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral);
         assertGt(capBefore, 0, "precondition: a fresh stream offers a positive cap");
 
@@ -1697,12 +1695,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// stepped down to, because the window is as narrow as the threshold is low, and fixed steps can jump it; and
     /// bounded by the minter's own floor, so it moves with the leverage cap that sets it.
     function _dropPriceBelowRebalanceThreshold() internal {
-        uint256 threshold = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold();
+        uint256 threshold = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
         uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
         uint256 bottom = threshold > floor ? floor : 1 ether;
         currentPrice = marketActions.setCollateralRatioByPrice(bottom + (threshold - bottom) / 2);
         assertTrue(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "could not drive the collateral ratio below the rebalance threshold"
         );
     }
@@ -1713,7 +1711,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 rewardBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
         address keeper = makeAddr("keeper");
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(keeper, 0);
         vm.stopPrank();
         injectedToPool = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
     }
@@ -1734,9 +1732,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 injected = _rebalance();
         assertGt(injected, 0, "rebalance delivered a collateral reward to the pool");
 
-        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
         _assertRewardConserved(stabilityPool, _allActors(), g);
-        _assertSpSolvent(stabilityPool, _allActors(), g);
+        _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
     }
 
     /// @notice A pool whose share of a rebalance exceeds its solvency headroom gives up all it can, and the co-pool takes
@@ -1751,13 +1749,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         // A small collateral pool (floors early) beside a large leveraged pool with ample headroom to absorb the
         // shortfall; the two together hold nearly all the pegged there is.
-        uint256 minSupply = IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
-        uint256 levHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+        uint256 minSupply = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 leveragedPoolHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPoolLeveraged).totalSupply();
-        uint256 levHold = _min(minSupply * 1_000_000, levHeadroom / 2);
-        _mintLeveragedBuffer(levHold); // start the CR healthy so it can be dropped
+        uint256 leveragedPoolHold = _min(minSupply * 1_000_000, leveragedPoolHeadroom / 2);
+        _mintLeveragedBuffer(leveragedPoolHold); // start the CR healthy so it can be dropped
         _growPool(minSupply * 10, 1); // small collateral pool, beside the seed's floor deposit
-        _depositPeggedTo(stabilityPoolLeveraged, background, levHold);
+        _depositPeggedTo(stabilityPoolLeveraged, background, leveragedPoolHold);
 
         // Start where the first step - the collateral route to the floor, or to the threshold if that is lower - takes
         // 95% of what the pools hold: past the collateral pool's headroom, which is 10/11 of what it holds, and well
@@ -1765,20 +1763,20 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // `firstTarget` when `a = n·(firstTarget − start)/(firstTarget − 1)`.
         uint256 firstTarget = Math.min(
             IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO(),
-            IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold()
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold()
         );
         uint256 held = IERC20(pegged).balanceOf(stabilityPool) + IERC20(pegged).balanceOf(stabilityPoolLeveraged);
         uint256 start = firstTarget -
             Math.mulDiv(firstTarget - 1 ether, 95 * held, 100 * IMinter(minter).peggedTokenBalance());
         _setEnvelopePointAtCollateralRatio(start, _nominalWrapRate(), e.pegPriceUSD);
         assertTrue(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "the market starts between the peg and the first target"
         );
 
         address keeper = makeAddr("rebalanceKeeper");
         vm.startPrank(keeper);
-        IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(keeper, 0);
         vm.stopPrank();
 
         assertEq(
@@ -1787,7 +1785,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             "the small collateral pool gave up all it could - its share exceeded its headroom"
         );
         assertFalse(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "the leveraged pool took the shortfall, so one rebalance restores the collateral ratio to the threshold"
         );
     }
@@ -1806,7 +1804,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _mintLeveragedBuffer(poolPegged);
         _growPool(poolPegged, MAX_FUZZ_USERS);
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max returned
-        if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
+        if (!IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable()) {
             return; // this market's corner does not drop the CR below the threshold
         }
 
@@ -1856,21 +1854,21 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 poolPeggedHeld = IERC20(pegged).balanceOf(stabilityPool);
         address keeper = makeAddr("keeper");
         assertFalse(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "a wiped-out market is not offered one"
         );
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
         );
-        IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(keeper, 0);
         assertEq(IERC20(pegged).balanceOf(stabilityPool), poolPeggedHeld, "the pool keeps its pegged");
 
         // the collateral recovers past the rebalance threshold, and the market has to come back with it
-        uint256 recovered = IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold() + 0.01 ether;
+        uint256 recovered = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold() + 0.01 ether;
         _setEnvelopePointAtCollateralRatio(recovered, e.minWrapRate, e.pegPriceUSD);
 
         assertFalse(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "above the threshold there is nothing left to rebalance"
         );
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "the pegged is covered again, so it is back at par");
@@ -1909,16 +1907,16 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward
         assertTrue(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
         );
 
         uint256 injected = _rebalance();
         assertGt(injected, 0, "rebalance delivered the whole-pool collateral reward at the corner");
 
-        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
         _assertRewardConserved(stabilityPool, _allActors(), g);
-        _assertSpSolvent(stabilityPool, _allActors(), g);
+        _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
     }
 
     // ─── the reward-field worst case: the whole-pool reward concentrated in one holder's pending field ───
@@ -1939,7 +1937,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
         assertTrue(
-            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
             "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
         );
 
@@ -1947,9 +1945,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         assertGt(injected, 0, "rebalance delivered the whole-pool collateral reward at the corner");
 
         // conservation and solvency across every holder - the SAME shared checks the invariant proves
-        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
         _assertRewardConserved(stabilityPool, _allActors(), g);
-        _assertSpSolvent(stabilityPool, _allActors(), g);
+        _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
 
         // the concentration landed in ONE field: the whale owns ~the whole pool, so its single pending field carries
         // essentially the whole reward. injected/2 is a robust floor a uint128 truncation - which would collapse the
@@ -1978,7 +1976,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
-        if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
+        if (!IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable()) {
             return; // this market's corner does not drive the collateral ratio below the rebalance threshold
         }
         uint256 injected = _rebalance();
@@ -2024,7 +2022,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         // pool swept big, up to the supply field's own width; grown in its own unit so exceeding that field (the 2a
         // deposit/supply limit, cross-confirmed here) is recorded and stops this run rather than masking a reward find.
-        uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        uint256 poolPegged = _logScale(poolSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
         try this.growProbe(poolPegged) {
             // pool grew - proceed to stress the reward path
         } catch (bytes memory err) {
@@ -2045,12 +2043,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         try this.rebalanceOnlyProbe() returns (uint256 injected) {
             vm.warp(block.timestamp + 8 days); // whole stream distributable
-            SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+            StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
             // a rebalance that SUCCEEDS must conserve and stay solvent, and the whole reward must remain claimable by
             // the whale - a uint128 pending truncation would collapse that credit. All asserted unconditionally: a
             // silent wrong value is a bug at any size; only a clean revert (below) is a located limit.
             _assertRewardConserved(stabilityPool, _allActors(), g);
-            _assertSpSolvent(stabilityPool, _allActors(), g);
+            _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
             address[] memory rewardTokens = new address[](1);
             rewardTokens[0] = wrappedCollateral;
             assertGe(
@@ -2084,7 +2082,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// reverts). The swept cheap point is already set by the caller; this asserts the pool is rebalanceable there and
     /// rebalances, returning the reward delivered to the pool.
     function rebalanceOnlyProbe() external returns (uint256 injected) {
-        require(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "swept point not rebalanceable");
+        require(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "swept point not rebalanceable");
         injected = _rebalance();
     }
 
@@ -2099,7 +2097,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
-        uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        uint256 poolPegged = _logScale(poolSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
         try this.growProbe(poolPegged) {
             // pool grew - proceed to stress the streamed reward path
         } catch (bytes memory err) {
@@ -2116,11 +2114,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         }
         try this.harvestProbe() returns (uint256 injected) {
             vm.warp(block.timestamp + 8 days); // whole stream distributable
-            SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+            StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
             // a harvest that SUCCEEDS must conserve and stay solvent - a silent over-credit or insolvency is a bug at
             // any size, so assert unconditionally. Only a clean revert (below) is a located limit.
             _assertRewardConserved(stabilityPool, _allActors(), g);
-            _assertSpSolvent(stabilityPool, _allActors(), g);
+            _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
             _record("harvest", poolPegged, "held", string.concat("injected=", vm.toString(injected)));
         } catch (bytes memory err) {
             string memory reason = _revertReason(err);
@@ -2153,7 +2151,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
-        uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        uint256 poolPegged = _logScale(poolSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
         try this.growProbe(poolPegged) {
             // pool grew - proceed to inject and claim
         } catch (bytes memory err) {
@@ -2171,7 +2169,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward
 
         try this.rebalanceThenClaimProbe() returns (uint256 injected, uint256 claimedOut) {
-            SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+            StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
             // the claim checkpoints the whale (writing its uint128 pending) then pays out. Conservation must hold and
             // the whale must receive essentially the whole reward - a silent pending truncation would shrink the
             // payout. Both asserted unconditionally; only a clean revert (below) is a located limit.
@@ -2195,7 +2193,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// warps the stream complete, then the whale claims (checkpointing its uint128 pending). Returns the injected
     /// reward and the wrapped collateral the whale actually received.
     function rebalanceThenClaimProbe() external returns (uint256 injected, uint256 claimedOut) {
-        require(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "swept point not rebalanceable");
+        require(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "swept point not rebalanceable");
         injected = _rebalance();
         vm.warp(block.timestamp + 8 days);
         uint256 whaleBefore = IERC20(wrappedCollateral).balanceOf(users[0]);
@@ -2266,7 +2264,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
 
 /// @notice ETH peg with a huge minimum-deposit floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions
 /// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme. minTotalSupply is
-/// carried on BOTH this peg and its market (below) - the SP deploy reads the MARKET, and the config-integrity test
+/// carried on BOTH this peg and its market (below) - the stability pool deploy reads the MARKET, and the config-integrity test
 /// asserts the two agree so an override can never again land on a config object the deploy ignores.
 contract ConfigPeg_ETH_minDepositHuge is ConfigPeg_ETH {
     function minDeposit() public pure override returns (uint256) {
@@ -2296,7 +2294,7 @@ contract ConfigMarket_ETH_fxUSD_rebalanceThreshold105 is ConfigMarket_ETH_fxUSD_
 }
 
 /// @notice Minimum-supply floor at the huge extreme (1e6 tokens = $1M), overridden on the MARKET config - the object
-/// the SP deploy actually reads (the peg-only override the prior variant used was silently ignored; the
+/// the stability pool deploy actually reads (the peg-only override the prior variant used was silently ignored; the
 /// config-integrity test now forbids that). A large floor keeps the ceiling MAX = MIN * FACTOR_PRECISION saturated at
 /// the field width, so the reward-integral cap never binds here - the opposite corner from the reachable-cap markets.
 contract ConfigMarket_ETH_fxUSD_minDepositHuge is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {

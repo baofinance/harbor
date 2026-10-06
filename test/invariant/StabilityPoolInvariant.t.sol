@@ -200,7 +200,7 @@ contract StabilityPoolInvariantHandler is Test {
 
     /// @notice Claim each reward token for an actor — the only action allowed to reduce that
     /// actor's claimable. Claims are capped at the pool's token balance: checkpointed pending can
-    /// exceed the balance by the bounded over-credit (see _checkSpSolvent), in which case a
+    /// exceed the balance by the bounded over-credit (see _checkStabilityPoolSolvent), in which case a
     /// plain claim() genuinely reverts ERC20InsufficientBalance — real behaviour the solvency
     /// invariant documents, but this handler must never revert.
     function claimRewards(uint256 actorSeed) external {
@@ -388,7 +388,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         _checkDivisorGeSumBalance();
         _checkDivisorFloor();
         _checkNoRetroactiveReward();
-        _checkSpSolvent();
+        _checkStabilityPoolSolvent();
     }
 
     /// @notice Conservation of pool shares: the actors' rebased balances must sum to the recorded
@@ -439,7 +439,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// because a deposited reward streams and is accumulated LATER against a divisor that may by then have fallen to
     /// the floor — while `_accumulateReward` divides by the LIVE divisor. A divisor below the floor still passes the
     /// zero-guard and inflates `toAdd` past the bound the cap was sized for. The same `S >= MIN` denominator underpins
-    /// the tolerances in `_checkRewardConserved` and `_checkSpSolvent`.
+    /// the tolerances in `_checkRewardConserved` and `_checkStabilityPoolSolvent`.
     function _checkDivisorFloor() private view {
         _assertDivisorFloor(stabilityPoolCollateral, _actorsArray(), handler.maxSupplyEver(), handler.calls());
     }
@@ -461,8 +461,8 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// i.e. obligations may exceed the balance by at most injected·ε_max/MIN (the
     /// mirror image of the stranded slice in _checkRewardConserved; at this dust scale the
     /// LAST claimer's claim can revert for want of a few wei).
-    function _checkSpSolvent() private view {
-        _assertSpSolvent(stabilityPoolCollateral, _actorsArray(), _ghosts());
+    function _checkStabilityPoolSolvent() private view {
+        _assertStabilityPoolSolvent(stabilityPoolCollateral, _actorsArray(), _ghosts());
     }
 
     /// @dev The handler's reward-token list as a memory array, for the vector claim views.
@@ -482,7 +482,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         }
     }
 
-    function _ghosts() internal view returns (SpConservationGhosts memory g) {
+    function _ghosts() internal view returns (StabilityPoolConservationGhosts memory g) {
         g.tokens = _rewardTokensArray();
         g.injected = new uint256[](g.tokens.length);
         for (uint256 t = 0; t < g.tokens.length; t++) {
