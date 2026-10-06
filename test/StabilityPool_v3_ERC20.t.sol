@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ERC20} from "@solady/tokens/ERC20.sol";
@@ -315,6 +316,103 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         vm.expectRevert(ERC20.InsufficientAllowance.selector);
         IERC20(stabilityPool).transferFrom(user1, user2, 3 ether);
         vm.stopPrank();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Permit2: an ordinary spender, with no allowance built in
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev The canonical Permit2 deployment, the spender a Solady ERC20 allows without limit unless it opts out.
+    address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    /// A holder who approved nothing has given Permit2 nothing.
+    function test_permit2_hasNoAllowanceUntilApproved() public {
+        _deposit(user1, 10 ether);
+        assertEq(IERC20(stabilityPool).allowance(user1, PERMIT2), 0, "no built-in Permit2 allowance");
+    }
+
+    /// Permit2 is approved like any spender: an amount other than unlimited is accepted and reads back.
+    function test_permit2_isApprovedLikeAnySpender() public {
+        _deposit(user1, 10 ether);
+
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(PERMIT2, 4 ether);
+        vm.stopPrank();
+
+        assertEq(IERC20(stabilityPool).allowance(user1, PERMIT2), 4 ether, "the amount approved");
+    }
+
+    /// Permit2 moves a holder's shares only within an allowance the holder gave it, and the move spends it.
+    function test_permit2_cannotTransferFromWithoutAnAllowance() public {
+        _deposit(user1, 10 ether);
+
+        vm.startPrank(PERMIT2);
+        vm.expectRevert(ERC20.InsufficientAllowance.selector);
+        IERC20(stabilityPool).transferFrom(user1, user2, 3 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(PERMIT2, 4 ether);
+        vm.stopPrank();
+        vm.startPrank(PERMIT2);
+        IERC20(stabilityPool).transferFrom(user1, user2, 3 ether);
+        vm.stopPrank();
+
+        assertEq(IERC20(stabilityPool).balanceOf(user2), 3 ether, "moved within the allowance");
+        assertEq(IERC20(stabilityPool).allowance(user1, PERMIT2), 1 ether, "the allowance spent");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Mint and burn: a deposit and a withdrawal move shares into and out of existence, and say so
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// A deposit mints its receiver the shares credited: a Transfer from the zero address. The receiver is not the
+    /// depositor, so `from`, `to` and the amount are each told apart.
+    function test_deposit_emitsAMintTransferToTheReceiver() public {
+        _mintPegged(fxUSD.minter, user1, 10 ether);
+
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(stabilityPool, 10 ether);
+        vm.expectEmit(stabilityPool);
+        emit IERC20.Transfer(address(0), user2, 10 ether);
+        IStabilityPool_v3(stabilityPool).deposit(10 ether, user2, 0);
+        vm.stopPrank();
+    }
+
+    /// A withdrawal burns the shares leaving the pool - what the receiver is paid plus the early-withdrawal fee, the
+    /// amount the total supply falls by - as a Transfer to the zero address. Outside the window, so the two differ.
+    function test_withdraw_emitsABurnTransferOfTheSharesLeaving() public {
+        _deposit(user1, 10 ether);
+        uint256 amount = 4 ether;
+        uint256 fee = (amount * IStabilityPool_v3(stabilityPool).getEarlyWithdrawalFee()) / 1 ether;
+        assertGt(fee, 0, "the fee applies outside the window, so the burn is not the payment");
+        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
+
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPool);
+        emit IERC20.Transfer(user1, address(0), amount);
+        uint256 paid = IStabilityPool_v3(stabilityPool).withdraw(amount, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, amount - fee, "the receiver is paid the amount less the fee");
+        assertEq(supplyBefore - IERC20(stabilityPool).totalSupply(), amount, "the supply falls by the shares burned");
+    }
+
+    /// A loss rebases every balance down without moving a share, so it emits no Transfer - as a rebasing token's
+    /// rebase does not.
+    function test_loss_emitsNoTransfer() public {
+        _deposit(user1, 10 ether);
+
+        vm.recordLogs();
+        _applyLoss(2 ether, 1 ether);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        for (uint256 i = 0; i < logs.length; i++) {
+            assertFalse(
+                logs[i].emitter == stabilityPool && logs[i].topics[0] == IERC20.Transfer.selector,
+                "no Transfer from the pool on a loss"
+            );
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════

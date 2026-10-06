@@ -224,6 +224,27 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         );
     }
 
+    /// Initialisation reverts on an early-withdrawal fee of exactly 100%, naming the fee: at 100% a withdrawal outside the
+    /// window would pay its whole amount as fee, leave the receiver nothing and be refused - the window a lock.
+    function test_initialize_feeOfOneHundredPercent_reverts() public {
+        address implementation = _newStabilityPoolImplementation();
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFee.selector, 1 ether));
+        UnsafeUpgrades.deployUUPSProxy(
+            implementation,
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether, treasury()))
+        );
+    }
+
+    /// The largest fee initialisation accepts is one wei below 100%.
+    function test_initialize_feeJustBelowOneHundredPercent_isAccepted() public {
+        address implementation = _newStabilityPoolImplementation();
+        address stabilityPool = UnsafeUpgrades.deployUUPSProxy(
+            implementation,
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether - 1, treasury()))
+        );
+        assertEq(IStabilityPool_v3(stabilityPool).getEarlyWithdrawalFee(), 1 ether - 1, "the largest fee accepted");
+    }
+
     /// Initialisation reverts on a zero fee receiver.
     function test_initialize_invalidFeeAddress_reverts() public {
         address implementation = _newStabilityPoolImplementation();

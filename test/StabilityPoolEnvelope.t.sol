@@ -2276,12 +2276,12 @@ contract ConfigPeg_ETH_minDepositHuge is ConfigPeg_ETH {
     }
 }
 
-/// @notice Early-withdrawal fee at the maximum the pool accepts (100%). Every probe exits INSIDE the no-fee window,
-/// so green means the fee is never charged where it must not be - any accidental in-window fee charge breaks a
-/// round-trip loudly at this tripwire value.
+/// @notice Early-withdrawal fee at the largest the pool accepts, one wei below 100%. Every probe exits INSIDE the
+/// no-fee window, so green means the fee is never charged where it must not be - any accidental in-window fee charge
+/// breaks a round-trip loudly at this tripwire value.
 contract ConfigMarket_ETH_fxUSD_earlyWithdrawalFeeMax is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
     function stabilityPoolEarlyWithdrawalFeeRatio() public pure override returns (uint256) {
-        return 1 ether;
+        return 1 ether - 1;
     }
 }
 

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -299,6 +300,40 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         uint256 expectedFee = (amount * marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()) / 1 ether;
         assertEq(withdrawn, amount - expectedFee);
         assertEq(IERC20(peggedToken).balanceOf(treasury()), feeReceiverBefore + expectedFee);
+    }
+
+    // At the largest fee the pool accepts, one wei below 100%, a withdrawal outside the window is still not refused: the
+    // fee floor(amount * (1e18 - 1) / 1e18) leaves the receiver ceil(amount / 1e18), at least one wei, and the fee
+    // receiver the rest. The pool is built at that fee on its own, the market's deploy using the market's fee.
+    function test_withdraw_outsideTheWindow_atTheLargestFee_paysSomething() public {
+        address implementation = address(
+            new StabilityPool_v3(
+                minter,
+                marketConfig.stabilityPoolWithdrawalDelay(),
+                marketConfig.stabilityPoolWithdrawalPeriod(),
+                marketConfig.minTotalSupply(),
+                "Test SP",
+                "tSP"
+            )
+        );
+        address pool = UnsafeUpgrades.deployUUPSProxy(
+            implementation,
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether - 1, treasury()))
+        );
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        uint256 amount = 2.5 ether; // not a whole number of 1e18, so ceil(amount / 1e18) is a rounding up
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
+
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(pool, 5 * price);
+        IStabilityPool_v3(pool).deposit(5 * price, user1, 0);
+        uint256 paid = IStabilityPool_v3(pool).withdraw(amount, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, (amount + 1 ether - 1) / 1 ether, "the receiver is paid ceil(amount / 1e18)");
+        assertEq(IERC20(peggedToken).balanceOf(treasury()) - feeReceiverBefore, amount - paid, "the fee is the rest");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

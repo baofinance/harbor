@@ -40,7 +40,8 @@ interface IStabilityPool_v3 {
 
     /// @notice Emitted when the rebalancer records a liquidation.
     /// @param liquidatedToken The asset token, the pool's pegged.
-    /// @param liquidatedAmount The pegged removed from the pool.
+    /// @param liquidatedAmount The pegged removed from the pool: the loss applied, which the floor caps - 0 when the pool
+    ///        is at its floor, the proceeds still distributed.
     /// @param liquidatedToToken The token the proceeds were paid in, as the rebalancer named it.
     /// @param liquidatedToAmount The proceeds distributed to the holders.
     event Liquidated(
@@ -97,7 +98,7 @@ interface IStabilityPool_v3 {
     ///      oneself.
     error InvalidReceiver(address receiver);
 
-    /// @dev Thrown by `initialize` for an early-withdrawal fee above 100% (1e18).
+    /// @dev Thrown by `initialize` for an early-withdrawal fee of 100% (1e18) or more.
     error InvalidFee(uint256 fee);
 
     /// @dev Thrown by `initialize` for a zero fee address.

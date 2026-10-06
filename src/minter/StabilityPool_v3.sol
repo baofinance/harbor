@@ -72,7 +72,9 @@ contract StabilityPool_v3 is
     /// @notice Role that exempts an account from early-withdrawal fees
     uint256 public constant EXEMPT_WITHDRAWAL_FEE_ROLE = _ROLE_3;
 
-    uint256 private constant _MAX_EARLY_WITHDRAWAL_FEE = 1 ether;
+    /// @dev The early-withdrawal fee must be below this, 100%: at 100% a withdrawal outside the window would pay its
+    ///      whole amount as fee, leave its receiver nothing and be refused, making the window a lock.
+    uint256 private constant _EARLY_WITHDRAWAL_FEE_LIMIT = 1 ether;
 
     /// @dev Upper bound on the withdrawal start delay and end window. The start delay is ADDED to the current time
     ///      before being packed into a uint64, so it must stay far below that field width; and a delay or window
@@ -233,7 +235,7 @@ contract StabilityPool_v3 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         // initialize fee configuration on the proxy
-        if (earlyWithdrawalFee_ > _MAX_EARLY_WITHDRAWAL_FEE) {
+        if (earlyWithdrawalFee_ >= _EARLY_WITHDRAWAL_FEE_LIMIT) {
             revert InvalidFee(earlyWithdrawalFee_);
         }
         if (feeAddress_ == address(0)) {
@@ -442,6 +444,7 @@ contract StabilityPool_v3 is
         balance.amount = (uint256(balance.amount) + assetsDeposited).toUint128();
         $.assetBalances[receiver] = balance;
         emit UserDepositChange(receiver, balance.amount, 0);
+        emit Transfer(address(0), receiver, assetsDeposited);
     }
 
     /// @inheritdoc IStabilityPool_v3
@@ -542,6 +545,8 @@ contract StabilityPool_v3 is
         $.assetBalances[sender] = balance;
 
         emit UserDepositChange(sender, balance.amount, 0);
+        // The shares burned are the whole outflow, fee included: what the total supply fell by above.
+        emit Transfer(sender, address(0), assetsWithdrawn + feeAmount);
 
         IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
 
@@ -638,15 +643,15 @@ contract StabilityPool_v3 is
 
     /// @dev Internal function to reduce asset accounting.
     /// @param loss The amount of asset lost.
-
-    function _notifyLoss(uint256 loss) internal {
+    /// @return The loss applied: `loss` capped at the headroom above the floor, 0 when the pool is at it.
+    function _notifyLoss(uint256 loss) internal returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
         // Cap the loss so the supply is written down no further than the floor - the same cap the rebalance sweep
         // applies to the pegged it removes (see _capToFloor), keeping pegged retained and supply owed in lock-step.
         loss = _capToFloor(loss);
         if (loss == 0) {
-            return; // No loss to apply
+            return 0; // No loss to apply
         }
 
         // calculate the loss per unit. which, due to integer division, has errors
@@ -699,6 +704,7 @@ contract StabilityPool_v3 is
         $.rewardDivisorGap = int256(uint256(supply.amount)) - SafeCast.toInt256(divisorAfter);
 
         _recordTotalSupply(supply);
+        return loss;
     }
 
     /// @dev Internal function to record the historical total supply.
@@ -770,8 +776,6 @@ contract StabilityPool_v3 is
         if (!isActiveRewardToken(rewardToken)) {
             revert NotActiveRewardToken();
         }
-        // Emit liquidation event to record loss and conversion details
-        emit Liquidated(ASSET_TOKEN, liquidated, rewardToken, returned);
         // recalculate balances and
         // make sure rewards in-flight rewards are distributed on the pre-loss balances
         _checkpoint(address(0));
@@ -779,8 +783,8 @@ contract StabilityPool_v3 is
         // capture the reward, distributed immediately, at the prior-to-loss balances
         _accumulateReward(rewardToken, returned);
 
-        // update balances due to loss
-        _notifyLoss(liquidated);
+        // update balances due to the loss, and record the loss applied - capped at the floor - rather than the request
+        emit Liquidated(ASSET_TOKEN, _notifyLoss(liquidated), rewardToken, returned);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -792,6 +796,12 @@ contract StabilityPool_v3 is
     // allowance, approve, permit, nonces, DOMAIN_SEPARATOR, _spendAllowance, _approve —
     // comes from Solady ERC20 directly, operating on Solady's hand-picked magic slots
     // that don't collide with this contract's ERC7201 namespace.
+
+    /// @dev Permit2 is an ordinary spender here. Solady's ERC20 would otherwise give it an unlimited, fixed allowance over
+    ///      every holder's shares, which no holder opted into; a holder who wants Permit2 approves it like any spender.
+    function _givePermit2InfiniteAllowance() internal pure override returns (bool) {
+        return false;
+    }
 
     function name() public view override returns (string memory) {
         return ERC20MetadataLib_v1.unpackName(_ERC20_NAME_0, _ERC20_NAME_1);

@@ -11,6 +11,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
 
 /// @notice The token a liquidation pays the pool in is the one the rebalancer names.
@@ -125,6 +126,66 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
         IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, LIQUIDATED, 0);
         vm.stopPrank();
+    }
+
+    /// A liquidation asking for more than the pool's headroom above its floor is capped there, and its event reports
+    /// the loss the pool applied - the supply it wrote down - not the amount the rebalancer asked for.
+    function test_liquidated_reportsTheLossApplied_whenTheRequestPassesTheFloor() public {
+        _twoDepositors();
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 headroom = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
+        _sweepAndFund(rewardToken, supplyBefore, RETURNED);
+
+        vm.startPrank(rebalancer);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.Liquidated(peggedToken, headroom, rewardToken, RETURNED);
+        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, supplyBefore, RETURNED);
+        vm.stopPrank();
+
+        assertEq(
+            supplyBefore - IERC20(stabilityPoolCollateral).totalSupply(),
+            headroom,
+            "the supply written down is the headroom"
+        );
+    }
+
+    /// A liquidation of a pool already at its floor writes nothing down - not the supply, a balance, the product or
+    /// the carried loss error - and its event reports no loss; its proceeds are still credited at once, pro rata. The
+    /// pool reaches its floor by a liquidation that divides exactly (399 of 400 ether, a factor of exactly 0.0025), so
+    /// the balances there are exactly a quarter and three quarters of the floor and the shares of the proceeds exact.
+    function test_liquidationAtTheFloor_writesNothingDown_reportsNoLoss_andCreditsTheProceeds() public {
+        _twoDepositors();
+        _liquidate(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss());
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "the pool is at its floor");
+
+        uint256 balanceOne = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 balanceTwo = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint128 product = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
+        uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
+        _sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
+
+        vm.startPrank(rebalancer);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.Liquidated(peggedToken, 0, rewardToken, RETURNED);
+        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, LIQUIDATED, RETURNED);
+        vm.stopPrank();
+
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "no supply written down");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balanceOne, "one's balance untouched");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), balanceTwo, "two's balance untouched");
+        assertEq(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product, product, "the product untouched");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), lossError, "the loss error untouched");
+        assertEq(
+            _claimable(user1, rewardToken),
+            (RETURNED * DEPOSIT_ONE) / (DEPOSIT_ONE + DEPOSIT_TWO),
+            "one is paid its quarter of the proceeds"
+        );
+        assertEq(
+            _claimable(user2, rewardToken),
+            (RETURNED * DEPOSIT_TWO) / (DEPOSIT_ONE + DEPOSIT_TWO),
+            "two is paid its three quarters"
+        );
     }
 
     /// Only the rebalancer may record a liquidation, whatever token it names.

@@ -2037,7 +2037,8 @@ rather than suddenly.
 
 - Requesting a withdrawal opens a fee-free window after a delay.
 - Withdrawing inside the window is free; outside it, or with no request at all, costs the fee.
-- The fee goes to the fee receiver, and is capped at 100% by validation.
+- The fee goes to the fee receiver, and is kept below 100% by validation: at 100% a withdrawal outside
+  the window would leave its receiver nothing and be refused, which would make the window a lock.
 - Designated addresses are **exempt** — protocol-internal exits, such as the yield layer's, are not
   penalised for routing through the pool.
 
