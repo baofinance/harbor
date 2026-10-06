@@ -965,7 +965,7 @@ Acceptance criteria:
 Acceptance criteria:
 1. Wrapped collateral transferred directly to the Minter becomes **harvestable surplus**.
 2. It reaches stability-pool depositors on the next harvest, on the same terms as collateral yield —
-   proportional to holdings, vesting over the reward period.
+   proportional to deposits, vesting over the reward period.
 3. It does **not** raise the collateral ratio and does **not** move either token's price. The
    recorded backing is unchanged, so the contribution is yield, not coverage.
 4. The contributor receives nothing and retains no claim.
@@ -1306,7 +1306,7 @@ market back above the peg, where it can repair something.
 
 | Where the ratio starts | Step 1 — to the leverage floor, or the threshold if lower | Step 2 — from the leverage floor to the threshold |
 |---|---|---|
-| Between the peg and the leverage floor | Both pools give up anchor by the **collateral route**, pro rata to their holdings; **both are paid in collateral** | Collateral pool paid in collateral; leveraged pool's anchor converted into **sail** |
+| Between the peg and the leverage floor | Both pools give up anchor by the **collateral route**, pro rata to their deposits; **both are paid in collateral** | Collateral pool paid in collateral; leveraged pool's anchor converted into **sail** |
 | At or above the leverage floor | — | As above |
 
 Step 1 exists because below the leverage floor the protocol mints no sail (§2.3), so the leveraged
@@ -1332,7 +1332,7 @@ sequenceDiagram
 
     opt below the leverage floor (leveragedMintable() is false)
         SPM->>M: size the collateral route to the floor,<br/>or the threshold if lower
-        note over SPM: split pro rata to holdings,<br/>each within its pool's headroom
+        note over SPM: split pro rata to deposits,<br/>each within its pool's headroom
         SPM->>PC: sweep anchor tokens
         SPM->>PL: sweep anchor tokens
         SPM->>M: freeRedeemPeggedToken(all, 0) — zero fee, middle price
@@ -1365,7 +1365,7 @@ keeper is paid.
 
 **Notable properties.**
 - **The split is fitted, not merely proportional.** Each leg starts proportional to the pools'
-  anchor holdings, but a pool whose share exceeds its capacity is capped there and the shortfall
+  anchor deposits, but a pool whose share exceeds its capacity is capped there and the shortfall
   *slides to the other pool*. One call therefore reaches the threshold wherever the combined
   capacity allows it; where it does not, the call liquidates the combined capacity and a later call
   continues.
@@ -1411,8 +1411,8 @@ sequenceDiagram
 
     rect rgb(243, 232, 253)
     note over SPM: Allocate NEW yield only
-    note over SPM: new yield = harvestable − already owed<br/>split by CURRENT pool holdings,<br/>added to each pool's own owed ledger
-    alt no pool holds anything
+    note over SPM: new yield = harvestable − already owed<br/>split by CURRENT pool deposits,<br/>added to each pool's own owed ledger
+    alt no pool has a deposit
         note over SPM: the new yield is allocated to the treasury
     end
     end
@@ -1444,9 +1444,9 @@ moved.
 
 **Notable properties.**
 - **Each pool has its own owed ledger.** Yield deferred past one period's capacity stays with the
-  pool that earned it and is never re-split. A pool that held nothing when a backlog accrued never
+  pool that earned it and is never re-split. A pool that had no deposit when a backlog accrued never
   receives any of it.
-- **Only genuinely new yield is allocated by current holdings** — so joining a pool does not
+- **Only genuinely new yield is allocated by current deposits** — so joining a pool does not
   retroactively earn a share of a backlog.
 - **Bounty and cut are taken on value actually distributed**, not on the owed backlog. A keeper's
   reward always matches the yield its call consumed.
@@ -2096,7 +2096,7 @@ reach this market's collateral.
 | **S2** | The loss factor is **always strictly positive** — a liquidation can never round to a total loss and brick every balance read. | By construction, *given* S1: the ceiling is precisely the largest supply at which the floor-capped loss keeps the factor non-zero |
 | **S3** | A liquidation never takes the pool below its floor; every depositor retains a share of the minimum. | By check — capped at the manager *and* re-enforced inside the pool as a backstop |
 | **S4** | The reward divisor is held **at or above** the summed depositor balances, so credited shares sum to no more than the reward. | By construction — rewards conserve, they are not merely close |
-| **S5** | Deposits credit **one-for-one from an explicit ledger**. No balance, and no supply figure, is ever derived from the contract's token balance. | By construction |
+| **S5** | Deposits credit **one-for-one from an explicit ledger**. No balance, and no supply figure, is ever derived from the contract's token balance — nor either pool's share of a harvest or a rebalance, which follows its supply. | By construction |
 | **S6** | Withdrawal is always permitted. The window governs whether a *fee* applies, never whether access exists. | By construction — there is no code path that refuses a withdrawal for timing |
 | **S7** | A value too large for its storage field **reverts**; it is never truncated. | By check — checked narrowing casts throughout |
 
@@ -2107,7 +2107,8 @@ exactly this reason.
 
 **S5 is a structural immunity, not a mitigation.** Because no accounting quantity is read from the
 contract's token balance, transferring tokens directly to a pool changes nothing — no balance, no
-supply, no share price. The donation and first-depositor inflation attacks that afflict
+supply, no share price, and no pool's share of a harvest or a rebalance, which the manager splits by
+the pools' supplies. The donation and first-depositor inflation attacks that afflict
 balance-derived vault accounting have **no expression here**: there is no share price to inflate.
 
 **S7 closes a real historical defect.** The failure mode it prevents is the dangerous one — value
@@ -2121,7 +2122,7 @@ handle is refused loudly, never mis-recorded.
 |---|---|---|
 | **H1** | The sum of what the pools are owed never exceeds what the protocol actually holds as surplus. If the surplus shrinks, each pool's owed is written down proportionally. | By check |
 | **H2** | A pool's owed is **its own**. Value deferred past one period's capacity is never re-split to the other pool. | By construction |
-| **H3** | Only genuinely new yield is allocated by current holdings, so joining a pool never earns a share of an existing backlog. | By construction |
+| **H3** | Only genuinely new yield is allocated by current deposits, so joining a pool never earns a share of an existing backlog. | By construction |
 | **H4** | Bounty and cut are taken on the gross **actually distributed**, never on the deferred backlog. | By construction |
 | **H5** | `bounty + cut ≤ 100%`, validated as a pair. | By check |
 | **H6** | Every party takes its own floored share; no party receives another's rounding remainder. The remainder stays undistributed and is reconsidered next call. | By construction |

@@ -53,14 +53,11 @@ interface IStabilityPoolManager_v2 {
     ///      redeemed for collateral takes its share of the backing with it, so no amount redeemed moves the ratio.
     error CollateralRatioNotAbovePeg(uint256 collateralRatio);
 
-    /// @dev Thrown when the amount requested to be liquidated isn't met
+    /// @dev Thrown by `rebalance` when neither pool has a deposit - a supply of zero - whatever pegged they hold.
     error NoTokensToLiquidate(address token);
 
-    /// @dev raised when there are no tokens to liquidate
+    /// @dev Thrown by `rebalance` when the pegged it took from the pools is less than the caller's minimum.
     error InsufficientLiquidation(address token, uint256 peggedTokensToLiquidate, uint256 minLiquidated);
-
-    // @dev Thrown when initiaising with an invalid liquidation token
-    error InvalidLiquidationToken(address token);
 
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
@@ -91,18 +88,20 @@ interface IStabilityPoolManager_v2 {
     ///         Where the minter sells leverage, one step by both legs: the collateral pool's pegged redeemed for
     ///         collateral, the leveraged pool's converted into leveraged tokens. Where it sells none - below its
     ///         floor, `IMinter_v3.MINIMUM_COLLATERAL_RATIO` - first both pools' pegged by the collateral route, pro
-    ///         rata to their holdings, to the floor or the threshold if that is lower, all paid in collateral; then,
+    ///         rata to their supplies, to the floor or the threshold if that is lower, all paid in collateral; then,
     ///         from the floor, the step by both legs. Each pool gives up no more than its headroom
     ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
     /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold,
-    ///      `CollateralRatioNotAbovePeg` at or below the peg, and `InsufficientLiquidation` when both steps together
-    ///      take less than `minPeggedLiquidated`. While the minter's record of its backing overstates what it holds,
+    ///      `CollateralRatioNotAbovePeg` at or below the peg, `NoTokensToLiquidate` when neither pool has a deposit,
+    ///      and `InsufficientLiquidation` when both steps together take less than `minPeggedLiquidated`. While the minter's record of its backing overstates what it holds,
     ///      the minter's own `IMinter_v3.UnrecognisedImpairment` is passed up unchanged: every redemption a rebalance
     ///      makes is an update the minter reverts until the rate recovers or the impairment is recognised.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 
-    /// @notice Harvests tokens to stability pools and returns the total amount harvested
+    /// @notice Harvests tokens to stability pools and returns the total amount harvested. New yield is split between the
+    ///         pools by their supplies - what has been deposited, never the pegged they hold - and goes to the treasury
+    ///         when neither has a deposit.
     function harvest(address bountyReceiver, uint256 minBounty) external returns (uint256 harvestedAmount);
 
     /*//////////////////////////////////////////////////////////////

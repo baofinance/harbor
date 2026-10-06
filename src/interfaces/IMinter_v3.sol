@@ -313,8 +313,10 @@ interface IMinter_v3 is IToken {
     /// @param targetCollateralRatio The collateral ratio to reach (1e18-scaled).
     /// @param maxCollateralPegged The most pegged the collateral pool may give up (its `maxAssetLoss` headroom).
     /// @param maxLeveragedPegged The most pegged the leveraged pool may give up (its `maxAssetLoss` headroom).
-    /// @param holdingCollateral The collateral pool's pegged holdings - weights its share of the unconstrained split.
-    /// @param holdingLeveraged The leveraged pool's pegged holdings - weights its share of the unconstrained split.
+    /// @param holdingCollateral The collateral pool's supply - its deposits, never the pegged it holds - weighting its
+    ///        share of the unconstrained split.
+    /// @param holdingLeveraged The leveraged pool's supply - its deposits, never the pegged it holds - weighting its
+    ///        share of the unconstrained split.
     /// @return peggedForCollateral The pegged to redeem for wrapped collateral (<= maxCollateralPegged).
     /// @return peggedForLeveraged The pegged to redeem for leveraged tokens (<= maxLeveragedPegged).
     function redeemPeggedForCollateralRatio(

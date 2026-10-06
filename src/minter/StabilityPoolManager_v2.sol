@@ -312,14 +312,16 @@ contract StabilityPoolManager_v2 is
      * Core Functions *
      *************************/
 
-    function _poolHoldings()
+    /// @dev What each pool has had deposited - its supply, never the pegged it holds, so pegged sent straight to a pool
+    ///      moves no pool's share of a harvest or a rebalance.
+    function _poolSupplies()
         private
         view
-        returns (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged)
+        returns (uint256 totalPoolSupply, uint256 collateralPoolSupply, uint256 leveragedPoolSupply)
     {
-        poolHoldingCollateral = IERC20(PEGGED_TOKEN).balanceOf(_STABILITY_POOL_COLLATERAL);
-        poolHoldingLeveraged = IERC20(PEGGED_TOKEN).balanceOf(_STABILITY_POOL_LEVERAGED);
-        totalPoolHolding = poolHoldingCollateral + poolHoldingLeveraged;
+        collateralPoolSupply = IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).totalAssetSupply();
+        leveragedPoolSupply = IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).totalAssetSupply();
+        totalPoolSupply = collateralPoolSupply + leveragedPoolSupply;
     }
 
     /// @dev Trigger compound() on every registered yield vault. Failures (including NothingToCompound) are
@@ -360,9 +362,9 @@ contract StabilityPoolManager_v2 is
             if (collateralRatio_ <= 1 ether) {
                 revert CollateralRatioNotAbovePeg(collateralRatio_);
             }
-            (uint256 totalPoolHolding, , ) = _poolHoldings();
+            (uint256 totalPoolSupply, , ) = _poolSupplies();
             // slither-disable-next-line incorrect-equality
-            if (totalPoolHolding == 0) {
+            if (totalPoolSupply == 0) {
                 revert NoTokensToLiquidate(PEGGED_TOKEN);
             }
         }
@@ -371,24 +373,24 @@ contract StabilityPoolManager_v2 is
 
         // Below the minter's floor it sells no leverage, so the leveraged pool cannot convert. Both pools' pegged take
         // the collateral route to the floor - or to the threshold, if that is lower - each pool its share of what the
-        // two hold, within its headroom, the excess sliding to the other. Both are paid in collateral.
+        // two have had deposited, within its headroom, the excess sliding to the other. Both are paid in collateral.
         if (!IMinter_v3(MINTER).leveragedMintable()) {
             uint256 peggedFromCollateralPool;
             uint256 peggedFromLeveragedPool;
             {
                 uint256 maxLossCollateral = IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss();
                 uint256 maxLossLeveraged = IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss();
-                (uint256 totalPoolHolding, uint256 poolHoldingCollateral, ) = _poolHoldings();
+                (uint256 totalPoolSupply, uint256 collateralPoolSupply, ) = _poolSupplies();
                 // slither-disable-next-line unused-return the leveraged route is closed, so its leg is zero
                 (uint256 pegged, ) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
                     Math.min(IMinter_v3(MINTER).MINIMUM_COLLATERAL_RATIO(), rebalanceThreshold_),
                     maxLossCollateral + maxLossLeveraged,
                     0,
-                    totalPoolHolding,
+                    totalPoolSupply,
                     0
                 );
                 peggedFromCollateralPool = Math.min(
-                    Math.mulDiv(pegged, poolHoldingCollateral, totalPoolHolding),
+                    Math.mulDiv(pegged, collateralPoolSupply, totalPoolSupply),
                     maxLossCollateral
                 );
                 peggedFromLeveragedPool = pegged - peggedFromCollateralPool;
@@ -408,19 +410,19 @@ contract StabilityPoolManager_v2 is
 
         // At or above the floor - from the start, or once the step above has reached it - both legs to the threshold:
         // the collateral pool's pegged redeemed for collateral, the leveraged pool's converted into leveraged tokens.
-        // The minter splits the distance between them by their holdings, each within its pool's headroom, the shortfall
+        // The minter splits the distance between them by their supplies, each within its pool's headroom, the shortfall
         // of one sliding into the other's leg.
         if (IMinter_v3(MINTER).leveragedMintable() && IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
             uint256 peggedFromCollateralPool;
             uint256 peggedFromLeveragedPool;
             {
-                (, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
+                (, uint256 collateralPoolSupply, uint256 leveragedPoolSupply) = _poolSupplies();
                 (peggedFromCollateralPool, peggedFromLeveragedPool) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
                     rebalanceThreshold_,
                     IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
                     IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss(),
-                    poolHoldingCollateral,
-                    poolHoldingLeveraged
+                    collateralPoolSupply,
+                    leveragedPoolSupply
                 );
             }
             uint256 pegged;
@@ -655,9 +657,9 @@ contract StabilityPoolManager_v2 is
         uint256 residualRatio = 1 ether - $.harvestBountyRatio - $.harvestCutRatio;
 
         // Allocate the NEW yield - harvestable beyond what is already owed to the pools and still sitting in the minter
-        // - to the pools by CURRENT holdings, GROSS (pre-skim), added to each pool's own `owed`. A pool's owed is its
+        // - to the pools by CURRENT supply, GROSS (pre-skim), added to each pool's own `owed`. A pool's owed is its
         // own: a share deferred past one period's reward capacity is never re-split to the other pool, so a pool that
-        // did not hold when it accrued never receives it. If the minter's excess has shrunk below what is owed (a
+        // had no deposit when it accrued never receives it. If the minter's excess has shrunk below what is owed (a
         // wrap-rate drop eroding it), write the owed down proportionally so it never claims more than the minter holds.
         uint256 toTreasuryGross;
         {
@@ -670,18 +672,18 @@ contract StabilityPoolManager_v2 is
             } else {
                 uint256 newYield = harvestableAmount - owedBefore;
                 (
-                    uint256 totalPoolHolding,
-                    uint256 poolHoldingCollateral,
-                    uint256 poolHoldingLeveraged
-                ) = _poolHoldings();
-                if (totalPoolHolding > 0) {
+                    uint256 totalPoolSupply,
+                    uint256 collateralPoolSupply,
+                    uint256 leveragedPoolSupply
+                ) = _poolSupplies();
+                if (totalPoolSupply > 0) {
                     // Floor BOTH shares; the split remainder (<= 1 wei) stays un-owed harvestable and is re-allocated
-                    // next call by then-current holdings - fair, since it is new yield never attributed to a pool, and
+                    // next call by then-current supply - fair, since it is new yield never attributed to a pool, and
                     // so neither pool is handed the remainder as a systematic advantage.
-                    $.owedCollateral += Math.mulDiv(newYield, poolHoldingCollateral, totalPoolHolding);
-                    $.owedLeveraged += Math.mulDiv(newYield, poolHoldingLeveraged, totalPoolHolding);
+                    $.owedCollateral += Math.mulDiv(newYield, collateralPoolSupply, totalPoolSupply);
+                    $.owedLeveraged += Math.mulDiv(newYield, leveragedPoolSupply, totalPoolSupply);
                 } else {
-                    toTreasuryGross = newYield; // no pools hold: the new yield goes to the treasury (no reward stream)
+                    toTreasuryGross = newYield; // no deposits: the new yield goes to the treasury (no reward stream)
                 }
             }
         }
@@ -717,7 +719,7 @@ contract StabilityPoolManager_v2 is
 
         // Every party takes exactly its own floored share (the two exact fee floors, each pool's floored net, the
         // treasury's floored residual); the flooring remainder is left un-owed and unharvested, re-considered next call
-        // by then-current holdings - no party is ever handed another's shortfall.
+        // by then-current supply - no party is ever handed another's shortfall.
         harvested = bountyAmount + cutAmount + netCollateral + netLeveraged + netTreasury;
         // Nothing fairly harvestable this call (every share floored or deferred to zero) - revert so the owed write-down
         // or increment above is rolled back rather than emitting Harvested(0) and sweeping nothing. Ordered after the
