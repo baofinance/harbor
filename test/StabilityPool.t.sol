@@ -34,8 +34,6 @@ import {MockSTEAM} from "@harbor-test/mocks/MockSTEAM.sol";
 import {StabilityPool_vN} from "@harbor-test/mocks/StabilityPool_vN.sol";
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
-    uint256 internal constant WITHDRAWAL_START_DELAY = 3600;
-    uint256 internal constant WITHDRAWAL_END_WINDOW = 90000;
     address stabilityPoolCollateral;
     address steam; // the reward token formerly known as STEAM
     address user1;
