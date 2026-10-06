@@ -28,8 +28,9 @@ abstract contract TestGraphReward is GraphSweepTestBase, TestStabilityPoolSetUp 
 
         // load up and approve stabilityPool for rewardDepositor
         deal(steam, rewardDepositor, 1000 ether);
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         IERC20(steam).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
         // load up and approve stability pool for this
         initialPoolDeposit = 100 ether;
@@ -56,7 +57,7 @@ abstract contract TestGraphReward is GraphSweepTestBase, TestStabilityPoolSetUp 
     function doActions() internal virtual;
 
     function doOneX() internal virtual override {
-        // write a gnuplot data file line for fees, invariant and liquidation
+        // write a gnuplot data file line of the reward: what is claimable and claimed, and the stream's distribution
 
         doActions();
 
@@ -95,14 +96,16 @@ contract TestGraphRewardClaim is TestGraphReward {
     function doActions() internal virtual override {
         // do actions that change the state
         if (!deposited1 && currentX >= startX + 1 days) {
-            vm.prank(rewardDepositor);
+            vm.startPrank(rewardDepositor);
             IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 1 ether);
+            vm.stopPrank();
             deposited1 = true;
         }
 
         if (!deposited2 && currentX >= startX + 4 days) {
-            vm.prank(rewardDepositor);
+            vm.startPrank(rewardDepositor);
             IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 2 ether);
+            vm.stopPrank();
             deposited2 = true;
         }
     }
@@ -170,7 +173,7 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     }
 
     function doOneX() internal virtual override {
-        // write a gnuplot data file line for fees, invariant and liquidation
+        // write a gnuplot data file line of both holders' claims and each reward token's distribution
         doActions();
 
         // get claimable
@@ -192,8 +195,9 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         claim.STEAM1 = IERC20(steam).balanceOf(address(this)) - claim.STEAM1;
         claim.Collateral1 = IERC20(wrappedCollateralToken).balanceOf(address(this)) - claim.Collateral1;
 
-        vm.prank(user2);
+        vm.startPrank(user2);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
         claim.STEAM2 = IERC20(steam).balanceOf(user2) - claim.STEAM2;
         claim.Collateral2 = IERC20(wrappedCollateralToken).balanceOf(user2) - claim.Collateral2;
         vm.revertToState(snap);
@@ -231,8 +235,9 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     function doActions() internal virtual override {
         // do actions that change the state
         if (!depositedReward1 && currentX >= startX + 1 days) {
-            vm.prank(rewardDepositor);
+            vm.startPrank(rewardDepositor);
             IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 1 ether);
+            vm.stopPrank();
             depositedReward1 = true;
         }
 
@@ -242,12 +247,13 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             uint256 toLiquidateTo = (toLiquidate * 1 ether) / price;
             // liquidate pegged into collateral, creating an immediate reward
             IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
-            vm.prank(rebalancer);
+            vm.startPrank(rebalancer);
             IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(
                 wrappedCollateralToken,
                 toLiquidate,
                 toLiquidateTo
             );
+            vm.stopPrank();
             rebalance1 = true;
         }
 
@@ -262,12 +268,13 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             uint256 toLiquidateTo = (currentPoolDeposit * 1 ether) / price;
             // liquidate pegged into collateral, creating an immediate reward
             IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
-            vm.prank(rebalancer);
+            vm.startPrank(rebalancer);
             IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(
                 wrappedCollateralToken,
                 currentPoolDeposit,
                 toLiquidateTo
             );
+            vm.stopPrank();
             rebalance2 = true;
         }
 

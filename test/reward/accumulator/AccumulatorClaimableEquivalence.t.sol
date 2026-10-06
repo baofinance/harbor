@@ -2,7 +2,13 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
@@ -40,39 +46,41 @@ contract AccumulatorClaimableEquivalenceTest is Test, Array {
         uint256 totalShares,
         uint256 shares,
         uint256 reward,
-        uint128 currentProd,
-        uint128 userProd
+        uint128 currentProduct,
+        uint128 userProduct
     ) internal returns (uint256 v2Claimable, uint256 v3Claimable) {
         address token = address(new MockERC20("Reward", "RWD", 18));
 
-        MockMultipleRewardCompoundingAccumulator_v2 v2 = new MockMultipleRewardCompoundingAccumulator_v2(PERIOD);
-        v2.initialize(deployer);
-        v2.grantRoles(manager, v2.REWARD_MANAGER_ROLE());
-        vm.prank(manager);
-        v2.registerRewardToken(token);
-        v2.setTotalPoolShare(totalShares, currentProd);
-        v2.setUserPoolShare(shares, userProd);
+        address v2 = address(new MockMultipleRewardCompoundingAccumulator_v2(PERIOD));
+        MockMultipleRewardCompoundingAccumulator_v2(v2).initialize(deployer);
+        IBaoRoles(v2).grantRoles(manager, IMultipleRewardDistributor(v2).REWARD_MANAGER_ROLE());
+        vm.startPrank(manager);
+        IMultipleRewardDistributor(v2).registerRewardToken(token);
+        vm.stopPrank();
+        MockMultipleRewardCompoundingAccumulator_v2(v2).setTotalPoolShare(totalShares, currentProduct);
+        MockMultipleRewardCompoundingAccumulator_v2(v2).setUserPoolShare(shares, userProduct);
 
-        MockMultipleRewardCompoundingAccumulator_v3 v3 = new MockMultipleRewardCompoundingAccumulator_v3(PERIOD);
-        v3.initialize(deployer, address(0));
-        v3.grantRoles(manager, v3.REWARD_MANAGER_ROLE());
-        vm.prank(manager);
-        v3.registerRewardToken(token);
-        v3.setMinTotalPoolShare(SHARE_FLOOR);
-        v3.setTotalPoolShare(totalShares, currentProd);
-        v3.setUserPoolShare(shares, userProd);
+        address v3 = address(new MockMultipleRewardCompoundingAccumulator_v3(PERIOD));
+        MockMultipleRewardCompoundingAccumulator_v3(v3).initialize(deployer, address(0));
+        IHarborRoles(v3).grantRoles(manager, IMultipleRewardDistributor(v3).REWARD_MANAGER_ROLE());
+        vm.startPrank(manager);
+        IMultipleRewardDistributor(v3).registerRewardToken(token);
+        vm.stopPrank();
+        MockMultipleRewardCompoundingAccumulator_v3(v3).setMinTotalPoolShare(SHARE_FLOOR);
+        MockMultipleRewardCompoundingAccumulator_v3(v3).setTotalPoolShare(totalShares, currentProduct);
+        MockMultipleRewardCompoundingAccumulator_v3(v3).setUserPoolShare(shares, userProduct);
 
         MockERC20(token).mint(deployer, reward * 2);
-        MockERC20(token).approve(address(v2), reward);
-        MockERC20(token).approve(address(v3), reward);
-        v2.depositReward(token, reward);
-        v3.depositReward(token, reward);
+        IERC20(token).approve(v2, reward);
+        IERC20(token).approve(v3, reward);
+        IMultipleRewardDistributor(v2).depositReward(token, reward);
+        IMultipleRewardDistributor(v3).depositReward(token, reward);
 
         // mid-period: part of the stream is distributed, the remainder is the temporal-pending `amount`
         vm.warp(block.timestamp + PERIOD / 2);
 
-        v2Claimable = v2.claimable(deployer, token);
-        v3Claimable = v3.claimable(deployer, aa(token))[0];
+        v2Claimable = IMultipleRewardAccumulator(v2).claimable(deployer, token);
+        v3Claimable = IMultipleRewardAccumulator_v3(v3).claimable(deployer, aa(token))[0];
     }
 
     /// @dev The largest reward this PAIR can be driven with. v2 is the binding side: its stream `rate` is a uint80
@@ -90,7 +98,7 @@ contract AccumulatorClaimableEquivalenceTest is Test, Array {
         uint256 rewardSeed,
         uint256 sharesSeed,
         uint256 totalSeed,
-        uint256 magSeed,
+        uint256 magnitudeSeed,
         uint256 gapSeed
     ) public {
         uint256 totalShares = bound(totalSeed, 1, uint256(type(uint128).max));
@@ -99,17 +107,17 @@ contract AccumulatorClaimableEquivalenceTest is Test, Array {
 
         // the user's snapshot exponent never exceeds the current one; magnitudes span the legal band
         uint8 gap = uint8(bound(gapSeed, 0, DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE));
-        uint120 userMag = uint120(bound(magSeed, DecrementalFloatingPoint.MIN_PRECISION, 1e36));
-        uint120 currentMag = uint120(
-            bound(uint256(keccak256(abi.encode(magSeed))), DecrementalFloatingPoint.MIN_PRECISION, 1e36)
+        uint120 userMagnitude = uint120(bound(magnitudeSeed, DecrementalFloatingPoint.MIN_PRECISION, 1e36));
+        uint120 currentMagnitude = uint120(
+            bound(uint256(keccak256(abi.encode(magnitudeSeed))), DecrementalFloatingPoint.MIN_PRECISION, 1e36)
         );
 
         (uint256 v2Claimable, uint256 v3Claimable) = _bothClaimable(
             totalShares,
             shares,
             reward,
-            DecrementalFloatingPoint.encode(gap, currentMag),
-            DecrementalFloatingPoint.encode(0, userMag)
+            DecrementalFloatingPoint.encode(gap, currentMagnitude),
+            DecrementalFloatingPoint.encode(0, userMagnitude)
         );
 
         assertEq(v3Claimable, v2Claimable, "v3's fused temporal share drifted from v2's unfused formula");
@@ -120,18 +128,18 @@ contract AccumulatorClaimableEquivalenceTest is Test, Array {
     /// boundary, so these are pinned deterministically rather than left to the sampler.
     function test_claimable_v3MatchesV2AtTheBoundaries() public {
         uint256[3] memory shareSplits = [uint256(1), 1e18, uint256(type(uint128).max)];
-        uint120[2] memory mags = [uint120(DecrementalFloatingPoint.MIN_PRECISION), uint120(1e36)];
+        uint120[2] memory magnitudes = [uint120(DecrementalFloatingPoint.MIN_PRECISION), uint120(1e36)];
 
         for (uint256 s = 0; s < shareSplits.length; s++) {
             uint256 totalShares = shareSplits[s];
             for (uint8 gap = 0; gap <= DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE; gap++) {
-                for (uint256 m = 0; m < mags.length; m++) {
+                for (uint256 m = 0; m < magnitudes.length; m++) {
                     (uint256 v2Claimable, uint256 v3Claimable) = _bothClaimable(
                         totalShares,
                         totalShares, // the whole pool in one position - the largest `shares` for this total
                         _maxReward(totalShares), // the largest reward v2 can still compute
-                        DecrementalFloatingPoint.encode(gap, mags[m]),
-                        DecrementalFloatingPoint.encode(0, mags[m])
+                        DecrementalFloatingPoint.encode(gap, magnitudes[m]),
+                        DecrementalFloatingPoint.encode(0, magnitudes[m])
                     );
                     assertEq(
                         v3Claimable,
@@ -141,8 +149,8 @@ contract AccumulatorClaimableEquivalenceTest is Test, Array {
                             vm.toString(totalShares),
                             " gap=",
                             vm.toString(uint256(gap)),
-                            " mag=",
-                            vm.toString(uint256(mags[m]))
+                            " magnitude=",
+                            vm.toString(uint256(magnitudes[m]))
                         )
                     );
                 }
