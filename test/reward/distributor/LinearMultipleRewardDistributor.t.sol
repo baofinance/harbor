@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IMockLinearMultipleRewardDistributor} from "@harbor-test/mocks/IMockLinearMultipleRewardDistributor.sol";
 import {MockLinearMultipleRewardDistributor_v3} from "@harbor-test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v3.sol";
@@ -16,13 +18,10 @@ contract LinearMultipleRewardDistributorTest is Test {
     address rewardDepositor;
     uint256 REWARD_MANAGER_ROLE = 1;
     uint256 REWARD_DEPOSITOR_ROLE = 2;
-    address holder0;
-    address holder1;
-    address holder2;
 
-    MockERC20 token0;
-    MockERC20 token1;
-    MockERC20 token2;
+    address token0;
+    address token1;
+    address token2;
 
     // Constants
     address constant ZERO_ADDRESS = address(0);
@@ -42,18 +41,16 @@ contract LinearMultipleRewardDistributorTest is Test {
     function setUp() public {
         owner = makeAddr("owner"); // need to transferOwnership for this to be the actual owner
         manager = makeAddr("manager");
-        holder0 = makeAddr("holder0");
-        holder1 = makeAddr("holder1");
-        holder2 = makeAddr("holder2");
         rewardDepositor = makeAddr("rewardDepositor");
 
-        token0 = new MockERC20("R0", "R0", 18);
-        token1 = new MockERC20("R1", "R1", 18);
-        token2 = new MockERC20("R2", "R2", 18);
+        token0 = address(new MockERC20("R0", "R0", 18));
+        token1 = address(new MockERC20("R1", "R1", 18));
+        token2 = address(new MockERC20("R2", "R2", 18));
     }
 
     // ======================= CONSTRUCTOR TESTS =======================
 
+    /// A period of under a day or over four weeks reverts at construction, with the period as the error's value.
     function test_constructor_RevertOnInvalidPeriodLength() public {
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1));
         createLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 1);
@@ -65,18 +62,17 @@ contract LinearMultipleRewardDistributorTest is Test {
         createLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 4 weeks + 1);
     }
 
+    /// A zero period - immediate distribution - is accepted, and the distributor reports it.
     function test_constructor_SucceedsWithValidPeriodLength_Zero() public {
         IMockLinearMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             0
         );
-        // there is no easy way to check the reward period length
-        // TODO: maybe warp forward and check it's function?
         assertEq(distributor.REWARD_PERIOD_LENGTH(), 0);
-        assert(address(distributor) != address(0));
     }
 
+    /// A one-day period is accepted, and the distributor reports it.
     function test_constructor_SucceedsWithValidPeriodLength_OneDay() public {
         IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
@@ -84,9 +80,9 @@ contract LinearMultipleRewardDistributorTest is Test {
             1 days
         );
         assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 days);
-        assert(address(distributor) != address(0));
     }
 
+    /// A one-week period is accepted, and the distributor reports it.
     function test_constructor_SucceedsWithValidPeriodLength_OneWeek() public {
         IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
@@ -94,9 +90,9 @@ contract LinearMultipleRewardDistributorTest is Test {
             1 weeks
         );
         assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 weeks);
-        assert(address(distributor) != address(0));
     }
 
+    /// A two-week period is accepted, and the distributor reports it.
     function test_constructor_SucceedsWithValidPeriodLength_TwoWeeks() public {
         IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
@@ -104,9 +100,9 @@ contract LinearMultipleRewardDistributorTest is Test {
             2 weeks
         );
         assertEq(distributor.REWARD_PERIOD_LENGTH(), 2 weeks);
-        assert(address(distributor) != address(0));
     }
 
+    /// A four-week period, the longest allowed, is accepted, and the distributor reports it.
     function test_constructor_SucceedsWithValidPeriodLength_FourWeeks() public {
         IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
@@ -114,11 +110,12 @@ contract LinearMultipleRewardDistributorTest is Test {
             4 weeks
         );
         assertEq(distributor.REWARD_PERIOD_LENGTH(), 4 weeks);
-        assert(address(distributor) != address(0));
     }
 
     // ======================= INITIALIZATION TESTS =======================
 
+    /// Initialized and its ownership transferred, a zero-period distributor has its owner, its period, no tokens, and
+    /// gives the test contract no manager role.
     function test_initialization_ZeroPeriod() public {
         IMockLinearMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
@@ -135,6 +132,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         assertFalse(distributor.hasAnyRole(address(this), REWARD_MANAGER_ROLE));
     }
 
+    /// The same for a one-day period.
     function test_initialization_WithPeriod() public {
         IMockLinearMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
@@ -168,36 +166,41 @@ contract LinearMultipleRewardDistributorTest is Test {
         return distributor;
     }
 
+    /// Registering a token reverts for a caller who is neither the owner nor a manager.
     function test_registerRewardToken_RevertWhenNonManagerCall() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
-        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
     }
 
+    /// Registering the zero address reverts.
     function test_registerRewardToken_RevertWhenTokenIsZero() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        vm.prank(manager);
+        vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardTokenIsZero.selector));
         distributor.registerRewardToken(ZERO_ADDRESS);
+        vm.stopPrank();
     }
 
+    /// Registering a token emits its registration, and registering it again reverts.
     function test_registerRewardToken_RevertWhenDuplicated() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
 
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.RegisterRewardToken(address(token0));
-        distributor.registerRewardToken(address(token0));
+        emit IMultipleRewardDistributor.RegisterRewardToken(token0);
+        distributor.registerRewardToken(token0);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.DuplicatedRewardToken.selector));
-        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
 
         vm.stopPrank();
     }
 
+    /// Each registration emits its token and appends it to the active tokens, in order.
     function test_registerRewardToken_SucceedWithNewTokens() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
@@ -205,181 +208,193 @@ contract LinearMultipleRewardDistributorTest is Test {
 
         // Register first token
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.RegisterRewardToken(address(token0));
-        distributor.registerRewardToken(address(token0));
+        emit IMultipleRewardDistributor.RegisterRewardToken(token0);
+        distributor.registerRewardToken(token0);
 
         address[] memory activeTokens = distributor.activeRewardTokens();
         assertEq(activeTokens.length, 1);
-        assertEq(activeTokens[0], address(token0));
+        assertEq(activeTokens[0], token0);
 
         // Register second token
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.RegisterRewardToken(address(token1));
-        distributor.registerRewardToken(address(token1));
+        emit IMultipleRewardDistributor.RegisterRewardToken(token1);
+        distributor.registerRewardToken(token1);
 
         activeTokens = distributor.activeRewardTokens();
         assertEq(activeTokens.length, 2);
-        assertEq(activeTokens[0], address(token0));
-        assertEq(activeTokens[1], address(token1));
+        assertEq(activeTokens[0], token0);
+        assertEq(activeTokens[1], token1);
 
         // Register third token
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.RegisterRewardToken(address(token2));
-        distributor.registerRewardToken(address(token2));
+        emit IMultipleRewardDistributor.RegisterRewardToken(token2);
+        distributor.registerRewardToken(token2);
 
         activeTokens = distributor.activeRewardTokens();
         assertEq(activeTokens.length, 3);
-        assertEq(activeTokens[0], address(token0));
-        assertEq(activeTokens[1], address(token1));
-        assertEq(activeTokens[2], address(token2));
+        assertEq(activeTokens[0], token0);
+        assertEq(activeTokens[1], token1);
+        assertEq(activeTokens[2], token2);
 
         vm.stopPrank();
     }
 
+    /// Each unregistration emits its token and moves it from the active tokens to the historical ones, in order.
     function test_unregisterRewardToken_Success() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
 
         // Register all tokens
-        distributor.registerRewardToken(address(token0));
-        distributor.registerRewardToken(address(token1));
-        distributor.registerRewardToken(address(token2));
+        distributor.registerRewardToken(token0);
+        distributor.registerRewardToken(token1);
+        distributor.registerRewardToken(token2);
 
         // Unregister first token
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.UnregisterRewardToken(address(token0));
-        distributor.unregisterRewardToken(address(token0));
+        emit IMultipleRewardDistributor.UnregisterRewardToken(token0);
+        distributor.unregisterRewardToken(token0);
 
         address[] memory activeTokens = distributor.activeRewardTokens();
         assertEq(activeTokens.length, 2);
 
         address[] memory historicalTokens = distributor.historicalRewardTokens();
         assertEq(historicalTokens.length, 1);
-        assertEq(historicalTokens[0], address(token0));
+        assertEq(historicalTokens[0], token0);
 
         // Unregister second token
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.UnregisterRewardToken(address(token1));
-        distributor.unregisterRewardToken(address(token1));
+        emit IMultipleRewardDistributor.UnregisterRewardToken(token1);
+        distributor.unregisterRewardToken(token1);
 
         activeTokens = distributor.activeRewardTokens();
         assertEq(activeTokens.length, 1);
-        assertEq(activeTokens[0], address(token2));
+        assertEq(activeTokens[0], token2);
 
         historicalTokens = distributor.historicalRewardTokens();
         assertEq(historicalTokens.length, 2);
-        assertEq(historicalTokens[0], address(token0));
-        assertEq(historicalTokens[1], address(token1));
+        assertEq(historicalTokens[0], token0);
+        assertEq(historicalTokens[1], token1);
 
         // Unregister third token
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.UnregisterRewardToken(address(token2));
-        distributor.unregisterRewardToken(address(token2));
+        emit IMultipleRewardDistributor.UnregisterRewardToken(token2);
+        distributor.unregisterRewardToken(token2);
 
         activeTokens = distributor.activeRewardTokens();
         assertEq(activeTokens.length, 0);
 
         historicalTokens = distributor.historicalRewardTokens();
         assertEq(historicalTokens.length, 3);
-        assertEq(historicalTokens[0], address(token0));
-        assertEq(historicalTokens[1], address(token1));
-        assertEq(historicalTokens[2], address(token2));
+        assertEq(historicalTokens[0], token0);
+        assertEq(historicalTokens[1], token1);
+        assertEq(historicalTokens[2], token2);
 
         vm.stopPrank();
     }
 
+    /// Unregistering a token reverts for a caller who is neither the owner nor a manager.
     function test_unregisterRewardToken_RevertWhenNonManagerCall() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
-        distributor.unregisterRewardToken(address(token0));
+        distributor.unregisterRewardToken(token0);
     }
 
+    /// Unregistering a token that is no longer active reverts.
     function test_unregisterRewardToken_RevertWhenNotActive() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
-        distributor.unregisterRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
+        distributor.unregisterRewardToken(token0);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.NotActiveRewardToken.selector));
-        distributor.unregisterRewardToken(address(token0));
+        distributor.unregisterRewardToken(token0);
         vm.stopPrank();
     }
 
+    /// Unregistering reverts while a deposit's period is still streaming.
     function test_unregisterRewardToken_RevertWhenDistributionNotFinished() public {
-        // Skip test for zero period since it doesn't apply
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
         vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 1000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 1000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
         // Deposit reward
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1000 ether);
+        distributor.depositReward(token0, 1000 ether);
+        vm.stopPrank();
 
         // Try to unregister
-        vm.prank(manager);
+        vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributionNotFinished.selector));
-        distributor.unregisterRewardToken(address(token0));
+        distributor.unregisterRewardToken(token0);
+        vm.stopPrank();
     }
 
     // ======================= DEPOSIT REWARD TESTS =======================
 
+    /// Depositing a token that is not active reverts.
     function test_depositReward_RevertWhenTokenNotActive() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.NotActiveRewardToken.selector));
-        distributor.depositReward(address(token1), 0);
+        distributor.depositReward(token1, 0);
+        vm.stopPrank();
     }
 
+    /// Depositing reverts for a caller who is neither the owner nor a depositor.
     function test_depositReward_RevertWhenCallerNotDistributor() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
-        distributor.depositReward(address(token0), 0);
+        distributor.depositReward(token0, 0);
     }
 
+    /// With a zero period a deposit accrues at once: the distributor holds it and accumulates the whole of it.
     function test_depositReward_SucceedsWithZeroPeriod() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(0);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
         // Deposit reward
         uint256 depositAmount = 1000 ether;
 
-        vm.prank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), depositAmount);
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(token0, depositAmount);
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.DepositReward(address(token0), depositAmount);
-        distributor.depositReward(address(token0), depositAmount);
+        emit IMultipleRewardDistributor.DepositReward(token0, depositAmount);
+        distributor.depositReward(token0, depositAmount);
+        vm.stopPrank();
 
-        assertEq(token0.balanceOf(address(distributor)), depositAmount);
+        assertEq(IERC20(token0).balanceOf(address(distributor)), depositAmount);
     }
 
     struct RewardData {
@@ -394,42 +409,50 @@ contract LinearMultipleRewardDistributorTest is Test {
         uint256 locked;
     }
 
+    /// A deposit streams over the period at its amount over the period, rounded down, the remainder queued. A top-up
+    /// worth under 90% of what has streamed so far waits in the queue; one that brings the queue to 90% or more
+    /// restreams the queue and what was still to stream over a fresh period, its remainder queued.
     function test_depositReward_SucceedsWithPeriod() public {
         uint40 rewardPeriodLength = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(rewardPeriodLength);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
+        vm.stopPrank();
 
         // Deposit reward
         uint256 depositAmount0 = 1000 ether;
         uint256 timestamp0 = block.timestamp;
 
         // no _accumulateReward call when we have a non-zero period
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.DepositReward(address(token0), depositAmount0);
-        distributor.depositReward(address(token0), depositAmount0);
+        emit IMultipleRewardDistributor.DepositReward(token0, depositAmount0);
+        distributor.depositReward(token0, depositAmount0);
+        vm.stopPrank();
 
-        assertEq(token0.balanceOf(address(distributor)), depositAmount0);
+        assertEq(IERC20(token0).balanceOf(address(distributor)), depositAmount0);
 
         // Check reward data
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
         uint256 expectedRate0 = depositAmount0 / rewardPeriodLength;
+        uint256 remainder0 = depositAmount0 % rewardPeriodLength;
 
-        assertEq(rd.lastUpdate, timestamp0);
-        assertEq(rd.finishAt, timestamp0 + rewardPeriodLength);
-        assertEq(rd.rate, expectedRate0);
+        assertEq(stream.lastUpdate, timestamp0);
+        assertEq(stream.finishAt, timestamp0 + rewardPeriodLength);
+        assertEq(stream.rate, expectedRate0);
+        assertEq(stream.queued, remainder0, "the rate's remainder is queued");
 
         // Check pending rewards
         PendingRewards memory pending;
-        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(token0));
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
         assertEq(pending.unlocked, 0);
         assertEq(pending.locked, expectedRate0 * rewardPeriodLength);
 
@@ -438,117 +461,100 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.warp(timestamp0 + oneThirdPeriod);
 
         // Check pending rewards after time advance
-        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(token0));
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
         assertEq(pending.unlocked, expectedRate0 * oneThirdPeriod);
         assertEq(pending.locked, expectedRate0 * (rewardPeriodLength - oneThirdPeriod));
 
         // Deposit 89% of expected unlocked rewards, should be queued
         uint256 depositAmount1 = (expectedRate0 * oneThirdPeriod * 89) / 100;
 
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(
-            address(token0),
-            expectedRate0 * oneThirdPeriod
-        );
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(token0, expectedRate0 * oneThirdPeriod);
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.DepositReward(address(token0), depositAmount1);
-        distributor.depositReward(address(token0), depositAmount1);
+        emit IMultipleRewardDistributor.DepositReward(token0, depositAmount1);
+        distributor.depositReward(token0, depositAmount1);
+        vm.stopPrank();
 
         uint256 timestamp1 = block.timestamp;
 
-        // Check reward data after second deposit
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        // Check reward data after second deposit: under 90% of what has streamed, it waits with the remainder
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
 
-        assertEq(rd.lastUpdate, timestamp1);
-        assertEq(rd.finishAt, timestamp0 + rewardPeriodLength);
-        assertEq(rd.rate, expectedRate0);
-        assertApproxEqAbs(rd.queued, depositAmount1, rewardPeriodLength);
+        assertEq(stream.lastUpdate, timestamp1);
+        assertEq(stream.finishAt, timestamp0 + rewardPeriodLength);
+        assertEq(stream.rate, expectedRate0);
+        assertEq(stream.queued, depositAmount1 + remainder0, "the deposit waits in the queue with the remainder");
 
-        // Deposit another 2% of expected unlocked rewards, should trigger distribution
+        // Deposit another 2% of expected unlocked rewards: with the queue that is 91%, so the stream restarts
         uint256 depositAmount2 = (expectedRate0 * oneThirdPeriod * 2) / 100;
 
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        // no _accumulateReward call since we trigger distribution
-        emit IMultipleRewardDistributor.DepositReward(address(token0), depositAmount2);
-        distributor.depositReward(address(token0), depositAmount2);
+        // nothing has streamed since the last deposit, in the same block, so no _accumulateReward call
+        emit IMultipleRewardDistributor.DepositReward(token0, depositAmount2);
+        distributor.depositReward(token0, depositAmount2);
+        vm.stopPrank();
 
         uint256 timestamp2 = block.timestamp;
 
         // Check reward data after third deposit
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
 
-        uint256 expectedRate2 = (depositAmount1 +
+        // the queue, the deposit and what was still to stream, over a fresh period - its remainder queued
+        uint256 restreamed = depositAmount1 +
+            remainder0 +
             depositAmount2 +
-            expectedRate0 * (timestamp0 + rewardPeriodLength - timestamp2)) / rewardPeriodLength;
+            expectedRate0 *
+            (timestamp0 + rewardPeriodLength - timestamp2);
 
-        assertEq(rd.lastUpdate, timestamp2);
-        assertEq(rd.finishAt, timestamp2 + rewardPeriodLength);
-        assertApproxEqAbs(rd.rate, expectedRate2, rewardPeriodLength);
-        assertApproxEqAbs(rd.queued, 0, rewardPeriodLength);
+        assertEq(stream.lastUpdate, timestamp2);
+        assertEq(stream.finishAt, timestamp2 + rewardPeriodLength);
+        assertEq(stream.rate, restreamed / rewardPeriodLength, "the restreamed rate");
+        assertEq(stream.queued, restreamed % rewardPeriodLength, "the restreamed rate's remainder is queued");
     }
 
-    /// @notice Test the edge case where queued rewards are very small and trigger the rounding error logic
-    /// This test validates the corrected comparison logic: queued rewards (uint96, token amount) are compared with
-    /// the token equivalent of the reward period length (uint40, time in seconds).
-    function test_unregisterRewardToken_WithSmallQueuedAmount_TypeMismatch() public {
+    /// A deposit too small for a rate - 1,000 wei over a day of 86,400 seconds - leaves its whole amount queued: the
+    /// remainder of a division by the period, so below the period length. Once the period has ended, unregistering
+    /// clears that remainder as rounding and succeeds.
+    function test_unregisterRewardToken_clearsARemainderBelowThePeriod() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
         vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
-        // Deposit a very small amount that will result in tiny queued remainder
-        // When amount = 1000 wei and periodLength = 86400 seconds:
-        // rate = 1000 / 86400 = 0 (integer division)
-        // queued = 1000 - (0 * 86400) = 1000 wei
-        // This creates the scenario where queued (1000 wei) < REWARD_PERIOD_LENGTH (86400 seconds)
-        uint256 verySmallAmount = 1000; // 1000 wei (much less than 86,400)
+        // 1000 wei over 86,400 seconds: a rate of 0, and the whole deposit the remainder, queued
+        uint256 verySmallAmount = 1000;
+        distributor.depositReward(token0, verySmallAmount);
+        vm.stopPrank();
 
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), verySmallAmount);
-
-        // Check the reward data to confirm our scenario
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-
-        // Verify our assumptions:
-        // 1. Rate should be 0 due to integer division
-        assertEq(rd.rate, 0, "Rate should be 0 for very small amounts");
-        // 2. Queued should equal the full deposit amount since rate = 0
-        assertEq(rd.queued, verySmallAmount, "Queued should equal deposit amount when rate is 0");
-        // 3. Queued (1000 wei) should be much less than REWARD_PERIOD_LENGTH (86400 seconds)
-        assertEq(rd.rate, 0, "the rate is now 0");
-        assertLe(rd.queued, 1e3, "Queued amount should be small - it's the error in calculating the rate");
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(stream.rate, 0, "Rate should be 0 for very small amounts");
+        assertEq(stream.queued, verySmallAmount, "Queued should equal deposit amount when rate is 0");
 
         // Wait for the period to finish so distribution is considered complete
-        vm.warp(rd.finishAt + 1);
+        vm.warp(stream.finishAt + 1);
 
         // Verify that pendingRewards shows no distributable or undistributed rewards
         PendingRewards memory pending;
-        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(token0));
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
         assertEq(pending.unlocked, 0, "No unlocked rewards expected");
         assertEq(pending.locked, 0, "No locked rewards expected");
 
-        // Now try to unregister - this should trigger the buggy comparison
-        // The bug: `if (_data.queued < REWARD_PERIOD_LENGTH)` compares uint96 to uint40
-        // This comparison happens between:
-        // - _data.queued = 1000 (uint96 - token amount in wei)
-        // - REWARD_PERIOD_LENGTH = 86400 (uint40 - time in seconds)
-        vm.prank(manager);
-
-        // This should succeed but with the wrong logic due to type mismatch
-        // The comparison is mathematically meaningless (comparing wei to seconds)
+        // the queued remainder is below the period length - rounding - so unregistering clears it and succeeds
+        vm.startPrank(manager);
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.UnregisterRewardToken(address(token0));
-        distributor.unregisterRewardToken(address(token0));
+        emit IMultipleRewardDistributor.UnregisterRewardToken(token0);
+        distributor.unregisterRewardToken(token0);
+        vm.stopPrank();
 
         // Verify the token was successfully unregistered
         address[] memory activeTokens = distributor.activeRewardTokens();
@@ -556,303 +562,280 @@ contract LinearMultipleRewardDistributorTest is Test {
 
         address[] memory historicalTokens = distributor.historicalRewardTokens();
         assertEq(historicalTokens.length, 1, "Token should be in historical list");
-        assertEq(historicalTokens[0], address(token0), "Token should be in historical list");
+        assertEq(historicalTokens[0], token0, "Token should be in historical list");
     }
 
-    /// @notice Test case that demonstrates the type mismatch with normal token amounts
-    /// This shows that for most realistic scenarios, queued < REWARD_PERIOD_LENGTH due to modulo math
-    function test_unregisterRewardToken_WithNormalQueuedAmount_TypeMismatch() public {
+    /// A realistic deposit - 100,000 of a six-decimal token over a day - leaves a remainder below the period length, as
+    /// every division by the period does. Once the period has ended its payout is still undistributed - nothing has
+    /// taken it since - so unregistering reverts.
+    function test_unregisterRewardToken_revertsWhileAnEndedPeriodIsUndistributed() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
         vm.stopPrank();
 
         // Use a token with 6 decimals to create a more realistic scenario
-        MockERC20 usdcLikeToken = new MockERC20("USDC", "USDC", 6);
+        address usdcLikeToken = address(new MockERC20("USDC", "USDC", 6));
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(usdcLikeToken));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(usdcLikeToken);
+        vm.stopPrank();
 
         // Mint tokens and approve
-        usdcLikeToken.mint(rewardDepositor, 1000000 * 10 ** 6); // 1M USDC
-        vm.prank(rewardDepositor);
-        usdcLikeToken.approve(address(distributor), MAX_UINT);
+        MockERC20(usdcLikeToken).mint(rewardDepositor, 1000000 * 10 ** 6); // 1M USDC
+        vm.startPrank(rewardDepositor);
+        IERC20(usdcLikeToken).approve(address(distributor), MAX_UINT);
 
         // Deposit amount that creates a normal queued remainder
         uint256 amount = 100000 * 10 ** 6; // 100,000 USDC (6 decimals)
-
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(usdcLikeToken), amount);
+        distributor.depositReward(usdcLikeToken, amount);
+        vm.stopPrank();
 
         // Check the reward data
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(usdcLikeToken));
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(usdcLikeToken);
 
         // Calculate expected values
         uint256 expectedRate = amount / REWARD_PERIOD_LENGTH;
         uint256 expectedQueued = amount - (expectedRate * REWARD_PERIOD_LENGTH);
 
-        assertEq(rd.rate, expectedRate, "Rate calculation should be correct");
-        assertEq(rd.queued, expectedQueued, "Queued calculation should be correct");
-
-        // The key insight: queued is ALWAYS less than REWARD_PERIOD_LENGTH due to modulo math
-        // This demonstrates that the type mismatch affects almost ALL scenarios
-        assertTrue(rd.queued < REWARD_PERIOD_LENGTH, "Queued is always less than period length (modulo property)");
-
-        // Show that this is a meaningful amount in token terms, but small in time terms
-        assertTrue(rd.queued > 0, "Should have some queued remainder for this amount");
-
-        // Validate the type mismatch scenario: comparing uint96 (token wei) with uint40 (seconds)
-        // This is the core of the bug - these units are incomparable
-        assertLt(rd.queued, uint256(REWARD_PERIOD_LENGTH), "Type mismatch: comparing token wei to time seconds");
-        assertGt(rd.queued, 0, "Queued should contain meaningful token amount despite small time comparison");
+        assertEq(stream.rate, expectedRate, "Rate calculation should be correct");
+        assertEq(stream.queued, expectedQueued, "Queued calculation should be correct");
+        // a division's remainder is below its divisor: the rounding unregistering may clear
+        assertLt(stream.queued, REWARD_PERIOD_LENGTH, "the remainder is below the period length");
+        assertGt(stream.queued, 0, "this amount leaves a remainder");
 
         // Wait for period to finish
-        vm.warp(rd.finishAt + 1000);
+        vm.warp(stream.finishAt + 1000);
 
-        // Check pending rewards after period finish
+        // After the period the whole period's payout is distributable and nothing is left to stream: pending()
+        // returns (rate * (finishAt - lastUpdate), 0) once block.timestamp is past finishAt
         PendingRewards memory pending;
-        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(usdcLikeToken));
-
-        // After period completion, distributable rewards equal rate * REWARD_PERIOD_LENGTH
-        // because pending() returns (rate * (finishAt - lastUpdate), 0) when block.timestamp > finishAt
-        uint256 expectedDistributable = rd.rate * REWARD_PERIOD_LENGTH;
-        assertEq(pending.unlocked, expectedDistributable, "Distributable equals rate * period length");
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(usdcLikeToken);
+        assertEq(pending.unlocked, stream.rate * REWARD_PERIOD_LENGTH, "Distributable equals rate * period length");
         assertEq(pending.locked, 0, "No undistributed rewards after period completion");
 
-        // The bug manifests here: even though queued would be set to 0 due to the buggy comparison,
-        // unregistration still fails because of the large distributable amount
-        vm.prank(manager);
+        // the remainder alone would be cleared, but the period's payout has not been distributed, so unregistering
+        // reverts
+        vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributionNotFinished.selector));
-        distributor.unregisterRewardToken(address(usdcLikeToken));
-
-        // Validate the bug's limited impact: the queued amount is small compared to distributable
-        uint256 totalRemainingRewards = pending.unlocked + pending.locked;
-        assertEq(totalRemainingRewards, expectedDistributable, "Total remaining equals distributable");
-        assertGt(totalRemainingRewards, rd.queued, "Distributable amount dwarfs queued amount");
-
-        // The type mismatch bug only affects the small queued portion, not the main distributable amount
-        assertTrue(rd.queued < REWARD_PERIOD_LENGTH, "Bug condition: queued < REWARD_PERIOD_LENGTH");
-        assertGt(
-            totalRemainingRewards,
-            uint256(REWARD_PERIOD_LENGTH),
-            "But total rewards much larger than period length"
-        );
+        distributor.unregisterRewardToken(usdcLikeToken);
+        vm.stopPrank();
     }
 
-    /// @notice Test what happens when queued is near the maximum possible value (edge case)
-    function test_unregisterRewardToken_QueuedNearRewardPeriod() public {
+    /// The largest remainder a division by the period can leave - one below the period length - is still rounding, but
+    /// the ended period's undistributed payout keeps unregistering reverting.
+    function test_unregisterRewardToken_remainderOneBelowThePeriod_revertsWhileUndistributed() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
         vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
-        // Create a scenario where queued is close to REWARD_PERIOD_LENGTH
-        // Use: amount = rate * REWARD_PERIOD_LENGTH + (REWARD_PERIOD_LENGTH - 1)
+        // Use: amount = rate * REWARD_PERIOD_LENGTH + (REWARD_PERIOD_LENGTH - 1), with a rate of 1
         // This gives: queued = REWARD_PERIOD_LENGTH - 1
         uint256 targetAmount = REWARD_PERIOD_LENGTH + (REWARD_PERIOD_LENGTH - 1);
-
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), targetAmount);
+        distributor.depositReward(token0, targetAmount);
+        vm.stopPrank();
 
         // Check the reward data
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-
-        // Verify our near-boundary case: queued should be REWARD_PERIOD_LENGTH - 1
-        uint256 expectedQueued = REWARD_PERIOD_LENGTH - 1;
-        assertEq(rd.queued, expectedQueued, "Queued should be very close to period length");
-
-        // This demonstrates the near-boundary condition of the bug
-        assertLt(rd.queued, uint256(REWARD_PERIOD_LENGTH), "Near edge case: queued just under period length");
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(stream.queued, REWARD_PERIOD_LENGTH - 1, "Queued should be one below the period length");
 
         // Wait for period to finish
-        vm.warp(rd.finishAt + 1000);
+        vm.warp(stream.finishAt + 1000);
 
         // Check pending rewards
         PendingRewards memory pending;
-        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(token0));
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
 
         // After period completion, distributable rewards are rate * REWARD_PERIOD_LENGTH
-        uint256 expectedDistributable = rd.rate * REWARD_PERIOD_LENGTH;
-        assertEq(pending.unlocked, expectedDistributable, "Distributable equals rate * period length");
+        assertEq(pending.unlocked, stream.rate * REWARD_PERIOD_LENGTH, "Distributable equals rate * period length");
         assertEq(pending.locked, 0, "No undistributed rewards after period completion");
 
-        // At this near-boundary, the buggy comparison succeeds: queued (86399) < REWARD_PERIOD_LENGTH (86400)
-        // So queued would be set to 0, but unregistration still fails due to large distributable amount
-        vm.prank(manager);
+        // the remainder is rounding, but the undistributed payout keeps the token registered
+        vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributionNotFinished.selector));
-        distributor.unregisterRewardToken(address(token0));
-
-        // The bug affects only the queued clearing logic, not the main barrier to unregistration
-        assertTrue(rd.queued < REWARD_PERIOD_LENGTH, "Bug condition: queued < REWARD_PERIOD_LENGTH");
-        assertGt(pending.unlocked, rd.queued, "Distributable amount much larger than queued");
+        distributor.unregisterRewardToken(token0);
+        vm.stopPrank();
     }
 
-    /// @notice Test the complete underflow scenario from the bug report
-    /// This simulates the exact conditions described: rewards deposited, period not finished,
-    /// then another deposit triggers the else branch with underflow conditions
-    function test_depositReward_UnderflowFix() public {
+    /// A deposit mid-period, worth at least 90% of what has streamed, restreams it with what was still to stream over a
+    /// fresh period from that moment, its remainder queued.
+    function test_depositReward_midPeriod_restreamsTheRestWithTheDeposit() public {
         uint40 REWARD_PERIOD_LENGTH = 2 weeks;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 1_000_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
         // Initial deposit at timestamp 1000
         vm.warp(1000);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100_000 ether);
+        distributor.depositReward(token0, 100_000 ether);
+        vm.stopPrank();
 
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
 
-        assertEq(rd.lastUpdate, 1000, "lastUpdate should be initial timestamp");
-        assertEq(rd.finishAt, 1000 + REWARD_PERIOD_LENGTH, "finishAt should be timestamp + period");
+        assertEq(stream.lastUpdate, 1000, "lastUpdate should be initial timestamp");
+        assertEq(stream.finishAt, 1000 + REWARD_PERIOD_LENGTH, "finishAt should be timestamp + period");
 
         // Advance time but not past finishAt (to enter the else branch)
         uint256 midPoint = 1000 + REWARD_PERIOD_LENGTH / 2;
         vm.warp(midPoint);
 
-        // Deposit more rewards - this should enter the else branch
-        // With the buggy code, this could underflow in certain edge cases
-        // With the fixed code, this should handle gracefully
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 50_000 ether);
+        // Deposit more rewards mid-period: half the period has streamed, and the deposit is worth more than 90% of it
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 50_000 ether);
+        vm.stopPrank();
 
-        // Verify the deposit succeeded
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertGe(rd.lastUpdate, midPoint, "lastUpdate should be updated");
+        // the queue, the deposit and what was still to stream, over a fresh period from the deposit
+        uint256 restreamed = stream.queued + 50_000 ether + stream.rate * (stream.finishAt - midPoint);
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(stream.lastUpdate, midPoint, "lastUpdate should be updated");
+        assertEq(stream.finishAt, midPoint + REWARD_PERIOD_LENGTH, "a fresh period from the deposit");
+        assertEq(stream.rate, restreamed / REWARD_PERIOD_LENGTH, "the restreamed rate");
+        assertEq(stream.queued, restreamed % REWARD_PERIOD_LENGTH, "the restreamed rate's remainder is queued");
     }
 
-    /// @notice Test extreme underflow scenario where finishAt might be less than periodLength
-    /// This is the edge case that can occur in forked mainnet environments
-    function test_depositReward_ExtremeUnderflowFix() public {
+    /// A stream started less than one period after time zero - finishAt less the period near zero - restreams on a
+    /// mid-period deposit as any other: what was still to stream and the deposit, over a fresh period.
+    function test_depositReward_midPeriodNearTimeZero_restreams() public {
         uint40 REWARD_PERIOD_LENGTH = 4 weeks;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 1_000_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
-        // Start at a very small timestamp that's less than the period length
-        // This simulates edge cases in forked environments
+        // Start at a timestamp less than the period length
         uint256 smallTimestamp = REWARD_PERIOD_LENGTH / 2; // 2 weeks when period is 4 weeks
         vm.warp(smallTimestamp);
 
         // First deposit
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100_000 ether);
+        distributor.depositReward(token0, 100_000 ether);
+        vm.stopPrank();
 
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
 
         // finishAt will be smallTimestamp + REWARD_PERIOD_LENGTH
         uint256 expectedFinishAt = smallTimestamp + REWARD_PERIOD_LENGTH;
-        assertEq(rd.finishAt, expectedFinishAt, "finishAt should be correct");
+        assertEq(stream.finishAt, expectedFinishAt, "finishAt should be correct");
 
         // Now warp to a time before finishAt
-        vm.warp(smallTimestamp + 1 days);
+        uint256 secondDepositTime = smallTimestamp + 1 days;
+        vm.warp(secondDepositTime);
 
-        // Second deposit while period is active
-        // In the buggy code, calculating: _elapsed = block.timestamp - (finishAt - periodLength)
-        // Could cause issues when finishAt is close to periodLength
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 50_000 ether);
+        // Second deposit while the period is active: a day has streamed, and the deposit is worth far more
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 50_000 ether);
+        vm.stopPrank();
 
-        // Verify deposit succeeded and state is consistent
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertTrue(rd.finishAt > block.timestamp, "finishAt should be in the future");
-        assertTrue(rd.rate > 0, "rate should be set");
+        // the queue, the deposit and what was still to stream, over a fresh period from the deposit
+        uint256 restreamed = stream.queued + 50_000 ether + stream.rate * (stream.finishAt - secondDepositTime);
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(stream.finishAt, secondDepositTime + REWARD_PERIOD_LENGTH, "finishAt should be in the future");
+        assertEq(stream.rate, restreamed / REWARD_PERIOD_LENGTH, "the restreamed rate");
+        assertEq(stream.queued, restreamed % REWARD_PERIOD_LENGTH, "the restreamed rate's remainder is queued");
     }
 
-    /// @notice Test depositing after period finished, then starting new period
+    /// A deposit after the period has finished starts a fresh period, its rate the deposit and the last remainder over
+    /// the period.
     function test_depositReward_AfterPeriodFinished() public {
         uint40 REWARD_PERIOD_LENGTH = 2 weeks;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 1_000_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
         // Initial deposit
         vm.warp(10000);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100_000 ether);
+        distributor.depositReward(token0, 100_000 ether);
+        vm.stopPrank();
 
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        uint256 firstFinishAt = rd.finishAt;
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        uint256 firstFinishAt = stream.finishAt;
 
         // Warp past the finish time (2 weeks ahead)
         vm.warp(firstFinishAt + 100);
 
         // Deposit again after period finished - this enters the if branch
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 80_000 ether);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 80_000 ether);
+        vm.stopPrank();
 
-        // Verify new period started correctly
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertEq(rd.lastUpdate, block.timestamp, "lastUpdate should be current timestamp");
-        assertEq(rd.finishAt, block.timestamp + REWARD_PERIOD_LENGTH, "finishAt should be new period end");
-        assertTrue(rd.rate > 0, "rate should be set for new period");
+        // the deposit and the first period's remainder, over a fresh period
+        uint256 restarted = stream.queued + 80_000 ether;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(stream.lastUpdate, block.timestamp, "lastUpdate should be current timestamp");
+        assertEq(stream.finishAt, block.timestamp + REWARD_PERIOD_LENGTH, "finishAt should be new period end");
+        assertEq(stream.rate, restarted / REWARD_PERIOD_LENGTH, "rate should be set for new period");
+        assertEq(stream.queued, restarted % REWARD_PERIOD_LENGTH, "its remainder is queued");
     }
 
-    /// @notice Comprehensive test: deposit, wait past finishAt, deposit again (new period),
-    /// then warp forward but not past new finishAt, and deposit again (else branch with underflow potential)
+    /// A deposit after a finished period starts a fresh one; a deposit a third of the way through that one restreams
+    /// what was still to stream with the deposit, its remainder queued.
     function test_depositReward_AfterPeriodFinishedThenBeforeFinishAt() public {
         uint40 REWARD_PERIOD_LENGTH = 2 weeks;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(rewardDepositor, 10_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 10_000_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
         // Phase 1: Initial deposit
         vm.warp(100000);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1_000_000 ether);
+        distributor.depositReward(token0, 1_000_000 ether);
+        vm.stopPrank();
 
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        uint256 phase1FinishAt = rd.finishAt;
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        uint256 phase1FinishAt = stream.finishAt;
 
         // Phase 2: Warp past the finish time (2 weeks ahead + buffer)
         vm.warp(phase1FinishAt + 1000);
 
         // Deposit again to start new period (if branch - block.timestamp >= finishAt)
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 800_000 ether);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 800_000 ether);
+        vm.stopPrank();
 
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        uint256 phase2FinishAt = rd.finishAt;
-        uint256 phase2LastUpdate = rd.lastUpdate;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        uint256 phase2FinishAt = stream.finishAt;
+        uint256 phase2LastUpdate = stream.lastUpdate;
 
         assertEq(phase2LastUpdate, block.timestamp, "Phase 2: lastUpdate should be current time");
         assertEq(phase2FinishAt, block.timestamp + REWARD_PERIOD_LENGTH, "Phase 2: new period should start");
@@ -861,208 +844,229 @@ contract LinearMultipleRewardDistributorTest is Test {
         uint256 phase3Time = phase2LastUpdate + (REWARD_PERIOD_LENGTH / 3);
         vm.warp(phase3Time);
 
-        // This deposit enters the else branch where underflow bugs can occur
-        // Bug line 48: uint256 _elapsed = block.timestamp - (_data.finishAt - _periodLength);
-        // Bug line 52: _amount = _amount + uint256(_data.rate) * (_data.finishAt - _data.lastUpdate);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 500_000 ether);
+        // This deposit takes the mid-period path: what has streamed is block.timestamp - (finishAt - period), and what
+        // is still to stream, rate * (finishAt - lastUpdate), joins the deposit
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 500_000 ether);
+        vm.stopPrank();
 
-        // Verify the deposit succeeded without underflow
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertGe(rd.lastUpdate, phase3Time, "Phase 3: lastUpdate should be updated");
-        assertTrue(rd.rate > 0, "Phase 3: rate should be positive");
-
-        // The state should be consistent - no underflow occurred
-        assertTrue(rd.finishAt >= rd.lastUpdate, "finishAt should be >= lastUpdate");
+        uint256 restreamed = stream.queued + 500_000 ether + stream.rate * (phase2FinishAt - phase3Time);
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(stream.lastUpdate, phase3Time, "Phase 3: lastUpdate should be updated");
+        assertEq(stream.finishAt, phase3Time + REWARD_PERIOD_LENGTH, "Phase 3: a fresh period from the deposit");
+        assertEq(stream.rate, restreamed / REWARD_PERIOD_LENGTH, "Phase 3: the restreamed rate");
+        assertEq(stream.queued, restreamed % REWARD_PERIOD_LENGTH, "Phase 3: its remainder is queued");
     }
 
     // ======================= VIEW FUNCTION COVERAGE =======================
 
+    /// isActiveRewardToken follows registration: false before, true after, false again once unregistered.
     function test_isActiveRewardToken() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        assertFalse(distributor.isActiveRewardToken(address(token0)));
+        assertFalse(distributor.isActiveRewardToken(token0));
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-        assertTrue(distributor.isActiveRewardToken(address(token0)));
-        assertFalse(distributor.isActiveRewardToken(address(token1)));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
+        assertTrue(distributor.isActiveRewardToken(token0));
+        assertFalse(distributor.isActiveRewardToken(token1));
 
-        vm.prank(manager);
-        distributor.unregisterRewardToken(address(token0));
-        assertFalse(distributor.isActiveRewardToken(address(token0)));
+        vm.startPrank(manager);
+        distributor.unregisterRewardToken(token0);
+        vm.stopPrank();
+        assertFalse(distributor.isActiveRewardToken(token0));
     }
 
+    /// The reward data in storage, which the mock exposes, matches the public rewardData field for field.
     function test_getRewardDataStorage() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1000 ether);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
+        distributor.depositReward(token0, 1000 ether);
+        vm.stopPrank();
 
         // getRewardDataStorage (internal _getRewardData) should match rewardData (public)
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
 
-        RewardData memory rdStorage;
-        (rdStorage.lastUpdate, rdStorage.finishAt, rdStorage.rate, rdStorage.queued) = distributor.getRewardDataStorage(
-            address(token0)
-        );
+        RewardData memory streamInStorage;
+        (
+            streamInStorage.lastUpdate,
+            streamInStorage.finishAt,
+            streamInStorage.rate,
+            streamInStorage.queued
+        ) = distributor.getRewardDataStorage(token0);
 
-        assertEq(rdStorage.lastUpdate, rd.lastUpdate);
-        assertEq(rdStorage.finishAt, rd.finishAt);
-        assertEq(rdStorage.rate, rd.rate);
-        assertEq(rdStorage.queued, rd.queued);
+        assertEq(streamInStorage.lastUpdate, stream.lastUpdate);
+        assertEq(streamInStorage.finishAt, stream.finishAt);
+        assertEq(streamInStorage.rate, stream.rate);
+        assertEq(streamInStorage.queued, stream.queued);
     }
 
+    /// The role getters report the roles the distributor was constructed with.
     function test_roleGetters() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
         assertEq(distributor.REWARD_MANAGER_ROLE(), REWARD_MANAGER_ROLE);
         assertEq(distributor.REWARD_DEPOSITOR_ROLE(), REWARD_DEPOSITOR_ROLE);
     }
 
+    /// A token never registered or funded has nothing pending.
     function test_pendingRewards_NonExistentToken() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
-        PendingRewards memory p;
-        (p.unlocked, p.locked) = distributor.pendingRewards(address(token0));
-        assertEq(p.unlocked, 0);
-        assertEq(p.locked, 0);
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
+        assertEq(pending.unlocked, 0);
+        assertEq(pending.locked, 0);
     }
 
     // ======================= RE-REGISTRATION =======================
 
+    /// Registering a historical token moves it back from the historical tokens to the active ones.
     function test_registerRewardToken_ReRegisterHistoricalToken() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
-        distributor.unregisterRewardToken(address(token0));
+        distributor.registerRewardToken(token0);
+        distributor.unregisterRewardToken(token0);
 
         assertEq(distributor.activeRewardTokens().length, 0);
         assertEq(distributor.historicalRewardTokens().length, 1);
 
         // Re-register should remove from historical and add back to active
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.RegisterRewardToken(address(token0));
-        distributor.registerRewardToken(address(token0));
+        emit IMultipleRewardDistributor.RegisterRewardToken(token0);
+        distributor.registerRewardToken(token0);
 
         assertEq(distributor.activeRewardTokens().length, 1);
         assertEq(distributor.historicalRewardTokens().length, 0);
-        assertTrue(distributor.isActiveRewardToken(address(token0)));
+        assertTrue(distributor.isActiveRewardToken(token0));
         vm.stopPrank();
     }
 
     // ======================= OWNER ACCESS =======================
 
+    /// The owner may register a token as well as a manager.
     function test_registerRewardToken_ByOwner() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        vm.prank(owner);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(owner);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
         assertEq(distributor.activeRewardTokens().length, 1);
     }
 
+    /// The owner may deposit as well as a depositor.
     function test_depositReward_ByOwner() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        token0.mint(owner, 1000 ether);
-        vm.startPrank(owner);
-        token0.approve(address(distributor), MAX_UINT);
-        distributor.depositReward(address(token0), 1000 ether);
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
         vm.stopPrank();
 
-        assertEq(token0.balanceOf(address(distributor)), 1000 ether);
+        MockERC20(token0).mint(owner, 1000 ether);
+        vm.startPrank(owner);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
+        distributor.depositReward(token0, 1000 ether);
+        vm.stopPrank();
+
+        assertEq(IERC20(token0).balanceOf(address(distributor)), 1000 ether);
     }
 
     // ======================= ZERO AMOUNT DEPOSIT =======================
 
+    /// A zero deposit transfers nothing but distributes what has streamed and moves lastUpdate on.
     function test_depositReward_ZeroAmount() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
         // Deposit actual amount
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1000 ether);
+        distributor.depositReward(token0, 1000 ether);
+        vm.stopPrank();
 
         uint256 halfPeriod = REWARD_PERIOD_LENGTH / 2;
         vm.warp(block.timestamp + halfPeriod);
 
-        // Check pending before zero deposit
-        PendingRewards memory p;
-        (p.unlocked, p.locked) = distributor.pendingRewards(address(token0));
-        assertGt(p.unlocked, 0, "Should have pending rewards");
+        // Check pending before zero deposit: half the period has streamed at the deposit's rate
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
+        assertEq(pending.unlocked, (1000 ether / REWARD_PERIOD_LENGTH) * halfPeriod, "Should have pending rewards");
 
         // Zero-amount deposit triggers _distributePendingReward
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), p.unlocked);
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(token0, pending.unlocked);
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.DepositReward(address(token0), 0);
-        distributor.depositReward(address(token0), 0);
+        emit IMultipleRewardDistributor.DepositReward(token0, 0);
+        distributor.depositReward(token0, 0);
+        vm.stopPrank();
 
         // No extra tokens transferred
-        assertEq(token0.balanceOf(address(distributor)), 1000 ether);
+        assertEq(IERC20(token0).balanceOf(address(distributor)), 1000 ether);
 
         // lastUpdate should be updated
-        RewardData memory rd;
-        (rd.lastUpdate, , , ) = distributor.rewardData(address(token0));
-        assertEq(rd.lastUpdate, block.timestamp);
+        RewardData memory stream;
+        (stream.lastUpdate, , , ) = distributor.rewardData(token0);
+        assertEq(stream.lastUpdate, block.timestamp);
     }
 
     // ======================= UNREGISTER AFTER FULL DISTRIBUTION =======================
 
+    /// After the period, a zero deposit distributes its payout, and unregistering then clears the remainder below the
+    /// period and succeeds.
     function test_unregisterRewardToken_SucceedsAfterFullDistribution() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
 
         // Deposit
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1000 ether);
+        distributor.depositReward(token0, 1000 ether);
+        vm.stopPrank();
 
         // Wait for period to finish
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        vm.warp(rd.finishAt + 1);
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        vm.warp(stream.finishAt + 1);
 
         // Distribute pending via zero-amount deposit
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 0);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 0);
+        vm.stopPrank();
 
         // Verify pending is now zero
-        PendingRewards memory p;
-        (p.unlocked, p.locked) = distributor.pendingRewards(address(token0));
-        assertEq(p.unlocked, 0);
-        assertEq(p.locked, 0);
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
+        assertEq(pending.unlocked, 0);
+        assertEq(pending.locked, 0);
 
         // Unregister should succeed (rounding error in queued gets cleared)
-        vm.prank(manager);
+        vm.startPrank(manager);
         vm.expectEmit(address(distributor));
-        emit IMultipleRewardDistributor.UnregisterRewardToken(address(token0));
-        distributor.unregisterRewardToken(address(token0));
+        emit IMultipleRewardDistributor.UnregisterRewardToken(token0);
+        distributor.unregisterRewardToken(token0);
+        vm.stopPrank();
 
         assertEq(distributor.activeRewardTokens().length, 0);
         assertEq(distributor.historicalRewardTokens().length, 1);
@@ -1070,208 +1074,236 @@ contract LinearMultipleRewardDistributorTest is Test {
 
     // ======================= QUEUED >= REWARD_PERIOD_LENGTH =======================
 
+    /// A queued amount of at least the period length is no rounding: with the token's payout distributed and nothing
+    /// left to stream, unregistering still reverts, the queue alone keeping it.
     function test_unregisterRewardToken_RevertWhenQueuedExceedsPeriodLength() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        distributor.registerRewardToken(token1);
+        vm.stopPrank();
 
-        token0.mint(rewardDepositor, 10_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 10_000_000 ether);
+        MockERC20(token1).mint(rewardDepositor, 1 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
+        IERC20(token1).approve(address(distributor), MAX_UINT);
 
         // Large deposit to establish rate
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1_000_000 ether);
+        distributor.depositReward(token0, 1_000_000 ether);
+        vm.stopPrank();
 
         // Advance slightly within period
         vm.warp(block.timestamp + 100);
 
-        // Small deposit triggers APR >10% decrease, entire amount gets queued
-        // queued ≈ 0.5 ether = 5e17 wei >> REWARD_PERIOD_LENGTH (86400)
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 0.5 ether);
+        // A deposit worth under 90% of what has streamed waits in the queue, with the first deposit's remainder
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 0.5 ether);
+        vm.stopPrank();
 
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertGe(rd.queued, REWARD_PERIOD_LENGTH, "Queued should exceed REWARD_PERIOD_LENGTH");
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(
+            stream.queued,
+            0.5 ether + (1_000_000 ether % REWARD_PERIOD_LENGTH),
+            "the deposit waits in the queue with the remainder"
+        );
+        assertGe(stream.queued, REWARD_PERIOD_LENGTH, "Queued should exceed REWARD_PERIOD_LENGTH");
 
-        // Wait for period to finish
-        vm.warp(rd.finishAt + 1);
+        // Wait for period to finish, then distribute token0's payout through a deposit of token1, which leaves
+        // token0's stream - and its queue - as they are
+        vm.warp(stream.finishAt + 1);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token1, 1 ether);
+        vm.stopPrank();
 
-        // Unregister reverts — queued is NOT zeroed since >= REWARD_PERIOD_LENGTH
-        vm.prank(manager);
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token0);
+        assertEq(pending.unlocked, 0, "token0's payout distributed");
+        assertEq(pending.locked, 0, "nothing left to stream");
+
+        // Unregister reverts — queued is NOT zeroed since >= REWARD_PERIOD_LENGTH, and it is all that remains
+        vm.startPrank(manager);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributionNotFinished.selector));
-        distributor.unregisterRewardToken(address(token0));
+        distributor.unregisterRewardToken(token0);
+        vm.stopPrank();
     }
 
     // ======================= MULTIPLE TOKENS CONCURRENT =======================
 
+    /// Two tokens stream independently at their own rates, and a deposit to one distributes what has streamed for
+    /// both.
     function test_depositReward_MultipleTokensConcurrentDistribution() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
-        distributor.registerRewardToken(address(token1));
+        distributor.registerRewardToken(token0);
+        distributor.registerRewardToken(token1);
         vm.stopPrank();
 
-        token0.mint(rewardDepositor, 100_000 ether);
-        token1.mint(rewardDepositor, 100_000 ether);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        MockERC20(token1).mint(rewardDepositor, 100_000 ether);
         vm.startPrank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-        token1.approve(address(distributor), MAX_UINT);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
+        IERC20(token1).approve(address(distributor), MAX_UINT);
         vm.stopPrank();
 
         uint256 amount0 = 1000 ether;
         uint256 amount1 = 2000 ether;
 
         // Deposit to both tokens
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), amount0);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token1), amount1);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, amount0);
+        distributor.depositReward(token1, amount1);
+        vm.stopPrank();
 
         // Verify independent rates
-        RewardData memory rd0;
-        RewardData memory rd1;
-        (rd0.lastUpdate, rd0.finishAt, rd0.rate, rd0.queued) = distributor.rewardData(address(token0));
-        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
+        RewardData memory stream0;
+        RewardData memory stream1;
+        (stream0.lastUpdate, stream0.finishAt, stream0.rate, stream0.queued) = distributor.rewardData(token0);
+        (stream1.lastUpdate, stream1.finishAt, stream1.rate, stream1.queued) = distributor.rewardData(token1);
 
-        assertEq(rd0.rate, amount0 / REWARD_PERIOD_LENGTH);
-        assertEq(rd1.rate, amount1 / REWARD_PERIOD_LENGTH);
+        assertEq(stream0.rate, amount0 / REWARD_PERIOD_LENGTH);
+        assertEq(stream1.rate, amount1 / REWARD_PERIOD_LENGTH);
 
         // Advance halfway
         uint256 halfPeriod = REWARD_PERIOD_LENGTH / 2;
         vm.warp(block.timestamp + halfPeriod);
 
         // Check independent pending
-        PendingRewards memory p0;
-        PendingRewards memory p1;
-        (p0.unlocked, p0.locked) = distributor.pendingRewards(address(token0));
-        (p1.unlocked, p1.locked) = distributor.pendingRewards(address(token1));
+        PendingRewards memory pending0;
+        PendingRewards memory pending1;
+        (pending0.unlocked, pending0.locked) = distributor.pendingRewards(token0);
+        (pending1.unlocked, pending1.locked) = distributor.pendingRewards(token1);
 
-        assertEq(p0.unlocked, rd0.rate * halfPeriod);
-        assertEq(p1.unlocked, rd1.rate * halfPeriod);
+        assertEq(pending0.unlocked, stream0.rate * halfPeriod);
+        assertEq(pending1.unlocked, stream1.rate * halfPeriod);
 
         // Deposit to token0 distributes pending for BOTH tokens via _distributePendingReward
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), p0.unlocked);
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(token0, pending0.unlocked);
         vm.expectEmit(address(distributor));
-        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token1), p1.unlocked);
-        distributor.depositReward(address(token0), 500 ether);
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(token1, pending1.unlocked);
+        distributor.depositReward(token0, 500 ether);
+        vm.stopPrank();
 
         // Both lastUpdates should be current
-        (rd0.lastUpdate, , , ) = distributor.rewardData(address(token0));
-        (rd1.lastUpdate, , , ) = distributor.rewardData(address(token1));
-        assertEq(rd0.lastUpdate, block.timestamp);
-        assertEq(rd1.lastUpdate, block.timestamp);
+        (stream0.lastUpdate, , , ) = distributor.rewardData(token0);
+        (stream1.lastUpdate, , , ) = distributor.rewardData(token1);
+        assertEq(stream0.lastUpdate, block.timestamp);
+        assertEq(stream1.lastUpdate, block.timestamp);
     }
-
-    // ======================= FINISHAT BOUNDARY =======================
 
     // ======================= FINISHAT=0 EDGE CASE =======================
 
-    /// @notice Replicates the mainnet bug where _distributePendingReward() updates lastUpdate
-    /// for ALL active tokens, even those that never received deposits, creating a
-    /// finishAt=0, lastUpdate>0 state. See ExplainFinishAtZero.t.sol for full analysis.
-    ///
-    /// At the distributor level this state is handled gracefully by the ternary check
-    /// in LinearReward.pending(). The actual revert happens in the accumulator layer
-    /// (uint192 integral overflow in MultipleRewardCompoundingAccumulator._accumulateReward).
+    /// A deposit to one token advances lastUpdate for every active token - _distributePendingReward walks them all - so
+    /// a token registered but never funded is left with finishAt 0 and lastUpdate set. pending() reads that state as
+    /// nothing to distribute, and the token's first deposit starts a fresh period.
     function test_finishAtZero_StateCreatedByDistributePendingReward() public {
         uint40 REWARD_PERIOD_LENGTH = 1 weeks;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        // Register two reward tokens — token1 will NEVER receive deposits
+        // Register two reward tokens — token1 will receive no deposit until the end
         vm.startPrank(manager);
-        distributor.registerRewardToken(address(token0));
-        distributor.registerRewardToken(address(token1));
+        distributor.registerRewardToken(token0);
+        distributor.registerRewardToken(token1);
         vm.stopPrank();
 
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 1_000_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
+        vm.stopPrank();
 
         // Initial state: both tokens have finishAt=0, lastUpdate=0
-        RewardData memory rd1;
-        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
-        assertEq(rd1.lastUpdate, 0);
-        assertEq(rd1.finishAt, 0);
+        RewardData memory stream1;
+        (stream1.lastUpdate, stream1.finishAt, stream1.rate, stream1.queued) = distributor.rewardData(token1);
+        assertEq(stream1.lastUpdate, 0);
+        assertEq(stream1.finishAt, 0);
 
         // Deposit to token0 only — triggers _distributePendingReward which updates ALL tokens
         vm.warp(1769153363);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 100_000 ether);
+        vm.stopPrank();
 
         // Token1: lastUpdate was set by _distributePendingReward, but finishAt remains 0
-        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
-        assertEq(rd1.finishAt, 0, "finishAt should remain 0 - no deposits to token1");
-        assertEq(rd1.lastUpdate, block.timestamp, "lastUpdate updated by _distributePendingReward");
-        assertEq(rd1.rate, 0);
-        assertEq(rd1.queued, 0);
+        (stream1.lastUpdate, stream1.finishAt, stream1.rate, stream1.queued) = distributor.rewardData(token1);
+        assertEq(stream1.finishAt, 0, "finishAt should remain 0 - no deposits to token1");
+        assertEq(stream1.lastUpdate, block.timestamp, "lastUpdate updated by _distributePendingReward");
+        assertEq(stream1.rate, 0);
+        assertEq(stream1.queued, 0);
 
         // More deposits to token0 keep advancing token1's lastUpdate while finishAt stays 0
         vm.warp(1769315855);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 50_000 ether);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 50_000 ether);
+        vm.stopPrank();
 
-        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
-        assertEq(rd1.finishAt, 0, "finishAt still 0 after second deposit");
-        assertEq(rd1.lastUpdate, block.timestamp, "lastUpdate keeps advancing");
+        (stream1.lastUpdate, stream1.finishAt, stream1.rate, stream1.queued) = distributor.rewardData(token1);
+        assertEq(stream1.finishAt, 0, "finishAt still 0 after second deposit");
+        assertEq(stream1.lastUpdate, block.timestamp, "lastUpdate keeps advancing");
 
-        // pending() handles the finishAt=0 state gracefully via ternary check
-        PendingRewards memory p;
-        (p.unlocked, p.locked) = distributor.pendingRewards(address(token1));
-        assertEq(p.unlocked, 0, "No pending rewards for never-deposited token");
-        assertEq(p.locked, 0, "No locked rewards for never-deposited token");
+        // pending() reads the finishAt=0 state as nothing to distribute
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(token1);
+        assertEq(pending.unlocked, 0, "No pending rewards for never-deposited token");
+        assertEq(pending.locked, 0, "No locked rewards for never-deposited token");
 
         // A first deposit to token1 works — increase() takes the if branch (block.timestamp >= 0)
-        token1.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token1.approve(address(distributor), MAX_UINT);
+        MockERC20(token1).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token1).approve(address(distributor), MAX_UINT);
+        vm.stopPrank();
 
         vm.warp(1769608823);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token1), 10_000 ether);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token1, 10_000 ether);
+        vm.stopPrank();
 
-        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
-        assertEq(rd1.lastUpdate, block.timestamp, "lastUpdate set by increase()");
-        assertEq(rd1.finishAt, block.timestamp + REWARD_PERIOD_LENGTH, "finishAt now set");
-        assertGt(rd1.rate, 0, "rate now positive");
+        (stream1.lastUpdate, stream1.finishAt, stream1.rate, stream1.queued) = distributor.rewardData(token1);
+        assertEq(stream1.lastUpdate, block.timestamp, "lastUpdate set by increase()");
+        assertEq(stream1.finishAt, block.timestamp + REWARD_PERIOD_LENGTH, "finishAt now set");
+        assertEq(stream1.rate, 10_000 ether / REWARD_PERIOD_LENGTH, "the deposit over the period");
     }
 
     // ======================= FINISHAT BOUNDARY =======================
 
+    /// A deposit at exactly finishAt starts a fresh period, the last remainder joining the deposit.
     function test_depositReward_AtExactFinishAt() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
+        vm.startPrank(manager);
+        distributor.registerRewardToken(token0);
+        vm.stopPrank();
 
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
+        MockERC20(token0).mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(token0).approve(address(distributor), MAX_UINT);
+        distributor.depositReward(token0, 1000 ether);
+        vm.stopPrank();
 
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1000 ether);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        RewardData memory stream;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
 
         // Warp to exactly finishAt (block.timestamp == finishAt)
-        vm.warp(rd.finishAt);
+        vm.warp(stream.finishAt);
 
         // At exactly finishAt, increase() takes the >= branch (new period starts)
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 500 ether);
+        vm.startPrank(rewardDepositor);
+        distributor.depositReward(token0, 500 ether);
+        vm.stopPrank();
 
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertEq(rd.lastUpdate, block.timestamp);
-        assertEq(rd.finishAt, block.timestamp + REWARD_PERIOD_LENGTH);
-        assertTrue(rd.rate > 0);
+        // the deposit and the first period's remainder, over a fresh period
+        uint256 restarted = stream.queued + 500 ether;
+        (stream.lastUpdate, stream.finishAt, stream.rate, stream.queued) = distributor.rewardData(token0);
+        assertEq(stream.lastUpdate, block.timestamp);
+        assertEq(stream.finishAt, block.timestamp + REWARD_PERIOD_LENGTH);
+        assertEq(stream.rate, restarted / REWARD_PERIOD_LENGTH);
+        assertEq(stream.queued, restarted % REWARD_PERIOD_LENGTH);
     }
 }

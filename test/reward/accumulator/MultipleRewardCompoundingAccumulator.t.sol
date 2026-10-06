@@ -174,7 +174,9 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
 
     /// A global checkpoint accrues each token's stream into its integral; a user checkpoint records the integral, its
     /// time and the user's share of what accrued; a second period's deposits add to both - with no reward tokens, one
-    /// and several.
+    /// and several. All exact: a stream pays `rate * period`, its rate the deposit over the period rounded down and the
+    /// remainder queued for the next deposit; each payout adds `paid * 1e18 * magnitude / totalShare` to the integral;
+    /// and a user's pending grows by `shares * integral gained / (magnitude * 1e18)` - each rounded down.
     function testCheckpoint() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             TestParams memory params;
@@ -183,54 +185,47 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             params.baseRewardAmount = 2233 ether;
             params.totalPoolShare = 1234 ether;
             params.userPoolShare = 456 ether;
-
-            uint256 globalSnapshot;
+            // the pool's and the user's product: exponent 0, magnitude 1e18
+            uint128 product = 1 ether;
 
             (
                 IMockMultipleRewardCompoundingAccumulator accumulator,
                 address[] memory tokenAddresses
             ) = _setupAccumulator(params.rewardCount, params.periodLength);
+            uint256[] memory expectedIntegral = new uint256[](params.rewardCount);
+            uint256[] memory expectedPending = new uint256[](params.rewardCount);
 
             // Set pool shares
-            accumulator.setTotalPoolShare(params.totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(params.userPoolShare, 1 ether);
+            accumulator.setTotalPoolShare(params.totalPoolShare, product);
+            accumulator.setUserPoolShare(params.userPoolShare, product);
 
             // Deposit rewards
             for (uint256 j = 0; j < params.rewardCount; j++) {
-                uint256 depositAmount = params.baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
+                accumulator.depositReward(tokenAddresses[j], params.baseRewardAmount * (j + 1));
             }
 
-            // Test global checkpoint
+            // Test global checkpoint: each stream has paid its whole first period
             vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(address(0));
 
             for (uint256 j = 0; j < params.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = params.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / params.periodLength;
-
-                assertApproxEqRel(
-                    globalSnapshot,
-                    (rate * params.periodLength * 1 ether * 1 ether) / params.totalPoolShare,
-                    0.0001e18, // Allow 0.01% error
+                uint256 rate = (params.baseRewardAmount * (j + 1)) / params.periodLength;
+                expectedIntegral[j] = Math.mulDiv(rate * params.periodLength * 1e18, product, params.totalPoolShare);
+                assertEq(
+                    accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0),
+                    expectedIntegral[j],
                     string.concat("Global integral mismatch for token ", vm.toString(j))
                 );
             }
 
-            // Test user checkpoint
+            // Test user checkpoint: the period is over, so the integral holds and the user takes their share of it
             vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(deployer);
 
             for (uint256 j = 0; j < params.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = params.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / params.periodLength;
-
-                assertApproxEqRel(
-                    globalSnapshot,
-                    (rate * params.periodLength * 1 ether * 1 ether) / params.totalPoolShare,
-                    0.0001e18, // Allow 0.01% error
+                assertEq(
+                    accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0),
+                    expectedIntegral[j],
                     string.concat("User integral mismatch for token ", vm.toString(j))
                 );
 
@@ -238,35 +233,40 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
                 (uint256 userTimestamp, uint256 userIntegral, uint256 userPending, uint256 userClaimed) = accumulator
                     .userRewardSnapshot(deployer, tokenAddresses[j]);
 
+                expectedPending[j] = Math.mulDiv(params.userPoolShare, expectedIntegral[j], uint256(product) * 1e18);
                 assertEq(userTimestamp, block.timestamp);
-                assertEq(userIntegral, globalSnapshot);
-                assertApproxEqRel(
+                assertEq(userIntegral, expectedIntegral[j]);
+                assertEq(
                     userPending,
-                    (depositAmount * params.userPoolShare) / params.totalPoolShare,
-                    0.0001e18, // Allow 0.01% error
+                    expectedPending[j],
                     string.concat("User pending mismatch for token ", vm.toString(j))
                 );
                 assertEq(userClaimed, 0);
             }
 
-            // Deposit again and checkpoint
+            // Deposit again and checkpoint: each second stream takes its deposit and the first's queued remainder
             for (uint256 j = 0; j < params.rewardCount; j++) {
-                uint256 depositAmount = params.baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
+                accumulator.depositReward(tokenAddresses[j], params.baseRewardAmount * (j + 1));
             }
 
             vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(deployer);
 
             for (uint256 j = 0; j < params.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = params.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / params.periodLength;
-
-                assertApproxEqRel(
-                    globalSnapshot,
-                    ((rate * params.periodLength * 1 ether * 1 ether) / params.totalPoolShare) * 2,
-                    0.001e18, // Allow 0.1% error for accumulated calculations
+                {
+                    uint256 deposit = params.baseRewardAmount * (j + 1);
+                    uint256 secondRate = (deposit + (deposit % params.periodLength)) / params.periodLength;
+                    uint256 secondGain = Math.mulDiv(
+                        secondRate * params.periodLength * 1e18,
+                        product,
+                        params.totalPoolShare
+                    );
+                    expectedIntegral[j] += secondGain;
+                    expectedPending[j] += Math.mulDiv(params.userPoolShare, secondGain, uint256(product) * 1e18);
+                }
+                assertEq(
+                    accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0),
+                    expectedIntegral[j],
                     string.concat("Global integral mismatch #2 for token ", vm.toString(j))
                 );
 
@@ -277,13 +277,12 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
                 assertEq(userTimestamp, block.timestamp);
                 assertEq(
                     userIntegral,
-                    globalSnapshot,
+                    expectedIntegral[j],
                     string.concat("User integral mismatch #2 for token ", vm.toString(j))
                 );
-                assertApproxEqRel(
+                assertEq(
                     userPending,
-                    ((depositAmount * params.userPoolShare) / params.totalPoolShare) * 2,
-                    0.001e18, // Allow 0.1% error for accumulated calculations
+                    expectedPending[j],
                     string.concat("Global user pending mismatch #2 for token ", vm.toString(j))
                 );
                 assertEq(userClaimed, 0);
@@ -396,7 +395,8 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     }
 
     /// @notice Verify integral growth matches the theoretical formula:
-    ///   delta = rewardAmount * 1e54 / totalPoolShare (at magnitude = 1e36)
+    ///   delta = paid * 1e54 / totalPoolShare (at magnitude = 1e36), paid being the reward less its remainder over the
+    ///   period
     function test_integralGrowth_MatchesFormula() public {
         uint40 periodLength = 1 weeks;
         (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
@@ -405,7 +405,8 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         );
 
         // Fresh pool: magnitude = 1e36 (MAGNITUDE_PRECISION), exponent = 0
-        accumulator.setTotalPoolShare(1 ether, uint128(1e36));
+        uint256 poolSize = 1 ether;
+        accumulator.setTotalPoolShare(poolSize, uint128(1e36));
 
         uint256 reward = 1000 ether;
         accumulator.depositReward(tokens[0], reward);
@@ -415,8 +416,10 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         accumulator.depositReward(tokens[0], reward);
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // Expected: reward * 1e54 / poolSize = 1e21 * 1e54 / 1e18 = 1e57
-        assertApproxEqRel(integral, 1e57, 0.001e18, "delta = reward * 1e54 / poolSize");
+        // The period paid rate * period - the reward less its remainder over the period, which stays queued - so
+        // delta = paid * 1e18 * 1e36 / poolSize = 1e21 * 1e54 / 1e18 = 1e57, less the remainder's part
+        uint256 paid = (reward / periodLength) * periodLength;
+        assertEq(integral, Math.mulDiv(paid * 1e18, 1e36, poolSize), "delta = paid * 1e54 / poolSize");
     }
 
     /// @notice A stream that accrues while the pool is EMPTY is re-queued in FULL. `queued` is a uint256 field, so a
@@ -431,19 +434,25 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         // stream a reward whose full-period distribution exceeds uint96, while the pool still has share
         accumulator.setTotalPoolShare(1 ether, uint128(1e36));
         uint256 reward = uint256(type(uint96).max) * 2;
-        MockERC20(tokens[0]).mint(deployer, reward + 1);
+        uint256 checkpointDeposit = 1;
+        MockERC20(tokens[0]).mint(deployer, reward + checkpointDeposit);
         accumulator.depositReward(tokens[0], reward);
 
         // the pool empties; the whole distributed stream is then re-queued by _accumulateReward
         accumulator.setTotalPoolShare(0, uint128(1e36));
         vm.warp(block.timestamp + 1 weeks);
-        accumulator.depositReward(tokens[0], 1); // checkpoint: accrues the stream into the empty-pool queue
+        accumulator.depositReward(tokens[0], checkpointDeposit); // checkpoint: accrues the stream into the empty-pool queue
 
-        // That checkpoint re-queues the whole accrued stream and then re-streams it, so the reward now lives in
-        // `rate * period` plus the `queued` remainder. Asserting their sum proves the accrual was taken at full width:
-        // narrowing the addend to uint96 (as v1 did) rejects this outright with a SafeCast overflow.
+        // That checkpoint re-queues the whole accrued stream and then re-streams it with its own deposit, so the reward
+        // now lives in `rate * period` plus the `queued` remainder - exactly the reward and that deposit. Asserting
+        // their sum proves the accrual was taken at full width: narrowing the addend to uint96 (as v1 did) rejects
+        // this outright with a SafeCast overflow.
         (, , uint256 rate, uint256 queued) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
-        assertGe(rate * 1 weeks + queued, reward, "whole accrued reward survived the empty-pool re-queue");
+        assertEq(
+            rate * 1 weeks + queued,
+            reward + checkpointDeposit,
+            "whole accrued reward survived the empty-pool re-queue"
+        );
     }
 
     /// @notice `maxDepositReward` frees the finished stream's capacity at EXACTLY `finishAt`, not one block later. While
@@ -533,15 +542,27 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         // 100% APY: annual reward = poolSize, weekly = poolSize / 52
         uint256 weeklyReward = poolSize / 52;
 
+        // Each week pays the stream's rate * period - the week's deposit and the last week's remainder over the
+        // period, rounded down - and adds paid * 1e18 * 1e36 / poolSize to the integral
+        uint256 expected;
         accumulator.depositReward(tokens[0], weeklyReward);
         for (uint256 i = 0; i < 52; i++) {
+            (, , uint256 rate, ) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
             vm.warp(block.timestamp + periodLength);
             accumulator.depositReward(tokens[0], weeklyReward);
+            expected += Math.mulDiv(rate * periodLength * 1e18, 1e36, poolSize);
         }
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // After 52 weeks at 100% APY: integral ~ 52 * (poolSize/52) * 1e54 / poolSize = 1e54
-        assertApproxEqRel(integral, 1e54, 0.01e18, "52wk at 100% APY: integral ~ 1e54");
+        assertEq(integral, expected, "52wk at 100% APY: each week's payout accrued");
+        // After 52 weeks at 100% APY: integral ~ 52 * (poolSize/52) * 1e54 / poolSize = 1e54. The 52 weeks paid
+        // 52 * (poolSize / 52) less the last remainder still queued, under a period; each wei short is 1e54 / poolSize
+        // of integral, so the shortfall is at most (poolSize % 52 + periodLength - 1) of them.
+        assertLe(
+            1e54 - integral,
+            ((poolSize % 52) + periodLength - 1) * (1e54 / poolSize),
+            "52wk at 100% APY: integral ~ 1e54"
+        );
         assertLt(integral, type(uint192).max, "Well within v1 uint192 bounds");
     }
 
@@ -561,15 +582,27 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         // 1000% APY: annual reward = 10 * poolSize, weekly = 10 * poolSize / 52
         uint256 weeklyReward = (poolSize * 10) / 52;
 
+        // Each week pays the stream's rate * period - the week's deposit and the last week's remainder over the
+        // period, rounded down - and adds paid * 1e18 * 1e36 / poolSize to the integral
+        uint256 expected;
         accumulator.depositReward(tokens[0], weeklyReward);
         for (uint256 i = 0; i < 520; i++) {
+            (, , uint256 rate, ) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
             vm.warp(block.timestamp + periodLength);
             accumulator.depositReward(tokens[0], weeklyReward);
+            expected += Math.mulDiv(rate * periodLength * 1e18, 1e36, poolSize);
         }
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // After 520 weeks at 1000% APY: integral ~ 520 * (10 * poolSize/52) * 1e54 / poolSize = 1e56
-        assertApproxEqRel(integral, 1e56, 0.01e18, "10yr at 1000% APY: integral ~ 1e56");
+        assertEq(integral, expected, "10yr at 1000% APY: each week's payout accrued");
+        // After 520 weeks at 1000% APY: integral ~ 520 * (10 * poolSize/52) * 1e54 / poolSize = 1e56. The 520 weeks
+        // paid 520 * (10 * poolSize / 52) - ten times (10 * poolSize % 52) short of 100 * poolSize - less the last
+        // remainder still queued, under a period; each wei short is 1e54 / poolSize of integral.
+        assertLe(
+            1e56 - integral,
+            (((poolSize * 10) % 52) * 10 + periodLength - 1) * (1e54 / poolSize),
+            "10yr at 1000% APY: integral ~ 1e56"
+        );
         assertLt(integral, type(uint192).max, "Still within v1 uint192 bounds (62x headroom)");
     }
 
@@ -630,15 +663,19 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         accumulator.checkpoint(deployer); // triggers accumulation + user checkpoint
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // rate=1, accumulated=604800, delta = 604800 * 1e54 / 1e25 = 6.048e34
+        // rate 1, so the period paid periodLength: delta = periodLength * 1e18 * 1e36 / 1e25, exactly 6.048e34
         assertGt(integral, 0, "Integral non-zero even at minimum rate");
-        assertApproxEqRel(integral, 6.048e34, 0.001e18, "Integral matches minimum rate prediction");
+        assertEq(
+            integral,
+            Math.mulDiv(uint256(periodLength) * 1e18, 1e36, poolSize),
+            "Integral matches minimum rate prediction"
+        );
 
         // Verify user can claim a non-zero amount
         uint256 claimable = IMultipleRewardAccumulator(address(accumulator)).claimable(deployer, aa(tokens[0]))[0];
-        // claimable = shares * delta / (magnitude * 1e18) = 1e25 * 6.048e34 / 1e54 = 604800
+        // claimable = shares * delta / (magnitude * 1e18) = 1e25 * 6.048e34 / 1e54: the whole period's payout
         assertGt(claimable, 0, "User has non-zero claimable at minimum rate");
-        assertApproxEqAbs(claimable, 604800, 10, "Claimable matches accumulated amount");
+        assertEq(claimable, periodLength, "Claimable matches accumulated amount");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -962,8 +999,10 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         address accumulator = address(mock);
         address token = tokens[0];
 
-        IMockMultipleRewardCompoundingAccumulator(accumulator).setTotalPoolShare(1000 ether, 1 ether);
-        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(1000 ether, 1 ether); // deployer has 100%
+        uint256 shares = 1000 ether;
+        uint128 product = 1 ether; // magnitude 1e18
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setTotalPoolShare(shares, product);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(shares, product); // deployer has 100%
 
         IMockMultipleRewardCompoundingAccumulator(accumulator).depositReward(token, 1000 ether);
         vm.warp(block.timestamp + 1 weeks);
@@ -976,16 +1015,27 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         IMockMultipleRewardCompoundingAccumulator(accumulator).unregisterRewardToken(token);
         vm.stopPrank();
 
-        // Correct entitlement (1000e18 shares = 100%): read from view before changing shares.
+        // Correct entitlement (1000e18 shares = 100%): read from view before changing shares - the shares' part of the
+        // integral, shares * integral / (magnitude * 1e18).
+        uint256 integral = IMockMultipleRewardCompoundingAccumulator(accumulator).tokenToExponentToIntegral(token, 0);
+        assertGt(integral, 0, "should have earned rewards");
         uint256 correctEntitlement = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
-        assertGt(correctEntitlement, 0, "should have earned rewards");
+        assertEq(
+            correctEntitlement,
+            Math.mulDiv(shares, integral, uint256(product) * 1e18),
+            "the whole pool's part of the integral"
+        );
 
         // Shares halved WITHOUT prior checkpoint — this is the gap.
-        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(500 ether, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(shares / 2, product);
 
-        // What the view reports with the post-gap share count.
+        // What the view reports with the post-gap share count: the halved shares' part of the same integral.
         uint256 gapEntitlement = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
-        assertLt(gapEntitlement, correctEntitlement, "gap: half shares gives less claimable");
+        assertEq(
+            gapEntitlement,
+            Math.mulDiv(shares / 2, integral, uint256(product) * 1e18),
+            "gap: the halved shares' part of the integral"
+        );
 
         // Claim transfers exactly what the view reported — no surprise, no rounding.
         uint256 balanceBefore = IERC20(token).balanceOf(deployer);
