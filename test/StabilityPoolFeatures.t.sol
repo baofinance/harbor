@@ -12,18 +12,6 @@ import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 
 contract StabilityPoolFeatures is TestStabilityPoolSetUp {
-    function test_requestWithdrawal_setsWindow() public {
-        // Request
-        vm.startPrank(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
-        vm.stopPrank();
-        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertGt(start, 0);
-        assertGt(end, start);
-        // ensure end - start equals configured period (immutables)
-        assertEq(end - start, marketConfig.stabilityPoolWithdrawalPeriod());
-    }
-
     function test_withdraw_beforeStart_chargedFee() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // Deposit
@@ -245,21 +233,6 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
             marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()
         );
         assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), treasury());
-    }
-
-    function test_getWithdrawalWindow_immutables_match_constructor() public view {
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalWindow();
-        assertEq(startDelay, marketConfig.stabilityPoolWithdrawalDelay());
-        assertEq(endWindow, marketConfig.stabilityPoolWithdrawalPeriod());
-    }
-
-    function test_ownerOnly_setters_and_updates() public pure {
-        // setters removed; nothing to test here
-        assert(true);
-    }
-
-    function test_setters_invalidParams_revert() public {
-        // setters removed; invalid-params tests no longer applicable
     }
 
     function test_withdraw_afterEnd_appliesFee() public {

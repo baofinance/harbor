@@ -73,8 +73,8 @@ library EnvelopeLib {
     /// limits by the `test_widthCorner_*` tests and the config-corner sibling markets.
     function ethFxUSD() internal pure returns (Envelope memory e) {
         e = Envelope({
-            name: "1B, 1e3, 1e3, 1e2",
-            maxPoolValueUSD: 1e10 ether, // $01B
+            name: "10B, 1e3, 1e3, 1e2",
+            maxPoolValueUSD: 1e10 ether, // $10B
             maxPoolUsers: 1e4,
             pegPriceUSD: 1 ether, // $1 nominal
             minPegPriceUSD: 1e-12 ether, // hyperinflation floor (a devalued unit worth <$1e-6) ...
@@ -86,7 +86,7 @@ library EnvelopeLib {
         });
     }
 
-    /// @dev A per-peg-MIN market (D2): the ethFxUSD envelope re-centred on `nominalPeg` with a modest ~3x band (the
+    /// @dev A per-peg-MIN market: the ethFxUSD envelope re-centred on `nominalPeg` with a modest ~3x band (the
     /// pegged token's realistic volatility), for a market CORRECTLY DEPLOYED at that scale - its MIN sized ~$1 at
     /// `nominalPeg` by the config (MIN = 1e18 / pegDollars). Distinct from ethFxUSD's frozen-MIN wide-peg DRIFT: here
     /// MIN tracks the peg, so the supply cap MAX = MIN * FACTOR_PRECISION stays ~$1e18 at every scale, and the market
@@ -954,7 +954,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     /// @notice Deposit sweep: a fresh user deposits a swept amount into the StabilityPool at a swept oracle point,
     /// pushing PAST the envelope pool into the `TokenBalance.amount` width regime (uint128 in v3, ~3.4e38 - widened
-    /// from v2's uint104 by Batch L). Whenever the deposit SUCCEEDS it must read back exactly (balance == amount, supply
+    /// from v2's uint104). Whenever the deposit SUCCEEDS it must read back exactly (balance == amount, supply
     /// moved by the amount) - asserted at every size, since a silent truncation is a bug regardless of the envelope.
     /// Only a clean revert (the width) is a located limit, and only past the envelope. Funds via `deal` so the pool's
     /// own deposit width is isolated from the minter's mint reach (the mint sweep is a separate probe).
@@ -1362,8 +1362,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // split remainder stays un-owed harvestable, handed to neither pool. (Within the streamed gross, each pool then
         // takes its OWN floored net, so its per-part net-flooring remainder also stays unharvested - see below.)
         uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
-        uint256 grossCol;
-        uint256 grossLev;
+        uint256 grossCollateral;
+        uint256 grossLeveraged;
         uint256 harvestableAmount;
         for (uint256 i = 0; i < 8; i++) {
             currentRate = (currentRate * 1001) / 1000;
@@ -1371,18 +1371,18 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             harvestableAmount = IMinter(minter).harvestable();
             uint256 totalHold = IERC20(pegged).balanceOf(stabilityPool) +
                 IERC20(pegged).balanceOf(stabilityPoolLeveraged);
-            grossCol = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPool), totalHold);
-            grossLev = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPoolLeveraged), totalHold);
-            if (grossCol + grossLev < harvestableAmount) {
+            grossCollateral = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPool), totalHold);
+            grossLeveraged = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPoolLeveraged), totalHold);
+            if (grossCollateral + grossLeveraged < harvestableAmount) {
                 break; // the gross split leaves an un-owed remainder - the discriminating case
             }
         }
-        require(grossCol + grossLev < harvestableAmount, "fixture must produce a split remainder");
+        require(grossCollateral + grossLeveraged < harvestableAmount, "fixture must produce a split remainder");
         // Each pool gets its OWN floored net floor(grossShare * residualRatio) - neither absorbs the per-part flooring
         // residual. The holdings-split remainder is separate: it was never owed, so it stays in the minter (asserted
         // below), alongside each pool's own net-flooring remainder.
-        uint256 expectedLev = Math.mulDiv(grossLev, residualRatio, 1e18);
-        uint256 expectedCol = Math.mulDiv(grossCol, residualRatio, 1e18);
+        uint256 expectedLeveraged = Math.mulDiv(grossLeveraged, residualRatio, 1e18);
+        uint256 expectedCollateral = Math.mulDiv(grossCollateral, residualRatio, 1e18);
 
         uint256 collateralPoolBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
         uint256 leveragedPoolBefore = IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged);
@@ -1393,12 +1393,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPool) - collateralPoolBefore,
-            expectedCol,
+            expectedCollateral,
             "collateral pool got exactly the net of its floored gross share, not a conserving complement"
         );
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged) - leveragedPoolBefore,
-            expectedLev,
+            expectedLeveraged,
             "leveraged pool got exactly the net of its floored gross share, not the split remainder"
         );
         assertGt(IMinter(minter).harvestable(), 0, "the split remainder stays in the minter as harvestable");
@@ -1793,12 +1793,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     }
 
     /// @notice A corner rebalance does not overflow the reward integral. The rebalance liquidation reward is
-    /// distributed immediately through `_accumulateReward`, which - unlike the streamed harvest path's
-    /// `maxDepositReward` - has NO upper cap, so it either executes or overflow-reverts. A rebalance is time-critical
-    /// and must execute. At the cheapest wrapped collateral (which maximises the collateral `returned`, the worst case
-    /// for the integral) the rebalance delivers its reward without reverting, and the margin to overflow (a single
-    /// immediate accrual overflows only ~1e6x above the streamed integral-safe cap) is the room the batch-3 in-call
-    /// shortfall-pickup must stay within.
+    /// distributed immediately through `_accumulateReward`, not streamed under the harvest path's `maxDepositReward`;
+    /// what bounds it is the manager, which scales each leg down so its proceeds stay within the pool's
+    /// `maxLiquidationReward` before it sweeps. A rebalance is time-critical and must execute: at the cheapest wrapped
+    /// collateral (which maximises the collateral `returned`, the worst case for the integral) the rebalance delivers
+    /// its reward without reverting.
     function test_rebalance_cornerLiquidationDoesNotOverflowIntegral() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
@@ -1814,8 +1813,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 injected = _rebalance();
 
         assertGt(injected, 0, "the corner rebalance executes and delivers a reward - no reward-integral overflow");
-        console2.log("R2 corner injected         =", injected);
-        console2.log("R2 corner maxDepositReward =", capIntegral);
+        console2.log("corner rebalance injected         =", injected);
+        console2.log("corner rebalance maxDepositReward =", capIntegral);
     }
 
     // ─── deterministic reward-field corner (the fuzz reaches this < 1/256 runs; never leave it to the fuzzer) ───
@@ -2429,11 +2428,11 @@ contract StabilityPoolEnvelope_ETH_fxUSD_rebalance105 is StabilityPoolEnvelopeBa
     }
 }
 
-// ─── D2: per-peg-MIN markets - the ETH::fxUSD deploy config priced at a range of peg SCALES, each with MIN sized ~$1
+// ─── Per-peg-MIN markets - the ETH::fxUSD deploy config priced at a range of peg SCALES, each with MIN sized ~$1
 // at its nominal peg (MIN = 1e18 / pegDollars), so a CORRECTLY-DEPLOYED market at that scale is proved to hold a full
-// $-range pool. This is the "diverse markets, each deployed for its peg" axis (A.6), distinct from ethFxUSD's
-// frozen-MIN wide-peg drift. Real deployed scales mirror their A.6 MINs; extreme scales are invented for
-// future/hypothetical markets ───
+// $-range pool. This is the "diverse markets, each deployed for its peg" axis, distinct from ethFxUSD's frozen-MIN
+// wide-peg drift. Real deployed scales mirror the MINs their peg configs (script/config/pegs) deploy; extreme scales
+// are invented for future/hypothetical markets ───
 
 contract ConfigPeg_ETH_min1e13 is ConfigPeg_ETH {
     function minDeposit() public pure override returns (uint256) {
@@ -2451,7 +2450,7 @@ contract ConfigMarket_ETH_fxUSD_min1e13 is ConfigMarket_ETH_fxUSD_zeroFeesAndBou
     }
 }
 
-/// @notice BTC-scale market: the deployed BTC peg's MIN (1e13, per A.6) priced at ~$1e5 (BTC). A correctly-deployed
+/// @notice BTC-scale market: the deployed BTC peg's MIN (1e13, as ConfigPeg_BTC deploys it) priced at ~$1e5 (BTC). A correctly-deployed
 /// high-value-peg market must hold the same $-range pool as a $1 market.
 contract StabilityPoolEnvelope_btcScale is StabilityPoolEnvelopeBase {
     function buildEnvelope() internal pure override returns (Envelope memory) {
@@ -2547,7 +2546,8 @@ contract ConfigMarket_ETH_fxUSD_min1e18 is ConfigMarket_ETH_fxUSD_zeroFeesAndBou
     }
 }
 
-/// @notice EUR-scale market: the deployed EUR peg's MIN (1e18, per A.6) priced at ~$1 (a fiat-parity peg).
+/// @notice EUR-scale market: the deployed EUR peg's MIN (1e18, as ConfigPeg_EUR deploys it) priced at ~$1 (a
+/// fiat-parity peg).
 contract StabilityPoolEnvelope_eurScale is StabilityPoolEnvelopeBase {
     function buildEnvelope() internal pure override returns (Envelope memory) {
         return EnvelopeLib.atPegScale(1 ether, "eurScale");

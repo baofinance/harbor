@@ -1262,10 +1262,11 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     /// each take their floored ratio of the gross, each pool its own floored residual share of the yield split by its
     /// deposits, and the harvest returns exactly those parts.
     function test_harvestWithCutRatioAndFeeReceiver_() public {
-        // Set up the ratio pair - 10% bounty, 20% cut - and the fee receiver
+        // Set up the ratio pair - 10% bounty, 20% cut - and a fee receiver other than the one the deploy set
+        address chosenFeeReceiver = makeAddr("chosenFeeReceiver");
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.1 ether, 0.2 ether);
-        IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(feeReceiver);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(chosenFeeReceiver);
         vm.stopPrank();
 
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
@@ -1273,9 +1274,8 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(7 ether, address(this), 0);
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(3 ether, address(this), 0);
 
-        // Record initial balances
+        // Record initial balances (the chosen fee receiver, a fresh address, holds nothing)
         uint256 harvesterBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
-        uint256 feeReceiverBefore = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
         uint256 pool1Before = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
         uint256 pool2Before = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged);
 
@@ -1304,9 +1304,9 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             "Harvester should receive correct bounty"
         );
         assertEq(
-            IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeReceiverBefore,
+            IERC20(wrappedCollateralToken).balanceOf(chosenFeeReceiver),
             expectedCut,
-            "Fee receiver should receive correct cut"
+            "the fee receiver the owner chose receives the cut"
         );
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - pool1Before,
@@ -1630,17 +1630,18 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
             "fee receiver starts at the setUp value (the treasury), never zero"
         );
 
-        // Set fee receiver
+        // Set a fee receiver other than the one the deploy set
+        address firstFeeReceiver = makeAddr("firstFeeReceiver");
         vm.startPrank(owner());
         vm.expectEmit(true, true, false, false);
-        emit IStabilityPoolManager_v2.UpdateFeeReceiver(treasury(), feeReceiver);
-        IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(feeReceiver);
+        emit IStabilityPoolManager_v2.UpdateFeeReceiver(treasury(), firstFeeReceiver);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(firstFeeReceiver);
         vm.stopPrank();
 
         // Verify it was set correctly
         assertEq(
             IStabilityPoolManager_v2(stabilityPoolManager).feeReceiver(),
-            feeReceiver,
+            firstFeeReceiver,
             "Fee receiver should be updated"
         );
 
@@ -1648,7 +1649,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         address newFeeReceiver = makeAddr("newFeeReceiver");
         vm.startPrank(owner());
         vm.expectEmit(true, true, false, false);
-        emit IStabilityPoolManager_v2.UpdateFeeReceiver(feeReceiver, newFeeReceiver);
+        emit IStabilityPoolManager_v2.UpdateFeeReceiver(firstFeeReceiver, newFeeReceiver);
         IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(newFeeReceiver);
         vm.stopPrank();
 
@@ -1666,7 +1667,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         bounty = bound(bounty, 0, 0.99 ether);
         cut = bound(cut, 0, 0.99 ether - bounty);
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(feeReceiver);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(makeAddr("chosenFeeReceiver"));
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bounty, cut);
         vm.stopPrank();
 
@@ -1705,7 +1706,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
             "StabilityPoolManager should not receive tokens yet"
         );
         assertEq(
-            IERC20(wrappedCollateralToken).balanceOf(feeReceiver),
+            IERC20(wrappedCollateralToken).balanceOf(makeAddr("chosenFeeReceiver")),
             cutAmount,
             "Fee receiver should receive the cut on the distributed gross"
         );
@@ -1731,9 +1732,8 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
     }
 
     function test_harvestWithoutSufficientTokens_() public {
-        // Set up fee receiver and harvest cut ratio
+        // Set up the harvest cut ratio
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateFeeReceiver(feeReceiver);
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0, 0.1 ether); // 10% cut
         vm.stopPrank();
 

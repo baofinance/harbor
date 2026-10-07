@@ -412,13 +412,13 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Transfer equivalence — transfer must behave identically to withdraw + deposit
-    // (B.3.1a — exposes the bug where _transferBalance operates on stored balance,
-    //  not compounded balance, so transfers move the wrong amount after a loss)
+    // Transfer equivalence — a transfer moves the compounded balance, as a withdrawal and a
+    // deposit would: after a loss, X transferred is X off the sender's rebased balance and X
+    // onto the receiver's, not X of either's stored amount
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// Intent: with no prior loss, transfer X from user1 to user2 should produce the same
-    ///         end balances as user1 transferring (sanity check, no bug expected here).
+    /// Intent: with no prior loss, transfer X from user1 to user2 moves exactly X from one
+    ///         balance to the other.
     function test_transfer_equivalence_noLoss() public {
         _deposit(user1, 100 ether);
 
@@ -433,11 +433,9 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         assertEq(IERC20(stabilityPool).balanceOf(user2), user2Before + 30 ether, "user2 +30");
     }
 
-    /// Intent: after a loss, transferring X stored-units must move X compounded-balance,
-    ///         not X stored-balance. Transfer X from user1 should reduce user1's compounded
-    ///         balance by exactly X and increase user2's by exactly X. The bug: current
-    ///         implementation reduces user1's stored amount by X, which equals more or less
-    ///         than X compounded depending on the product.
+    /// Intent: after a loss, transferring X moves X of the compounded balance, not X of the
+    ///         stored amount (which is more or less than X compounded, depending on the product):
+    ///         user1's compounded balance falls by exactly X and user2's rises by exactly X.
     function test_transfer_equivalence_afterLoss() public {
         // user1 deposits 100 at fresh product
         _deposit(user1, 100 ether);
@@ -606,12 +604,12 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Transfer after loss: _transferBalance bug
+    // Transfer after loss: the whole compounded balance
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// Intent: after a loss, transferring the FULL compounded balance should leave the sender with 0.
-    /// Bug: _transferBalance subtracts the compounded amount from the stored amount (which is larger),
-    /// leaving a phantom balance that compounds to a non-zero value.
+    /// Intent: after a loss, transferring the FULL compounded balance leaves the sender with 0 - the
+    /// transfer takes the compounded amount off the compounded balance, so no stored remainder is left
+    /// to compound to a phantom balance.
     function test_transferFullBalanceAfterLoss_senderHasZero() public {
         _deposit(user1, 100 ether);
 

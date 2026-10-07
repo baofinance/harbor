@@ -138,8 +138,9 @@ contract StabilityPoolInvariantHandler is Test {
     }
 
     /// @notice Withdraw inside a requested window (no fee): request, warp to the window start,
-    /// withdraw. Amount is capped at min(balance, supply - MIN_TOTAL_ASSET_SUPPLY) so the
-    /// supply-floor trim branch and WithdrawZeroAmount are unreachable.
+    /// withdraw. The amount is bounded by the actor's balance alone, so the pool's floor cap may trim
+    /// it; the handler skips an actor with nothing to withdraw and a pool with no headroom above the
+    /// floor, which keeps WithdrawZeroAmount unreachable.
     function withdrawWindowed(uint256 actorSeed, uint256 amount) external {
         address actor = _actors[actorSeed % _actors.length];
         uint256 cap = _withdrawCap(actor);

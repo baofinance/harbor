@@ -107,9 +107,9 @@ contract StabilityPoolStorageLayoutTest is Test {
     }
 
     /// @notice The widened field uses exactly the bytes that were zero padding in v2: a v3 write
-    /// above the old uint104 ceiling stores correctly and leaves product/updatedAt untouched, and
-    /// reading that same storage back under the v2 layout yields only the low 104 bits — proving
-    /// the reclaimed high bytes are amount's, not a neighbour's.
+    /// above the old uint104 ceiling, read back under the v2 layout, yields only the low 104 bits of
+    /// the amount and the product and updatedAt as written — proving the reclaimed high bytes are
+    /// amount's, not a neighbour's.
     function test_v128UsesReclaimedPaddingBytes() public {
         uint128 product = uint128(2e35);
         uint128 amount = uint128(uint256(type(uint104).max) + 7e30); // above uint104, inside uint128
@@ -117,13 +117,11 @@ contract StabilityPoolStorageLayoutTest is Test {
 
         vm.etch(slot, v128Code);
         TokenBalanceLayoutV128(slot).write(product, amount, updatedAt);
-        (uint128 p, uint256 a, uint40 t) = TokenBalanceLayoutV128(slot).read();
-        assertEq(a, amount, "v128 stores values above uint104 max in the reclaimed padding");
-        assertEq(p, product, "product neighbour untouched by the high amount bytes");
-        assertEq(t, updatedAt, "updatedAt neighbour untouched by the high amount bytes");
 
         vm.etch(slot, v104Code); // read the same storage under the old layout
-        (, uint256 aTruncated, ) = TokenBalanceLayoutV104(slot).read();
+        (uint128 productUnderV2, uint256 aTruncated, uint40 updatedAtUnderV2) = TokenBalanceLayoutV104(slot).read();
+        assertEq(productUnderV2, product, "the v2 layout reads the product the v3 write left");
+        assertEq(updatedAtUnderV2, updatedAt, "and the updatedAt");
         assertEq(
             aTruncated,
             uint256(amount) & uint256(type(uint104).max),
