@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
@@ -120,8 +121,6 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     /// @dev Liquidates the pool as its rebalancer, with the loss and proceeds the scenario states.
     StabilityPoolActions internal poolActions;
 
-    uint256 currentPoolDeposit;
-
     function percentRebalance() internal pure virtual returns (uint256);
 
     function context() internal pure virtual override returns (string memory) {
@@ -136,8 +135,6 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
         vm.stopPrank();
-
-        currentPoolDeposit = initialPoolDeposit;
 
         rewardFile = openFile(
             "reward",
@@ -237,24 +234,24 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
 
         if (!rebalance1 && currentX >= startX + 3 days) {
             uint256 toLiquidate = (initialPoolDeposit * percentRebalance()) / 100;
-            currentPoolDeposit -= toLiquidate;
-            // the scenario: the rebalance pays the pegged it asks for at the collateral's price - an immediate reward
-            uint256 toLiquidateTo = (toLiquidate * 1 ether) / price;
-            poolActions.liquidate(wrappedCollateralToken, toLiquidate, toLiquidateTo);
+            // the scenario: the rebalance pays what the pool gives up - the request, capped at its headroom above the
+            // floor - at the collateral's price, an immediate reward
+            uint256 givenUp = Math.min(toLiquidate, IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss());
+            poolActions.liquidate(wrappedCollateralToken, toLiquidate, (givenUp * 1 ether) / price);
             rebalance1 = true;
         }
 
         if (!depositedInPool && currentX >= startX + 5 days) {
             uint256 user2Deposit = (initialPoolDeposit * 2) / 3;
             IStabilityPool_v3(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
-            currentPoolDeposit += user2Deposit;
             depositedInPool = true;
         }
 
         if (!rebalance2 && currentX >= startX + 7 days) {
-            // the scenario: the rebalance pays the pegged it asks for at the collateral's price - an immediate reward
-            uint256 toLiquidateTo = (currentPoolDeposit * 1 ether) / price;
-            poolActions.liquidate(wrappedCollateralToken, currentPoolDeposit, toLiquidateTo);
+            // the second asks for the whole pool; the pool gives up all but its floor, and the rebalance pays for that
+            uint256 toLiquidate = IERC20(stabilityPoolCollateral).totalSupply();
+            uint256 givenUp = Math.min(toLiquidate, IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss());
+            poolActions.liquidate(wrappedCollateralToken, toLiquidate, (givenUp * 1 ether) / price);
             rebalance2 = true;
         }
     }
