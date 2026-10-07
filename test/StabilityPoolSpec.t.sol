@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
@@ -471,6 +472,79 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 4, user2);
         vm.stopPrank();
+    }
+
+    /// Holding every other role is no licence to sweep: only the owner and the rebalancer may.
+    function test_sweep_byAHolderOfEveryOtherRole_reverts() public {
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        address roleHolder = makeAddr("roleHolder");
+        uint256 rebalancerRole = IStabilityPool_v3(stabilityPoolCollateral).REBALANCER_ROLE();
+        vm.startPrank(owner());
+        IBaoRoles(stabilityPoolCollateral).grantRoles(roleHolder, type(uint256).max ^ rebalancerRole);
+        vm.stopPrank();
+
+        vm.startPrank(roleHolder);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 4, roleHolder);
+        vm.stopPrank();
+    }
+
+    /// A pegged sweep beyond the headroom above the floor moves exactly the headroom and says so, and on its own it
+    /// changes neither the supply nor any balance - only a liquidation's loss writes those down.
+    function test_sweep_ofPeggedPastTheHeadroom_isCapped_reportsIt_andMovesNoBalance() public {
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.stopPrank();
+        uint256 headroom = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 balance1Before = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 balance2Before = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 rebalancerBefore = IERC20(peggedToken).balanceOf(rebalancer);
+
+        vm.startPrank(rebalancer);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit ITokenHolder.Swept(peggedToken, headroom, rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, supplyBefore, rebalancer);
+        vm.stopPrank();
+
+        assertEq(IERC20(peggedToken).balanceOf(rebalancer) - rebalancerBefore, headroom, "the headroom is swept");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore, "the supply is unchanged");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balance1Before, "user1's balance is unchanged");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), balance2Before, "user2's balance is unchanged");
+    }
+
+    /// After a loss a holder's balance is written down, and withdrawing everything takes exactly that written-down
+    /// balance - its deposit less its share of the loss per unit, rounded up - and leaves nothing.
+    function test_withdraw_ofEverythingAfterALoss_paysTheWrittenDownBalance() public {
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.stopPrank();
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 loss = DEPOSIT_AMOUNT / 3; // a third of a deposit over three: does not divide, so the error is carried
+        collateralPoolActions.liquidate(wrappedCollateralToken, loss, 0);
+
+        uint256 carried = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
+        uint256 scaledLoss = loss * 1 ether + carried;
+        assertLt(carried, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
+        assertEq(scaledLoss % supplyBefore, 0, "the loss and its carried over-application make a whole loss per unit");
+        uint256 writtenDown = DEPOSIT_AMOUNT - Math.ceilDiv(DEPOSIT_AMOUNT * (scaledLoss / supplyBefore), 1 ether);
+
+        _beginWithdrawal(user1);
+        uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
+        vm.startPrank(user1);
+        uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        vm.stopPrank();
+        assertEq(withdrawn, writtenDown, "paid exactly the written-down balance");
+        assertEq(IERC20(peggedToken).balanceOf(user1) - walletBefore, writtenDown, "and receives it");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "left with nothing");
     }
 
     function testMultipleDepositWithdrawCycles() public {

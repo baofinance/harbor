@@ -597,6 +597,32 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         );
     }
 
+    /// A withdrawal request says which window it opens; a later request replaces that window with its own, and says so
+    /// again.
+    function test_requestWithdrawal_emitsItsWindow_andASecondReplacesTheFirst() public {
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalWindow();
+        uint64 start = uint64(block.timestamp) + startDelay;
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequested(user1, start, start + endWindow);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 hours);
+        uint64 secondStart = uint64(block.timestamp) + startDelay;
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequested(user1, secondStart, secondStart + endWindow);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+
+        (uint64 requestStart, uint64 requestEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
+            user1
+        );
+        assertEq(requestStart, secondStart, "the second request's start replaces the first's");
+        assertEq(requestEnd, secondStart + endWindow, "the second request's end replaces the first's");
+    }
+
     /// A withdrawal request opens the configured window: it starts the configured delay after the request and stays
     /// open for the configured period.
     function test_requestWithdrawal_applies_startDelay_and_window() public {

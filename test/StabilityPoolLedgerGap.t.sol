@@ -503,25 +503,34 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
 
     /// @notice Every holder can exit a pool whose balances are over-credited (gap < 0: Sum(balanceOf) > supply). The
     /// actors withdraw their whole balances in turn; by the last of them the recorded balance exceeds what is left of
-    /// the supply, and the withdrawal debits that balance capped at the supply - paying what the pool holds and
-    /// writing off the excess, which no asset backs - so the last exit succeeds and the over-credit is closed.
+    /// the supply, and the withdrawal debits that balance capped at the supply - paying what the pool holds above the
+    /// floor and writing off the excess, which no asset backs - so the last exit succeeds and the over-credit is closed
+    /// exactly: the pool is left at its floor, held by the last actor alone.
     function test_lastWithdrawalSurvivesOverCredit() public {
         address[] memory actors = _reproduceNegativeGap();
         assertLt(_gap(actors), 0, "precondition: the scenario is over-credited (Sum(balanceOf) > supply)");
+        uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 last = actors.length - 1;
 
-        for (uint256 i = 0; i < actors.length; i++) {
-            uint256 bal = IERC20(pool).balanceOf(actors[i]);
-            if (bal == 0) {
-                continue;
-            }
+        for (uint256 i = 0; i < last; i++) {
             vm.startPrank(actors[i]);
-            // the last actor's balance exceeds the remaining supply; the cap pays what the pool holds
             IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[i], 0);
             vm.stopPrank();
+            assertEq(IERC20(pool).balanceOf(actors[i]), 0, "an exit within the headroom leaves nothing");
         }
-        // after every full exit the over-credit is written off: capping the recorded balance at supply burns
-        // the phantom excess, so Sum(balanceOf) no longer exceeds supply.
-        assertGe(_gap(actors), 0, "over-credit written off: Sum(balanceOf) <= supply after the exits");
+        assertGt(
+            IERC20(pool).balanceOf(actors[last]),
+            IERC20(pool).totalSupply(),
+            "fixture: the last balance exceeds the supply left"
+        );
+        vm.startPrank(actors[last]);
+        IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[last], 0);
+        vm.stopPrank();
+
+        // debited at the supply, less the headroom it was paid: left with exactly the floor
+        assertEq(IERC20(pool).balanceOf(actors[last]), floor, "the last holder is left with the floor");
+        assertEq(IERC20(pool).totalSupply(), floor, "the pool is left at its floor");
+        assertEq(_gap(actors), 0, "the over-credit is written off exactly: Sum(balanceOf) == supply");
     }
 
     /// @notice The reward divisor never lands in the forbidden (0, MIN_TOTAL_ASSET_SUPPLY) dust zone, even when every
@@ -696,8 +705,14 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - floor, 0); // the whole headroom: the worst case for the loss-per-unit
 
         assertEq(IERC20(pool).totalSupply(), floor, "precondition: the liquidation took the pool to its floor");
-        assertGt(MockStabilityPool(pool).__totalSupply().product.magnitude(), 0, "the product must survive the bound");
-        assertGt(IERC20(pool).balanceOf(actors[0]), 0, "the holder's balance still reads back");
+        // The loss per unit is (supply - floor) * 1e18 / supply = 1e18 - 1 exactly - nothing is carried - so the factor
+        // is 1: the magnitude falls to 1e18, below MIN_PRECISION, and the product climbs one rung - exponent 1,
+        // magnitude MIN_PRECISION. The sole holder's balance, read through that rung, is exactly the floor.
+        assertEq(IStabilityPool_v3(pool).lastAssetLossError(), 0, "the loss divides: nothing is carried");
+        uint128 product = MockStabilityPool(pool).__totalSupply().product;
+        assertEq(product.exponent(), 1, "the product climbs one rung");
+        assertEq(product.magnitude(), DecrementalFloatingPoint_v2.MIN_PRECISION, "to the rung's least magnitude");
+        assertEq(IERC20(pool).balanceOf(actors[0]), floor, "the holder keeps exactly the floor");
     }
 
     /// @notice One wei past that bound is where a floor-capped liquidation's loss-per-unit CEILs up to a total loss

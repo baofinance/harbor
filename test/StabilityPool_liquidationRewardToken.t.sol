@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -184,6 +185,23 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
             (RETURNED * DEPOSIT_TWO) / (DEPOSIT_ONE + DEPOSIT_TWO),
             "two is paid its three quarters"
         );
+    }
+
+    /// The owner, who may sweep, may not record a liquidation: that is the rebalancer role's alone.
+    function test_notifyLiquidation_byTheOwner_reverts() public {
+        _twoDepositors();
+        assertFalse(
+            IBaoRoles(stabilityPoolCollateral).hasAnyRole(
+                owner(),
+                IStabilityPool_v3(stabilityPoolCollateral).REBALANCER_ROLE()
+            ),
+            "fixture: the owner holds no rebalancer role"
+        );
+
+        vm.startPrank(owner());
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, 0, 0);
+        vm.stopPrank();
     }
 
     /// Only the rebalancer may record a liquidation, whatever token it names.
