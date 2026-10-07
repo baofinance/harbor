@@ -8,6 +8,7 @@ import {ERC20} from "@solady/tokens/ERC20.sol";
 
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
@@ -443,18 +444,20 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         // Apply a 25% loss to the pool (25 of 100)
         poolActions.liquidate(wrappedCollateralToken, 25 ether, 25 ether);
 
-        // After the loss, user1's compounded balance is 75 (75% of original)
+        // After the loss, user1's compounded balance is exactly 75: a quarter of the supply is a per-unit loss of
+        // exactly 0.25e18, nothing carried
         uint256 user1Compounded = IERC20(stabilityPool).balanceOf(user1);
-        assertApproxEqAbs(user1Compounded, 75 ether, 1, "user1 75 after loss");
+        assertEq(user1Compounded, 75 ether, "user1 75 after loss");
 
         // Transfer 30 (compounded) from user1 to user2
         vm.startPrank(user1);
         IERC20(stabilityPool).transfer(user2, 30 ether);
         vm.stopPrank();
 
-        // user1 should have 45, user2 should have 30
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 45 ether, 1, "user1 45");
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), 30 ether, 1, "user2 30");
+        // The transfer checkpoints both parties to the current product, then moves the amount between their stored
+        // amounts: user1 exactly 45, user2 exactly 30
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 45 ether, "user1 45");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), 30 ether, "user2 30");
     }
 
     /// Intent: round-trip transfer A->B then B->A leaves both balances unchanged (within rounding).
@@ -490,8 +493,9 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         IERC20(stabilityPool).transfer(user1, 30 ether);
         vm.stopPrank();
 
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), user1Before, 1, "user1 unchanged");
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), user2Before, 1, "user2 unchanged");
+        // each transfer is exact arithmetic on balances at the current product, so the round trip is exact
+        assertEq(IERC20(stabilityPool).balanceOf(user1), user1Before, "user1 unchanged");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), user2Before, "user2 unchanged");
     }
 
     /// Intent: transferring entire compounded balance after multiple losses leaves sender empty
@@ -509,8 +513,9 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         IERC20(stabilityPool).transfer(user2, user1Compounded);
         vm.stopPrank();
 
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 0, 1, "user1 empty");
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), user1Compounded, 1, "user2 has full");
+        // the third loss does not divide the supply, but the transfer is exact whatever the balance
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 0, "user1 empty");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), user1Compounded, "user2 has full");
     }
 
     /// Intent: a transfer should not affect the sender's pending rewards. Reward accrual up to
@@ -521,9 +526,11 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
 
         // Accrue rewards (as a stability pool manager's harvest deposits them)
         _depositReward(stabilityPool, wrappedCollateralToken, wrappedCollateralToken, 10 ether);
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPool).rewardData(wrappedCollateralToken);
+        uint256 streamed = rate * IMultipleRewardDistributor(stabilityPool).REWARD_PERIOD_LENGTH();
         skip(2 weeks); // let rewards fully drip
 
-        // Snapshot pending rewards before transfer
+        // Snapshot pending rewards before transfer: exactly half of what streamed each
         uint256 user1ClaimableBefore = IMultipleRewardAccumulator(stabilityPool).claimable(
             user1,
             aa(wrappedCollateralToken)
@@ -532,27 +539,29 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
             user2,
             aa(wrappedCollateralToken)
         )[0];
-        assertGt(user1ClaimableBefore, 0, "user1 has rewards");
-        assertGt(user2ClaimableBefore, 0, "user2 has rewards");
+        assertEq(user1ClaimableBefore, streamed / 2, "user1 is owed half of what streamed");
+        assertEq(user2ClaimableBefore, streamed / 2, "user2 is owed half of what streamed");
 
         // Transfer half of user1's balance to user2
         vm.startPrank(user1);
         IERC20(stabilityPool).transfer(user2, 50 ether);
         vm.stopPrank();
 
-        // Pending rewards should be preserved (within tiny rounding)
-        assertApproxEqAbs(
-            IMultipleRewardAccumulator(stabilityPool).claimable(user1, aa(wrappedCollateralToken))[0],
-            user1ClaimableBefore,
-            1,
-            "user1 rewards preserved"
-        );
-        assertApproxEqAbs(
-            IMultipleRewardAccumulator(stabilityPool).claimable(user2, aa(wrappedCollateralToken))[0],
-            user2ClaimableBefore,
-            1,
-            "user2 rewards preserved"
-        );
+        // Pending rewards are preserved. The transfer checkpoints both parties, flushing the finished stream into the
+        // reward integral, and the claim on that floors once more than the stream's view did: each claim is what it
+        // was, or one wei short.
+        uint256 user1ClaimableAfter = IMultipleRewardAccumulator(stabilityPool).claimable(
+            user1,
+            aa(wrappedCollateralToken)
+        )[0];
+        uint256 user2ClaimableAfter = IMultipleRewardAccumulator(stabilityPool).claimable(
+            user2,
+            aa(wrappedCollateralToken)
+        )[0];
+        assertLe(user1ClaimableAfter, user1ClaimableBefore, "user1 rewards: never more");
+        assertGe(user1ClaimableAfter + 1, user1ClaimableBefore, "user1 rewards preserved");
+        assertLe(user2ClaimableAfter, user2ClaimableBefore, "user2 rewards: never more");
+        assertGe(user2ClaimableAfter + 1, user2ClaimableBefore, "user2 rewards preserved");
     }
 
     /// Intent: after a transfer, future rewards should accrue to user1 and user2 proportional
@@ -568,17 +577,21 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
 
         // Accrue new rewards
         _depositReward(stabilityPool, wrappedCollateralToken, wrappedCollateralToken, 20 ether);
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPool).rewardData(wrappedCollateralToken);
+        uint256 streamed = rate * IMultipleRewardDistributor(stabilityPool).REWARD_PERIOD_LENGTH();
         skip(2 weeks);
 
-        uint256 user1Claimable = IMultipleRewardAccumulator(stabilityPool).claimable(user1, aa(wrappedCollateralToken))[
-            0
-        ];
-        uint256 user2Claimable = IMultipleRewardAccumulator(stabilityPool).claimable(user2, aa(wrappedCollateralToken))[
-            0
-        ];
-
-        // user2's claim should be ~3x user1's (150 vs 50)
-        assertApproxEqRel(user2Claimable, user1Claimable * 3, 0.01 ether, "user2 ~3x user1");
+        // A quarter and three quarters of what streamed (50 : 150), exactly - nothing flushes the stream before the read
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPool).claimable(user1, aa(wrappedCollateralToken))[0],
+            streamed / 4,
+            "user1: a quarter, by its balance after the transfer"
+        );
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPool).claimable(user2, aa(wrappedCollateralToken))[0],
+            (streamed * 3) / 4,
+            "user2: three quarters, by its balance after the transfer"
+        );
     }
 
     /// Intent: a transfer followed by a loss should apply the loss to both parties based on
@@ -592,15 +605,15 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         IERC20(stabilityPool).transfer(user2, 100 ether);
         vm.stopPrank();
 
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 100 ether, 1, "user1 100 after transfer");
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), 100 ether, 1, "user2 100 after transfer");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 100 ether, "user1 100 after transfer");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), 100 ether, "user2 100 after transfer");
 
         // Apply a 50% loss to the pool
         poolActions.liquidate(wrappedCollateralToken, 100 ether, 100 ether);
 
-        // Both should have 50 (half each)
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 50 ether, 1, "user1 50 after loss");
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), 50 ether, 1, "user2 50 after loss");
+        // Both have exactly 50: half the supply is a per-unit loss of exactly 0.5e18, nothing carried
+        assertEq(IERC20(stabilityPool).balanceOf(user1), 50 ether, "user1 50 after loss");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), 50 ether, "user2 50 after loss");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -616,8 +629,9 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         // Apply a 37.5% loss (same as the worked example: 100 -> 62.5)
         poolActions.liquidate(wrappedCollateralToken, 37.5 ether, 37.5 ether);
 
+        // exactly 62.5: 37.5% of the supply is a per-unit loss of exactly 0.375e18, nothing carried
         uint256 balanceAfterLoss = IERC20(stabilityPool).balanceOf(user1);
-        assertApproxEqAbs(balanceAfterLoss, 62.5 ether, 1e15, "user1 has 62.5 after loss");
+        assertEq(balanceAfterLoss, 62.5 ether, "user1 has 62.5 after loss");
 
         // Transfer the full compounded balance to user2
         vm.startPrank(user1);
@@ -627,7 +641,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         // Sender should have 0
         assertEq(IERC20(stabilityPool).balanceOf(user1), 0, "sender should have 0 after full transfer");
         // Receiver should have the full amount
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), balanceAfterLoss, 1, "receiver gets the full amount");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), balanceAfterLoss, "receiver gets the full amount");
     }
 
     /// Intent: after a loss, transferring a partial compounded amount should leave sender with the remainder.
@@ -645,18 +659,12 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         IERC20(stabilityPool).transfer(user2, halfBalance);
         vm.stopPrank();
 
-        // Sender should have the other half
+        // The transfer is exact arithmetic on balances at the current product: the sender keeps exactly the other
+        // half, the receiver exactly what was sent, and the two make up the balance exactly
         uint256 senderRemaining = IERC20(stabilityPool).balanceOf(user1);
-        assertApproxEqAbs(senderRemaining, balanceAfterLoss - halfBalance, 1, "sender has correct remainder");
-        // Receiver should have what was sent
-        assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), halfBalance, 1, "receiver has correct amount");
-        // Total should be conserved
-        assertApproxEqAbs(
-            senderRemaining + IERC20(stabilityPool).balanceOf(user2),
-            balanceAfterLoss,
-            1,
-            "total conserved"
-        );
+        assertEq(senderRemaining, balanceAfterLoss - halfBalance, "sender has correct remainder");
+        assertEq(IERC20(stabilityPool).balanceOf(user2), halfBalance, "receiver has correct amount");
+        assertEq(senderRemaining + IERC20(stabilityPool).balanceOf(user2), balanceAfterLoss, "total conserved");
     }
 
     /// Intent: two sequential transfers after a loss should both work correctly.
@@ -680,10 +688,11 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         IERC20(stabilityPool).transfer(user3, secondTransfer);
         vm.stopPrank();
 
+        // each transfer exact arithmetic on balances at the current product: nothing lost or made across the three
         uint256 remaining = IERC20(stabilityPool).balanceOf(user1);
         uint256 total = remaining + IERC20(stabilityPool).balanceOf(user2) + IERC20(stabilityPool).balanceOf(user3);
-        assertApproxEqAbs(total, balanceAfterLoss, 2, "total conserved across 3 addresses");
-        assertApproxEqAbs(remaining, balanceAfterLoss - firstTransfer - secondTransfer, 1, "sender remainder correct");
+        assertEq(total, balanceAfterLoss, "total conserved across 3 addresses");
+        assertEq(remaining, balanceAfterLoss - firstTransfer - secondTransfer, "sender remainder correct");
     }
 
     /// @notice Specific to the stability pool: permit approval persists across a rebase (loss). The allowance

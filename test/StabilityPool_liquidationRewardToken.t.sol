@@ -56,12 +56,13 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore - LIQUIDATED, "the loss is on the books");
 
         // Claimable now, with no time passed: a liquidation reward accrues, it does not stream. Each share floors
-        // once in the integral and once in the claim, so together the two may fall short of the whole by 2 wei.
+        // once in the integral and once in the claim, and here neither floor bites: the integral step is exactly
+        // 7e18 * 1e54 / 400e18 = 1.75e52, so the holders of 100 and 300 are owed exactly 1.75e18 and 5.25e18.
         uint256 one = _claimable(user1, rewardToken);
         uint256 two = _claimable(user2, rewardToken);
-        assertApproxEqAbs(one + two, RETURNED, 2, "the whole reward is claimable at once");
-        assertApproxEqAbs(one, RETURNED / 4, 1, "one bore a quarter of the loss and is paid a quarter");
-        assertApproxEqAbs(two, (RETURNED * 3) / 4, 1, "two bore three quarters and is paid three quarters");
+        assertEq(one + two, RETURNED, "the whole reward is claimable at once");
+        assertEq(one, RETURNED / 4, "one bore a quarter of the loss and is paid a quarter");
+        assertEq(two, (RETURNED * 3) / 4, "two bore three quarters and is paid three quarters");
 
         assertEq(_claimable(user1, wrappedCollateralToken), 0, "nothing was credited in the collateral");
         assertEq(_claimable(user2, wrappedCollateralToken), 0, "nothing was credited in the collateral");
@@ -81,10 +82,10 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(wrappedCollateralToken, LIQUIDATED, RETURNED);
         vm.stopPrank();
 
-        assertApproxEqAbs(
+        // the same amounts as above, so exactly the whole
+        assertEq(
             _claimable(user1, wrappedCollateralToken) + _claimable(user2, wrappedCollateralToken),
             RETURNED,
-            2,
             "the collateral is claimable at once"
         );
         assertEq(_claimable(user1, rewardToken), 0, "and no other token was credited");
