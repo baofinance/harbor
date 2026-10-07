@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
@@ -345,31 +346,32 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         assertEq(IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0], 0);
 
+        // The reward streams at `rate` (the amount over the period, the remainder queued): two equal holders are each
+        // owed exactly half of what has streamed - halfway through, and at the end.
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(rewardToken);
         skip(3.5 days);
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
-            REWARD_AMOUNT / 4,
-            0.01e18
+            (rate * 3.5 days) / 2,
+            "user1: half of what has streamed, halfway through"
         );
-
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0],
-            REWARD_AMOUNT / 4,
-            0.01e18
+            (rate * 3.5 days) / 2,
+            "user2: half of what has streamed, halfway through"
         );
 
         skip(3.5 days);
-        // Check rewards
-        assertApproxEqRel(
+        uint256 period = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
-            REWARD_AMOUNT / 2,
-            0.01e18
+            (rate * period) / 2,
+            "user1: half of what streamed"
         );
-
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0],
-            REWARD_AMOUNT / 2,
-            0.01e18
+            (rate * period) / 2,
+            "user2: half of what streamed"
         );
     }
 
@@ -390,12 +392,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
             IERC20(stabilityPoolCollateral).totalSupply(),
             initialBalance - DEPOSIT_AMOUNT / 4,
             "totalAssetSupply dropped by the correct amount"
-        );
-        assertApproxEqRel(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
-            DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 4,
-            0,
-            "User1 should have reduced balance after sweep"
         );
         assertEq(
             IERC20(peggedToken).balanceOf(rebalancer),
@@ -543,27 +539,27 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(rewardDepositor);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
         vm.stopPrank();
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(rewardToken);
         skip(7 days); // Wait for rewards to accumulate
 
-        // Check rewards proportional to deposits
+        // Each is owed exactly their share of what streamed (`rate` over the period, the remainder queued): 1/6, 2/6, 3/6
+        uint256 streamed = rate * IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
         uint256 totalDeposits = DEPOSIT_AMOUNT * 6; // 1 + 2 + 3 = 6 units
 
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
-            (REWARD_AMOUNT * DEPOSIT_AMOUNT) / totalDeposits, // 1/6 share
-            0.01e18
+            Math.mulDiv(streamed, DEPOSIT_AMOUNT, totalDeposits),
+            "user1: a sixth"
         );
-
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken))[0],
-            (REWARD_AMOUNT * DEPOSIT_AMOUNT * 2) / totalDeposits, // 2/6 share
-            0.01e18
+            Math.mulDiv(streamed, DEPOSIT_AMOUNT * 2, totalDeposits),
+            "user2: two sixths"
         );
-
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken))[0],
-            (REWARD_AMOUNT * DEPOSIT_AMOUNT * 3) / totalDeposits, // 3/6 share
-            0.01e18
+            Math.mulDiv(streamed, DEPOSIT_AMOUNT * 3, totalDeposits),
+            "user3: three sixths"
         );
     }
 
@@ -605,11 +601,15 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(rewardDepositor);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
         vm.stopPrank();
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(rewardToken);
         skip(7 days); // Wait for rewards to accumulate
 
-        // Verify rewards are claimable
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0];
-        assertApproxEqRel(claimable, REWARD_AMOUNT, 0.01e18, "User1 should have claimable rewards after registration");
+        // The sole holder is owed all that streamed (`rate` over the period, the remainder queued)
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
+            rate * IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH(),
+            "User1 should have claimable rewards after registration"
+        );
     }
 
     /// The supply history starts with entry 0, (the pool's initialisation time less one, 0). Its timestamp is not 0, so

@@ -97,18 +97,17 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether; // 100 per user
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed = _depositRewardAndWait(rewardToken1, rewardAmount);
 
-        // Equal deposits => equal split. The reward streams at rate = amount/period, so only amount - (amount mod
-        // period) is distributed over one period; each equal share is that, divided three ways (floored). So each
-        // claimable sits within (period/3 + 1 wei) below rewardAmount/3 — a derived bound, not a blanket 1%.
+        // Equal deposits => equal split of what streamed: rate = amount / period, the remainder queued, and each
+        // holder's view of the finished stream floors once - exactly a third of it.
         uint256 period = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
         uint256 c1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
         uint256 c2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0];
         uint256 c3 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[0];
-        assertApproxEqAbs(c1, rewardAmount / 3, period / 3 + 1, "user1 share");
-        assertApproxEqAbs(c2, rewardAmount / 3, period / 3 + 1, "user2 share");
-        assertApproxEqAbs(c3, rewardAmount / 3, period / 3 + 1, "user3 share");
+        assertEq(c1, streamed / 3, "user1 share");
+        assertEq(c2, streamed / 3, "user2 share");
+        assertEq(c3, streamed / 3, "user3 share");
 
         // Conservation: the three claimables never sum to more than the reward deposited; the shortfall is the
         // rate truncation (< period) plus <=1 wei of per-user integral flooring.
@@ -151,7 +150,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed1 = _depositRewardAndWait(rewardToken1, rewardAmount);
 
         // User2 withdraws half their deposit
         vm.startPrank(user2);
@@ -163,32 +162,30 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
         vm.stopPrank();
 
-        // Distribute more rewards - should be split proportionally to current deposits
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        // Distribute more rewards - split by the deposits as they now stand, 10:5:10
+        uint256 streamed2 = _depositRewardAndWait(rewardToken1, rewardAmount);
 
-        // First rewards should be split equally
-        // Second rewards should be split as 2/5 to user1, 1/5 to user2, 2/5 to user3
-        uint256 expectedUser1 = (rewardAmount / 3) + ((rewardAmount * 2) / 5);
-        uint256 expectedUser2 = (rewardAmount / 3) + ((rewardAmount * 1) / 5);
-        uint256 expectedUser3 = (rewardAmount / 3) + ((rewardAmount * 2) / 5);
-
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            expectedUser1,
-            0.01e18
-        );
-
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0],
-            expectedUser2,
-            0.01e18
-        );
-
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[0],
-            expectedUser3,
-            0.01e18
-        );
+        // The first reward a third each, the second 2/5, 1/5, 2/5 of what streamed. User2's withdrawal flushed the
+        // first stream into the reward integral, and the claim on it floors once more than the stream's view: so each
+        // claim is its share, or one wei short.
+        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256[3] memory deposits = [DEPOSIT_AMOUNT, DEPOSIT_AMOUNT / 2, DEPOSIT_AMOUNT];
+        address[3] memory holders = [user1, user2, user3];
+        for (uint256 i = 0; i < 3; i++) {
+            uint256 expected = streamed1 / 3 + Math.mulDiv(streamed2, deposits[i], supplyAfter);
+            uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+                holders[i],
+                aa(rewardToken1)
+            )[0];
+            assertLe(claimable, expected, string.concat("never more than the share: ", vm.getLabel(holders[i])));
+            assertDiscriminates(
+                claimable,
+                expected,
+                1,
+                streamed1 / 3 + streamed2 / 3,
+                string.concat("the second reward split by the deposits after the withdrawal: ", vm.getLabel(holders[i]))
+            );
+        }
     }
 
     function testClaimableAfterWithdrawWithTimeAdvance() public {
@@ -200,12 +197,12 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed1 = _depositRewardAndWait(rewardToken1, rewardAmount);
 
         // Advance time again
         vm.warp(block.timestamp + 1 hours);
 
-        // Record initial claimable amounts before withdrawal
+        // Record initial claimable amounts before withdrawal: exactly a third of what streamed each
         uint256 initialUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[
             0
         ];
@@ -215,6 +212,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         uint256 initialUser3 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[
             0
         ];
+        assertEq(initialUser1, streamed1 / 3, "user1 is owed a third of the first reward");
+        assertEq(initialUser2, streamed1 / 3, "user2 is owed a third of the first reward");
+        assertEq(initialUser3, streamed1 / 3, "user3 is owed a third of the first reward");
 
         uint256 user1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 user2Balance = IERC20(stabilityPoolCollateral).balanceOf(user2);
@@ -238,29 +238,31 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), user2Balance - DEPOSIT_AMOUNT / 2);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user3), user3Balance);
 
-        // Distribute more rewards - should be split proportionally to current deposits
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        // Distribute more rewards - split by the deposits as they now stand, 10:5:10
+        uint256 streamed2 = _depositRewardAndWait(rewardToken1, rewardAmount);
 
-        // After the second distribution, check each user's rewards:
-        // First reward distribution: Each user gets 1/3 (equal shares)
-        // Second reward distribution after user2's partial withdrawal:
-        // - Total pool is now 25 ETH (10 + 5 + 10)
-        // - User1: 10/25 = 40% of the pool = 40% of 300 ETH = 120 ETH
-        // - User2: 5/25 = 20% of the pool = 20% of 300 ETH = 60 ETH
-        // - User3: 10/25 = 40% of the pool = 40% of 300 ETH = 120 ETH
-        uint256 expectedUser1 = initialUser1 + (rewardAmount * 40) / 100;
-        uint256 expectedUser2 = initialUser2 + (rewardAmount * 20) / 100;
-        uint256 expectedUser3 = initialUser3 + (rewardAmount * 40) / 100;
-
-        // Get actual rewards for logging and comparison
-        uint256 actualUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
-        uint256 actualUser2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0];
-        uint256 actualUser3 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[0];
-
-        // Assert that each user gets their correct proportional share
-        assertApproxEqRel(actualUser1, expectedUser1, 0.01e18);
-        assertApproxEqRel(actualUser2, expectedUser2, 0.01e18);
-        assertApproxEqRel(actualUser3, expectedUser3, 0.01e18);
+        // Each holder keeps what they were owed before the withdrawal and takes 2/5, 1/5, 2/5 of what streamed after
+        // it. The withdrawal flushed the first stream into the reward integral, and the claim on it floors once more
+        // than the view read before it: so each claim is that sum, or one wei short.
+        uint256[3] memory initial = [initialUser1, initialUser2, initialUser3];
+        uint256[3] memory deposits = [DEPOSIT_AMOUNT, DEPOSIT_AMOUNT / 2, DEPOSIT_AMOUNT];
+        address[3] memory holders = [user1, user2, user3];
+        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
+        for (uint256 i = 0; i < 3; i++) {
+            uint256 expected = initial[i] + Math.mulDiv(streamed2, deposits[i], supplyAfter);
+            uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+                holders[i],
+                aa(rewardToken1)
+            )[0];
+            assertLe(claimable, expected, string.concat("never more than the share: ", vm.getLabel(holders[i])));
+            assertDiscriminates(
+                claimable,
+                expected,
+                1,
+                initial[i] + streamed2 / 3,
+                string.concat("the second reward split by the deposits after the withdrawal: ", vm.getLabel(holders[i]))
+            );
+        }
     }
 
     function testClaimableAfterSweep() public {
@@ -354,24 +356,20 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         _depositForUsers();
 
         // Distribute rewards from first token
-        uint256 rewardAmount1 = 300 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount1);
+        uint256 streamed1 = _depositRewardAndWait(rewardToken1, 300 ether);
 
         // Distribute rewards from second token
-        uint256 rewardAmount2 = 600 ether;
-        _depositRewardAndWait(rewardToken2, rewardAmount2);
+        uint256 streamed2 = _depositRewardAndWait(rewardToken2, 600 ether);
 
-        // Check claimable amounts for both tokens
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            rewardAmount1 / 3,
-            0.01e18
-        );
-
-        assertApproxEqRel(
+        // A third of what streamed of each. The second deposit flushed the first token's finished stream into its
+        // reward integral, and the claim on that floors once more than the stream's view: a third, or one wei short.
+        uint256 claimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        assertLe(claimable1, streamed1 / 3, "the first token: never more than a third");
+        assertGe(claimable1 + 1, streamed1 / 3, "the first token: a third, the flush's floor aside");
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken2))[0],
-            rewardAmount2 / 3,
-            0.01e18
+            streamed2 / 3,
+            "the second token: exactly a third"
         );
     }
 
@@ -381,7 +379,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed1 = _depositRewardAndWait(rewardToken1, rewardAmount);
 
         // User1 makes an additional deposit
         vm.startPrank(user1);
@@ -397,27 +395,27 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
             user2,
             aa(rewardToken1)
         )[0];
+        // a third of the first reward each - user1's deposit flushed the stream into the reward integral, and the
+        // claim on that floors once more than the stream's view: a third, or one wei short
+        assertLe(claimableAfterFirstUser1, streamed1 / 3, "user1: never more than a third of the first reward");
+        assertGe(claimableAfterFirstUser1 + 1, streamed1 / 3, "user1: a third of the first reward");
+        assertLe(claimableAfterFirstUser2, streamed1 / 3, "user2: never more than a third of the first reward");
+        assertGe(claimableAfterFirstUser2 + 1, streamed1 / 3, "user2: a third of the first reward");
 
         // Distribute more rewards - now user1 should get a larger share
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed2 = _depositRewardAndWait(rewardToken1, rewardAmount);
 
-        // Calculate expected rewards:
-        // User1 now has 2/4 of total deposits
-        // User2 has 1/4
-        // User3 has 1/4
-        uint256 expectedUser1 = claimableAfterFirstUser1 + ((rewardAmount * 2) / 4);
-        uint256 expectedUser2 = claimableAfterFirstUser2 + ((rewardAmount * 1) / 4);
-
-        assertApproxEqRel(
+        // User1 now holds 2/4 of the deposits, user2 1/4: what each was owed after the first reward, plus that share of
+        // what streamed - exact, nothing flushing the second stream before the read.
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            expectedUser1,
-            0.01e18
+            claimableAfterFirstUser1 + streamed2 / 2,
+            "user1: what they were owed, and half of the second reward"
         );
-
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0],
-            expectedUser2,
-            0.01e18
+            claimableAfterFirstUser2 + streamed2 / 4,
+            "user2: what they were owed, and a quarter of the second reward"
         );
     }
 
@@ -530,24 +528,18 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
 
         // Distribute rewards
-        uint256 rewardAmount = 101 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed = _depositRewardAndWait(rewardToken1, 101 ether);
 
-        // Check the small deposit still gets some rewards, proportional to its share
-        uint256 expectedUser2 = (rewardAmount * smallDeposit) / (DEPOSIT_AMOUNT + smallDeposit);
-
-        assertApproxEqRel(
+        // Each is owed exactly their share of what streamed - the small deposit an eleventh, the large ten elevenths
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0],
-            expectedUser2,
-            0.01e18
+            Math.mulDiv(streamed, smallDeposit, DEPOSIT_AMOUNT + smallDeposit),
+            "the small deposit's share"
         );
-
-        // Optional: Also verify user1 gets the remaining rewards
-        uint256 expectedUser1 = (rewardAmount * DEPOSIT_AMOUNT) / (DEPOSIT_AMOUNT + smallDeposit);
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            expectedUser1,
-            0.01e18
+            Math.mulDiv(streamed, DEPOSIT_AMOUNT, DEPOSIT_AMOUNT + smallDeposit),
+            "the large deposit's share"
         );
     }
 
@@ -565,25 +557,17 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
 
         // Distribute rewards
-        uint256 rewardAmount = 1001 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed = _depositRewardAndWait(rewardToken1, 1001 ether);
 
-        // Check the small deposit gets proportional rewards
-        // user2 should get: (1 ether / 1001 ether) * 1001 ether ≈ 1 ether
-        uint256 expectedUser2 = (rewardAmount * smallDeposit) / (largeDeposit + smallDeposit);
-        uint256 expectedUser1 = (rewardAmount * largeDeposit) / (largeDeposit + smallDeposit);
-
-        assertApproxEqRel(
+        // Each is owed exactly their share of what streamed - the small deposit 1/1001, the large 1000/1001
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0],
-            expectedUser2,
-            0.01e18,
+            Math.mulDiv(streamed, smallDeposit, largeDeposit + smallDeposit),
             "Small deposit should get proportional rewards"
         );
-
-        assertApproxEqRel(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            expectedUser1,
-            0.01e18,
+            Math.mulDiv(streamed, largeDeposit, largeDeposit + smallDeposit),
             "Large deposit should get most of the rewards"
         );
     }
