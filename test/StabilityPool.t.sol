@@ -13,6 +13,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {Token} from "@bao/Token.sol";
 
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
@@ -188,6 +189,27 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
         address(new StabilityPool_v3(minter, withdrawalDelay, withdrawalPeriod, minTotalSupply, "Test SP", "tSP"));
+    }
+
+    /// The implementation's initializers are disabled when it is constructed, so initialising it directly reverts.
+    function test_initialize_onTheImplementation_reverts() public {
+        address implementation = _newStabilityPoolImplementation();
+        // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be the call
+        // the expectation binds to.
+        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        StabilityPool_v3(implementation).initialize(address(this), owner(), earlyWithdrawalFee, treasury());
+    }
+
+    /// The deployed pool, initialised once by its deploy, refuses a second initialisation.
+    function test_initialize_aSecondTime_reverts() public {
+        // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be the call
+        // the expectation binds to.
+        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        StabilityPool_v3(stabilityPoolCollateral).initialize(address(this), owner(), earlyWithdrawalFee, treasury());
     }
 
     /// Initialising a proxy points it at the implementation, makes the deployer its owner and marks it initialised;
@@ -390,6 +412,54 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), amount, "the pool holds the amount");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), amount, "the receiver is credited");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "the caller is credited nothing");
+    }
+
+    /// A deposit of nothing reverts, naming the pegged token: an amount of 0 from a holder of pegged, and the
+    /// deposit-all sentinel from a holder of none.
+    function test_deposit_ofNothing_revertsZeroInputBalance() public {
+        setUp_collateral(2 ether, 0 ether, user1);
+        assertEq(IERC20(peggedToken).balanceOf(user2), 0, "fixture: user2 holds no pegged");
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, peggedToken));
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(0, user1, 0);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, peggedToken));
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(type(uint256).max, user2, 0);
+        vm.stopPrank();
+    }
+
+    /// A deposit credited to the zero address reverts, naming it; the same deposit credited to the caller succeeds.
+    function test_deposit_toTheZeroAddress_reverts() public {
+        (uint256 amount, ) = setUp_collateral(2 ether, 0 ether, user1);
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, address(0), 0);
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user1, 0), amount, "to the caller it succeeds");
+        vm.stopPrank();
+    }
+
+    /// A withdrawal paid to the zero address reverts, naming it - for the depositor, inside their window - and the
+    /// same withdrawal paid to the depositor succeeds.
+    function test_withdraw_toTheZeroAddress_reverts() public {
+        (uint256 amount, ) = setUp_collateral(2 ether, 0 ether, user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user1, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount / 2, address(0), 0);
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount / 2, user1, 0),
+            amount / 2,
+            "to the depositor it succeeds"
+        );
+        vm.stopPrank();
     }
 
     /// A withdrawal debits the caller's own stake, so paying for another account's deposit gives the payer nothing

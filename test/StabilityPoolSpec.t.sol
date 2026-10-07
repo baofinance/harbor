@@ -149,6 +149,25 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         );
     }
 
+    // Asking for exactly the whole balance - an explicit amount, not the deposit-all sentinel above - is capped the same
+    // way: the sole holder is paid their balance less the floor, which stays theirs.
+    function test_withdraw_exactWholeBalance_isCappedAtTheFloor() public {
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        uint256 wholeBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        _beginWithdrawal(user1);
+
+        vm.startPrank(user1);
+        uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(wholeBalance, user1, 0);
+        vm.stopPrank();
+
+        assertEq(withdrawn, wholeBalance - floor, "the whole balance asked for, its floor held back");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), floor, "the retained floor is still the holder's");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "the floor is retained, never drained to 0");
+    }
+
     // A partial withdrawal that would leave the total in the (0, floor) dust zone is clamped to leave exactly the floor.
     function test_withdraw_partialLeavingDustClampedToFloor() public {
         uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
@@ -406,6 +425,45 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         assertEq(IERC20(stray).balanceOf(stabilityPoolCollateral), 0, "pool's stray balance fully swept");
     }
 
+    /// A sweep of an active reward token moves the whole amount asked for, even what the pool owes its holders - only
+    /// the pegged is capped - and touches no accounting: the supply, the balances and what each holder is owed stay as
+    /// they were.
+    function test_sweep_ofAnActiveRewardToken_movesTheWholeAmount_evenWhatIsOwed() public {
+        uint256 deposit = 2 * IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(deposit, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
+        vm.stopPrank();
+        skip(1 days);
+        uint256 owed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0];
+        assertGt(owed, 0, "fixture: the holder is owed some of the reward");
+        uint256 held = IERC20(rewardToken).balanceOf(stabilityPoolCollateral);
+        assertGt(
+            held,
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            "fixture: more is held than the pegged headroom, so a cap misapplied to this token would show"
+        );
+        uint256 supply = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        address recipient = makeAddr("sweepRecipient");
+
+        vm.startPrank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(rewardToken, held, recipient);
+        vm.stopPrank();
+
+        assertEq(IERC20(rewardToken).balanceOf(recipient), held, "the whole amount is swept, what is owed included");
+        assertEq(IERC20(rewardToken).balanceOf(stabilityPoolCollateral), 0, "the pool keeps none of it");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supply, "the supply is unchanged");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balance, "the holder's balance is unchanged");
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
+            owed,
+            "what the holder is owed is unchanged"
+        );
+    }
+
     function testSweepFailsByUnauthorized() public {
         // Setup: User1 deposits
         vm.startPrank(user1);
@@ -552,5 +610,89 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         // Verify rewards are claimable
         uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0];
         assertApproxEqRel(claimable, REWARD_AMOUNT, 0.01e18, "User1 should have claimable rewards after registration");
+    }
+
+    /// The supply history starts with entry 0, (the pool's initialisation time less one, 0). Its timestamp is not 0, so
+    /// it is told apart from a read past the end, which is (0, 0): index 1 before any deposit, and index 999.
+    function test_supplyHistory_entryZero_isTheInitializeTimeLessOne_andPastTheEndIsZero() public view {
+        (uint40 updatedAt, uint256 amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(0);
+        assertEq(updatedAt, block.timestamp - 1, "entry 0 is dated a second before the pool's initialisation");
+        assertGt(updatedAt, 0, "fixture: entry 0's timestamp is not 0");
+        assertEq(amount, 0, "entry 0 records no supply");
+
+        (updatedAt, amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(1);
+        assertEq(updatedAt, 0, "before any deposit, index 1 is past the end: no timestamp");
+        assertEq(amount, 0, "before any deposit, index 1 is past the end: no supply");
+        (updatedAt, amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(999);
+        assertEq(updatedAt, 0, "far past the end: no timestamp");
+        assertEq(amount, 0, "far past the end: no supply");
+    }
+
+    /// Every change of the supply is recorded at its time with the supply it leaves: a deposit, another later, a loss
+    /// later again, and a withdrawal - each a row of its own, and the row after the last past the end.
+    function test_supplyHistory_recordsADepositALossAndAWithdrawal_eachAtItsTime() public {
+        uint256 firstDepositAt = block.timestamp;
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+
+        skip(1 days);
+        uint256 secondDepositAt = block.timestamp;
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
+
+        skip(1 days);
+        uint256 lossAt = block.timestamp;
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 2, 0);
+
+        _beginWithdrawal(user1);
+        uint256 withdrawalAt = block.timestamp;
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 4, user1, 0);
+        vm.stopPrank();
+
+        uint256[4] memory at = [firstDepositAt, secondDepositAt, lossAt, withdrawalAt];
+        uint256[4] memory supply = [
+            DEPOSIT_AMOUNT,
+            2 * DEPOSIT_AMOUNT,
+            2 * DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 2,
+            2 * DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 2 - DEPOSIT_AMOUNT / 4
+        ];
+        string[4] memory change = [string("the first deposit"), "the second deposit", "the loss", "the withdrawal"];
+        for (uint256 i = 0; i < 4; i++) {
+            (uint40 updatedAt, uint256 amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(
+                i + 1
+            );
+            assertEq(updatedAt, at[i], string.concat(change[i], " is recorded at its time"));
+            assertEq(amount, supply[i], string.concat(change[i], " is recorded with the supply it leaves"));
+        }
+        (uint40 pastUpdatedAt, uint256 pastAmount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(5);
+        assertEq(pastUpdatedAt, 0, "the row after the last is past the end: no timestamp");
+        assertEq(pastAmount, 0, "the row after the last is past the end: no supply");
+    }
+
+    /// Several changes in one block leave one row, holding the supply after the last of them: here two deposits and a
+    /// withdrawal outside any window, fee-charged, so the supply falls by the whole amount withdrawn, the fee included.
+    function test_supplyHistory_keepsOnlyTheLastChangeInABlock() public {
+        address feeAddress = IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress();
+        uint256 feesBefore = IERC20(peggedToken).balanceOf(feeAddress);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
+        vm.stopPrank();
+        assertGt(IERC20(peggedToken).balanceOf(feeAddress), feesBefore, "fixture: the withdrawal paid a fee");
+
+        (uint40 updatedAt, uint256 amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(1);
+        assertEq(updatedAt, block.timestamp, "one row, at the block's time");
+        assertEq(amount, 2 * DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 2, "holding the supply after the last change");
+        (updatedAt, amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(2);
+        assertEq(updatedAt, 0, "and no second row: no timestamp");
+        assertEq(amount, 0, "and no second row: no supply");
     }
 }

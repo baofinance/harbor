@@ -190,6 +190,59 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertConserved(_threeParts(b1, b2, b3), 400 ether, maxDust, "two losses conserved within retained rounding");
     }
 
+    // Successive losses compound across changes of the product's exponent, every balance exact. Each loss takes all
+    // but a ten-billionth of the pool, so the per-unit loss is exactly 1e18 - 1e8 and no error is carried, and the
+    // product's magnitude falls past its minimum and steps the exponent: 1e36 at exponent 0, 1e35 at 1, 1e34 at 2. A
+    // balance scales by the ratio of the magnitudes and down a factor of 1e9 for each step since it was written, so a
+    // holder from before both losses keeps a 1e20th of their deposit, one who joined between them a 1e10th.
+    function test_successiveLosses_compoundAcrossTwoExponentChanges_everyBalanceExact() public {
+        uint256 left = 3 ether; // what each loss leaves of the pool: a ten-billionth of it
+        assertLe(IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(), left, "fixture: above the floor");
+        deal(peggedToken, user1, 1e10 ether);
+        deal(peggedToken, user2, 2e10 ether);
+        deal(peggedToken, user3, 3e10 ether - left);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1e10 ether, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2e10 ether, user2, 0);
+        vm.stopPrank();
+
+        collateralPoolActions.liquidate(wrappedCollateralToken, 3e10 ether - left, 0);
+
+        assertEq(
+            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            1,
+            "the first loss steps the product's exponent to 1"
+        );
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 1 ether, "user1 keeps a 1e10th: 1 ether");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), 2 ether, "user2 keeps a 1e10th: 2 ether");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), left, "the supply is what the loss left");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "the loss divided exactly");
+
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3e10 ether - left, user3, 0);
+        vm.stopPrank();
+
+        collateralPoolActions.liquidate(wrappedCollateralToken, 3e10 ether - left, 0);
+
+        assertEq(
+            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            2,
+            "the second loss steps the product's exponent to 2"
+        );
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 1e8, "user1, two steps old, keeps a 1e20th");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), 2e8, "user2, two steps old, keeps a 1e20th");
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user3),
+            (3e10 ether - left) / 1e10,
+            "user3, one step old, keeps a 1e10th"
+        );
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), left, "the supply is what the loss left");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "the loss divided exactly");
+        assertEq(1e8 + 2e8 + (3e10 ether - left) / 1e10, left, "fixture: the three balances make up the supply exactly");
+    }
+
     // A loss large enough to breach the floor is capped so the pool is left at exactly
     // MIN_TOTAL_ASSET_SUPPLY. Every user keeps a positive proportional share; shares never sum above the floor.
     function test_rebalance_lossWipesToFloor() public {
