@@ -10,8 +10,10 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/StabilityPoolManager.t.sol";
 
@@ -34,6 +36,36 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         address token;
         uint256 returned;
     }
+
+    /// @dev A pool and its holders as they stood before a rebalance: what each holder's share is measured against.
+    struct PoolBeforeRebalance {
+        address pool;
+        address[] holders;
+        uint256 supply;
+        uint256 peggedHeld;
+        uint256 collateralHeld;
+        uint256 leveragedHeld;
+        uint256[] balances;
+        uint256[] claimableCollateral;
+        uint256[] claimableLeveraged;
+    }
+
+    /// @dev What a pool was paid in one token over a rebalance, and what its holders' credits are measured against.
+    struct PoolPayment {
+        uint256 received;
+        uint256 proceeds;
+        uint256 tolerance;
+        uint256[] claimableBefore;
+    }
+
+    /// @dev The keeper's bounty in the holders' tests: what a pool is paid then differs from what the minter paid out
+    ///      for it, so crediting one cannot pass for crediting the other.
+    uint256 private constant REBALANCE_BOUNTY_RATIO = 0.02 ether;
+
+    address private alice = makeAddr("alice");
+    address private bob = makeAddr("bob");
+    address private carol = makeAddr("carol");
+    address private dave = makeAddr("dave");
 
     function setUp() public virtual override {
         super.setUp();
@@ -120,6 +152,194 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         assertEq(liquidation.token, token, string.concat(what, ": the token it is paid in"));
         assertGt(liquidation.pegged, 0, string.concat(what, ": pegged given up"));
         assertGt(liquidation.returned, 0, string.concat(what, ": paid"));
+    }
+
+    function _setRebalanceBountyRatio() private {
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(REBALANCE_BOUNTY_RATIO);
+        vm.stopPrank();
+    }
+
+    /// Deposit, for `holder`, this share of the pegged supply - in basis points - into `pool`. `user`, who holds the
+    /// supply, pays: a deposit credits its receiver.
+    function _depositFor(address pool, address holder, uint256 bps) private {
+        uint256 amount = Math.mulDiv(IMinter(minter).peggedTokenBalance(), bps, 10_000);
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(pool, amount);
+        IStabilityPool_v3(pool).deposit(amount, holder, 0);
+        vm.stopPrank();
+    }
+
+    function _collateralPoolHolders() private view returns (address[] memory) {
+        return aa(alice, bob);
+    }
+
+    function _leveragedPoolHolders() private view returns (address[] memory) {
+        return aa(alice, carol, dave);
+    }
+
+    /// Holders with unequal shares - two in the collateral pool, three in the leveraged pool, alice in both - making up
+    /// the 30% and 60% of the pegged supply that `_fillPools(3_000, 6_000)` places.
+    function _fillPoolsWithHolders() private {
+        _depositFor(stabilityPoolCollateral, alice, 1_000);
+        _depositFor(stabilityPoolCollateral, bob, 2_000);
+        _depositFor(stabilityPoolLeveraged, alice, 1_000);
+        _depositFor(stabilityPoolLeveraged, carol, 2_000);
+        _depositFor(stabilityPoolLeveraged, dave, 3_000);
+    }
+
+    function _beforeRebalance(
+        address pool,
+        address[] memory holders
+    ) private view returns (PoolBeforeRebalance memory before) {
+        before.pool = pool;
+        before.holders = holders;
+        before.supply = IERC20(pool).totalSupply();
+        before.peggedHeld = IERC20(peggedToken).balanceOf(pool);
+        before.collateralHeld = IERC20(wrappedCollateralToken).balanceOf(pool);
+        before.leveragedHeld = IERC20(leveragedToken).balanceOf(pool);
+        before.balances = new uint256[](holders.length);
+        before.claimableCollateral = new uint256[](holders.length);
+        before.claimableLeveraged = new uint256[](holders.length);
+        for (uint256 i = 0; i < holders.length; i++) {
+            before.balances[i] = IERC20(pool).balanceOf(holders[i]);
+            uint256[] memory claimable = IMultipleRewardAccumulator_v3(pool).claimable(
+                holders[i],
+                aa(wrappedCollateralToken, leveragedToken)
+            );
+            before.claimableCollateral[i] = claimable[0];
+            before.claimableLeveraged[i] = claimable[1];
+        }
+    }
+
+    /// Each holder of the pool gave up their share of what the pool gave up in the rebalance that made the payments
+    /// `paid`, and was credited their share of what the pool was paid in each token. Both are the pool's own measures,
+    /// not the manager's arithmetic: what it gave up is its supply's fall, what it was paid its balance's rise. The
+    /// holders must be every holder the pool has.
+    function _assertEachHolderTookTheirShare(PoolBeforeRebalance memory before, Liquidation[] memory paid) private view {
+        uint256 supplyAfter = IERC20(before.pool).totalSupply();
+        uint256 givenUp = before.supply - supplyAfter;
+        assertEq(
+            before.peggedHeld - IERC20(peggedToken).balanceOf(before.pool),
+            givenUp,
+            "the pegged the pool holds fell by what it gave up"
+        );
+        uint256 losses;
+        for (uint256 i = 0; i < paid.length; i++) {
+            if (paid[i].pool == before.pool) {
+                losses++;
+            }
+        }
+        if (givenUp == 0) {
+            assertEq(losses, 0, "a pool that gave up nothing records no payment");
+        }
+
+        uint256 balancesAfter;
+        for (uint256 i = 0; i < before.holders.length; i++) {
+            uint256 balanceAfter = IERC20(before.pool).balanceOf(before.holders[i]);
+            balancesAfter += balanceAfter;
+            if (givenUp == 0) {
+                assertEq(
+                    balanceAfter,
+                    before.balances[i],
+                    string.concat("written down nothing: ", vm.getLabel(before.holders[i]))
+                );
+            } else {
+                // Each loss's per-unit factor is rounded up to a whole 1e-18 (FACTOR_PRECISION) and the
+                // over-application carried into the next loss, so over the rebalance the factor every balance is
+                // scaled by differs from the supply's (S - L) / S by less than 1e-18: after one loss by
+                // (e' - e) / (S * 1e18), after two by (e1 * L2 / S' - e2) / (S * 1e18), each carried error less than
+                // the supply it was made on. The product's magnitude stays exact - 1e36 * (1e18 - u) / 1e18 leaves no
+                // remainder, and no loss here comes near the 1 - 1e-9 that moves its exponent - so a balance B is
+                // written down within B / 1e18 of B * L / S, and the balance's floor and the expected value's ceiling
+                // add under one wei each: |written down - ceil(B * L / S)| <= ceil(B / 1e18) + 1. Rejected: the loss
+                // divided by the supply after it.
+                assertDiscriminates(
+                    before.balances[i] - balanceAfter,
+                    Math.mulDiv(givenUp, before.balances[i], before.supply, Math.Rounding.Ceil),
+                    Math.ceilDiv(before.balances[i], DecrementalFloatingPoint_v2.FACTOR_PRECISION) + 1,
+                    Math.mulDiv(givenUp, before.balances[i], supplyAfter),
+                    string.concat("written down their share of what the pool gave up: ", vm.getLabel(before.holders[i]))
+                );
+            }
+        }
+        // Not after two losses: the second gives the first's over-application back, and balances may then sum above
+        // the supply - the reward divisor, not the supply, is what stays at or above them.
+        if (losses == 1) {
+            assertLe(balancesAfter, supplyAfter, "after one loss the balances sum to at most the supply");
+        }
+
+        _assertEachHolderCreditedTheirShare(before, paid, wrappedCollateralToken);
+        _assertEachHolderCreditedTheirShare(before, paid, leveragedToken);
+    }
+
+    /// Each holder of the pool was credited their share of what the pool was paid in `token` - the collateral or the
+    /// leveraged token - at the balances they held before the rebalance, and nothing in a token the pool was not paid in.
+    function _assertEachHolderCreditedTheirShare(
+        PoolBeforeRebalance memory before,
+        Liquidation[] memory paid,
+        address token
+    ) private view {
+        PoolPayment memory payment;
+        if (token == wrappedCollateralToken) {
+            payment.received = IERC20(token).balanceOf(before.pool) - before.collateralHeld;
+            payment.claimableBefore = before.claimableCollateral;
+        } else {
+            payment.received = IERC20(token).balanceOf(before.pool) - before.leveragedHeld;
+            payment.claimableBefore = before.claimableLeveraged;
+        }
+        // what the minter paid out for the pool, before the keeper took its bounty
+        payment.proceeds = Math.mulDiv(payment.received, 1 ether, 1 ether - REBALANCE_BOUNTY_RATIO);
+        // Every rounding on the way to a credit is down and the reward divisor is never below the holders' scaled
+        // balances, so no credit exceeds its share. Short of it: the claim floors once, and each payment made after an
+        // earlier loss in the same rebalance divides by the ceil-rescaled divisor D', which stands above the holder's
+        // scaled balance by under one and so costs under R * B / (S * D') <= R / supplyAfter - D' trails the supply
+        // after the first loss by under S / 1e18 wei, far less than the later loss takes. The integral's own floors
+        // cost B / 1e54 of a wei each. Rejected: the proceeds before the keeper's bounty.
+        payment.tolerance = 1;
+        {
+            uint256 supplyAfter = IERC20(before.pool).totalSupply();
+            uint256 recorded;
+            bool afterALoss;
+            for (uint256 i = 0; i < paid.length; i++) {
+                if (paid[i].pool != before.pool) {
+                    continue;
+                }
+                if (paid[i].token == token) {
+                    recorded += paid[i].returned;
+                    if (afterALoss) {
+                        payment.tolerance += Math.ceilDiv(paid[i].returned, supplyAfter);
+                    }
+                }
+                afterALoss = true;
+            }
+            assertEq(recorded, payment.received, "the pool recorded the payments it received");
+        }
+
+        uint256 credits;
+        for (uint256 i = 0; i < before.holders.length; i++) {
+            uint256 credited = IMultipleRewardAccumulator_v3(before.pool).claimable(before.holders[i], aa(token))[0] -
+                payment.claimableBefore[i];
+            credits += credited;
+            if (payment.received == 0) {
+                assertEq(
+                    credited,
+                    0,
+                    string.concat("credited nothing in a token the pool was not paid in: ", vm.getLabel(before.holders[i]))
+                );
+                continue;
+            }
+            uint256 share = Math.mulDiv(payment.received, before.balances[i], before.supply);
+            assertLe(credited, share, string.concat("credited no more than their share: ", vm.getLabel(before.holders[i])));
+            assertDiscriminates(
+                credited,
+                share,
+                payment.tolerance,
+                Math.mulDiv(payment.proceeds, before.balances[i], before.supply),
+                string.concat("credited their share of what the pool was paid: ", vm.getLabel(before.holders[i]))
+            );
+        }
+        assertLe(credits, payment.received, "the holders' credits sum to at most what the pool was paid");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -485,5 +705,106 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
 
         vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, ratio));
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            EACH HOLDER'S SHARE
+    //////////////////////////////////////////////////////////////*/
+
+    /// Above the floor a rebalance is one step by both legs, and every holder of each pool gives up their share of
+    /// what their pool gave up and is credited their share of what it was paid: the collateral pool's holders in
+    /// collateral, the leveraged pool's in leveraged tokens, neither in the other's. Alice holds in both pools, and
+    /// each of her positions follows its own pool.
+    function test_aboveTheFloor_eachHolderGivesUpAndIsPaidTheirShareOfTheirPool() public {
+        _setRebalanceBountyRatio();
+        _fillPoolsWithHolders();
+        marketActions.setCollateralRatioByPrice(1.1 ether);
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "the market sells leverage");
+        PoolBeforeRebalance memory collateralPool = _beforeRebalance(stabilityPoolCollateral, _collateralPoolHolders());
+        PoolBeforeRebalance memory leveragedPool = _beforeRebalance(stabilityPoolLeveraged, _leveragedPoolHolders());
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both legs");
+        _assertEachHolderTookTheirShare(collateralPool, paid);
+        _assertEachHolderTookTheirShare(leveragedPool, paid);
+    }
+
+    /// Where the threshold sits below the floor the collateral route alone reaches it: both pools give up pegged and
+    /// are paid in collateral, and every holder of each gives up their share of what their pool gave up and is
+    /// credited their share of the collateral it was paid.
+    function test_byTheCollateralRouteAlone_eachHolderGivesUpAndIsPaidTheirShareInCollateral() public {
+        uint256 threshold = marketActions.collateralRatioBandsAboveThePeg(0.75 ether);
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(threshold);
+        vm.stopPrank();
+        _setRebalanceBountyRatio();
+        _fillPoolsWithHolders();
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
+        PoolBeforeRebalance memory collateralPool = _beforeRebalance(stabilityPoolCollateral, _collateralPoolHolders());
+        PoolBeforeRebalance memory leveragedPool = _beforeRebalance(stabilityPoolLeveraged, _leveragedPoolHolders());
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "both pools, by the collateral route only");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
+        _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        _assertEachHolderTookTheirShare(collateralPool, paid);
+        _assertEachHolderTookTheirShare(leveragedPool, paid);
+    }
+
+    /// From anywhere in the band one rebalance runs both steps, so each pool takes two losses in one call, and every
+    /// holder still gives up their share of all their pool gave up and is credited their share of each payment: the
+    /// collateral pool's holders of both its collateral payments, the leveraged pool's of the first step's collateral
+    /// and the second's leveraged tokens.
+    function testFuzz_insideTheBand_eachHolderTakesTheirShareOfBothSteps(uint256 start) public {
+        _setRebalanceBountyRatio();
+        _fillPoolsWithHolders();
+        start = bound(start, _insideTheBand(), _floor() - 1);
+        marketActions.setCollateralRatioByPrice(start);
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "the market starts where it sells no leverage");
+        PoolBeforeRebalance memory collateralPool = _beforeRebalance(stabilityPoolCollateral, _collateralPoolHolders());
+        PoolBeforeRebalance memory leveragedPool = _beforeRebalance(stabilityPoolLeveraged, _leveragedPoolHolders());
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 4, "two payments below the floor, two above it");
+        _assertEachHolderTookTheirShare(collateralPool, paid);
+        _assertEachHolderTookTheirShare(leveragedPool, paid);
+    }
+
+    /// A pool at its floor has nothing to give: the rebalance leaves it and its holders as they were, and the share of
+    /// the pegged it cannot give slides to the other pool, which alone gives up what reaching the floor takes - every
+    /// one of its holders their share of it.
+    function test_aPoolAtItsFloor_isLeftAsItIs_andItsShareSlidesToTheOtherPool() public {
+        _setRebalanceBountyRatio();
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, floor);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(floor, alice, 0);
+        vm.stopPrank();
+        // a first deposit must reach the floor, so the second holder's part arrives by transfer
+        vm.startPrank(alice);
+        IERC20(stabilityPoolCollateral).transfer(bob, (floor * 2) / 3);
+        vm.stopPrank();
+        _depositFor(stabilityPoolLeveraged, alice, 2_000);
+        _depositFor(stabilityPoolLeveraged, carol, 3_000);
+        _depositFor(stabilityPoolLeveraged, dave, 4_000);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(), 0, "the collateral pool is at its floor");
+        uint256 toTheFloor = _collateralRouteTo(_floor());
+        uint256 allowance = _sizingAllowance(_floor());
+        PoolBeforeRebalance memory collateralPool = _beforeRebalance(stabilityPoolCollateral, _collateralPoolHolders());
+        PoolBeforeRebalance memory leveragedPool = _beforeRebalance(stabilityPoolLeveraged, _leveragedPoolHolders());
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "the leveraged pool alone, on both steps");
+        _assertPayment(paid[0], stabilityPoolLeveraged, wrappedCollateralToken, "below the floor");
+        _assertPayment(paid[1], stabilityPoolLeveraged, leveragedToken, "above the floor");
+        assertGe(paid[0].pegged, toTheFloor, "the leveraged pool alone gives up what reaching the floor takes");
+        assertLe(paid[0].pegged, toTheFloor + allowance, "and no more than reaching it takes");
+        _assertEachHolderTookTheirShare(collateralPool, paid);
+        _assertEachHolderTookTheirShare(leveragedPool, paid);
     }
 }
