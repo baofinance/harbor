@@ -114,33 +114,41 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
 
     /// Intent: short strings (<32 chars) round-trip through ERC20MetadataLib_v1 correctly.
     function test_name_shortString() public {
-        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, "Short", "S");
-        assertEq(pool.name(), "Short", "short name");
-        assertEq(pool.symbol(), "S", "short symbol");
+        address pool = address(new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, "Short", "S"));
+        assertEq(IERC20Metadata(pool).name(), "Short", "short name");
+        assertEq(IERC20Metadata(pool).symbol(), "S", "short symbol");
     }
 
     /// Intent: 31-char strings (fits entirely in word 0 after the length prefix) round-trip.
     function test_name_exactly31chars() public {
         string memory name31 = "1234567890123456789012345678901";
         assertEq(bytes(name31).length, 31, "sanity");
-        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name31, "S");
-        assertEq(pool.name(), name31, "31-char name");
+        address pool = address(new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name31, "S"));
+        assertEq(IERC20Metadata(pool).name(), name31, "31-char name");
     }
 
     /// Intent: 32..63 char strings (spill into word 1) round-trip correctly.
     function test_name_between31and63chars() public {
         string memory name40 = "1234567890123456789012345678901234567890";
         assertEq(bytes(name40).length, 40, "sanity");
-        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name40, "S");
-        assertEq(pool.name(), name40, "40-char name");
+        address pool = address(new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name40, "S"));
+        assertEq(IERC20Metadata(pool).name(), name40, "40-char name");
     }
 
     /// Intent: 63-char strings (max length) round-trip correctly.
     function test_name_exactly63chars() public {
         string memory name63 = "123456789012345678901234567890123456789012345678901234567890123";
         assertEq(bytes(name63).length, 63, "sanity");
-        StabilityPool_v3 pool = new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name63, "S");
-        assertEq(pool.name(), name63, "63-char name");
+        address pool = address(new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, name63, "S"));
+        assertEq(IERC20Metadata(pool).name(), name63, "63-char name");
+    }
+
+    /// Intent: the longest symbol the pool keeps, 31 characters (one word with its length byte), is returned whole.
+    function test_symbol_ofThirtyOneCharacters_isReturnedWhole() public {
+        string memory symbol31 = "1234567890123456789012345678901";
+        assertEq(bytes(symbol31).length, 31, "sanity");
+        address pool = address(new StabilityPool_v3(fxUSD.minter, 3600, 90000, 1 ether, "n", symbol31));
+        assertEq(IERC20Metadata(pool).symbol(), symbol31, "31-char symbol");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

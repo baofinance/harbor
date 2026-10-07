@@ -1027,6 +1027,19 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         return keccak256(abi.encode(account, uint256(STABILITYPOOL_STORAGE) + member));
     }
 
+    /// @dev What the pool's getters read, held in memory so the slot-level test can compare them across the upgrade.
+    struct PoolGetters {
+        uint40[] historyUpdatedAt;
+        uint256[] historyAmount;
+        uint64 withdrawalStart;
+        uint64 withdrawalEnd;
+        uint256 earlyWithdrawalFee;
+        address feeAddress;
+        uint64 withdrawalStartDelay;
+        uint64 withdrawalEndWindow;
+        uint256 lastAssetLossError;
+    }
+
     /// @notice The v2 → v3 upgrade leaves every storage slot BYTE-IDENTICAL. The widened
     /// TokenBalance layout occupies the first slot's former zero padding (v2: product 16B +
     /// amount 13B + 3B padding; v3: product 16B + amount 16B) and `updatedAt` keeps its own
@@ -1047,20 +1060,26 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
 
-        // The slots that hold TokenBalance data plus their neighbours in the namespace.
-        bytes32[] memory slots = new bytes32[](12);
+        // The slots that hold TokenBalance data plus their neighbours in the namespace, and both slots of every history
+        // row (a row is a TokenBalance: product | amount, then updatedAt).
+        uint256 historyLength = uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(STABILITYPOOL_STORAGE) + 4)));
+        assertGt(historyLength, 2, "fixture: several history rows");
+        bytes32[] memory slots = new bytes32[](10 + 2 * historyLength);
         slots[0] = STABILITYPOOL_STORAGE; // totalAssetSupply: product | amount
         slots[1] = bytes32(uint256(STABILITYPOOL_STORAGE) + 1); // totalAssetSupply: updatedAt
         slots[2] = _mappedSlot(user1, 2); // assetBalances[user1]: product | amount
         slots[3] = bytes32(uint256(_mappedSlot(user1, 2)) + 1); // assetBalances[user1]: updatedAt
         slots[4] = _mappedSlot(user2, 2);
         slots[5] = bytes32(uint256(_mappedSlot(user2, 2)) + 1);
-        slots[6] = keccak256(abi.encode(uint256(0), uint256(STABILITYPOOL_STORAGE) + 3)); // history[0]
-        slots[7] = keccak256(abi.encode(uint256(1), uint256(STABILITYPOOL_STORAGE) + 3)); // history[1]
-        slots[8] = bytes32(uint256(STABILITYPOOL_STORAGE) + 4); // totalAssetSupplyHistoryLength
-        slots[9] = bytes32(uint256(STABILITYPOOL_STORAGE) + 5); // lastAssetLossError
-        slots[10] = _mappedSlot(user1, 6); // withdrawalRequests[user1]: start | end
-        slots[11] = bytes32(uint256(STABILITYPOOL_STORAGE) + 7); // feePayment
+        slots[6] = bytes32(uint256(STABILITYPOOL_STORAGE) + 4); // totalAssetSupplyHistoryLength
+        slots[7] = bytes32(uint256(STABILITYPOOL_STORAGE) + 5); // lastAssetLossError
+        slots[8] = _mappedSlot(user1, 6); // withdrawalRequests[user1]: start | end
+        slots[9] = bytes32(uint256(STABILITYPOOL_STORAGE) + 7); // feePayment
+        for (uint256 i = 0; i < historyLength; i++) {
+            bytes32 row = keccak256(abi.encode(i, uint256(STABILITYPOOL_STORAGE) + 3));
+            slots[10 + 2 * i] = row; // history[i]: product | amount
+            slots[11 + 2 * i] = bytes32(uint256(row) + 1); // history[i]: updatedAt
+        }
 
         bytes32[] memory before = new bytes32[](slots.length);
         for (uint256 i = 0; i < slots.length; i++) {
@@ -1070,6 +1089,21 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 balance1Before = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         uint256 balance2Before = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
         uint256 claimableBefore = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        // what the getters read on v2, through v2's interface
+        PoolGetters memory gettersOnV2;
+        gettersOnV2.historyUpdatedAt = new uint40[](historyLength);
+        gettersOnV2.historyAmount = new uint256[](historyLength);
+        for (uint256 i = 0; i < historyLength; i++) {
+            (gettersOnV2.historyUpdatedAt[i], gettersOnV2.historyAmount[i]) = IStabilityPool(stabilityPoolCollateral)
+                .totalAssetSupplyHistory(i);
+        }
+        (gettersOnV2.withdrawalStart, gettersOnV2.withdrawalEnd) = IStabilityPool(stabilityPoolCollateral)
+            .getWithdrawalRequest(user1);
+        gettersOnV2.earlyWithdrawalFee = IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee();
+        gettersOnV2.feeAddress = IStabilityPool(stabilityPoolCollateral).getFeeAddress();
+        (gettersOnV2.withdrawalStartDelay, gettersOnV2.withdrawalEndWindow) = IStabilityPool(stabilityPoolCollateral)
+            .getWithdrawalWindow();
+        gettersOnV2.lastAssetLossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
 
         _upgradeToV3();
 
@@ -1079,6 +1113,33 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         assertEq(IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply(), supplyBefore, "totalSupply preserved");
         assertEq(IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1), balance1Before, "user1 preserved");
         assertEq(IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user2), balance2Before, "user2 preserved");
+        // every getter reads through v3's interface what it read on v2
+        for (uint256 i = 0; i < historyLength; i++) {
+            (uint40 updatedAt, uint256 amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(i);
+            assertEq(updatedAt, gettersOnV2.historyUpdatedAt[i], "history row's time preserved");
+            assertEq(amount, gettersOnV2.historyAmount[i], "history row's supply preserved");
+        }
+        {
+            (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+            assertEq(start, gettersOnV2.withdrawalStart, "withdrawal request's start preserved");
+            assertEq(end, gettersOnV2.withdrawalEnd, "withdrawal request's end preserved");
+        }
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee(),
+            gettersOnV2.earlyWithdrawalFee,
+            "early-withdrawal fee preserved"
+        );
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), gettersOnV2.feeAddress, "fee address preserved");
+        {
+            (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalWindow();
+            assertEq(startDelay, gettersOnV2.withdrawalStartDelay, "withdrawal start delay preserved");
+            assertEq(endWindow, gettersOnV2.withdrawalEndWindow, "withdrawal window preserved");
+        }
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
+            gettersOnV2.lastAssetLossError,
+            "carried loss error preserved"
+        );
         // Claimable is NOT preserved — and must not be: the upgrade seeds rewardDivisorGap = supply - Sum(balanceOf),
         // so v3 divides pending rewards by Sum(balanceOf) where v2 divided by supply. With two unequal holders after a
         // liquidation those differ by the flooring residual, so v3 distributes the fraction v2 locked and claimable

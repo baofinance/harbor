@@ -160,6 +160,28 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
             "Upgrade should succeed and new function should be available"
         );
     }
+
+    /// Holding a role is no licence to upgrade: an account the owner has granted every role is refused, upgrading to a
+    /// real implementation, and the pool keeps the implementation it had.
+    function test_upgrade_byAHolderOfEveryRole_reverts() public {
+        address roleHolder = makeAddr("roleHolder");
+        vm.startPrank(owner());
+        IBaoRoles(stabilityPoolCollateral).grantRoles(roleHolder, type(uint256).max);
+        vm.stopPrank();
+        address newImplementation = address(new StabilityPool_vN(minter));
+        address implementationBefore = UnsafeUpgrades.getImplementationAddress(stabilityPoolCollateral);
+
+        vm.startPrank(roleHolder);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(newImplementation, "");
+        vm.stopPrank();
+
+        assertEq(
+            UnsafeUpgrades.getImplementationAddress(stabilityPoolCollateral),
+            implementationBefore,
+            "the implementation is unchanged"
+        );
+    }
 }
 
 contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {

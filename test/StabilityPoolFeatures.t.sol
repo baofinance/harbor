@@ -338,6 +338,14 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         new StabilityPool_v3(minter, 3600, 366 days, 1 ether, "Test", "T");
     }
 
+    // A year is the cap, not past it: a start delay and a window of exactly 365 days are accepted and kept.
+    function test_constructor_withdrawalDelayAndWindowOfAYear_areAccepted() public {
+        address sp = address(new StabilityPool_v3(minter, 365 days, 365 days, 1 ether, "Test", "T"));
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(sp).getWithdrawalWindow();
+        assertEq(startDelay, 365 days, "a start delay of a year is kept");
+        assertEq(endWindow, 365 days, "a window of a year is kept");
+    }
+
     // A zero minimum total asset supply is rejected: it is the reward-integral floor, and a zero floor lets the
     // per-share reward integral grow unbounded (division by a vanishing pool share).
     function test_constructor_zeroMinTotalAssetSupply_reverts() public {
@@ -353,6 +361,23 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
             smallMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
             "ceiling is MIN * FACTOR_PRECISION below the field width"
+        );
+    }
+
+    // The largest floor that does not saturate is `uint128.max / FACTOR_PRECISION`: its ceiling is still exactly
+    // MIN * FACTOR_PRECISION, which falls short of the field width by the division's remainder.
+    function test_constructor_maxTotalAssetSupply_atTheLargestUnsaturatedFloor_isMinTimesFactorPrecision() public {
+        uint256 largestMin = uint256(type(uint128).max) / DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+        address sp = address(new StabilityPool_v3(minter, 3600, 90000, largestMin, "Test", "T"));
+        assertLt(
+            largestMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
+            type(uint128).max,
+            "fixture: the ceiling is distinct from the saturated one"
+        );
+        assertEq(
+            IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
+            largestMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
+            "the largest unsaturated floor keeps MIN * FACTOR_PRECISION"
         );
     }
 
