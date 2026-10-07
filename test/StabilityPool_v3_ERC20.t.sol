@@ -12,6 +12,7 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 import {DeployEURSetUp} from "@harbor-test/deployment/DeployEURSetUp.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 import {PermitTestBase} from "@bao-test/PermitTestBase.t.sol";
 import {Array} from "@bao-test/utils/Array.sol";
 
@@ -32,6 +33,9 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     address stabilityPool;
     address peggedToken;
     address wrappedCollateralToken;
+    /// @dev Liquidates the pool as the market's manager, which holds its rebalancer role, with the amounts each test
+    ///      states: `liquidated` of its pegged taken, `returned` of wrapped collateral paid for it.
+    StabilityPoolActions internal poolActions;
 
     function setUp() public virtual override {
         super.setUp();
@@ -42,6 +46,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         stabilityPool = fxUSD.collateralPool;
         peggedToken = pegged;
         wrappedCollateralToken = fxUSD.wrappedCollateral;
+        poolActions = new StabilityPoolActions(stabilityPool, fxUSD.manager);
     }
 
     /// @dev Mint pegged tokens to `user` and deposit them into the stability pool.
@@ -50,15 +55,6 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         vm.startPrank(user);
         IERC20(peggedToken).approve(stabilityPool, amount);
         IStabilityPool_v3(stabilityPool).deposit(amount, user, 0);
-        vm.stopPrank();
-    }
-
-    /// @dev Apply a loss to the stability pool via notifyLiquidation: `liquidated` of its pegged is taken, and it is
-    ///      paid `returned` of wrapped collateral for it.
-    function _applyLoss(uint256 liquidated, uint256 returned) internal {
-        deal(wrappedCollateralToken, stabilityPool, IERC20(wrappedCollateralToken).balanceOf(stabilityPool) + returned);
-        vm.startPrank(fxUSD.manager);
-        IStabilityPool_v3(stabilityPool).notifyLiquidation(wrappedCollateralToken, liquidated, returned);
         vm.stopPrank();
     }
 
@@ -404,7 +400,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 10 ether);
 
         vm.recordLogs();
-        _applyLoss(2 ether, 1 ether);
+        poolActions.liquidate(wrappedCollateralToken, 2 ether, 1 ether);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         for (uint256 i = 0; i < logs.length; i++) {
@@ -447,7 +443,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 100 ether);
         // ensure CR is healthy enough that the loss is small relative to pool, but real
         // Apply a 25% loss to the pool (25 of 100)
-        _applyLoss(25 ether, 25 ether);
+        poolActions.liquidate(wrappedCollateralToken, 25 ether, 25 ether);
 
         // After the loss, user1's compounded balance is 75 (75% of original)
         uint256 user1Compounded = IERC20(stabilityPool).balanceOf(user1);
@@ -484,7 +480,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     /// Intent: round-trip transfer A->B then B->A after a loss leaves both balances unchanged.
     function test_transfer_roundTrip_afterLoss() public {
         _deposit(user1, 100 ether);
-        _applyLoss(25 ether, 25 ether);
+        poolActions.liquidate(wrappedCollateralToken, 25 ether, 25 ether);
 
         uint256 user1Before = IERC20(stabilityPool).balanceOf(user1);
         uint256 user2Before = IERC20(stabilityPool).balanceOf(user2);
@@ -504,9 +500,9 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     ///         and receiver with the full transferred amount.
     function test_transfer_full_afterMultipleLosses() public {
         _deposit(user1, 200 ether);
-        _applyLoss(20 ether, 20 ether); // 10% loss
-        _applyLoss(18 ether, 18 ether); // ~10% of remaining
-        _applyLoss(16 ether, 16 ether); // ~10% again
+        poolActions.liquidate(wrappedCollateralToken, 20 ether, 20 ether); // 10% loss
+        poolActions.liquidate(wrappedCollateralToken, 18 ether, 18 ether); // ~10% of remaining
+        poolActions.liquidate(wrappedCollateralToken, 16 ether, 16 ether); // ~10% again
 
         uint256 user1Compounded = IERC20(stabilityPool).balanceOf(user1);
         assertGt(user1Compounded, 0, "user1 has some balance");
@@ -602,7 +598,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user2), 100 ether, 1, "user2 100 after transfer");
 
         // Apply a 50% loss to the pool
-        _applyLoss(100 ether, 100 ether);
+        poolActions.liquidate(wrappedCollateralToken, 100 ether, 100 ether);
 
         // Both should have 50 (half each)
         assertApproxEqAbs(IERC20(stabilityPool).balanceOf(user1), 50 ether, 1, "user1 50 after loss");
@@ -620,7 +616,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 100 ether);
 
         // Apply a 37.5% loss (same as the worked example: 100 -> 62.5)
-        _applyLoss(37.5 ether, 37.5 ether);
+        poolActions.liquidate(wrappedCollateralToken, 37.5 ether, 37.5 ether);
 
         uint256 balanceAfterLoss = IERC20(stabilityPool).balanceOf(user1);
         assertApproxEqAbs(balanceAfterLoss, 62.5 ether, 1e15, "user1 has 62.5 after loss");
@@ -641,7 +637,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 100 ether);
 
         // Apply a 37.5% loss: 100 -> 62.5
-        _applyLoss(37.5 ether, 37.5 ether);
+        poolActions.liquidate(wrappedCollateralToken, 37.5 ether, 37.5 ether);
 
         uint256 balanceAfterLoss = IERC20(stabilityPool).balanceOf(user1);
         uint256 halfBalance = balanceAfterLoss / 2; // ~31.25
@@ -670,7 +666,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         _deposit(user1, 100 ether);
 
         // Apply a 50% loss: 100 -> 50
-        _applyLoss(50 ether, 50 ether);
+        poolActions.liquidate(wrappedCollateralToken, 50 ether, 50 ether);
 
         uint256 balanceAfterLoss = IERC20(stabilityPool).balanceOf(user1);
         uint256 firstTransfer = 20 ether;
@@ -705,7 +701,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         assertEq(IERC20(stabilityPool).allowance(signer, spender), 5 ether, "allowance set");
 
         // Trigger a rebase (50% loss).
-        _applyLoss(5 ether, 5 ether);
+        poolActions.liquidate(wrappedCollateralToken, 5 ether, 5 ether);
 
         // Signer's balance should have dropped, but the allowance is unchanged.
         assertLt(IERC20(stabilityPool).balanceOf(signer), 10 ether, "signer balance reduced by rebase");

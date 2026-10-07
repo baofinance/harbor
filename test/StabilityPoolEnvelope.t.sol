@@ -5,7 +5,6 @@ import {BaoTest} from "@bao-test/BaoTest.sol";
 import {console2} from "forge-std/console2.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -24,6 +23,7 @@ import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
@@ -139,6 +139,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// @dev What the envelope does to its market - see `MarketActions`. Made once the minter and its mock oracle exist,
     ///      before the snapshot the tests rewind to, so a rewind keeps it.
     MarketActions internal marketActions;
+    /// @dev Liquidates the pool as this contract, which holds its rebalancer role to arrange prior losses. Made beside
+    ///      `marketActions`, before the snapshot, for the same reason.
+    StabilityPoolActions internal poolActions;
     uint256 internal currentPrice; // 1e18-scaled, set by _setEnvelopePoint
     uint256 internal currentRate;
 
@@ -211,6 +214,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         vm.startPrank(stabilityPoolOwner);
         IBaoRoles(stabilityPool).grantRoles(address(this), rebalancerRole); // to arrange prior losses
         vm.stopPrank();
+        poolActions = new StabilityPoolActions(stabilityPool, address(this));
 
         background = makeAddr("background");
         _createUsers(MAX_FUZZ_USERS);
@@ -541,13 +545,6 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         vm.stopPrank();
     }
 
-    /// @dev Liquidate `loss` pegged out of the pool and notify — decays the compounding product (this contract holds
-    /// REBALANCER_ROLE). Mirrors the production liquidation's effect on the pool without a real minter redeem.
-    function _applyLoss(uint256 loss) internal {
-        ITokenHolder(stabilityPool).sweep(pegged, loss, address(this));
-        IStabilityPool_v3(stabilityPool).notifyLiquidation(wrappedCollateral, loss, 0);
-    }
-
     /// @dev Stand the market up the way a real one is: Genesis splits its collateral in half, minting pegged with
     /// one half and leveraged with the other, which leaves the pegged claim on half the collateral value - a
     /// collateral ratio of 2. A further pegged tranche of the same size then brings it to 1.5, mid-band on the fee
@@ -616,7 +613,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             uint256 headroom = held > minDeposit ? held - minDeposit : 0;
             uint256 loss = (headroom * s.priorLossFraction) / 1e18;
             if (loss > 0) {
-                _applyLoss(loss);
+                // a loss alone - no proceeds - decays the compounding product the envelope measures against
+                poolActions.liquidate(wrappedCollateral, loss, 0);
             }
         }
     }

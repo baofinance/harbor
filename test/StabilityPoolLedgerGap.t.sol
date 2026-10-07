@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
@@ -13,17 +12,18 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice Sizes the gap between the StabilityPool's two ledgers — the exact supply counter
 /// (`totalAssetSupply.amount`) and the product-decayed user balances (Σ balanceOf) — across the
-/// SP-native envelope: baseline supply t, user count n, deposit-size distribution, loss patterns,
+/// StabilityPool-native envelope: baseline supply t, user count n, deposit-size distribution, loss patterns,
 /// and reward scale. The gap ε drives the reward mis-credit A·ε/S per distribution (measured here
 /// directly), the data behind the ledger-unification / claim-cap decision.
 ///
 /// Pegged tokens are obtained with deal(): whether the REAL mint path reaches these magnitudes is
-/// the width-detection question (separate batch), not this sizing. Measurements stay below the
+/// the width-detection question, not this sizing. Measurements stay below the
 /// uint104 balance-field ceiling so they are not corrupted by the truncation that ceiling causes.
 ///
 /// Results are written as CSVs to ./results/sp-ledger-gap-*.csv (one file per test — forge runs
@@ -35,11 +35,15 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
 
     address internal pool;
     uint256 internal minSupply;
+    /// @dev Liquidates the pool as its rebalancer. Every loss here pays no proceeds, which keeps reward tokens out of
+    ///      the gap measurement.
+    StabilityPoolActions internal poolActions;
 
     function setUp() public override {
         super.setUp();
         pool = stabilityPoolCollateral;
         minSupply = IStabilityPool_v3(pool).MIN_DEPOSIT();
+        poolActions = new StabilityPoolActions(pool, rebalancer);
     }
 
     // ─── helpers (shared by all tests below) ───
@@ -79,16 +83,6 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         }
     }
 
-    /// @dev Apply a liquidation loss with no reward return: sweep the assets out (production
-    /// pattern, keeps pool solvency 1:1) and notify. returned = 0 keeps reward tokens out of the
-    /// gap measurement.
-    function _loss(uint256 loss) internal {
-        vm.startPrank(rebalancer);
-        ITokenHolder(pool).sweep(peggedToken, loss, rebalancer);
-        IStabilityPool_v3(pool).notifyLiquidation(wrappedCollateralToken, loss, 0);
-        vm.stopPrank();
-    }
-
     /// @dev The signed ledger gap: totalSupply − Σ balanceOf. Positive = users under-credited
     /// (loss over-applied, rewards stranded); negative = users over-credited (claimable can exceed
     /// tokens held).
@@ -125,7 +119,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
 
             uint256 sPre = IERC20(pool).totalSupply();
             uint256 lossOne = sPre / ONE + 1;
-            _loss(lossOne);
+            poolActions.liquidate(wrappedCollateralToken, lossOne, 0);
 
             int256 gapAfterL1 = _gap(actors);
             uint256 expectedGap = (2 * sPre - lossOne * ONE) / ONE;
@@ -140,7 +134,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
             // Absorb: a loss whose 1e18-scaled size is at most the outstanding error is taken from
             // the supply with NO product change, closing the gap from above.
             uint256 lossAbsorbed = expectedGap;
-            _loss(lossAbsorbed);
+            poolActions.liquidate(wrappedCollateralToken, lossAbsorbed, 0);
             int256 gapAfterAbsorb = _gap(actors);
             assertApprox(
                 _abs(gapAfterAbsorb),
@@ -174,7 +168,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
                 uint256 stores = 2; // one balance store per deposit
 
                 if (pattern == 0) {
-                    _loss(IERC20(pool).totalSupply() - minSupply); // single max-headroom loss
+                    poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - minSupply, 0); // single max-headroom loss
                 } else {
                     // ten losses of ~1% of current supply each
                     for (uint256 i = 0; i < 10; i++) {
@@ -183,7 +177,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
                             break;
                         }
                         uint256 loss = headroom / 100 + 1;
-                        _loss(loss > headroom ? headroom : loss);
+                        poolActions.liquidate(wrappedCollateralToken, loss > headroom ? headroom : loss, 0);
                     }
                 }
 
@@ -226,7 +220,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
                 address[] memory actors = _mkActors(n);
                 _depositShape(actors, t, shape == 1);
 
-                _loss((IERC20(pool).totalSupply() - minSupply) / 2);
+                poolActions.liquidate(wrappedCollateralToken, (IERC20(pool).totalSupply() - minSupply) / 2, 0);
                 for (uint256 i = 0; i < n; i++) {
                     IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
                 }
@@ -260,14 +254,14 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         uint256 t = 1e24;
         address[] memory actors = _mkActors(10);
         _depositShape(actors, t, false);
-        _loss(t / 3);
+        poolActions.liquidate(wrappedCollateralToken, t / 3, 0);
 
         int256 gapStart = _gap(actors);
         uint256 events = 0;
         for (uint256 batch = 0; batch < 5; batch++) {
             // a small fresh loss so the product moves and the next checkpoints re-floor
             uint256 headroom = IERC20(pool).totalSupply() - minSupply;
-            _loss(headroom / 1000 + 1);
+            poolActions.liquidate(wrappedCollateralToken, headroom / 1000 + 1, 0);
             for (uint256 i = 0; i < actors.length; i++) {
                 IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
                 events++;
@@ -297,7 +291,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         _depositShape(actors, t, false);
 
         uint256 sPre = IERC20(pool).totalSupply();
-        _loss(sPre / ONE + 1); // error recipe: gap ≈ S/1e18
+        poolActions.liquidate(wrappedCollateralToken, sPre / ONE + 1, 0); // error recipe: gap ≈ S/1e18
         int256 gap = _gap(actors);
 
         uint256 reward = 5e21;
@@ -322,7 +316,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         // Absorb the error, then a second identical stream credits ~everything. The absorb loss
         // must be STRICTLY within the outstanding error (the measured gap can exceed it by the
         // flooring wei), so absorb gap-1 and expect the residual gap to be a few wei.
-        _loss(uint256(gap) - 1);
+        poolActions.liquidate(wrappedCollateralToken, uint256(gap) - 1, 0);
         gap = _gap(actors);
         assertLe(_abs(gap), actors.length + 2, "gap closed to flooring level by the absorb");
         (credited, injected) = _streamAndMeasure(actors, reward);
@@ -391,7 +385,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         // a loss, a checkpoint pass, and a second loss — the ε drivers interleaved
         uint256 headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            _loss(bound(lossSeed, 1, headroom));
+            poolActions.liquidate(wrappedCollateralToken, bound(lossSeed, 1, headroom), 0);
         }
         for (uint256 i = 0; i < n; i++) {
             IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
@@ -399,7 +393,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         }
         headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            _loss(bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom));
+            poolActions.liquidate(wrappedCollateralToken, bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom), 0);
         }
 
         uint256 maxSupplyEver = deposited; // supply only shrinks after the deposits here
@@ -438,14 +432,14 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         }
         uint256 headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            _loss(bound(lossSeed, 1, headroom));
+            poolActions.liquidate(wrappedCollateralToken, bound(lossSeed, 1, headroom), 0);
         }
         for (uint256 i = 0; i < n; i++) {
             IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
         }
         headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            _loss(bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom));
+            poolActions.liquidate(wrappedCollateralToken, bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom), 0);
         }
     }
 
@@ -483,7 +477,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
             if (round % 4 == 0) {
                 uint256 headroom = IERC20(pool).totalSupply() - minSupply;
                 if (headroom > 3) {
-                    _loss(headroom / 4); // advance the product, diverge the snapshots
+                    poolActions.liquidate(wrappedCollateralToken, headroom / 4, 0); // advance the product, diverge the snapshots
                     _assertDivisorGeSumBalance(actors);
                 }
             }
@@ -660,7 +654,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     function test_delta_unchangedByDepositWithdraw() public {
         address[] memory actors = _mkActors(3);
         _depositShape(actors, 1e24, false);
-        _loss(IERC20(pool).totalSupply() / ONE + 1); // error recipe: leaves a non-zero gap
+        poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() / ONE + 1, 0); // error recipe: leaves a non-zero gap
 
         int256 gap = MockStabilityPool(pool).__rewardDivisorGap();
         assertGt(gap, int256(0), "precondition: the loss left a non-zero gap");
@@ -699,7 +693,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         // `MIN * FACTOR_PRECISION` is exactly MAX_TOTAL_ASSET_SUPPLY, the largest supply the deposit cap admits.
         _deposit(actors[0], floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION);
 
-        _loss(IERC20(pool).totalSupply() - floor); // the whole headroom: the worst case for the loss-per-unit
+        poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - floor, 0); // the whole headroom: the worst case for the loss-per-unit
 
         assertEq(IERC20(pool).totalSupply(), floor, "precondition: the liquidation took the pool to its floor");
         assertGt(MockStabilityPool(pool).__totalSupply().product.magnitude(), 0, "the product must survive the bound");
@@ -739,7 +733,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         _deposit(actors[0], 1e20);
 
         uint256 supplyBefore = IERC20(pool).totalSupply();
-        _loss(supplyBefore - floor / 2);
+        poolActions.liquidate(wrappedCollateralToken, supplyBefore - floor / 2, 0);
 
         uint256 supply = IERC20(pool).totalSupply();
         uint256 held = IERC20(peggedToken).balanceOf(pool);
@@ -755,7 +749,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         _deposit(actors[0], 1e20);
-        _loss(IERC20(pool).totalSupply() - floor / 2);
+        poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - floor / 2, 0);
         assertEq(IERC20(pool).totalSupply(), floor, "precondition: supply floored at the minimum");
         assertEq(IERC20(peggedToken).balanceOf(pool), IERC20(pool).totalSupply(), "floored and solvent");
 
@@ -775,7 +769,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         address[] memory actors = _mkActors(1);
         depositor = actors[0];
         _deposit(depositor, 1e20);
-        _loss(IERC20(pool).totalSupply() - floor / 2);
+        poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - floor / 2, 0);
         assertEq(IERC20(peggedToken).balanceOf(pool), IERC20(pool).totalSupply(), "precondition: solvent at the floor");
     }
 
@@ -833,7 +827,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     function test_liquidationPastFloor_secondLossStaysSolvent() public {
         _liquidatePastFloor();
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
-        _loss(IERC20(peggedToken).balanceOf(pool));
+        poolActions.liquidate(wrappedCollateralToken, IERC20(peggedToken).balanceOf(pool), 0);
 
         uint256 supply = IERC20(pool).totalSupply();
         uint256 held = IERC20(peggedToken).balanceOf(pool);
