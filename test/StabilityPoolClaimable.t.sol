@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
@@ -72,11 +73,22 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
     }
 
-    function _depositRewardAndWait(address token, uint256 amount) internal {
+    /// @dev Deposit a reward and wait out its stream. Returns what streamed: `rate x period`, the remainder of the
+    ///      amount (and of any earlier remainder) queued for the next deposit.
+    function _depositRewardAndWait(address token, uint256 amount) internal returns (uint256 streamed) {
         vm.startPrank(rewardDepositor);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(token, amount);
         vm.stopPrank();
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(token);
+        streamed = rate * IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
         skip(8 days);
+    }
+
+    /// @dev A lower bound on the reward divisor after one loss took the supply from `supplyBefore` to `supplyAfter`:
+    ///      the loss rescales the divisor by its product factor, rounded up, and that factor over-applies the loss by
+    ///      under 1e-18 per wei, so the divisor trails the supply after by under `supplyBefore / 1e18` wei.
+    function _divisorAfterALossAtLeast(uint256 supplyBefore, uint256 supplyAfter) private pure returns (uint256) {
+        return supplyAfter - Math.ceilDiv(supplyBefore, DecrementalFloatingPoint_v2.FACTOR_PRECISION);
     }
 
     function testClaimableAfterDeposit() public {
@@ -296,40 +308,44 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         );
     }
 
-    function testClaimableAfterAssetSweep() public {
-        // Initial deposit for all users
+    /// A loss leaves what a holder has accrued as it was, and a reward streamed after it is shared by the written-down
+    /// balances: three equal holders, a third each.
+    function test_claimable_afterALoss_keepsWhatAccrued_andSharesLaterRewardsByBalance() public {
         _depositForUsers();
+        uint256 streamedBefore = _depositRewardAndWait(rewardToken1, 300 ether);
+        uint256 accrued = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        assertEq(accrued, streamedBefore / 3, "fixture: a third of what streamed, read from the stream");
 
-        // Distribute some rewards
-        uint256 rewardAmount = 300 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount);
-
-        // Record initial claimable amounts
-        uint256 initialClaimableUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-            user1,
-            aa(rewardToken1)
-        )[0];
-
-        // Rebalancer sweeps some asset tokens - this should trigger _notifyLoss
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 2, 0);
+        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
 
-        // The claimable amounts should remain the same despite the loss
-        // because rewards are calculated based on proportional shares
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            initialClaimableUser1,
-            0.01e18
+        // The loss first flushes the stream into the reward integral, and the claim on the integral floors once more
+        // than the stream's view did: it may read one wei less, never more, and is not written down by the loss.
+        uint256 kept = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        assertLe(kept, accrued, "what accrued before the loss: never more");
+        assertDiscriminates(
+            kept,
+            accrued,
+            1,
+            Math.mulDiv(accrued, supplyAfter, supplyBefore),
+            "what accrued before the loss is kept, not written down with it"
         );
 
-        // Distribute more rewards after loss
-        _depositRewardAndWait(rewardToken1, rewardAmount);
-
-        // Users should still get proportional rewards
-        skip(8 days);
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            initialClaimableUser1 + (rewardAmount / 3),
-            0.01e18
+        // A stream after the loss is shared by the written-down balances over the reward divisor, which the loss
+        // rescaled rounding up: it stands above the holder's scaled balance by under one wei, costing under
+        // share / divisor, and the view floors once.
+        uint256 streamedAfter = _depositRewardAndWait(rewardToken1, 300 ether);
+        uint256 share = streamedAfter / 3;
+        uint256 tolerance = 1 + Math.ceilDiv(share, _divisorAfterALossAtLeast(supplyBefore, supplyAfter));
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        assertLe(claimable, kept + share, "a later reward: never more than a third");
+        assertDiscriminates(
+            claimable,
+            kept + share,
+            tolerance,
+            kept + Math.mulDiv(streamedAfter, DEPOSIT_AMOUNT, supplyAfter),
+            "a later reward is shared by the written-down balances, not by the deposits"
         );
     }
 
@@ -429,78 +445,76 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         );
     }
 
-    function testClaimableThroughComplexScenario() public {
-        // Initial deposit for users 1 and 2
+    /// Each holder's claim follows their share of the pool through each reward: two holders, a third joining, the
+    /// first withdrawing half, then a loss - which scales every balance alike and so moves no share. Each reward
+    /// streams in full before the next change, so the shares are 1/2-1/2-0, 1/4-1/4-1/2, 1/7-2/7-4/7, and 1/7-2/7-4/7
+    /// again after the loss.
+    function test_claimable_followsEachHoldersShareThroughJoinsWithdrawalsAndALoss() public {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
         vm.stopPrank();
-
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
         vm.stopPrank();
+        uint256[4] memory streamed;
+        streamed[0] = _depositRewardAndWait(rewardToken1, 200 ether);
 
-        // Distribute first reward
-        _depositRewardAndWait(rewardToken1, 200 ether);
-
-        // User 3 joins with a deposit
         vm.startPrank(user3);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user3, 0);
         vm.stopPrank();
+        streamed[1] = _depositRewardAndWait(rewardToken1, 300 ether);
 
-        // Distribute second reward
-        _depositRewardAndWait(rewardToken1, 300 ether);
-
-        // User 1 withdraws half
-        vm.startPrank(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
-        vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        vm.warp(uint256(start) + 1);
+        _beginWithdrawal(user1);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
         vm.stopPrank();
+        skip(3 days);
+        streamed[2] = _depositRewardAndWait(rewardToken1, 150 ether);
 
-        // Skip ahead in time
-        vm.warp(block.timestamp + 3 days);
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 4, 0);
+        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
+        streamed[3] = _depositRewardAndWait(rewardToken1, 100 ether);
 
-        // Distribute third reward
-        _depositRewardAndWait(rewardToken1, 150 ether);
+        // Each holder's share of each reward in 28ths, the common denominator of 1/2, 1/4 and 1/7; and the deposit each
+        // holds through the last reward, which a share taken by deposit rather than balance would divide.
+        uint256[4][3] memory shareIn28ths = [[uint256(14), 7, 4, 4], [uint256(14), 7, 8, 8], [uint256(0), 14, 16, 16]];
+        uint256[3] memory deposits = [DEPOSIT_AMOUNT / 2, DEPOSIT_AMOUNT, DEPOSIT_AMOUNT * 2];
+        uint256[3] memory expected;
+        uint256[3] memory tolerance;
+        uint256[3] memory byDeposit;
+        for (uint256 i = 0; i < 3; i++) {
+            uint256 beforeTheLoss = streamed[0] * shareIn28ths[i][0] + streamed[1] * shareIn28ths[i][1] + streamed[2] *
+                shareIn28ths[i][2];
+            expected[i] = (beforeTheLoss + streamed[3] * shareIn28ths[i][3]) / 28;
+            // Every rounding is down, so no claim exceeds its share. Short of it: the claim floors once at each of
+            // the holder's own checkpoints (user1's withdrawal) and twice at the final read (the integral and the
+            // stream), three at most; the last reward, streamed after the loss, divides by the ceil-rescaled divisor,
+            // costing under its share / divisor; the integral's own floors cost B / 1e54 of a wei each.
+            tolerance[i] =
+                3 +
+                Math.ceilDiv(
+                    (streamed[3] * shareIn28ths[i][3]) / 28,
+                    _divisorAfterALossAtLeast(supplyBefore, supplyAfter)
+                );
+            byDeposit[i] = beforeTheLoss / 28 + Math.mulDiv(streamed[3], deposits[i], supplyAfter);
+        }
 
-        // Sweep some asset tokens to simulate a loss
-        vm.startPrank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 4, rebalancer);
-        vm.stopPrank();
-
-        // Distribute fourth reward
-        _depositRewardAndWait(rewardToken1, 100 ether);
-
-        // Calculate expected rewards through this complex scenario
-        // First distribution: 50/50 split between user1 and user2 = 100 each
-        // Second distribution: 25/25/50 split between user1, user2, and user3 = 75/75/150
-        // Third distribution: ~14.3/28.6/57.1 split after user1 withdraws half = ~21.4/42.9/85.7
-        // Fourth distribution: proportional split after loss, but relative proportions stay the same
-
-        uint256 expectedUser1 = 100 ether + 75 ether + 21.4 ether + 14.3 ether;
-        uint256 expectedUser2 = 100 ether + 75 ether + 42.9 ether + 28.6 ether;
-        uint256 expectedUser3 = 0 ether + 150 ether + 85.7 ether + 57.1 ether;
-
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            expectedUser1,
-            0.05e18 // Allow 5% deviation due to complex scenario
-        );
-
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0],
-            expectedUser2,
-            0.05e18
-        );
-
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[0],
-            expectedUser3,
-            0.05e18
-        );
+        address[3] memory holders = [user1, user2, user3];
+        for (uint256 i = 0; i < 3; i++) {
+            uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+                holders[i],
+                aa(rewardToken1)
+            )[0];
+            assertLe(claimable, expected[i], string.concat("never more than the share: ", vm.getLabel(holders[i])));
+            assertDiscriminates(
+                claimable,
+                expected[i],
+                tolerance[i],
+                byDeposit[i],
+                string.concat("each reward shared as the pool stood, after the loss by balance: ", vm.getLabel(holders[i]))
+            );
+        }
     }
 
     function testClaimableWithMinimumDeposit() public {
@@ -574,88 +588,68 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         );
     }
 
-    function testClaimableAfterTotalLoss() public {
-        // Initial deposit for all users
+    /// A loss to the floor leaves what a holder has accrued as it was, and a reward streamed after it is shared by the
+    /// floored balances: three equal holders, a third each.
+    function test_claimable_afterALossToTheFloor_keepsWhatAccrued_andSharesLaterRewardsEqually() public {
         _depositForUsers();
+        uint256 streamedBefore = _depositRewardAndWait(rewardToken1, 300 ether);
+        uint256 accrued = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        assertEq(accrued, streamedBefore / 3, "fixture: a third of what streamed, read from the stream");
 
-        // Distribute some rewards
-        uint256 rewardAmount = 300 ether;
-        _depositRewardAndWait(rewardToken1, rewardAmount);
-
-        // Record initial claimable amounts
-        uint256 initialClaimableUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-            user1,
-            aa(rewardToken1)
-        )[0];
-
-        // Rebalancer sweeps ALL asset tokens - this should trigger _notifyLoss for everything
-        vm.startPrank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT * 3, rebalancer);
-        vm.stopPrank();
-
-        // Users should still be able to claim their rewards despite total loss of assets
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            initialClaimableUser1,
-            0.01e18
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+        collateralPoolActions.liquidate(wrappedCollateralToken, supplyBefore, 0); // asks for the whole pool
+        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
+        assertEq(
+            supplyAfter,
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "fixture: the pool is left at its floor"
         );
 
-        // Distribute more rewards - these SHOULD be claimable based on historical deposit ratios
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        // The loss first flushes the stream into the reward integral, and the claim on the integral floors once more
+        // than the stream's view did: it may read one wei less, never more, and is not written down by the loss.
+        uint256 kept = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        assertLe(kept, accrued, "what accrued before the loss: never more");
+        assertDiscriminates(
+            kept,
+            accrued,
+            1,
+            Math.mulDiv(accrued, supplyAfter, supplyBefore),
+            "what accrued before the loss is kept, not written down with it"
+        );
 
-        // User1 should now have: original claimable + 1/3 of new rewards
-        uint256 expectedTotal = initialClaimableUser1 + (rewardAmount / 3);
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            expectedTotal,
-            0.01e18,
-            "After total loss, new rewards should still be distributed based on historical ratios"
+        // A stream after the loss is shared by the floored balances over the reward divisor, which the loss rescaled
+        // rounding up: it stands above the holder's scaled balance by under one wei, costing under share / divisor -
+        // the divisor here only the floor, so this is the largest such cost - and the view floors once.
+        uint256 streamedAfter = _depositRewardAndWait(rewardToken1, 300 ether);
+        uint256 share = streamedAfter / 3;
+        uint256 tolerance = 1 + Math.ceilDiv(share, _divisorAfterALossAtLeast(supplyBefore, supplyAfter));
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        assertLe(claimable, kept + share, "a later reward: never more than a third");
+        assertDiscriminates(
+            claimable,
+            kept + share,
+            tolerance,
+            kept + Math.mulDiv(streamedAfter, DEPOSIT_AMOUNT, supplyAfter),
+            "a later reward is shared by the floored balances, not by the deposits"
         );
     }
 
-    function test_ClaimableAfterCompleteAssetSweep_() public {
-        // Initial deposit for all users
+    /// A sweep of the pegged alone - capped at the headroom above the floor, recording no loss - changes no holder's
+    /// share: a later reward is split by the unchanged deposits, exactly a third each.
+    function test_claimable_afterALoneSweepOfThePegged_sharesLaterRewardsByTheUnchangedDeposits() public {
         _depositForUsers();
-
-        uint256 rewardAmount = 300 ether;
-
-        // Rebalancer sweeps some asset tokens - this should trigger _notifyLoss
-        collateralPoolActions.liquidate(wrappedCollateralToken, IERC20(stabilityPoolCollateral).totalSupply(), 0);
-
-        // Distribute more rewards after loss
-        _depositRewardAndWait(rewardToken1, rewardAmount);
-
-        assertApproxEqAbs(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            rewardAmount / 3,
-            1e4,
-            "User claimable after full liquidation: %s"
-        );
-    }
-
-    function test_ClaimableAfterNearCompleteAssetSweep_() public {
-        // Initial deposit for all users
-        _depositForUsers();
-
-        uint256 rewardAmount = 300 ether;
-
-        // Rebalancer sweeps some asset tokens - this should trigger _notifyLoss
+        uint256 supply = IERC20(stabilityPoolCollateral).totalSupply();
         vm.startPrank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(
-            peggedToken,
-            IERC20(stabilityPoolCollateral).totalSupply(),
-            rebalancer
-        );
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, supply, rebalancer);
         vm.stopPrank();
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supply, "the sweep records no loss");
 
-        // Distribute more rewards after loss
-        _depositRewardAndWait(rewardToken1, rewardAmount);
+        uint256 streamed = _depositRewardAndWait(rewardToken1, 300 ether);
 
-        assertApproxEqAbs(
+        assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            rewardAmount / 3,
-            1e4,
-            "User claimable after full liquidation: %s"
+            streamed / 3,
+            "the reward is split by the deposits, as though the sweep had not happened"
         );
     }
 
