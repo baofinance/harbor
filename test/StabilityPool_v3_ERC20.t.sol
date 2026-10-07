@@ -26,6 +26,15 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         return stabilityPool;
     }
 
+    // the pool's permit is Solady's, whose errors carry no arguments
+    function _permitExpiredRevert(uint256) internal pure override returns (bytes memory) {
+        return abi.encodeWithSelector(ERC20.PermitExpired.selector);
+    }
+
+    function _permitInvalidSignerRevert(address, address) internal pure override returns (bytes memory) {
+        return abi.encodeWithSelector(ERC20.InvalidPermit.selector);
+    }
+
     address user1;
     address user2;
     address user3;

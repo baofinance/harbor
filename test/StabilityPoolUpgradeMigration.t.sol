@@ -899,20 +899,37 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Post-upgrade: new rewards accumulate at exponent 2 - user2's share of the stream. The divisor is the supply
         // less the upgrader's gap, the sum of the balances (user1's ten billion floors, written down two exponent steps,
-        // hold a ten-billionth). A holder earns on its unfloored compounded share, up to a wei above its balance, and a
-        // wei of share earns streamed / divisor; the flush into the integral may cost a wei.
+        // hold a ten-billionth). A holder earns on its unfloored compounded share: its stored amount scaled by the pool's
+        // magnitude over its own, and down a scale factor for each exponent step since it was written - read from its
+        // balance slot (product in the low 128 bits, amount in the high). The claim floors its share of the old and the
+        // new integral together, so the new stream's part can carry a wei either way; the integral's own floors are
+        // worth far less than a wei here.
         _depositReward(steam, 5 ether);
         uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
-        uint256 divisor = balanceOnV2[0] + balanceOnV2[1];
-        uint256 expected = steamClaimableOnV2[1] + Math.mulDiv(streamed, balanceOnV2[1], divisor);
-        uint256 claimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0];
-        assertGe(claimable + 1, expected, "New rewards accumulate post-upgrade at exponent 2: all of the share");
-        assertLe(
-            claimable,
-            expected + Math.ceilDiv(streamed, divisor),
-            "New rewards accumulate post-upgrade at exponent 2: never more than the share of a wei more"
+        uint256 expected;
+        {
+            uint256 balanceWord = uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user2, 2)));
+            uint128 userProduct = uint128(balanceWord);
+            uint128 poolProduct = uint128(uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE)));
+            uint256 steps = DecrementalFloatingPoint_v2.exponent(poolProduct) -
+                DecrementalFloatingPoint_v2.exponent(userProduct);
+            expected =
+                steamClaimableOnV2[1] +
+                Math.mulDiv(
+                    streamed,
+                    (balanceWord >> 128) * DecrementalFloatingPoint_v2.magnitude(poolProduct),
+                    DecrementalFloatingPoint_v2.magnitude(userProduct) *
+                        uint256(DecrementalFloatingPoint_v2.SCALE_FACTOR) ** steps *
+                        (balanceOnV2[0] + balanceOnV2[1])
+                );
+        }
+        assertApproxEqAbs(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0],
+            expected,
+            1,
+            "New rewards accumulate post-upgrade at exponent 2: user2's unfloored share of the stream"
         );
     }
 

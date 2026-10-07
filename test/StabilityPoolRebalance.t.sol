@@ -493,11 +493,19 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT / 2, user3, 0);
         vm.stopPrank();
 
-        // 2. Verify initial balances
-        uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), DEPOSIT_AMOUNT, "User1 initial balance incorrect");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), DEPOSIT_AMOUNT * 2, "User2 initial balance incorrect");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user3), DEPOSIT_AMOUNT / 2, "User3 initial balance incorrect");
+        // 2. Verify initial balances - each holder's balance before the loss that first writes it down, held in memory:
+        // the stack cannot also carry the per-unit losses below. User4's is filled in when it deposits.
+        uint256[4] memory balancesBefore = [
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user2),
+            IERC20(stabilityPoolCollateral).balanceOf(user3),
+            0
+        ];
+        uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply(); // the supply before each loss
+
+        assertEq(balancesBefore[0], DEPOSIT_AMOUNT, "User1 initial balance incorrect");
+        assertEq(balancesBefore[1], DEPOSIT_AMOUNT * 2, "User2 initial balance incorrect");
+        assertEq(balancesBefore[2], DEPOSIT_AMOUNT / 2, "User3 initial balance incorrect");
         assertEq(totalSupply, (DEPOSIT_AMOUNT * 7) / 2, "Total supply incorrect");
 
         // 3. Perform complete liquidation (sweep exactly the total supply amount)
@@ -515,20 +523,19 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             assertEq(scaledLoss % totalSupply, 0, "the loss and its carried over-application make a whole loss per unit");
             lossPerUnit = scaledLoss / totalSupply;
         }
-        uint256 actualUser1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         assertEq(
-            actualUser1Balance,
-            DEPOSIT_AMOUNT - Math.ceilDiv(DEPOSIT_AMOUNT * lossPerUnit, 1 ether),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            balancesBefore[0] - Math.ceilDiv(balancesBefore[0] * lossPerUnit, 1 ether),
             "User1 is written down its share of the loss per unit"
         );
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user2),
-            DEPOSIT_AMOUNT * 2 - Math.ceilDiv(DEPOSIT_AMOUNT * 2 * lossPerUnit, 1 ether),
+            balancesBefore[1] - Math.ceilDiv(balancesBefore[1] * lossPerUnit, 1 ether),
             "User2 is written down its share of the loss per unit"
         );
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user3),
-            DEPOSIT_AMOUNT / 2 - Math.ceilDiv((DEPOSIT_AMOUNT / 2) * lossPerUnit, 1 ether),
+            balancesBefore[2] - Math.ceilDiv(balancesBefore[2] * lossPerUnit, 1 ether),
             "User3 is written down its share of the loss per unit"
         );
 
@@ -539,27 +546,30 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // 6. Test what happens when users try to withdraw after complete liquidation
         // User1 tries to withdraw more than their actual balance (should fail)
-        uint256 withdrawAmount = actualUser1Balance + 1; // One wei more than actual
-        vm.startPrank(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
-        vm.stopPrank();
-        (uint64 s3, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        vm.warp(uint256(s3) + 1);
-        vm.startPrank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IStabilityPool_v3.WithdrawAmountExceedsBalance.selector,
-                withdrawAmount,
-                actualUser1Balance
-            )
-        );
-        IStabilityPool_v3(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
+        {
+            uint256 actualUser1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+            uint256 withdrawAmount = actualUser1Balance + 1; // One wei more than actual
+            vm.startPrank(user1);
+            IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+            vm.stopPrank();
+            (uint64 s3, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+            vm.warp(uint256(s3) + 1);
+            vm.startPrank(user1);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    IStabilityPool_v3.WithdrawAmountExceedsBalance.selector,
+                    withdrawAmount,
+                    actualUser1Balance
+                )
+            );
+            IStabilityPool_v3(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
 
-        // At the floor the pool has no headroom, so a withdrawal of the whole balance caps to nothing and reverts
-        // rather than paying 0.
-        vm.expectRevert(IStabilityPool_v3.WithdrawZeroAmount.selector);
-        IStabilityPool_v3(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
-        vm.stopPrank();
+            // At the floor the pool has no headroom, so a withdrawal of the whole balance caps to nothing and reverts
+            // rather than paying 0.
+            vm.expectRevert(IStabilityPool_v3.WithdrawZeroAmount.selector);
+            IStabilityPool_v3(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
+            vm.stopPrank();
+        }
 
         // 7. Make a new deposit after complete liquidation to verify the system still works
         vm.startPrank(user4);
@@ -579,6 +589,8 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // 9. Test a partial liquidation after the complete liquidation to ensure the system still functions
+        balancesBefore[3] = IERC20(stabilityPoolCollateral).balanceOf(user4);
+        totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
         collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT, 0);
 
         // 10. Verify the partial liquidation worked correctly: it first spends the carried error, so its per-unit loss is
@@ -590,14 +602,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
         uint256 laterLossPerUnit;
         {
-            uint256 supplyBefore = DEPOSIT_AMOUNT * 5 + minSupply;
             uint256 laterError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
             uint256 scaledLoss = DEPOSIT_AMOUNT * 1 ether - lossError + laterError;
-            assertLt(laterError, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
-            assertEq(scaledLoss % supplyBefore, 0, "the loss less the error it spent, and the new carry, make a whole loss per unit");
-            laterLossPerUnit = scaledLoss / supplyBefore;
+            assertLt(laterError, totalSupply, "the carried over-application is under the supply: the loss per unit is its ceiling");
+            assertEq(scaledLoss % totalSupply, 0, "the loss less the error it spent, and the new carry, make a whole loss per unit");
+            laterLossPerUnit = scaledLoss / totalSupply;
         }
-        uint256 user4Balance = DEPOSIT_AMOUNT * 5 - Math.ceilDiv(DEPOSIT_AMOUNT * 5 * laterLossPerUnit, 1 ether);
+        uint256 user4Balance = balancesBefore[3] - Math.ceilDiv(balancesBefore[3] * laterLossPerUnit, 1 ether);
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user4),
             user4Balance,
@@ -613,9 +624,9 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
                 IERC20(stabilityPoolCollateral).balanceOf(user2) +
                 IERC20(stabilityPoolCollateral).balanceOf(user3) +
                 IERC20(stabilityPoolCollateral).balanceOf(user4),
-            Math.mulDiv(DEPOSIT_AMOUNT, throughBoth, 1e36) +
-                Math.mulDiv(DEPOSIT_AMOUNT * 2, throughBoth, 1e36) +
-                Math.mulDiv(DEPOSIT_AMOUNT / 2, throughBoth, 1e36) +
+            Math.mulDiv(balancesBefore[0], throughBoth, 1e36) +
+                Math.mulDiv(balancesBefore[1], throughBoth, 1e36) +
+                Math.mulDiv(balancesBefore[2], throughBoth, 1e36) +
                 user4Balance,
             "every balance is its deposit through the losses since it was made"
         );
