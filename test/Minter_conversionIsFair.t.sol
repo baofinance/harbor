@@ -121,6 +121,52 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         assertApproxEqAbs(released, fair, 2, "above it the conversion is the fair rate");
     }
 
+    /// Below the floor the conversion is refused: a leveraged mint is judged on the market it starts from, and there the
+    /// pool is paid at par in collateral instead. The retail route's redeem goes through first and lifts the ratio a
+    /// hair, so its mint is judged at the ratio it finds - refused while that is still below the floor, and served in
+    /// the band, one redemption wide, where the redeem itself carries the market to the floor.
+    function _belowTheFloor_theConversionIsRefused_andTheRetailMintJudgedWhereItsRedeemLeft(uint256 peggedIn) private {
+        uint256 release = releaseCollateralRatio();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter_v3.BelowMinimumCollateralRatio.selector,
+                IMinter(minter).collateralRatio(),
+                release
+            )
+        );
+        IMinter_v3(minter).freeRedeemPeggedToken(0, peggedIn, address(this));
+
+        uint256 collateralOut = IMinter_v3(minter).redeemPeggedToken(peggedIn, address(this), 0);
+        uint256 ratioAtTheMint = IMinter(minter).collateralRatio();
+        if (ratioAtTheMint < release) {
+            vm.expectRevert(
+                abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioAtTheMint, release)
+            );
+            IMinter_v3(minter).mintLeveragedToken(collateralOut, address(this), 0);
+        } else {
+            assertGt(
+                IMinter_v3(minter).mintLeveragedToken(collateralOut, address(this), 0),
+                0,
+                "where the redeem reaches the floor, the retail mint is served"
+            );
+        }
+    }
+
+    /// One wei below the floor - inside the band one redemption wide - the conversion is refused while the retail
+    /// route's own redeem carries the market to the floor and its mint is served: the design, pinned at the edge the
+    /// fuzz below reaches only by chance.
+    function test_oneWeiBelowTheFloor_theConversionIsRefused_whileTheRetailRouteIsServed() public {
+        uint256 peggedIn = 1 ether;
+        marketActions.setCollateralRatioByPrice(releaseCollateralRatio() - 1);
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "fixture: the market stands below the floor");
+        _belowTheFloor_theConversionIsRefused_andTheRetailMintJudgedWhereItsRedeemLeft(peggedIn);
+        assertGe(
+            IMinter(minter).collateralRatio(),
+            releaseCollateralRatio(),
+            "fixture: the retail redeem carried the market to the floor"
+        );
+    }
+
     /// R3. THE POOL IS NEVER PAID LESS THAN ANYONE ELSE. The same move is available to any holder as two
     /// ordinary calls - redeem the pegged for collateral, mint leveraged with it - and neither is bounded. A
     /// protocol route that pays less than the retail route is a penalty for using it.
@@ -137,26 +183,7 @@ contract TestMinterConversionIsFair is TestConversionBoundReleaseSetUp {
         marketActions.setCollateralRatioByPrice(collateralRatio);
 
         if (!IMinter_v3(minter).leveragedMintable()) {
-            // Below the floor BOTH routes revert, with the same error: neither is paid, so neither is paid
-            // less. The retail route's redeem goes through and lifts the ratio a hair, so the mint is judged
-            // at the ratio it finds.
-            uint256 release = releaseCollateralRatio();
-            vm.expectRevert(
-                abi.encodeWithSelector(
-                    IMinter_v3.BelowMinimumCollateralRatio.selector,
-                    IMinter(minter).collateralRatio(),
-                    release
-                )
-            );
-            IMinter_v3(minter).freeRedeemPeggedToken(0, peggedIn, address(this));
-
-            uint256 collateralOut = IMinter_v3(minter).redeemPeggedToken(peggedIn, address(this), 0);
-            uint256 ratioAtTheMint = IMinter(minter).collateralRatio();
-            assertLt(ratioAtTheMint, release, "precondition: the retail redemption leaves the market below the floor");
-            vm.expectRevert(
-                abi.encodeWithSelector(IMinter_v3.BelowMinimumCollateralRatio.selector, ratioAtTheMint, release)
-            );
-            IMinter_v3(minter).mintLeveragedToken(collateralOut, address(this), 0);
+            _belowTheFloor_theConversionIsRefused_andTheRetailMintJudgedWhereItsRedeemLeft(peggedIn);
             return;
         }
 
