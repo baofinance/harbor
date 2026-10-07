@@ -255,7 +255,6 @@ for name in $(printf '%s\n' "${!changed[@]}" | sort); do
         for gp in ${drawn_by[${name}]}; do
             echo "         drawn by: ${gp}"
         done
-        echo "         compare:  cd results && gnuplot -e \"before='../${dir}/${name}'; after='${name}'; cols='2'\" compare.gp > ../tmp/${name%.csv}.svg"
     fi
 done
 for name in "${added[@]}"; do
