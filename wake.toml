@@ -7,7 +7,16 @@ enabled = false # unset = let the compiler decide
 
 [compiler.solc]
 # Exclude paths define locations of Solidity files that should not be compiled unless imported from another non-excluded file.
-exclude_paths = ["node_modules", "venv", "lib", "doc"]
+exclude_paths = [
+  "node_modules",
+  "venv",
+  "lib",
+  "doc",
+  "tmp",
+  "deprecated",
+  "out",
+  "samples",
+]
 # include paths are for import resolution
 remappings = [
   # foundry
