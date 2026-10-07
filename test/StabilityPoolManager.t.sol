@@ -275,9 +275,17 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
             "Should be = harvestable"
         );
 
-        (uint256 startPrice, uint256 startRate, , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, startRate * 1.1 ether);
-        assertGt(IStabilityPoolManager_v2(stabilityPoolManager).harvestable(), 0, "Should be some harvestable");
+        // a 10% rise in the wrapped-to-underlying rate frees the wrapped the record no longer needs: the holding less the
+        // record's wrapped at the new rate, rounded up
+        (uint256 startPrice, , uint256 startRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 risenRate = (startRate * 11) / 10;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, risenRate);
+        (uint256 recorded, ) = IMinter_v3(minter).impairment();
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestable(),
+            IERC20(wrappedCollateralToken).balanceOf(minter) - Math.mulDiv(recorded, 1 ether, risenRate, Math.Rounding.Ceil),
+            "the holding less the record's wrapped at the risen rate"
+        );
     }
 
     function test_supportsInterfaceNegative() public view {
@@ -598,8 +606,15 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         setUp_collateral(500 ether, 500 ether, address(this));
         (uint256 startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, 1010101010101010101);
-        uint256 harvestableAmount = IMinter(minter).harvestable();
-        assertApproxEqAbs(harvestableAmount, 10 ether, 10, "harvestable should be 10 ether");
+        // the rise frees the wrapped the record no longer needs: the holding less the record's wrapped at the new rate,
+        // rounded up - 10 ether less 10 wei
+        (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        (uint256 recorded, ) = IMinter_v3(minter).impairment();
+        assertEq(
+            IMinter(minter).harvestable(),
+            IERC20(wrappedCollateralToken).balanceOf(minter) - Math.mulDiv(recorded, 1 ether, rate, Math.Rounding.Ceil),
+            "the holding less the record's wrapped at the risen rate"
+        );
     }
 
     function _claimable(address user) internal returns (uint256 claimable) {
@@ -611,21 +626,15 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         claimable = IERC20(wrappedCollateralToken).balanceOf(user) - claimable;
         vm.revertToState(snap);
 
+        // claim() flushes the unstreamed reward into the integral and floors the holder's share of it once; the view
+        // floors the integral's share and the unflushed stream's share separately. The two roundings differ by at most
+        // a wei, in either direction.
         assertApproxEqAbs(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user, aa(wrappedCollateralToken))[0],
             claimable,
             1,
-            string.concat(vm.getLabel(user), "claimable(), vs claim()")
+            string.concat(vm.getLabel(user), ", claimable(), vs claim()")
         );
-    }
-
-    function _part(
-        uint256 reward,
-        uint256 balance,
-        uint256 total,
-        uint256 durationRatio
-    ) internal pure returns (uint256) {
-        return (balance * reward * durationRatio) / (total * 1 ether);
     }
 
     function test_harvestFrontRun_() public {
@@ -644,70 +653,148 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         assertEq(_claimable(user2), 0, "user2 claimable=0");
 
         uint256 snap = vm.snapshotState();
+        uint256 period = IMultipleRewardDistributor_v3(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
+
+        // A harvest streams over a period, so nothing is claimable at it; a period on, the whole stream is, each holder
+        // its share by balance. The supplies here (1000e18, then 2000e18) divide 1e54, so the integral's step is whole
+        // and each claim is exactly its balance's share of what streamed.
 
         //////////////////////////////////////////////////
         // SCENARIO 1 - simple harvest: distribution of harvest on basis of current balance
-        IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
-        assertEq(_claimable(user1), 0, "user1 claimable=0");
-        assertEq(_claimable(user2), 0, "user2 claimable=0");
-        assertEq(_claimable(user3), 0, "user3 claimable=0");
+        {
+            uint256 harvestable = IMinter(minter).harvestable();
+            IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
+            (, , uint256 rate, ) = IMultipleRewardDistributor_v3(stabilityPoolCollateral).rewardData(
+                wrappedCollateralToken
+            );
+            // with no bounty or cut the whole harvestable streams to the one holding pool
+            assertEq(rate, harvestable / period, "the whole harvestable streams over a period");
+            assertEq(_claimable(user1), 0, "user1 claimable=0");
+            assertEq(_claimable(user2), 0, "user2 claimable=0");
+            assertEq(_claimable(user3), 0, "user3 claimable=0");
 
-        skip(1 weeks); // claimable is 0 even after a week, but that week is worth
+            skip(period);
 
-        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 1000e18, 1e18), 1e16, "user1 claimable=2 eth");
-        assertApproxEqAbs(_claimable(user2), _part(10e18, 800e18, 1000e18, 1e18), 1e6, "user2 claimable=0");
-        assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
+            uint256 supply = IERC20(stabilityPoolCollateral).totalSupply();
+            assertEq(
+                _claimable(user1),
+                Math.mulDiv(rate * period, IERC20(stabilityPoolCollateral).balanceOf(user1), supply),
+                "user1 takes a fifth of the stream"
+            );
+            assertEq(
+                _claimable(user2),
+                Math.mulDiv(rate * period, IERC20(stabilityPoolCollateral).balanceOf(user2), supply),
+                "user2 takes four fifths of the stream"
+            );
+            assertEq(_claimable(user3), 0, "user3 claimable=0");
+        }
 
         vm.revertToState(snap);
 
         //////////////////////////////////////////////////
         // SCENARIO 2 - user2 withdraws half way through: time-weighted reward distribution on current balance
-        IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
+        {
+            IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
+            (, , uint256 rate, ) = IMultipleRewardDistributor_v3(stabilityPoolCollateral).rewardData(
+                wrappedCollateralToken
+            );
+            uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+            uint256 user2Before = IERC20(stabilityPoolCollateral).balanceOf(user2);
 
-        skip(3.5 days); // claimable is 0 even after a week, but that week is worth
+            uint256 streamedBefore;
+            {
+                uint256 harvestedAt = block.timestamp;
+                skip(period / 2);
 
-        vm.startPrank(user2);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
-        vm.stopPrank();
-        (uint64 _start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
-        vm.warp(_start + 1);
-        vm.startPrank(user2);
-        IStabilityPool_v3(stabilityPoolCollateral).withdraw(400 ether, user2, 0);
-        vm.stopPrank();
+                vm.startPrank(user2);
+                IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+                vm.stopPrank();
+                (uint64 _start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
+                vm.warp(_start + 1);
+                vm.startPrank(user2);
+                IStabilityPool_v3(stabilityPoolCollateral).withdraw(400 ether, user2, 0);
+                vm.stopPrank();
+                streamedBefore = rate * (block.timestamp - harvestedAt);
+            }
+            uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
 
-        skip(3.5 days);
+            skip(period / 2);
+            uint256 streamedAfter = rate * period - streamedBefore;
 
-        assertApproxEqAbs(
-            _claimable(user1),
-            _part(10e18, 200e18, 1000e18, 0.5e18) + _part(10e18, 200e18, 600e18, 0.5e18),
-            1e16,
-            "user1 claimable=2+ eth"
-        );
-        assertApproxEqAbs(
-            _claimable(user2),
-            _part(10e18, 800e18, 1000e18, 0.5e18) + _part(10e18, 400e18, 600e18, 0.5e18),
-            1e16,
-            "user2 claimable=6 ish eth"
-        );
-        assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
+            // The withdrawal flushes the first stream into the integral, in a whole step (over 1000e18); the claim
+            // flushes the second in one over 600e18, which floors - so each claim is its exact share of the two
+            // streams by the balances through each, or a wei less.
+            {
+                // user1 holds through: one claim across both steps, so one floor of its two shares
+                uint256 user1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+                uint256 expected = Math.mulDiv(
+                    user1Balance,
+                    streamedBefore * supplyAfter + streamedAfter * supplyBefore,
+                    supplyBefore * supplyAfter
+                );
+                uint256 claimed = _claimable(user1);
+                assertLe(claimed, expected, "user1: never more than its share");
+                assertDiscriminates(
+                    claimed,
+                    expected,
+                    1,
+                    Math.mulDiv(rate * period, user1Balance, supplyBefore),
+                    "user1: the stream split by the balances through each part, not by those before the withdrawal"
+                );
+            }
+            {
+                // the withdrawal checkpoints user2: its share of the first stream floored then, of the second on what
+                // it kept
+                uint256 expected = Math.mulDiv(streamedBefore, user2Before, supplyBefore) +
+                    Math.mulDiv(streamedAfter, IERC20(stabilityPoolCollateral).balanceOf(user2), supplyAfter);
+                uint256 claimed = _claimable(user2);
+                assertLe(claimed, expected, "user2: never more than its share");
+                assertDiscriminates(
+                    claimed,
+                    expected,
+                    1,
+                    Math.mulDiv(rate * period, user2Before, supplyBefore),
+                    "user2: the stream split by the balances through each part, not by those before the withdrawal"
+                );
+            }
+            assertEq(_claimable(user3), 0, "user3 claimable=0");
+        }
 
         vm.revertToState(snap);
 
         //////////////////////////////////////////////////
         // SCENARIO 3 - user3 decides to front-run a harvest
-        vm.startPrank(user3);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(1000 ether, user3, 0); // doubles the total shares
-        vm.stopPrank();
-        IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0); // get the harvest going
-        // but wait...
-        assertApproxEqAbs(_claimable(user1), 0, 0, "user1 claimable=0");
-        assertApproxEqAbs(_claimable(user2), 0, 0, "user2 claimable=0");
-        assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
-        // hang on...
-        skip(1 weeks);
-        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 2000e18, 1e18), 1e6, "user1 1 eth");
-        assertApproxEqAbs(_claimable(user2), _part(10e18, 800e18, 2000e18, 1e18), 1e6, "user2 4 eth");
-        assertApproxEqAbs(_claimable(user3), _part(10e18, 1000e18, 2000e18, 1e18), 1e6, "user3 5 eth");
+        {
+            vm.startPrank(user3);
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(1000 ether, user3, 0); // doubles the total shares
+            vm.stopPrank();
+            IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0); // get the harvest going
+            (, , uint256 rate, ) = IMultipleRewardDistributor_v3(stabilityPoolCollateral).rewardData(
+                wrappedCollateralToken
+            );
+            // but wait...
+            assertEq(_claimable(user1), 0, "user1 claimable=0");
+            assertEq(_claimable(user2), 0, "user2 claimable=0");
+            assertEq(_claimable(user3), 0, "user3 claimable=0");
+            // hang on... the front-runner takes its share of the stream, the others are diluted by it
+            skip(period);
+            uint256 supply = IERC20(stabilityPoolCollateral).totalSupply();
+            assertEq(
+                _claimable(user1),
+                Math.mulDiv(rate * period, IERC20(stabilityPoolCollateral).balanceOf(user1), supply),
+                "user1 takes a tenth of the stream"
+            );
+            assertEq(
+                _claimable(user2),
+                Math.mulDiv(rate * period, IERC20(stabilityPoolCollateral).balanceOf(user2), supply),
+                "user2 takes four tenths of the stream"
+            );
+            assertEq(
+                _claimable(user3),
+                Math.mulDiv(rate * period, IERC20(stabilityPoolCollateral).balanceOf(user3), supply),
+                "user3 takes half the stream"
+            );
+        }
     }
 
     /// With no bounty and no cut the bounty receiver and the fee receiver are paid nothing: the pools take it all.
@@ -750,10 +837,16 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         );
         IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 1 ether);
 
+        uint256 gross = IMinter(minter).harvestable();
+        uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio();
         IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 1 ether - 1);
         // unbiased floors: no pool holds here, so the gross is split into the bounty floor and the fee receiver's
-        // residual floor - two independent floors whose remainder (<= 1 wei) stays unharvested, handed to neither.
-        assertLe(IMinter(minter).harvestable(), 1, "only the <= 1 wei bounty + fee-receiver flooring remainder stays");
+        // residual floor - two independent floors whose remainder stays unharvested, handed to neither.
+        assertEq(
+            IMinter(minter).harvestable(),
+            gross - Math.mulDiv(gross, bountyRatio, 1 ether) - Math.mulDiv(gross, 1 ether - bountyRatio, 1 ether),
+            "only the bounty's and the fee receiver's flooring remainder stays"
+        );
 
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 1 ether - 1, "Incorrect bounty amount of 0.5");
     }
@@ -857,7 +950,6 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             expectedNet,
             "pool receives its own floored net"
         );
-        assertLe(IMinter(minter).harvestable(), 2, "the flooring remainder stays unharvested");
         assertEq(
             expectedBounty + expectedCut + expectedNet + IMinter(minter).harvestable(),
             gross,
@@ -866,14 +958,14 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     }
 
     function test_harvestToTreasury() public {
-        // stability pools are empty, no bount or fee
+        // stability pools are empty, no bounty or fee: the treasury takes the whole harvestable
+        uint256 harvestable = IMinter(minter).harvestable();
         IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "Harvester should not receive bounty");
-        assertApproxEqAbs(
+        assertEq(
             IERC20(wrappedCollateralToken).balanceOf(treasury()),
-            10 ether,
-            10,
-            "Treasury should receive bounty"
+            harvestable,
+            "Treasury should receive the whole harvest"
         );
         assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral), 0 ether);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged), 0 ether);
@@ -882,12 +974,12 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     function test_harvestToTreasury2() public {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
-        // one pool is empty, no bount or fee
+        // one pool is empty, no bounty or fee: the holding pool takes the whole harvestable
+        uint256 harvestable = IMinter(minter).harvestable();
         IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
-        assertApproxEqAbs(
+        assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
-            10 ether,
-            10,
+            harvestable,
             "all goes to one pool, not treasury"
         );
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "no bounty");
@@ -986,7 +1078,12 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             flooredTreasury,
             "treasury takes floor(cut) + floor(residual), not the complement"
         );
-        assertLt(harvested, gross, "the flooring remainder is left unharvested");
+        // the harvest is the bounty's floor and the treasury's two, so the fixture's flooring remainder is left unharvested
+        assertEq(
+            harvested,
+            (gross * 0.05 ether) / 1 ether + flooredTreasury,
+            "the harvest is exactly the parts paid, short of the gross by their flooring"
+        );
     }
 
     /// A harvestable too small for any pool's share to clear one reward period leaves every share deferred at a stream
@@ -1036,10 +1133,18 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
         assertEq(IMinter(minter).harvestable(), surplus, "the reverted harvest consumed no surplus");
 
+        uint256 supplyCollateral = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply();
+        uint256 supplyLeveraged = IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply();
         vm.startPrank(harvester);
         uint256 harvested = IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
-        assertGt(harvested, 0, "harvesting resumes once the holding covers the record again");
+        // with no bounty or cut, each pool takes its floored share of the whole surplus by supply
+        assertEq(
+            harvested,
+            Math.mulDiv(surplus, supplyCollateral, supplyCollateral + supplyLeveraged) +
+                Math.mulDiv(surplus, supplyLeveraged, supplyCollateral + supplyLeveraged),
+            "harvesting resumes once the holding covers the record again: the whole surplus, split by supply"
+        );
     }
 
     /// The minimum-bounty check precedes the nothing-fairly-harvestable short circuit: with no gross distributed the
@@ -1130,7 +1235,6 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             flooredCollateral + flooredLeveraged,
             "the harvest distributes only the two floored shares"
         );
-        assertLt(harvested, shrunk, "the write-down remainder is left unharvested");
     }
 
     /// The bounty is a floored share of the gross claimed, while the swept total trails that gross by the flooring
@@ -1327,40 +1431,35 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         assertEq(IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply(), 0, "Pool 2 should be empty");
 
         // Set up bounty ratio
+        uint256 bountyRatio = 0.1 ether; // 10% bounty
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.1 ether, 0); // 10% bounty
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bountyRatio, 0);
         vm.stopPrank();
 
         // Record initial balances
         uint256 harvesterBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
         uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(treasury());
+        uint256 gross = IMinter(minter).harvestable(); // no pool holds: the whole gross is the treasury's
 
         // Execute harvest
         vm.startPrank(harvester);
         uint256 harvested = IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
 
-        // Calculate expected amounts
-        uint256 expectedBounty = 1 ether; // 10% of 10 ether
-        uint256 expectedToTreasury = 9 ether; // remainder goes to treasury
+        // each party takes its own floor of the gross: the bounty its ratio, the treasury the residual
+        uint256 expectedBounty = Math.mulDiv(gross, bountyRatio, 1 ether);
+        uint256 expectedToTreasury = Math.mulDiv(gross, 1 ether - bountyRatio, 1 ether);
 
-        // Verify harvested amount
-        assertApproxEqAbs(harvested, 10 ether, 100, "Should return total harvested amount");
-
-        // Check bounty was correctly sent to harvester
-        assertApproxEqAbs(
+        assertEq(harvested, expectedBounty + expectedToTreasury, "Should return the parts paid");
+        assertEq(
             IERC20(wrappedCollateralToken).balanceOf(harvester) - harvesterBefore,
             expectedBounty,
-            1,
-            "Harvester should receive correct bounty"
+            "Harvester should receive its floored ratio of the gross"
         );
-
-        // Check remainder went to treasury
-        assertApproxEqAbs(
+        assertEq(
             IERC20(wrappedCollateralToken).balanceOf(treasury()) - treasuryBefore,
             expectedToTreasury,
-            10,
-            "Treasury should receive remainder when pools are empty"
+            "Treasury should receive its floored residual when pools are empty"
         );
     }
 
@@ -1676,19 +1775,30 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
             (startRate * 10) / 9 // Set a rate to ensure collateral is available
         );
         uint256 harvestableAmount = IMinter(minter).harvestable();
-        assertApproxEqAbs(harvestableAmount, 100 ether, 100, "harvestable should be 100 ether");
+        {
+            // the rise frees the wrapped the record no longer needs: the holding less the record's wrapped at the new
+            // rate, rounded up
+            (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            (uint256 recorded, ) = IMinter_v3(minter).impairment();
+            assertEq(
+                harvestableAmount,
+                IERC20(wrappedCollateralToken).balanceOf(minter) -
+                    Math.mulDiv(recorded, 1 ether, rate, Math.Rounding.Ceil),
+                "the holding less the record's wrapped at the risen rate"
+            );
+        }
 
-        // The manager splits the new yield by holdings GROSS (flooring both), then skims each part on its own base: the
+        // The manager splits the new yield by supply GROSS (flooring both), then skims each part on its own base: the
         // bounty and cut are the exact ratio floors of the total gross distributed, and EACH pool gets its own floored
         // net floor(grossShare * residualRatio) - no pool absorbs another party's rounding. Every flooring remainder (the
-        // holdings split and each per-part floor) is left unharvested in the minter, not handed to a pool.
+        // supply split and each per-part floor) is left unharvested in the minter, not handed to a pool.
         uint256 residualRatio = 1 ether - bounty - cut;
-        uint256 totalHolding = IERC20(peggedToken).balanceOf(stabilityPoolCollateral) +
-            IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
-        uint256 grossCollateral = (harvestableAmount * IERC20(peggedToken).balanceOf(stabilityPoolCollateral)) /
-            totalHolding;
-        uint256 grossLeveraged = (harvestableAmount * IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)) /
-            totalHolding;
+        uint256 totalSupply = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply() +
+            IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply();
+        uint256 grossCollateral = (harvestableAmount *
+            IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply()) / totalSupply;
+        uint256 grossLeveraged = (harvestableAmount * IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply()) /
+            totalSupply;
         uint256 totalGross = grossCollateral + grossLeveraged;
         uint256 bountyAmount = (totalGross * bounty) / 1 ether;
         uint256 cutAmount = (totalGross * cut) / 1 ether;

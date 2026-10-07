@@ -286,6 +286,15 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         liquidated = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, expected + 1);
         // (1) --------------------------------------------------------------------------------------------------
 
+        // the residual is worth exactly the leveraged supply here, so a pegged converts to exactly one leveraged token,
+        // and with no bounty the pool is paid all of it
+        assertEq(
+            IMinter_v3(minter).leveragedTokenPrice(),
+            IMinter_v3(minter).peggedTokenPrice(),
+            "fixture: a leveraged token is worth a pegged one"
+        );
+        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyRatio(), 0, "fixture: no bounty");
+
         // liquidate it 0.23 * price vs 1 * price for liquidate to collateral
         liquidated = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
         // (2) --------------------------------------------------------
@@ -301,11 +310,10 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
             0,
             "wrong amount of collateral"
         );
-        assertApproxEqAbs(
+        assertEq(
             IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged) - poolLeveraged,
             liquidated,
-            1e3, // 461538461538461537802 != 461538461538461538462
-            "wrong amount of leveraged"
+            "a leveraged token for each pegged"
         );
         assertEq(IMinter_v3(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
 

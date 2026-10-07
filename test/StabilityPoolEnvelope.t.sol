@@ -1564,6 +1564,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio();
         uint256 cutRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
+        // the skim's bands below are derived for these
+        assertLt(bountyRatio, uint256(1e18) / 3, "fixture: the bounty ratio is under a third");
+        assertTrue(residualRatio == 0 || residualRatio > 0.5e18, "fixture: the residual ratio is nothing or over a half");
 
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
@@ -1575,20 +1578,30 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // (a) a normal harvest: accrue a little yield, then check the skim matches the harvestable decrease
         currentRate = (currentRate * 1001) / 1000;
         mockOracle.setLatestAnswer(currentPrice, currentRate);
-        _assertSkimMatchesHarvestableDrop(keeper, bountyRatio, residualRatio);
+        _assertSkimMatchesHarvestableDrop(keeper, bountyRatio, residualRatio, false);
 
         // (b) a deferred corner harvest: the same invariant must hold when the pools cap and the excess defers
         _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
         currentRate = e.maxWrapRate;
         mockOracle.setLatestAnswer(currentPrice, currentRate);
-        _assertSkimMatchesHarvestableDrop(keeper, bountyRatio, residualRatio);
+        _assertSkimMatchesHarvestableDrop(keeper, bountyRatio, residualRatio, true);
     }
 
     /// @dev Harvest once (as `keeper`) and assert the keeper bounty and the pools' net receipt are the bounty/residual
-    /// ratio slices of the harvestable decrease. Tolerance ~8 wei: the swept total is the sum of up to five floored
-    /// parts (bounty, cut, two pool nets, treasury), so it trails the exact gross by ≤ 5 wei, and the ratio check by
-    /// ≤ that × the ratio + 1. Single external call under the prank (the harvest); balances read outside it.
-    function _assertSkimMatchesHarvestableDrop(address keeper, uint256 bountyRatio, uint256 residualRatio) internal {
+    /// ratio slices of the harvestable decrease, to the floors' wei. The decrease is the sweep `drop = B + C + N`, each
+    /// part a floor of its own base on the gross G, so for a part P of ratio p, `P - drop * p = (the other parts'
+    /// flooring) * p - (P's flooring) * (1 - p)`. At a normal harvest four parts floor (the bounty, the cut, the two
+    /// pools' nets): the bounty lands in [floor(drop * b), floor(drop * b) + 1] and the nets in [floor(drop * r),
+    /// floor(drop * r) + 2]. Where the pools cap, each net IS its cap and the gross is floored back up from it, so the
+    /// nets sit up to a wei above their share of the gross: the nets' band is unchanged and the bounty's widens by a wei
+    /// below. (For a bounty ratio under 1/3, and a residual over 1/2 or none - with none the nets are nothing, and do not
+    /// floor.) Single external call under the prank (the harvest); balances read outside it.
+    function _assertSkimMatchesHarvestableDrop(
+        address keeper,
+        uint256 bountyRatio,
+        uint256 residualRatio,
+        bool poolsCap
+    ) internal {
         address token = wrappedCollateral;
         uint256 harvestableBefore = IMinter(minter).harvestable();
         uint256 keeperBefore = IERC20(token).balanceOf(keeper);
@@ -1600,18 +1613,16 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 bounty = IERC20(token).balanceOf(keeper) - keeperBefore;
         uint256 netToPools = (IERC20(token).balanceOf(stabilityPool) +
             IERC20(token).balanceOf(stabilityPoolLeveraged)) - poolsBefore;
-        assertApproxEqAbs(
+        uint256 flooredBounty = Math.mulDiv(drop, bountyRatio, 1e18);
+        assertGe(
             bounty,
-            Math.mulDiv(drop, bountyRatio, 1e18),
-            8,
-            "bounty == bountyRatio x harvestable decrease"
+            poolsCap && flooredBounty > 0 ? flooredBounty - 1 : flooredBounty,
+            "bounty == bountyRatio x harvestable decrease, to the floors' wei below"
         );
-        assertApproxEqAbs(
-            netToPools,
-            Math.mulDiv(drop, residualRatio, 1e18),
-            8,
-            "net to pools == residualRatio x harvestable decrease"
-        );
+        assertLe(bounty, flooredBounty + 1, "bounty == bountyRatio x harvestable decrease, to a wei above");
+        uint256 flooredNet = Math.mulDiv(drop, residualRatio, 1e18);
+        assertGe(netToPools, flooredNet, "net to pools == residualRatio x harvestable decrease, never below");
+        assertLe(netToPools, flooredNet + 2, "net to pools == residualRatio x harvestable decrease, to two wei above");
     }
 
     /// @notice maxDepositReward is the conservative deposit capacity `cap - committed`, where `cap` is the smaller of
