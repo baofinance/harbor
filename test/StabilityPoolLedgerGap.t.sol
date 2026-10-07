@@ -724,6 +724,25 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         vm.stopPrank();
     }
 
+    /// @notice The ceiling is on the RESULTING total, as the floor is: with half the ceiling already held, a deposit of
+    /// the other half and a wei - well under the ceiling on its own - reverts with the total it would make, and the
+    /// other half exactly is accepted, leaving the supply at the ceiling.
+    function test_deposit_takingANonEmptyPoolPastItsCeiling_reverts_andToItIsAccepted() public {
+        uint256 max = IStabilityPool_v3(pool).MAX_TOTAL_ASSET_SUPPLY();
+        address[] memory actors = _mkActors(2);
+        _deposit(actors[0], max / 2);
+        uint256 rest = max - max / 2;
+
+        deal(peggedToken, actors[1], rest + 1);
+        vm.startPrank(actors[1]);
+        IERC20(peggedToken).approve(pool, rest + 1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.DepositAmountExceedsMaximum.selector, max + 1, max));
+        IStabilityPool_v3(pool).deposit(rest + 1, actors[1], 0);
+        IStabilityPool_v3(pool).deposit(rest, actors[1], 0);
+        vm.stopPrank();
+        assertEq(IERC20(pool).totalSupply(), max, "a deposit to exactly the ceiling is accepted");
+    }
+
     /// @notice An over-sized liquidation - requested loss above the headroom (supply - MIN_TOTAL_ASSET_SUPPLY) - floors
     /// the supply at the minimum and caps the swept pegged at the same headroom, so held pegged equals supply: the pool
     /// holds exactly enough to honour what it owes.

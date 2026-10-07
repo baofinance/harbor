@@ -198,13 +198,73 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start + 1);
 
-        // Deposit during window should cancel request
+        // Deposit during window should cancel request: zeroed, and said so
         vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         vm.stopPrank();
         (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start2, end2);
-        assertTrue(end2 <= start);
+        assertEq(start2, 0, "the request is cancelled: no start");
+        assertEq(end2, 0, "the request is cancelled: no end");
+    }
+
+    // The window's last second still counts as unended: a deposit at exactly `end` cancels the request too.
+    function test_deposit_atTheWindowsEnd_cancelsTheRequest() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 10 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(end);
+
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+        vm.stopPrank();
+        (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        assertEq(start2, 0, "the request is cancelled: no start");
+        assertEq(end2, 0, "the request is cancelled: no end");
+    }
+
+    // The request a deposit cancels is its sender's: a deposit made for another account cancels the payer's request and
+    // leaves the receiver's window running.
+    function test_deposit_forAnother_cancelsTheSendersRequest_notTheReceivers() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 10 * price);
+        deal(peggedToken, user2, 10 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, 10 * price);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 receiverStart, uint64 receiverEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
+            user2
+        );
+        vm.warp(receiverStart + 1);
+
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user2, 0);
+        vm.stopPrank();
+        (uint64 senderStart, uint64 senderEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        assertEq(senderStart, 0, "the sender's request is cancelled: no start");
+        assertEq(senderEnd, 0, "the sender's request is cancelled: no end");
+        (uint64 receiverStart2, uint64 receiverEnd2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
+            user2
+        );
+        assertEq(receiverStart2, receiverStart, "the receiver's request keeps its start");
+        assertEq(receiverEnd2, receiverEnd, "the receiver's request keeps its end");
     }
 
     function test_deposit_beforeWindow_cancelsRequest() public {
@@ -218,13 +278,15 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start - 10); // before start
 
-        // Deposit before window should also cancel request (since it's before end)
+        // Deposit before window should also cancel request (since it's before end): zeroed, and said so
         vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         vm.stopPrank();
         (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start2, end2);
-        assertTrue(end2 <= start);
+        assertEq(start2, 0, "the request is cancelled: no start");
+        assertEq(end2, 0, "the request is cancelled: no end");
     }
 
     function test_getters_returnConfiguredValues() public view {

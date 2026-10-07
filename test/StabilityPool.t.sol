@@ -436,6 +436,29 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "the caller is credited nothing");
     }
 
+    /// A deposit says what it did, in order: the deposit (who paid, for whom, how much), the receiver's new stake - what
+    /// it held plus the deposit, with no loss - and the mint of the shares to the receiver. A top-up for another
+    /// account, so the payer, the receiver, the amount and the new stake are each told apart.
+    function test_deposit_emitsDepositThenTheReceiversNewBalanceThenAMint() public {
+        (uint256 callerHolds, ) = setUp_collateral(2 ether, 0 ether, user1);
+        (uint256 receiverHolds, ) = setUp_collateral(2 ether, 0 ether, user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(receiverHolds, user2, 0);
+        vm.stopPrank();
+        uint256 balanceBefore = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 amount = callerHolds / 4;
+
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.Deposit(user1, user2, amount);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.UserDepositChange(user2, balanceBefore + amount, 0);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IERC20.Transfer(address(0), user2, amount);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user2, 0);
+        vm.stopPrank();
+    }
+
     /// A deposit of nothing reverts, naming the pegged token: an amount of 0 from a holder of pegged, and the
     /// deposit-all sentinel from a holder of none.
     function test_deposit_ofNothing_revertsZeroInputBalance() public {
@@ -543,6 +566,35 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         uint256 creditedAll = IStabilityPool_v3(stabilityPoolCollateral).deposit(type(uint256).max, user1, 0);
         vm.stopPrank();
         assertEq(previewedAll, creditedAll, "deposit-all: forecast matches the credit");
+    }
+
+    /// The deposit-all sentinel from a holder of nothing previews nothing: a forecast does not revert, as the deposit
+    /// itself does.
+    function test_previewDeposit_ofEverythingWithNothing_isZero() public {
+        assertEq(IERC20(peggedToken).balanceOf(user2), 0, "fixture: user2 holds no pegged");
+        vm.startPrank(user2);
+        uint256 previewed = IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(type(uint256).max);
+        vm.stopPrank();
+        assertEq(previewed, 0, "deposit-all of nothing previews 0");
+    }
+
+    /// previewDeposit forecasts the credit only: it applies neither the floor nor the ceiling on the resulting total,
+    /// which deposit checks after crediting. On an empty pool an amount under the floor, and one above the ceiling,
+    /// each preview as themselves.
+    function test_previewDeposit_appliesNeitherTheFloorNorTheCeiling() public view {
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "fixture: the pool is empty");
+        uint256 underTheFloor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY() - 1;
+        uint256 overTheCeiling = IStabilityPool_v3(stabilityPoolCollateral).MAX_TOTAL_ASSET_SUPPLY() + 1;
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(underTheFloor),
+            underTheFloor,
+            "an amount under the floor previews as itself"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(overTheCeiling),
+            overTheCeiling,
+            "an amount above the ceiling previews as itself"
+        );
     }
 
     /// A withdrawal request opens the configured window: it starts the configured delay after the request and stays
