@@ -59,4 +59,13 @@ contract MockStabilityPool is StabilityPool_v3 {
     ) external pure returns (uint256) {
         return _getCompoundedBalance(initialBalance, initialProduct, currentProduct);
     }
+
+    /// @notice Exposes the ceiling rescale the reward divisor moves through on a loss.
+    function __scaleAdjustedValueCeil(
+        uint256 baseValue,
+        uint128 toProd,
+        uint128 fromProd
+    ) external pure returns (uint256) {
+        return _scaleAdjustedValueCeil(baseValue, toProd, fromProd);
+    }
 }

@@ -51,9 +51,9 @@
 | src/minter/ReservePool_v1.sol                                      | X   0% (0/15)      | X   0% (0/14)      | X   0% (0/3)     | X   0% (0/5)     |
 | src/minter/ReservePool_v2.sol                                      | X  94% (17/18)     | ✓ 100% (16/16)     | ✓ 100% (3/3)     | X  80% (4/5)     |
 | src/minter/StabilityPoolManager_v1.sol                             | X   0% (0/164)     | X   0% (0/175)     | X   0% (0/23)    | X   0% (0/24)    |
-| src/minter/StabilityPoolManager_v2.sol                             | X  99% (261/263)   | X  99% (285/287)   | X  93% (43/46)   | ✓ 100% (32/32)   |
+| src/minter/StabilityPoolManager_v2.sol                             | X  99% (260/262)   | X  99% (285/287)   | X  93% (43/46)   | ✓ 100% (32/32)   |
 | src/minter/StabilityPool_v2.sol                                    | X  61% (121/197)   | X  58% (126/217)   | X  19% (6/31)    | X  73% (16/22)   |
-| src/minter/StabilityPool_v3.sol                                    | ✓ 100% (251/251)   | ✓ 100% (265/265)   | ✓ 100% (39/39)   | ✓ 100% (35/35)   |
+| src/minter/StabilityPool_v3.sol                                    | ✓ 100% (255/255)   | ✓ 100% (268/268)   | ✓ 100% (39/39)   | ✓ 100% (36/36)   |
 | src/minter/TokenDistributor_v1.sol                                 | X  96% (92/96)     | X  96% (110/114)   | X  77% (10/13)   | X  93% (14/15)   |
 | src/minter/library/ConfigIncentiveLib.sol                          | ✓ 100% (24/24)     | ✓ 100% (17/17)     | X  75% (3/4)     | ✓ 100% (9/9)     |
 | src/minter/library/Config_v1.sol                                   | X  84% (66/79)     | X  86% (82/95)     | X  40% (8/20)    | ✓ 100% (6/6)     |
@@ -62,7 +62,7 @@
 | src/minter/library/MinterValuationLib.sol                          | ✓ 100% (55/55)     | ✓ 100% (69/69)     | ✓ 100% (18/18)   | ✓ 100% (10/10)   |
 | src/minter/library/RebalanceSizing_v1.sol                          | ✓ 100% (36/36)     | ✓ 100% (41/41)     | ✓ 100% (13/13)   | ✓ 100% (2/2)     |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol | X  75% (111/148)   | X  77% (142/184)   | X  60% (12/20)   | X  70% (16/23)   |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol | X  99% (131/132)   | X  99% (168/169)   | X  95% (20/21)   | ✓ 100% (20/20)   |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol | ✓ 100% (132/132)   | ✓ 100% (169/169)   | ✓ 100% (21/21)   | ✓ 100% (20/20)   |
 | src/reward/distributor/LinearMultipleRewardDistributor_v2.sol      | X  58% (45/77)     | X  63% (54/86)     | X  25% (3/12)    | X  50% (7/14)    |
 | src/reward/distributor/LinearMultipleRewardDistributor_v3.sol      | X  99% (87/88)     | X  99% (98/99)     | X  94% (15/16)   | ✓ 100% (16/16)   |
 | src/reward/distributor/LinearReward.sol                            | X  96% (24/25)     | X  96% (26/27)     | X  88% (7/8)     | ✓ 100% (2/2)     |
@@ -70,4 +70,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                   | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
 | src/util/FmtLib.sol                                                | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)     |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
-| Total                                                              | X  66% (2954/4466) | X  67% (3255/4848) | X  66% (400/609) | X  71% (428/600) |
+| Total                                                              | X  66% (2958/4469) | X  67% (3259/4851) | X  66% (401/609) | X  71% (429/601) |

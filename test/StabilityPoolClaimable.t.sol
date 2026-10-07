@@ -9,7 +9,10 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
 
 contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
@@ -653,6 +656,50 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
             rewardAmount / 3,
             1e4,
             "User claimable after full liquidation: %s"
+        );
+    }
+
+    /// A holder whose last checkpoint predates a move of the product's exponent can still claim what was credited
+    /// after the move: the view adds each later rung's integral, scaled back to the holder's own. The numbers are
+    /// chosen so every step is exact - a lone holder of floor x 1e10 liquidated to the floor moves the product by
+    /// exactly 1e-10, one rung, and leaves the holder exactly the floor with no gap in the divisor - so the holder's
+    /// claimable is exactly the two liquidations' proceeds: one credited before the move, one after it.
+    function test_claimable_acrossAnExponentRung_includesTheRewardsCreditedAfterIt() public {
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 deposit = floor * 1e10;
+        uint256 proceedsBefore = 7 ether;
+        uint256 proceedsAfter = 3 ether;
+        deal(peggedToken, user1, deposit);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(deposit, user1, 0);
+        vm.stopPrank();
+
+        // liquidated to the floor, paying the first proceeds at the exponent the holder checkpointed at
+        collateralPoolActions.liquidate(wrappedCollateralToken, deposit - floor, proceedsBefore);
+        assertEq(
+            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            1,
+            "fixture: the product moved one rung"
+        );
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), floor, "fixture: the holder is left exactly the floor");
+        assertEq(MockStabilityPool(stabilityPoolCollateral).__rewardDivisorGap(), 0, "fixture: no gap in the divisor");
+
+        // at the floor nothing is written down, but the proceeds are credited - at the new rung
+        collateralPoolActions.liquidate(wrappedCollateralToken, floor, proceedsAfter);
+
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(wrappedCollateralToken))[0],
+            proceedsBefore + proceedsAfter,
+            "the holder can claim the proceeds credited on both sides of the rung"
+        );
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user1);
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(user1) - heldBefore,
+            proceedsBefore + proceedsAfter,
+            "and the claim pays exactly that"
         );
     }
 }

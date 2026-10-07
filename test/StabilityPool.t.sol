@@ -578,6 +578,47 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         );
         assertEq(result9, 0, "9 exponent difference should return 0");
     }
+
+    /// The ceiling rescale the reward divisor moves through on a loss takes nothing to nothing.
+    function test_scaleAdjustedValueCeil_isZero_forAZeroValue() public view {
+        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 toProduct = DecrementalFloatingPoint_v2.encode(1, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(0, toProduct, fromProduct),
+            0,
+            "nothing rescales to nothing"
+        );
+    }
+
+    /// A product only ever falls, so a rescale to an earlier exponent than its own has no value: it gives 0 rather
+    /// than underflowing the exponent difference.
+    function test_scaleAdjustedValueCeil_isZero_whenTheProductRose() public view {
+        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(3, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 toProduct = DecrementalFloatingPoint_v2.encode(1, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e27, toProduct, fromProduct),
+            0,
+            "a rescale to an earlier exponent gives 0"
+        );
+    }
+
+    /// Like the floor rescale, the ceiling rescale reaches eight exponent rungs and no further: past eight it gives 0
+    /// (1e9^9 has no representation), and at exactly eight 1e72 still rescales to 1 - rounded up from exactly 1.
+    function test_scaleAdjustedValueCeil_pastEightRungsIsZero_atEightRescales() public view {
+        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 eightRungsOn = DecrementalFloatingPoint_v2.encode(8, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 nineRungsOn = DecrementalFloatingPoint_v2.encode(9, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e72, eightRungsOn, fromProduct),
+            1,
+            "eight rungs: 1e72 / 1e9^8 = 1"
+        );
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e72, nineRungsOn, fromProduct),
+            0,
+            "nine rungs: past the reach of the rescale"
+        );
+    }
     function test_CompoundedAmountScaleFactorProgression() public view {
         // Test that each exponent increment divides by SCALE_FACTOR
         uint256 initialAmount = 1e72; // 1e9^8: every one of the eight rungs divides it exactly, leaving at least 1
