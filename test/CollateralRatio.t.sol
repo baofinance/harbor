@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
@@ -424,6 +425,10 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
     }
 
     uint repeats = 10;
+    // One unit of each trade: the small side trades one unit `repeats` times, the large side `repeats` units once.
+    uint256 internal constant COLLATERAL_PER_TRADE = 1 ether; // wrapped collateral offered to a mint
+    uint256 internal constant PEGGED_PER_TRADE = 1000 ether; // pegged offered to a redemption
+    uint256 internal constant LEVERAGED_PER_TRADE = 1000 ether; // leveraged offered to a redemption
 
     function setUpConfig() internal virtual override {
         setUp_config_likelyNoDisallow();
@@ -465,43 +470,168 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         withNewChanges.thisLeveraged = changesSoFar.thisLeveraged + cambios.thisLeveraged;
     }
 
+    /// @dev The market at a point of the sweep, read before its trades: what `compareDeltaHoldings` prices its
+    ///      tolerances from.
+    struct PointState {
+        uint256 peggedPrice; // 1e18-scaled
+        uint256 peggedPerCollateralWei; // the pegged wei one collateral wei of credit mints, rounded up
+        uint256 leveragedPerCollateralWei; // the leveraged wei one collateral wei of credit mints, rounded up
+        uint256 peggedSupply;
+        uint256 leveragedSupply;
+    }
+
+    /// @dev How far each holding may move between the two sides of one comparison. Zero is an exact comparison.
+    struct Tolerances {
+        uint256 feeReceiverCollateral;
+        uint256 reservePoolCollateral;
+        uint256 minterCollateral;
+        uint256 thisCollateral;
+        uint256 pegged;
+        uint256 leveraged;
+    }
+
+    /// @dev Compare `repeats` trades of one unit (`small`) with one trade of `repeats` units (`large`), holding by
+    ///      holding, within what their roundings allow - derived from the code (MinterAdjustments_v1,
+    ///      MinterValuationLib), not fitted to a run.
+    ///
+    ///      Each trade is priced exactly against the state it starts from and rounded once, the protocol's way, and
+    ///      every trade compared here is path-independent in exact arithmetic: a mint at a token's own price leaves
+    ///      that price where it is, a redemption pays at it, and a fee or subsidy is the integral of its bands over
+    ///      the collateral moved. So the two sides differ by roundings alone. Where each trade's error lies in [0, b)
+    ///      - one-signed, the protocol keeping the remainder - the difference is below `repeats x b`; where it lies in
+    ///      (-b, b), below `(repeats + 1) x b`. A holding that moves by an amount the trade fixes is compared exactly.
+    ///
+    ///      One second-order term, `drift`, in collateral wei. Each small trade starts from a record of backing its
+    ///      predecessors rounded, by under `recordRounding` collateral wei each (a wrapped wei's worth, then the
+    ///      conversion's own floor). Such an offset reaches a later trade two ways: where the trade crosses a band's
+    ///      bound it cuts it that far off, moving its fee or subsidy by the offset times the step between the two
+    ///      bands' ratios; and where a token is priced off the backing - a pegged token below the peg, a leveraged
+    ///      one always - it moves the trade's price by the offset times the share of the supply the trade moves. A
+    ///      leveraged mint's own floor moves its token's price as well, by under one token in the supply.
     function compareDeltaHoldings(
-        DeltaHoldings memory a,
-        DeltaHoldings memory b,
-        uint256 tolerance,
-        uint256 leveragedTolerance,
-        string memory context
-    ) internal pure {
+        DeltaHoldings memory large,
+        DeltaHoldings memory small,
+        Action action,
+        PointState memory point
+    ) internal view {
+        uint256 n = repeats;
+        Tolerances memory t;
+        uint256 recordRounding; // collateral wei, 1e18-scaled
+        uint256 drift;
+        uint256 wrappedDrift;
+        {
+            (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            recordRounding = rate + 1 ether;
+            IMinter.Config memory market = IMinter(minter).config();
+            IMinter.IncentiveConfig memory bands = action == Action.MintPegged
+                ? market.mintPeggedIncentiveConfig
+                : action == Action.RedeemPegged
+                    ? market.redeemPeggedIncentiveConfig
+                    : action == Action.MintLeveraged
+                        ? market.mintLeveragedIncentiveConfig
+                        : market.redeemLeveragedIncentiveConfig;
+            uint256 steepestStep;
+            for (uint256 i = 1; i < bands.incentiveRatios.length; i++) {
+                uint256 step = SignedMath.abs(bands.incentiveRatios[i] - bands.incentiveRatios[i - 1]);
+                if (step > steepestStep) {
+                    steepestStep = step;
+                }
+            }
+            // the share of the supply one small trade moves, where the token it prices is priced off the backing
+            uint256 tradeShare;
+            if (action == Action.RedeemPegged && point.peggedPrice < 1 ether) {
+                tradeShare = Math.mulDiv(PEGGED_PER_TRADE, 1 ether, point.peggedSupply, Math.Rounding.Ceil);
+            } else if (action == Action.RedeemLeveraged) {
+                tradeShare = Math.mulDiv(LEVERAGED_PER_TRADE, 1 ether, point.leveragedSupply, Math.Rounding.Ceil);
+            }
+            // the band channel takes the largest offset, at each bound; the price channel the offsets summed
+            drift = Math.ceilDiv(
+                bands.collateralRatioBandUpperBounds.length * (n - 1) * recordRounding * steepestStep +
+                    ((n * (n - 1)) / 2) * recordRounding * tradeShare,
+                1e36
+            );
+            wrappedDrift = Math.mulDiv(drift, 1 ether, rate, Math.Rounding.Ceil);
+        }
+
+        if (action == Action.MintPegged) {
+            // the fee, and the backing's share of the offer it leaves: one floor each, one-signed
+            t.feeReceiverCollateral = n + wrappedDrift;
+            t.minterCollateral = n + wrappedDrift;
+            // the tokens: the lesser of the walk's floored figure and the record's credit priced, the credit rounding
+            // by under one collateral wei - below the exact figure by under one token and one credit's worth. Minted
+            // only above the min CR, where the pegged price is one, so the backing does not price them
+            t.pegged = n * (point.peggedPerCollateralWei + 1) + drift * point.peggedPerCollateralWei;
+            // the offer is taken whole, the reserve takes no part, and leveraged does not move: exact
+        } else if (action == Action.RedeemPegged) {
+            // the payout: the floored figure, capped at the floored release plus the floored subsidy - under two wei
+            t.thisCollateral = 2 * n + wrappedDrift;
+            // the fee: what the release and the subsidy leave once the payout is taken - two-signed, under two wei
+            t.feeReceiverCollateral = 2 * (n + 1) + wrappedDrift;
+            // the subsidy, and the release: one floor each
+            t.reservePoolCollateral = n + wrappedDrift;
+            t.minterCollateral = n + wrappedDrift;
+            // the pegged burned is the offer, and leveraged does not move: exact
+        } else if (action == Action.MintLeveraged) {
+            // the fee: the offer plus the floored subsidy less the floored collateral kept - two-signed, under one wei
+            t.feeReceiverCollateral = n + 1 + wrappedDrift;
+            // the subsidy, and the collateral kept: one floor each
+            t.reservePoolCollateral = n + wrappedDrift;
+            t.minterCollateral = n + wrappedDrift;
+            // the tokens: the credit rounds by under `recordRounding` collateral wei, each buying
+            // `leveragedPerCollateralWei`, the mint floors once more, and each earlier floor has raised the price by
+            // under one token in the supply - one-signed
+            t.leveraged =
+                n *
+                (Math.ceilDiv(recordRounding * point.leveragedPerCollateralWei, 1 ether) + 1) +
+                drift *
+                point.leveragedPerCollateralWei +
+                Math.ceilDiv(
+                    ((n * (n - 1)) / 2) * COLLATERAL_PER_TRADE * recordRounding * point.leveragedPerCollateralWei,
+                    point.leveragedSupply * 1 ether
+                );
+            // the offer is taken whole, and pegged does not move: exact
+        } else {
+            // the payout: one floor
+            t.thisCollateral = n + wrappedDrift;
+            // the fee: the floored release less the payout - two-signed, under one wei
+            t.feeReceiverCollateral = n + 1 + wrappedDrift;
+            // the release: one floor
+            t.minterCollateral = n + wrappedDrift;
+            // the leveraged burned is the offer - this config disallows in no band, so every redemption takes its
+            // whole claim - the reserve takes no part, and pegged does not move: exact
+        }
+
+        string memory context = toString(action);
         assertApproxEqAbs(
-            a.feeReceiverCollateral,
-            b.feeReceiverCollateral,
-            tolerance,
+            large.feeReceiverCollateral,
+            small.feeReceiverCollateral,
+            t.feeReceiverCollateral,
             string.concat(context, ":", "feeReceiverCollateral")
         );
         assertApproxEqAbs(
-            a.reservePoolCollateral,
-            b.reservePoolCollateral,
-            tolerance,
+            large.reservePoolCollateral,
+            small.reservePoolCollateral,
+            t.reservePoolCollateral,
             string.concat(context, ":", "reservePoolCollateral")
         );
         assertApproxEqAbs(
-            a.minterCollateral,
-            b.minterCollateral,
-            tolerance,
+            large.minterCollateral,
+            small.minterCollateral,
+            t.minterCollateral,
             string.concat(context, ":", "minterCollateral")
         );
+        assertApproxEqAbs(large.minterPegged, small.minterPegged, t.pegged, string.concat(context, ":", "minterPegged"));
         assertApproxEqAbs(
-            a.minterPegged,
-            b.minterPegged,
-            tolerance * 1000,
-            string.concat(context, ":", "minterPegged")
+            large.thisCollateral,
+            small.thisCollateral,
+            t.thisCollateral,
+            string.concat(context, ":", "thisCollateral")
         );
-        assertApproxEqAbs(a.thisCollateral, b.thisCollateral, tolerance, string.concat(context, ":", "thisCollateral"));
-        assertApproxEqAbs(a.thisPegged, b.thisPegged, tolerance * 1000, string.concat(context, ":", "thisPegged"));
+        assertApproxEqAbs(large.thisPegged, small.thisPegged, t.pegged, string.concat(context, ":", "thisPegged"));
         assertApproxEqAbs(
-            a.thisLeveraged,
-            b.thisLeveraged,
-            leveragedTolerance,
+            large.thisLeveraged,
+            small.thisLeveraged,
+            t.leveraged,
             string.concat(context, ":", "thisLeveraged")
         );
     }
@@ -530,19 +660,19 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
             // at or below the min CR the market mints no pegged, and a mint the min CR cuts is not `repeats` equal
             // parts of one, so there is nothing to compare
             if (peggedMintFits) {
-                IMinter(minter).mintPeggedToken(multiple * 1 ether, address(this), 0);
+                IMinter(minter).mintPeggedToken(multiple * COLLATERAL_PER_TRADE, address(this), 0);
             }
         } else if (action == Action.RedeemPegged) {
-            IMinter(minter).redeemPeggedToken(multiple * 1000 ether, address(this), 0);
+            IMinter(minter).redeemPeggedToken(multiple * PEGGED_PER_TRADE, address(this), 0);
         } else if (action == Action.MintLeveraged) {
             // below the leverage cap's collateral-ratio floor the market sells no leverage, so there is nothing to compare
             if (collateralRatio >= IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO()) {
-                IMinter(minter).mintLeveragedToken(multiple * 1 ether, address(this), 0);
+                IMinter(minter).mintLeveragedToken(multiple * COLLATERAL_PER_TRADE, address(this), 0);
             }
         } else if (action == Action.RedeemLeveraged) {
             // depegged there is no residual to redeem
             if (collateralRatio > 1 ether) {
-                IMinter(minter).redeemLeveragedToken(multiple * 1000 ether, address(this), 0);
+                IMinter(minter).redeemLeveragedToken(multiple * LEVERAGED_PER_TRADE, address(this), 0);
             }
         }
         // after + changes
@@ -550,43 +680,38 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         withNewChanges = addDeltaHoldings(changesSoFar, cambios);
     }
 
+    /// @dev For each action, one trade of `repeats` units against `repeats` trades of one unit, from the same state:
+    ///      the holdings must move alike, within `compareDeltaHoldings`' derived tolerances. Each action is compared
+    ///      on its own, from nothing.
     function doOneCollateralRatio(uint256 collateralRatio) internal override(TestCollateralRatioRangeSetUp) {
-        // for each action we mint 10 small amounts then mint one large amount = 10 * small amount
-        // we then compare the transfers - the 10 small amounts should equal the one large amount.
-
-        DeltaHoldings memory largeChanges;
-        DeltaHoldings memory smallChanges;
         uint256 snap;
         // the dry run uses the whole offer only where the market is above the min CR and the mint is not cut at it
-        (, , uint256 peggedMintUsed, , , ) = IMinter(minter).mintPeggedTokenDryRun(repeats * 1 ether);
-        bool peggedMintFits = peggedMintUsed == repeats * 1 ether;
+        (, , uint256 peggedMintUsed, , , ) = IMinter(minter).mintPeggedTokenDryRun(repeats * COLLATERAL_PER_TRADE);
+        bool peggedMintFits = peggedMintUsed == repeats * COLLATERAL_PER_TRADE;
+
+        PointState memory point;
+        {
+            (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            point.peggedPrice = IMinter(minter).peggedTokenPrice();
+            uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
+            // a market whose residual is gone prices its leveraged at nothing, and sells none
+            point.peggedPerCollateralWei = Math.ceilDiv(price, point.peggedPrice);
+            point.leveragedPerCollateralWei = leveragedPrice == 0 ? 0 : Math.ceilDiv(price, leveragedPrice);
+            point.peggedSupply = IMinter(minter).peggedTokenBalance();
+            point.leveragedSupply = IERC20(leveragedToken).totalSupply();
+        }
 
         for (uint a = 0; a <= uint(type(Action).max); a++) {
+            DeltaHoldings memory none;
             snap = vm.snapshotState();
-            largeChanges = doOne(Action(a), repeats, largeChanges, collateralRatio, peggedMintFits);
-            // console2.log("in one go:");
-            // logDeltaHoldings(largeChanges);
+            DeltaHoldings memory largeChanges = doOne(Action(a), repeats, none, collateralRatio, peggedMintFits);
             vm.revertToState(snap);
             snap = vm.snapshotState();
+            DeltaHoldings memory smallChanges = none;
             for (uint i = 0; i < repeats; i++) {
                 smallChanges = doOne(Action(a), 1, smallChanges, collateralRatio, peggedMintFits);
-                // console2.log("%s th iteration", i + 1);
-                // logDeltaHoldings(smallChanges);
             }
-            // The leveraged tolerance carries a term the collateral one does not. Backing credited to the
-            // record is floored once per operation, so splitting an action into `repeats` of them floors
-            // `repeats` times where doing it once floors once — a difference of at most one collateral wei
-            // each. Leveraged is the residual claim, so a collateral wei moves it by the collateral price times
-            // the leverage ratio, and the market sells no leverage above `MAX_LEVERAGE_RATIO`: 20 is how far
-            // one wei can reach at any ratio the sweep sells at.
-            uint256 creditFloorReach = repeats * 20 * (startPrice / 1 ether);
-            compareDeltaHoldings(
-                largeChanges,
-                smallChanges,
-                repeats * 25,
-                repeats * 25 * 1000 + creditFloorReach,
-                toString(Action(a))
-            );
+            compareDeltaHoldings(largeChanges, smallChanges, Action(a), point);
             vm.revertToState(snap);
         }
     }
