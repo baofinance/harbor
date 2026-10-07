@@ -7,27 +7,31 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 
 /// @title TestStabilityPoolUpgradeMigration
 /// @notice Tests that upgrading StabilityPool_v2 → StabilityPool_v3 via UUPS proxy preserves
 ///         all state and produces identical results at every lifecycle stage.
 ///         Each scenario is run with 3 liquidation variants: none, partial, complete.
 contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
-    uint256 price;
+    /// @dev What each liquidation here pays the pool, in wrapped collateral. Non-zero, so the collateral claimable
+    ///      the tests compare across the upgrade is something; its size is free, every comparison being an equality.
+    uint256 internal constant LIQUIDATION_PROCEEDS = 1 ether;
+
+    /// @dev Liquidates the pool as its rebalancer, with the amounts each test states.
+    StabilityPoolActions internal poolActions;
 
     /// @dev Builds a pool on the PREVIOUS implementation, which is what mainnet proxies run today: v3 is not
     ///      deployed, so v2 is the thing an upgrade starts from. Deliberately a hand-built fixture rather than
@@ -84,49 +88,25 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         vm.stopPrank();
 
-        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        poolActions = new StabilityPoolActions(stabilityPoolCollateral, rebalancer);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Helpers — copies of StabilityPoolManager logic
+    // Helpers — the pool's own interfaces, driven with the amounts each test states
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @dev Copies StabilityPoolManager's liquidation flow against the pool while it is still v2: sweep pegged
-    ///      tokens → deal collateral → transfer to pool → notifyLiquidation, in v2's two-argument form, which
-    ///      credits the pool's own LIQUIDATION_TOKEN. Pattern from test/StabilityPoolRebalance.t.sol.
-    function _liquidateOnV2(uint256 assets) internal returns (uint256 returned) {
-        returned = _sweepAndFund(assets);
+    /// @dev Liquidate the pool while it is still v2: `assets` of its pegged taken and `returned` of wrapped collateral
+    ///      paid, then v2's two-argument `notifyLiquidation`, which credits the pool's own LIQUIDATION_TOKEN. The sweep
+    ///      and the payment go through the driver, whose calls v2 carries too; once the proxy runs v3 a test calls
+    ///      `poolActions.liquidate` instead.
+    function _liquidateOnV2(uint256 assets, uint256 returned) internal {
+        poolActions.sweepAndFund(wrappedCollateralToken, assets, returned);
         vm.startPrank(rebalancer);
         IStabilityPool(stabilityPoolCollateral).notifyLiquidation(assets, returned);
         vm.stopPrank();
     }
 
-    /// @dev The same flow once the proxy runs v3, whose `notifyLiquidation` names the token paid: the collateral.
-    function _liquidateOnV3(uint256 assets) internal returns (uint256 returned) {
-        returned = _sweepAndFund(assets);
-        vm.startPrank(rebalancer);
-        IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(wrappedCollateralToken, assets, returned);
-        vm.stopPrank();
-    }
-
-    /// @dev Sweep `assets` of pegged out of the pool and hand it the collateral a liquidation returns for them. Used on
-    ///      v2 and on v3, so the asset token is read through the base `IStabilityPool`, which both carry.
-    function _sweepAndFund(uint256 assets) private returns (uint256 returned) {
-        returned = (assets * 1 ether) / price;
-        vm.startPrank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(
-            IStabilityPool(stabilityPoolCollateral).ASSET_TOKEN(),
-            assets,
-            rebalancer
-        );
-        deal(wrappedCollateralToken, rebalancer, returned);
-        IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, returned);
-        vm.stopPrank();
-    }
-
-    /// @dev Copies StabilityPoolManager's reward deposit flow:
-    ///      deal tokens → approve → depositReward
-    ///      Pattern from StabilityPoolManager_v1:406-412
+    /// @dev Deposit `amount` of `token` as a reward, as the pool's reward depositor: deal it, approve, `depositReward`.
     function _depositReward(address token, uint256 amount) internal {
         deal(token, rewardDepositor, amount);
         vm.startPrank(rewardDepositor);
@@ -209,7 +189,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Liquidate
         uint256 totalSupply = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply();
-        _liquidateOnV3(totalSupply / 2);
+        poolActions.liquidate(wrappedCollateralToken, totalSupply / 2, LIQUIDATION_PROCEEDS);
         assertApproxEqRel(
             IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
             50 ether,
@@ -290,9 +270,9 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidateOnV2(30 ether);
+            _liquidateOnV2(30 ether, LIQUIDATION_PROCEEDS);
         }
 
         // Snapshot and record v1 results
@@ -359,15 +339,21 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Apply liquidation (creates wrappedCollateral reward)
         if (doCompleteLiq) {
-            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidateOnV2(20 ether);
+            _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
         }
 
         // Snapshot and record v1 results
         uint256 snap = vm.snapshotState();
         uint256 v1_claimSteam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
         uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(v1_claimCol, 0, "fixture: no liquidation, no collateral claimable");
+        }
         uint256 v1_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         uint256 v1_total = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
 
@@ -434,9 +420,9 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidateOnV2(20 ether);
+            _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
         }
 
         // Week 2: distribute more rewards
@@ -449,6 +435,12 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 v1_claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
         uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(v1_claimCol, 0, "fixture: no liquidation, no collateral claimable");
+        }
         uint256 v1_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
         // Revert and upgrade
@@ -506,15 +498,21 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidateOnV2(20 ether);
+            _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
         }
 
         // Snapshot and record v1 results
         uint256 snap = vm.snapshotState();
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
         uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(v1_claimCol, 0, "fixture: no liquidation, no collateral claimable");
+        }
         uint256 v1_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
         // Revert and upgrade
@@ -570,9 +568,9 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidateOnV2(40 ether);
+            _liquidateOnV2(40 ether, LIQUIDATION_PROCEEDS);
         }
 
         // Upgrade to v2 (no snapshot/revert — testing post-upgrade behavior directly)
@@ -599,6 +597,12 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             user2,
             aa(wrappedCollateralToken)
         )[0];
+        // a liquidation pays the holders collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(colClaimable1, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(colClaimable1, 0, "fixture: no liquidation, no collateral claimable");
+        }
         assertEq(colClaimable1, colClaimable2, "Equal collateral claimable (migrated vs unmigrated)");
 
         // Both claim → verify equal amounts for both reward tokens
@@ -671,7 +675,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         assertGt(v1Claimed, 0, "V1 claimed > 0 before liquidation");
 
         // Complete liquidation shifts exponent (e.g. 0 -> 1)
-        _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+        _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
 
         // Upgrade to v2 BEFORE re-depositing - V1 data still untouched
         _upgradeToV3();
@@ -740,7 +744,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _depositReward(steam, 0);
 
         // Partial liquidation so collateral rewards exist too
-        _liquidateOnV2(20 ether);
+        _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
 
         // Initiate withdrawal on v1
         vm.startPrank(user1);
@@ -754,6 +758,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
         uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
 
         // Revert and upgrade
         vm.revertToState(snap);
@@ -818,7 +823,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // First complete liquidation: exponent 0 → 1
         // Use actual pegged balance for sweep (totalAssetSupply includes MIN_TOTAL_ASSET_SUPPLY residual)
-        _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral));
+        _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), LIQUIDATION_PROCEEDS);
 
         // Exponent 1: re-deposit and earn more rewards
         _deposit(user1, 80 ether);
@@ -827,7 +832,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _depositReward(steam, 0);
 
         // Second complete liquidation: exponent 1 → 2
-        _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral));
+        _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), LIQUIDATION_PROCEEDS);
 
         // Exponent 2: re-deposit and earn more rewards
         _deposit(user1, 60 ether);
@@ -839,6 +844,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 snap = vm.snapshotState();
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
         uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
         uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
         // Revert and upgrade
@@ -896,7 +902,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _depositReward(steam, 0);
 
         // Partial liquidation changes the product (magnitude decreases)
-        _liquidateOnV2(50 ether);
+        _liquidateOnV2(50 ether, LIQUIDATION_PROCEEDS);
         uint256 balAfterLiq = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
         // Re-deposit on v1 — triggers v1 checkpoint, user's product updates to current
@@ -913,6 +919,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 snap = vm.snapshotState();
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
         uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
         uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
         // Revert and upgrade
@@ -947,7 +954,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         );
 
         // Post-upgrade: another partial liquidation + new rewards work
-        _liquidateOnV3(20 ether);
+        poolActions.liquidate(wrappedCollateralToken, 20 ether, LIQUIDATION_PROCEEDS);
         _depositReward(steam, 5 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
@@ -987,7 +994,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.warp(block.timestamp + 1 hours);
         _deposit(user2, 123456789012345678901);
         vm.warp(block.timestamp + 1 hours);
-        _liquidateOnV2(3e30);
+        _liquidateOnV2(3e30, LIQUIDATION_PROCEEDS);
         _depositReward(steam, 1e21);
         vm.warp(block.timestamp + 1 days);
         vm.startPrank(user1);
