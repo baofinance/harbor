@@ -117,7 +117,11 @@ abstract contract StabilityPoolConservation is BaoTest {
     /// @notice Solvency: the pool holds enough asset to honour every withdrawal (asset balance >= supply), and enough
     /// of each reward token to honour its obligations within the stranded-slice allowance (the mirror of the reward
     /// under-credit: at dust scale the LAST claimer can fall a few wei short).
-    function _assertStabilityPoolSolvent(address pool, address[] memory actors, StabilityPoolConservationGhosts memory g) internal view {
+    function _assertStabilityPoolSolvent(
+        address pool,
+        address[] memory actors,
+        StabilityPoolConservationGhosts memory g
+    ) internal view {
         assertGe(
             IERC20(IStabilityPool_v3(pool).ASSET_TOKEN()).balanceOf(pool),
             IERC20(pool).totalSupply(),

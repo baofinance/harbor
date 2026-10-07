@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
@@ -393,7 +392,11 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         }
         headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            poolActions.liquidate(wrappedCollateralToken, bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom), 0);
+            poolActions.liquidate(
+                wrappedCollateralToken,
+                bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom),
+                0
+            );
         }
 
         uint256 maxSupplyEver = deposited; // supply only shrinks after the deposits here
@@ -439,7 +442,11 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         }
         headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            poolActions.liquidate(wrappedCollateralToken, bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom), 0);
+            poolActions.liquidate(
+                wrappedCollateralToken,
+                bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom),
+                0
+            );
         }
     }
 

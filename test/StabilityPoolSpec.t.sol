@@ -550,10 +550,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         skip(7 days); // Wait for rewards to accumulate
 
         // Verify rewards are claimable
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-            user1,
-            aa(rewardToken)
-        )[0];
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0];
         assertApproxEqRel(claimable, REWARD_AMOUNT, 0.01e18, "User1 should have claimable rewards after registration");
     }
 }

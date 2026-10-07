@@ -671,11 +671,7 @@ contract StabilityPoolManager_v2 is
                 $.owedLeveraged = Math.mulDiv($.owedLeveraged, harvestableAmount, owedBefore);
             } else {
                 uint256 newYield = harvestableAmount - owedBefore;
-                (
-                    uint256 totalPoolSupply,
-                    uint256 collateralPoolSupply,
-                    uint256 leveragedPoolSupply
-                ) = _poolSupplies();
+                (uint256 totalPoolSupply, uint256 collateralPoolSupply, uint256 leveragedPoolSupply) = _poolSupplies();
                 if (totalPoolSupply > 0) {
                     // Floor BOTH shares; the split remainder (<= 1 wei) stays un-owed harvestable and is re-allocated
                     // next call by then-current supply - fair, since it is new yield never attributed to a pool, and

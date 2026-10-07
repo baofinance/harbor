@@ -88,7 +88,9 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(1 * price, user1, 0);
         vm.stopPrank();
-        (uint64 clearedStart, uint64 clearedEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 clearedStart, uint64 clearedEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
+            user1
+        );
         assertEq(clearedStart, 0);
         assertEq(clearedEnd, 0);
     }

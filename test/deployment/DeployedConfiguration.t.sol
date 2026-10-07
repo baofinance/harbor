@@ -45,7 +45,11 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
             cfg.harvestBountyRatio(),
             "harvestBountyRatio"
         );
-        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(), cfg.harvestCutRatio(), "harvestCutRatio");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(),
+            cfg.harvestCutRatio(),
+            "harvestCutRatio"
+        );
         assertEq(IStabilityPoolManager_v2(stabilityPoolManager).feeReceiver(), deployRun.treasury(), "feeReceiver");
     }
 

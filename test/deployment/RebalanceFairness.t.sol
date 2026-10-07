@@ -202,12 +202,18 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         uint256 peggedCollateralPool = IERC20(stabilityPoolCollateral).balanceOf(who);
         uint256 peggedLeveragedPool = IERC20(stabilityPoolLeveraged).balanceOf(who);
         uint256 peggedWallet = IERC20(pegged).balanceOf(who);
-        uint256 fxSAVECollateralPool = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[
+        uint256 fxSAVECollateralPool = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            who,
+            aa(wrappedCollateral)
+        )[0];
+        uint256 fxSAVELeveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(
+            who,
+            aa(wrappedCollateral)
+        )[0];
+        uint256 leveragedWallet = IERC20(leveraged).balanceOf(who);
+        uint256 leveragedClaimable = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[
             0
         ];
-        uint256 fxSAVELeveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
-        uint256 leveragedWallet = IERC20(leveraged).balanceOf(who);
-        uint256 leveragedClaimable = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
         return
             _haETHToFxUSD(peggedCollateralPool + peggedLeveragedPool + peggedWallet) +
             _fxSAVEToFxUSD(fxSAVECollateralPool + fxSAVELeveragedPool) +
@@ -336,9 +342,18 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
     }
 
     function _snapshotClaimable(address who) internal view returns (ClaimableSnapshot memory s) {
-        s.fxSAVE_collateralPool = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
-        s.fxSAVE_leveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
-        s.leveragedToken_leveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
+        s.fxSAVE_collateralPool = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            who,
+            aa(wrappedCollateral)
+        )[0];
+        s.fxSAVE_leveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(
+            who,
+            aa(wrappedCollateral)
+        )[0];
+        s.leveragedToken_leveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(
+            who,
+            aa(leveraged)
+        )[0];
     }
 
     function _logActor(string memory name, address who) internal view {
@@ -508,7 +523,8 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
         // Rebalance
         uint256 liquidated = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
 
-        uint256 collateralPoolLiquidated = collateralPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolCollateral);
+        uint256 collateralPoolLiquidated = collateralPoolPeggedBefore -
+            IERC20(pegged).balanceOf(stabilityPoolCollateral);
         uint256 leveragedPoolLiquidated = leveragedPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolLeveraged);
         console2.log("");
         console2.log("--- LIQUIDATION SPLIT ---");
@@ -699,7 +715,8 @@ contract RebalanceFairnessScenarios is RebalanceFairnessSetUp {
 
         uint256 liquidated = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
 
-        uint256 collateralPoolLiquidated = collateralPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolCollateral);
+        uint256 collateralPoolLiquidated = collateralPoolPeggedBefore -
+            IERC20(pegged).balanceOf(stabilityPoolCollateral);
         uint256 leveragedPoolLiquidated = leveragedPoolPeggedBefore - IERC20(pegged).balanceOf(stabilityPoolLeveraged);
         console2.log("");
         console2.log("--- LIQUIDATION SPLIT ---");

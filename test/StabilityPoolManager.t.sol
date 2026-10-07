@@ -80,7 +80,11 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
             harvestBountyRatio_,
             "stored bounty ratio"
         );
-        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(), harvestCutRatio_, "stored cut ratio");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(),
+            harvestCutRatio_,
+            "stored cut ratio"
+        );
     }
 }
 
@@ -308,13 +312,21 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0.9 ether);
         vm.stopPrank();
-        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(), 0.05 ether, "bounty ratio of pair");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(),
+            0.05 ether,
+            "bounty ratio of pair"
+        );
         assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(), 0.9 ether, "cut ratio of pair");
 
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
         vm.stopPrank();
-        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "bounty ratio of 100%");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(),
+            0.01 ether,
+            "bounty ratio of 100%"
+        );
         assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(), 0.99 ether, "cut ratio of 100%");
     }
 
@@ -351,7 +363,11 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
         vm.stopPrank();
-        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "migrated bounty ratio");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(),
+            0.01 ether,
+            "migrated bounty ratio"
+        );
         assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(), 0.99 ether, "migrated cut ratio");
     }
 }
@@ -517,8 +533,8 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
             ((after_.poolLeveragedLeveraged -
                 before.poolLeveragedLeveraged +
                 after_.bountyReceiverLeveraged -
-                before.bountyReceiverLeveraged) * IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyRatio()) /
-                1 ether,
+                before.bountyReceiverLeveraged) *
+                IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyRatio()) / 1 ether,
             (after_.bountyReceiverLeveraged - before.bountyReceiverLeveraged),
             "Leveraged correctly split"
         );
@@ -527,8 +543,8 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
             ((after_.poolCollateralCollateral -
                 before.poolCollateralCollateral +
                 after_.bountyReceiverCollateral -
-                before.bountyReceiverCollateral) * IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyRatio()) /
-                1 ether,
+                before.bountyReceiverCollateral) *
+                IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyRatio()) / 1 ether,
             (after_.bountyReceiverCollateral - before.bountyReceiverCollateral),
             "Collateral correctly split"
         );
@@ -1362,7 +1378,11 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
         vm.stopPrank();
-        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "repaired bounty ratio");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio(),
+            0.01 ether,
+            "repaired bounty ratio"
+        );
         assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(), 0.99 ether, "repaired cut ratio");
 
         uint256 harvestableBefore = IMinter(minter).harvestable();
@@ -1407,7 +1427,11 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 expectedPool1 = Math.mulDiv(owedCollateral, 0.8 ether, 1 ether);
         uint256 expectedPool2 = Math.mulDiv(owedLeveraged, 0.8 ether, 1 ether);
 
-        assertEq(harvested, expectedCut + expectedPool1 + expectedPool2, "the harvest returns exactly the parts it paid");
+        assertEq(
+            harvested,
+            expectedCut + expectedPool1 + expectedPool2,
+            "the harvest returns exactly the parts it paid"
+        );
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - pool1Before,
             expectedPool1,

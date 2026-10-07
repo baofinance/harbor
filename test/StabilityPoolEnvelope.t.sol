@@ -1480,7 +1480,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         vm.stopPrank();
         uint256 leveragedPoolGot = IERC20(token).balanceOf(stabilityPoolLeveraged) - leveragedPoolBefore;
 
-        assertEq(leveragedPoolGot, 0, "the deferred backlog is not re-split to a pool that held nothing when it accrued");
+        assertEq(
+            leveragedPoolGot,
+            0,
+            "the deferred backlog is not re-split to a pool that held nothing when it accrued"
+        );
     }
 
     /// @notice A pool's deferred harvest backlog drains to THAT pool across periods, never to the co-pool. At the

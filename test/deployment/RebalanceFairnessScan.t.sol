@@ -130,7 +130,10 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
 
     /// @dev Set up Scenario B up to the post-rebalance state, BEFORE re-deposits.
     ///      Returns 0 if the rebalance didn't trigger (CR above threshold).
-    function _setupToPostRebalance(uint256 priceDropPct, uint256 leveragedPct) internal returns (uint256 liquidFracE18) {
+    function _setupToPostRebalance(
+        uint256 priceDropPct,
+        uint256 leveragedPct
+    ) internal returns (uint256 liquidFracE18) {
         uint256 each = 100 ether;
 
         uint256 leveragedCollateral = (PEGGED_COLLATERAL * leveragedPct) / (100 - leveragedPct);
@@ -391,7 +394,16 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     ) internal {
         writeLine(
             FEE_CSV,
-            ua(feePct, liquidFracPct, aliceWeekly, bobWeekly, collateralPoolGapPct, charlieWeekly, daveWeekly, leveragedPoolGapPct)
+            ua(
+                feePct,
+                liquidFracPct,
+                aliceWeekly,
+                bobWeekly,
+                collateralPoolGapPct,
+                charlieWeekly,
+                daveWeekly,
+                leveragedPoolGapPct
+            )
         );
     }
 
@@ -431,7 +443,16 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             }
 
             uint256 liquidFracPct = liquidFracE18 * 100;
-            _writeFeeRow(feePct * 1 ether, liquidFracPct, aliceW, bobW, collateralPoolGapPct, charlieW, daveW, leveragedPoolGapPct);
+            _writeFeeRow(
+                feePct * 1 ether,
+                liquidFracPct,
+                aliceW,
+                bobW,
+                collateralPoolGapPct,
+                charlieW,
+                daveW,
+                leveragedPoolGapPct
+            );
 
             console2.log(
                 string.concat(
@@ -484,11 +505,19 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         uint256 peggedBal = IERC20(pegged).balanceOf(who) +
             IERC20(stabilityPoolCollateral).balanceOf(who) +
             IERC20(stabilityPoolLeveraged).balanceOf(who);
-        uint256 collateralPoolWrappedCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
-        uint256 leveragedPoolWrappedCollateral = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
+        uint256 collateralPoolWrappedCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            who,
+            aa(wrappedCollateral)
+        )[0];
+        uint256 leveragedPoolWrappedCollateral = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(
+            who,
+            aa(wrappedCollateral)
+        )[0];
         uint256 walletWrappedCollateral = IERC20(wrappedCollateral).balanceOf(who);
         // wrapped collateral → collateral (× rate) → pegged (× price): combined × rate × price / 1e36
-        uint256 wrappedCollateralInPegged = ((((collateralPoolWrappedCollateral + leveragedPoolWrappedCollateral + walletWrappedCollateral) * oracleRate) / 1 ether) * oraclePrice) / 1 ether;
+        uint256 wrappedCollateralInPegged = ((((collateralPoolWrappedCollateral +
+            leveragedPoolWrappedCollateral +
+            walletWrappedCollateral) * oracleRate) / 1 ether) * oraclePrice) / 1 ether;
         uint256 leveragedInPegged = _leveragedToPegged(
             IERC20(leveraged).balanceOf(who) +
                 IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0]

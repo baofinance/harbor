@@ -69,14 +69,14 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | MINTER                     |    325 | 3.250e+02 |
 | addYieldVault              |  70488 | 7.049e+04 |
 | feeReceiver                |   2419 | 2.419e+03 |
-| harvest                    | 558795 | 5.588e+05 |
+| harvest                    | 437061 | 4.371e+05 |
 | harvestBountyRatio         |   2370 | 2.370e+03 |
 | harvestCutRatio            |   2371 | 2.371e+03 |
 | harvestable                |  30566 | 3.057e+04 |
 | hasStabilityPool           |    559 | 5.590e+02 |
 | initialize                 |  92816 | 9.282e+04 |
 | owner                      |   2401 | 2.401e+03 |
-| rebalance                  | 884296 | 8.843e+05 |
+| rebalance                  | 883452 | 8.835e+05 |
 | rebalanceBountyRatio       |   2399 | 2.399e+03 |
 | rebalanceThreshold         |   2348 | 2.348e+03 |
 | rebalanceable              |  45050 | 4.505e+04 |
@@ -105,8 +105,8 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | REWARD_MANAGER_ROLE    |    305 | 3.050e+02 |
 | REWARD_PERIOD_LENGTH   |    271 | 2.710e+02 |
 | activeRewardTokens     |   7438 | 7.438e+03 |
-| allowance              |   2759 | 2.759e+03 |
-| approve                |  24473 | 2.447e+04 |
+| allowance              |   2699 | 2.699e+03 |
+| approve                |  24420 | 2.442e+04 |
 | assetBalanceOf         |   8113 | 8.113e+03 |
 | balanceOf              |   5910 | 5.910e+03 |
 | checkpoint             | 152103 | 1.521e+05 |
@@ -114,7 +114,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | claimable              |  27403 | 2.740e+04 |
 | claimed                |   3931 | 3.931e+03 |
 | decimals               |    245 | 2.450e+02 |
-| deposit                | 338223 | 3.382e+05 |
+| deposit                | 340053 | 3.401e+05 |
 | depositReward          |  89530 | 8.953e+04 |
 | getEarlyWithdrawalFee  |   2426 | 2.426e+03 |
 | getWithdrawalRequest   |   2745 | 2.745e+03 |
@@ -122,15 +122,15 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | grantRoles             |  26378 | 2.638e+04 |
 | hasAllRoles            |   2681 | 2.681e+03 |
 | historicalRewardTokens |   5180 | 5.180e+03 |
-| initialize             | 203860 | 2.039e+05 |
+| initialize             | 203857 | 2.039e+05 |
 | isActiveRewardToken    |   2744 | 2.744e+03 |
-| maxAssetLoss           |   2637 | 2.637e+03 |
+| maxAssetLoss           |    637 | 6.370e+02 |
 | maxDepositReward       |   6302 | 6.302e+03 |
 | maxLiquidationReward   |   5813 | 5.813e+03 |
 | nonces                 |   2632 | 2.632e+03 |
 | notifyLiquidation      | 146555 | 1.466e+05 |
 | owner                  |   2424 | 2.424e+03 |
-| permit                 |  50686 | 5.069e+04 |
+| permit                 |  50633 | 5.063e+04 |
 | proxiableUUID          |    386 | 3.860e+02 |
 | registerRewardToken    |  72900 | 7.290e+04 |
 | requestWithdrawal      |  25011 | 2.501e+04 |
@@ -140,10 +140,10 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | totalAssetSupply       |   2489 | 2.489e+03 |
 | totalSupply            |   2490 | 2.490e+03 |
 | transfer               | 186856 | 1.869e+05 |
-| transferFrom           | 130075 | 1.301e+05 |
+| transferFrom           | 130031 | 1.300e+05 |
 | transferOwnership      |  12067 | 1.207e+04 |
 | unregisterRewardToken  |  93501 | 9.350e+04 |
-| withdraw               | 269921 | 2.699e+05 |
+| withdraw               | 271892 | 2.719e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |    max |   display |

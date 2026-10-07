@@ -581,10 +581,8 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
             // `leveragedPerCollateralWei`, the mint floors once more, and each earlier floor has raised the price by
             // under one token in the supply - one-signed
             t.leveraged =
-                n *
-                (Math.ceilDiv(recordRounding * point.leveragedPerCollateralWei, 1 ether) + 1) +
-                drift *
-                point.leveragedPerCollateralWei +
+                n * (Math.ceilDiv(recordRounding * point.leveragedPerCollateralWei, 1 ether) + 1) +
+                drift * point.leveragedPerCollateralWei +
                 Math.ceilDiv(
                     ((n * (n - 1)) / 2) * COLLATERAL_PER_TRADE * recordRounding * point.leveragedPerCollateralWei,
                     point.leveragedSupply * 1 ether
@@ -620,7 +618,12 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
             t.minterCollateral,
             string.concat(context, ":", "minterCollateral")
         );
-        assertApproxEqAbs(large.minterPegged, small.minterPegged, t.pegged, string.concat(context, ":", "minterPegged"));
+        assertApproxEqAbs(
+            large.minterPegged,
+            small.minterPegged,
+            t.pegged,
+            string.concat(context, ":", "minterPegged")
+        );
         assertApproxEqAbs(
             large.thisCollateral,
             small.thisCollateral,

@@ -347,7 +347,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         // Snapshot and record v1 results
         uint256 snap = vm.snapshotState();
         uint256 v1_claimSteam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
         // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
         if (doCompleteLiq || doPartialLiq) {
             assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
@@ -434,7 +437,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 snap = vm.snapshotState();
         uint256 v1_claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
         // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
         if (doCompleteLiq || doPartialLiq) {
             assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
@@ -506,7 +512,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         // Snapshot and record v1 results
         uint256 snap = vm.snapshotState();
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
         // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
         if (doCompleteLiq || doPartialLiq) {
             assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
@@ -757,7 +766,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 snap = vm.snapshotState();
         uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
         assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
 
         // Revert and upgrade
@@ -843,7 +855,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         // Snapshot and record v1 results
         uint256 snap = vm.snapshotState();
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
         assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
         uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
@@ -918,7 +933,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         // Snapshot and record v1 results
         uint256 snap = vm.snapshotState();
         uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken);
+        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
         assertGt(v1_claimCol, 0, "fixture: the liquidation left collateral claimable to compare");
         uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 

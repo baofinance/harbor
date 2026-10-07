@@ -204,7 +204,11 @@ interface IStabilityPool_v3 {
     /// @param receiver The account credited.
     /// @param minAmount The least the caller accepts being credited.
     /// @return assetsDeposited The pegged credited to `receiver`.
-    function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 assetsDeposited);
+    function deposit(
+        uint256 assetAmount,
+        address receiver,
+        uint256 minAmount
+    ) external returns (uint256 assetsDeposited);
 
     /// @notice Withdraw pegged from the caller's balance, paying `receiver`.
     /// @dev
@@ -218,7 +222,11 @@ interface IStabilityPool_v3 {
     /// @param receiver The account paid.
     /// @param minAmount The least the caller accepts being paid, after the fee.
     /// @return assetsWithdrawn The pegged paid to `receiver`, after any fee.
-    function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 assetsWithdrawn);
+    function withdraw(
+        uint256 assetAmount,
+        address receiver,
+        uint256 minAmount
+    ) external returns (uint256 assetsWithdrawn);
 
     /// @notice Open a fee-free withdrawal window for the caller, replacing any request it has.
     /// @dev The window is [now + startDelay, now + startDelay + endWindow] (see `getWithdrawalWindow`).

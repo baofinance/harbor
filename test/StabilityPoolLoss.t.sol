@@ -446,7 +446,8 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // Calculate total withdrawable amount (total balances minus MIN_TOTAL_ASSET_SUPPLY protection)
         uint256 totalUserBalances = user1FinalBalance + user2FinalBalance + user3FinalBalance;
-        uint256 totalWithdrawable = totalUserBalances > IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY()
+        uint256 totalWithdrawable = totalUserBalances >
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY()
             ? totalUserBalances - IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY()
             : 0;
 

@@ -168,7 +168,11 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balanceOne, "one's balance untouched");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), balanceTwo, "two's balance untouched");
         assertEq(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product, product, "the product untouched");
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), lossError, "the loss error untouched");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
+            lossError,
+            "the loss error untouched"
+        );
         assertEq(
             _claimable(user1, rewardToken),
             (RETURNED * DEPOSIT_ONE) / (DEPOSIT_ONE + DEPOSIT_TWO),
