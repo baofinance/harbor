@@ -10,6 +10,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestStabilityPoolBaseSetUp} from "@harbor-test/StabilityPoolBaseSetUp.t.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
 /// @title TestStabilityPoolLoss
 /// @notice Consolidated test suite for loss-related functionality in StabilityPool
@@ -706,12 +707,18 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         vm.warp(startTime + daycount * 1 days); // 5/7 of the reward period
         // Users receive what the first stream paid up to day 4, and a share of a day of the new stream in proportion
         // to their balances
-        uint256 oldAmountDelayed = (delayedAmount * 4) / 7; // the reward was deposited on day 4
-        uint256 newAmountDelayed = newRate * 1 days;
-        uint256 user1Delayed = (oldAmountDelayed * 1) / 3 +
-            Math.mulDiv(newAmountDelayed, user1Balance, user1Balance + user2Balance);
-        uint256 user2Delayed = (oldAmountDelayed * 2) / 3 +
-            Math.mulDiv(newAmountDelayed, user2Balance, user1Balance + user2Balance);
+        uint256 user1Delayed;
+        uint256 user2Delayed;
+        {
+            uint256 oldAmountDelayed = (delayedAmount * 4) / 7; // the reward was deposited on day 4
+            uint256 newAmountDelayed = newRate * 1 days;
+            user1Delayed =
+                (oldAmountDelayed * 1) / 3 +
+                Math.mulDiv(newAmountDelayed, user1Balance, user1Balance + user2Balance);
+            user2Delayed =
+                (oldAmountDelayed * 2) / 3 +
+                Math.mulDiv(newAmountDelayed, user2Balance, user1Balance + user2Balance);
+        }
 
         _checkRewards("new reward, 5+1 day");
         _checkRewards("new reward, 5+1 day", user1, (immediateAmount * 1) / 3, user1Delayed);
@@ -752,30 +759,35 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
 
         _checkRewards("new deposit", user3, 0, 0);
 
-        // Phase 5: Reward system continues to work after liquidation
-        daycount = 6;
-        vm.warp(startTime + daycount * 1 days); // 6/7 of the reward period
-        // vv this calculation is too hard for the test system, so just check against claim()
-        newAmountDelayed = (((delayedAmount * (7 - 4)) / 7 + (delayedAmount * 10) / 301) * 2) / 7; // <-- this calculation
-        _checkRewards("deposit, 1 day");
-        // _checkRewards(
-        //     "deposit, 1 day",
-        //     user1,
-        //     (immediateAmount * 1) / 3,
-        //     7500,
-        //     ((oldAmountDelayed + newAmountDelayed) * 1) / 3, // Original + new delayed rewards (1 day)
-        //     30100 // 41554285714285686596 41554285714285714285
-        //     // 41654067394399592531 !~= 41554285714285714285
-        // );
-        // _checkRewards(
-        //     "deposit, 1 day",
-        //     user2,
-        //     (immediateAmount * 2) / 3,
-        //     15000,
-        //     ((oldAmountDelayed + newAmountDelayed) * 2) / 3, // Original + new delayed rewards (1 day)
-        //     60200 // Increased tolerance for accumulated precision errors
-        // );
-
-        // _checkRewards("deposit, 1 day", user3, 0, 0);
+        // Phase 5: Reward system continues to work after liquidation. A day of the stream after user3 joins splits by
+        // rebased balance over the reward divisor: the two written-down holders and the newcomer alike. Nothing flushes
+        // the stream in the day, so each view gains exactly its share of what streamed - and the written-down shares
+        // are whole here (the half loss left the product's magnitude whole in 1e18), so a share is its balance.
+        {
+            address[3] memory holders = [user1, user2, user3];
+            uint256[3] memory delayedBefore;
+            for (uint256 i = 0; i < holders.length; i++) {
+                delayedBefore[i] = IMultipleRewardAccumulator(pool).claimable(holders[i], aa(delayedReward))[0];
+            }
+            daycount = 6;
+            vm.warp(startTime + daycount * 1 days); // 6/7 of the reward period
+            for (uint256 i = 0; i < holders.length; i++) {
+                assertEq(
+                    IMultipleRewardAccumulator(pool).claimable(holders[i], aa(delayedReward))[0] - delayedBefore[i],
+                    Math.mulDiv(
+                        newRate * 1 days,
+                        IERC20(pool).balanceOf(holders[i]),
+                        MockStabilityPool(pool).__rewardDivisor()
+                    ),
+                    string.concat("deposit, 1 day, ", vm.getLabel(holders[i]), ": its rebased share of the day's stream")
+                );
+            }
+            _checkRewards("deposit, 1 day");
+        }
+        assertEq(
+            IMultipleRewardAccumulator(pool).claimable(user3, aa(immediateReward))[0],
+            0,
+            "deposit, 1 day, user3: none of the liquidation proceeds, which came before it"
+        );
     }
 }

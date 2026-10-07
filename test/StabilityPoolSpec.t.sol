@@ -323,6 +323,42 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), DEPOSIT_AMOUNT / 2);
     }
 
+    /// A reward deposited while the pool is empty streams to no one: when its period is over it is all queued, and the
+    /// first holder is owed none of it. A later deposit - of nothing - streams the queue, and over a period that holder
+    /// takes exactly what streamed.
+    function test_depositReward_intoAnEmptyPool_isQueued_andStreamsOnceAHolderJoins() public {
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "fixture: the pool is empty");
+        uint256 period = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
+        vm.startPrank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, REWARD_AMOUNT);
+        vm.stopPrank();
+        skip(period);
+
+        // the deposit's checkpoint runs the stream into the pool while it is still empty: all of it is queued
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        (, , , uint256 queued) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(rewardToken);
+        assertEq(queued, REWARD_AMOUNT, "the whole reward is queued");
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
+            0,
+            "the first holder is owed none of it"
+        );
+
+        vm.startPrank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken, 0);
+        vm.stopPrank();
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(rewardToken);
+        assertEq(rate, REWARD_AMOUNT / period, "the queue streams over a period");
+        skip(period);
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken))[0],
+            rate * period,
+            "the sole holder takes all that streamed"
+        );
+    }
+
     function testRewardDistribution() public {
         // Setup: Users deposit
         vm.startPrank(user1);

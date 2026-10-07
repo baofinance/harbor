@@ -332,6 +332,105 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         vm.stopPrank();
     }
 
+    /// Intent: transferFrom emits the standard Transfer event, naming the holder and the receiver - not the spender.
+    function test_transferFrom_emitsTransfer() public {
+        _deposit(user1, 10 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user2, 5 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        vm.expectEmit(stabilityPool);
+        emit IERC20.Transfer(user1, user3, 3 ether);
+        IERC20(stabilityPool).transferFrom(user1, user3, 3 ether);
+        vm.stopPrank();
+    }
+
+    /// Intent: with the allowance in place, transferFrom to the zero address reverts with InvalidReceiver.
+    function test_transferFrom_toTheZeroAddress_reverts() public {
+        _deposit(user1, 10 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user2, 5 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
+        IERC20(stabilityPool).transferFrom(user1, address(0), 1 ether);
+        vm.stopPrank();
+    }
+
+    /// Intent: with the allowance in place, transferFrom back to the holder itself reverts with InvalidReceiver.
+    function test_transferFrom_toTheSender_reverts() public {
+        _deposit(user1, 10 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user2, 5 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, user1));
+        IERC20(stabilityPool).transferFrom(user1, user1, 1 ether);
+        vm.stopPrank();
+    }
+
+    /// Intent: allowances do not rebase - an allowance granted before a loss is spent as granted after it: the amount
+    /// moves whole and the allowance falls to zero.
+    function test_transferFrom_afterALoss_spendsTheAllowanceAsGranted() public {
+        _deposit(user1, 10 ether);
+        _deposit(user2, 20 ether);
+        vm.startPrank(user1);
+        IERC20(stabilityPool).approve(user3, 5 ether);
+        vm.stopPrank();
+        poolActions.liquidate(wrappedCollateralToken, 7 ether, 0);
+        uint256 senderBefore = IERC20(stabilityPool).balanceOf(user1);
+        assertGe(senderBefore, 5 ether, "fixture: the written-down balance still covers the allowance");
+
+        vm.startPrank(user3);
+        IERC20(stabilityPool).transferFrom(user1, user3, 5 ether);
+        vm.stopPrank();
+        assertEq(IERC20(stabilityPool).allowance(user1, user3), 0, "the allowance is spent as granted");
+        assertEq(IERC20(stabilityPool).balanceOf(user3), 5 ether, "the amount moves whole");
+        assertEq(IERC20(stabilityPool).balanceOf(user1), senderBefore - 5 ether, "the holder is debited the amount");
+    }
+
+    /// Intent: after a loss the balance is the written-down one - the amount deposited is now more than the holder has,
+    /// so transferring it reverts.
+    function test_transfer_ofThePreLossAmountAfterALoss_reverts() public {
+        _deposit(user1, 10 ether);
+        _deposit(user2, 20 ether);
+        poolActions.liquidate(wrappedCollateralToken, 7 ether, 0);
+        assertLt(IERC20(stabilityPool).balanceOf(user1), 10 ether, "fixture: user1 is written down");
+
+        vm.startPrank(user1);
+        vm.expectRevert(ERC20.InsufficientBalance.selector);
+        IERC20(stabilityPool).transfer(user2, 10 ether);
+        vm.stopPrank();
+    }
+
+    /// Intent: the ERC-20 views are the pool's asset views under other names - after a loss that does not divide, each
+    /// holder's balanceOf is its assetBalanceOf, and totalSupply is totalAssetSupply.
+    function test_balanceOfAndTotalSupply_readAsTheAssetViews_afterALoss() public {
+        _deposit(user1, 10 ether);
+        _deposit(user2, 20 ether);
+        poolActions.liquidate(wrappedCollateralToken, 7 ether, 0);
+        assertGt(IStabilityPool_v3(stabilityPool).lastAssetLossError(), 0, "fixture: the loss does not divide");
+
+        assertEq(
+            IERC20(stabilityPool).balanceOf(user1),
+            IStabilityPool_v3(stabilityPool).assetBalanceOf(user1),
+            "user1's balanceOf is its assetBalanceOf"
+        );
+        assertEq(
+            IERC20(stabilityPool).balanceOf(user2),
+            IStabilityPool_v3(stabilityPool).assetBalanceOf(user2),
+            "user2's balanceOf is its assetBalanceOf"
+        );
+        assertEq(
+            IERC20(stabilityPool).totalSupply(),
+            IStabilityPool_v3(stabilityPool).totalAssetSupply(),
+            "totalSupply is totalAssetSupply"
+        );
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Permit2: an ordinary spender, with no allowance built in
     // ═══════════════════════════════════════════════════════════════════════

@@ -1673,6 +1673,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// and could only re-assert the implementation against itself.
     function test_maxDepositReward_capIndependentOfLiveShare() public {
         uint256 floor = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
+        // the first cap is the floor's: the pool is seeded with exactly the floor
+        assertEq(IERC20(stabilityPool).totalSupply(), floor, "fixture: the supply is exactly the floor");
         uint256 capBefore = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral);
         assertGt(capBefore, 0, "precondition: a fresh stream offers a positive cap");
 
