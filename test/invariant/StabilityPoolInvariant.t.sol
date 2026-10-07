@@ -3,17 +3,16 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import {ITokenHolder} from "@bao/TokenHolder.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
@@ -33,7 +32,8 @@ contract StabilityPoolInvariantHandler is Test {
     address public immutable LIQUIDATION_TOKEN;
     address public immutable REBALANCER;
     address public immutable REWARD_DEPOSITOR;
-    uint256 public immutable PRICE;
+    /// @notice Liquidates the pool as REBALANCER, with the loss and the proceeds each `liquidate` call draws.
+    StabilityPoolActions public immutable POOL_ACTIONS;
     uint256 public immutable MIN_TOTAL_ASSET_SUPPLY;
 
     address[] internal _actors;
@@ -68,7 +68,6 @@ contract StabilityPoolInvariantHandler is Test {
         address liquidationToken,
         address rebalancer,
         address rewardDepositor,
-        uint256 price,
         address[] memory actors_,
         address[] memory rewardTokens_
     ) {
@@ -77,8 +76,8 @@ contract StabilityPoolInvariantHandler is Test {
         LIQUIDATION_TOKEN = liquidationToken;
         REBALANCER = rebalancer;
         REWARD_DEPOSITOR = rewardDepositor;
-        PRICE = price;
-        MIN_TOTAL_ASSET_SUPPLY = IStabilityPool_v3(pool).MIN_DEPOSIT();
+        POOL_ACTIONS = new StabilityPoolActions(pool, rebalancer);
+        MIN_TOTAL_ASSET_SUPPLY = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         _actors = actors_;
         _rewardTokens = rewardTokens_;
     }
@@ -214,12 +213,14 @@ contract StabilityPoolInvariantHandler is Test {
         _afterAction(actor);
     }
 
-    /// @notice Liquidate: sweep `loss` asset tokens out, return `loss/price` liquidation tokens in,
-    /// notify. Loss is capped at supply - MIN_TOTAL_ASSET_SUPPLY so _notifyLoss never clamps
+    /// @notice Liquidate: `loss` asset tokens swept out and `returned` liquidation tokens paid in, then notified - the
+    /// two drawn independently, so the proceeds range over nothing at all to the most the pool can absorb
+    /// (`maxLiquidationReward`, read before the liquidation; at most 1,000,000 ether, as a reward deposit is), whatever
+    /// the loss. Loss is capped at supply - MIN_TOTAL_ASSET_SUPPLY so _notifyLoss never clamps
     /// (keeping the sweep and the supply reduction 1:1 — the solvency invariant relies on this).
     /// Skipped once the supply product's exponent reaches 6: two below _MAX_EXPONENT_DIFFERENCE
     /// (8), past which claimable views truncate old snapshots by design.
-    function liquidate(uint256 lossSeed) external {
+    function liquidate(uint256 lossSeed, uint256 proceedsSeed) external {
         uint256 supply = IERC20(POOL).totalSupply();
         if (supply <= MIN_TOTAL_ASSET_SUPPLY) {
             return;
@@ -228,16 +229,13 @@ contract StabilityPoolInvariantHandler is Test {
             return;
         }
         uint256 loss = bound(lossSeed, 1, supply - MIN_TOTAL_ASSET_SUPPLY);
-        uint256 returned = (loss * 1 ether) / PRICE;
+        uint256 returned = bound(
+            proceedsSeed,
+            0,
+            Math.min(IMultipleRewardAccumulator_v3(POOL).maxLiquidationReward(), 1_000_000 ether)
+        );
 
-        vm.startPrank(REBALANCER);
-        ITokenHolder(POOL).sweep(ASSET_TOKEN, loss, REBALANCER);
-        if (returned > 0) {
-            deal(LIQUIDATION_TOKEN, REBALANCER, returned);
-            IERC20(LIQUIDATION_TOKEN).transfer(POOL, returned);
-        }
-        IStabilityPool_v3(POOL).notifyLiquidation(LIQUIDATION_TOKEN, loss, returned);
-        vm.stopPrank();
+        POOL_ACTIONS.liquidate(LIQUIDATION_TOKEN, loss, returned);
 
         injected[LIQUIDATION_TOKEN] += returned;
         _afterAction(address(0));
@@ -333,8 +331,6 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     function setUp() public override {
         super.setUp();
 
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-
         address[] memory actors = new address[](4);
         actors[0] = user1;
         actors[1] = user2;
@@ -350,7 +346,6 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
             wrappedCollateralToken,
             rebalancer,
             rewardDepositor,
-            price,
             actors,
             rewardTokens
         );
@@ -389,6 +384,26 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         _checkDivisorFloor();
         _checkNoRetroactiveReward();
         _checkStabilityPoolSolvent();
+    }
+
+    /// The extreme the independently drawn proceeds make reachable, pinned outside the fuzzer's luck: a liquidation
+    /// taking 1 wei and paying the most the pool can absorb - the largest credit per share one can make. Every
+    /// invariant holds after it.
+    function test_liquidationPayingTheCapOnAOneWeiLoss_holds() public {
+        handler.deposit(0, 0, 10 ether);
+        // the handler bounds its proceeds to this, so passing it draws it exactly
+        uint256 cap = Math.min(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).maxLiquidationReward(),
+            1_000_000 ether
+        );
+        uint256 injectedBefore = handler.injected(wrappedCollateralToken);
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+
+        handler.liquidate(1, cap);
+
+        assertEq(handler.injected(wrappedCollateralToken) - injectedBefore, cap, "fixture: the cap was paid");
+        assertEq(supplyBefore - IERC20(stabilityPoolCollateral).totalSupply(), 1, "fixture: one wei was lost");
+        invariant_stabilityPoolHolds();
     }
 
     /// @notice Conservation of pool shares: the actors' rebased balances must sum to the recorded
