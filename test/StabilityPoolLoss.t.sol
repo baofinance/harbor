@@ -40,7 +40,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertEq(initialTotalAssets, depositAmount);
 
         // Action: Simulate loss through sweep
-        _liquidate(pool, lossAmount);
+        collateralPoolActions.liquidate(wrappedCollateralToken, lossAmount, 0);
 
         // Get resulting balances
         uint256 totalAssetSupply = IERC20(pool).totalSupply();
@@ -83,7 +83,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertEq(IERC20(pool).totalSupply(), totalDeposit);
 
         // Action: Simulate loss through sweep
-        _liquidate(pool, lossAmount);
+        collateralPoolActions.liquidate(wrappedCollateralToken, lossAmount, 0);
 
         // Calculate expected losses
         uint256 expectedUser1Loss = (lossAmount * user1Deposit_) / totalDeposit;
@@ -127,7 +127,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         vm.stopPrank();
 
         // Action: Simulate loss through sweep
-        _liquidate(pool, lossAmount);
+        collateralPoolActions.liquidate(wrappedCollateralToken, lossAmount, 0);
 
         uint256 remainingBalance = IERC20(pool).balanceOf(user1);
         assertApproxEqAbs(remainingBalance, depositAmount - lossAmount, TOLERANCE_LARGE);
@@ -174,7 +174,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         vm.stopPrank();
 
         // Action: Simulate loss through sweep
-        _liquidate(pool, intendedLossAmount);
+        collateralPoolActions.liquidate(wrappedCollateralToken, intendedLossAmount, 0);
 
         // Calculate actual loss considering MIN_TOTAL_ASSET_SUPPLY protection
         uint256 actualLossAmount;
@@ -259,7 +259,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         skip(8 days);
 
         // Action: Simulate loss through sweep
-        _liquidate(pool, lossAmount);
+        collateralPoolActions.liquidate(wrappedCollateralToken, lossAmount, 0);
 
         // Check user can still claim rewards after loss. The reward streams at rate = amount/period, so after one
         // full period the sole depositor's claimable is the deposited reward less the rate truncation (amount mod
@@ -306,7 +306,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 remainingBalance = depositAmount;
 
         for (uint256 i = 0; i < lossAmounts.length; i++) {
-            _liquidate(pool, lossAmounts[i]);
+            collateralPoolActions.liquidate(wrappedCollateralToken, lossAmounts[i], 0);
 
             remainingBalance -= lossAmounts[i];
 
@@ -342,7 +342,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         IStabilityPool_v3(pool).deposit(120 ether, user1, 0);
         vm.stopPrank();
         uint256 supplyBefore = IERC20(pool).totalSupply();
-        _liquidate(pool, 30 ether);
+        collateralPoolActions.liquidate(wrappedCollateralToken, 30 ether, 0);
         assertEq(IERC20(pool).totalSupply(), supplyBefore - 30 ether, "1 depositor: supply -= loss");
         assertApprox(
             IERC20(pool).balanceOf(user1),
@@ -363,7 +363,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         IStabilityPool_v3(pool).deposit(300 ether, user3, 0);
         vm.stopPrank();
         supplyBefore = IERC20(pool).totalSupply();
-        _liquidate(pool, 100 ether);
+        collateralPoolActions.liquidate(wrappedCollateralToken, 100 ether, 0);
         assertEq(IERC20(pool).totalSupply(), supplyBefore - 100 ether, "3 depositors: supply -= loss");
         assertApprox(
             IERC20(pool).balanceOf(user1) + IERC20(pool).balanceOf(user2) + IERC20(pool).balanceOf(user3),
@@ -388,7 +388,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // First loss
         uint256 firstLoss = 60 ether; // 20% loss
-        _liquidate(stabilityPoolCollateral, firstLoss);
+        collateralPoolActions.liquidate(wrappedCollateralToken, firstLoss, 0);
 
         // Expected loss distribution
         uint256 expectedUser1LossFirst = (firstLoss * user1Deposit) / (user1Deposit + user2Deposit);
@@ -426,7 +426,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // Second loss
         uint256 secondLoss = 40 ether;
-        _liquidate(stabilityPoolCollateral, secondLoss);
+        collateralPoolActions.liquidate(wrappedCollateralToken, secondLoss, 0);
 
         // Check final balances
         uint256 totalAssetsAfterAll = IERC20(stabilityPoolCollateral).totalSupply();
@@ -496,6 +496,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
     address delayedReward = steam;
 
     uint256 constant delayedAmount = 1 weeks * 1e14; // a whole number per second of the reward period: no rate rounding
+    uint256 constant liquidationProceeds = 0.075 ether; // what each liquidation pays the pool, in the immediate reward
 
     uint256 constant user1Deposit = 100 ether;
     uint256 constant user2Deposit = 200 ether;
@@ -623,7 +624,8 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         vm.warp(startTime + daycount * 1 days); // 2/7 of the reward period
 
         uint256 totalSupply = IERC20(pool).totalSupply();
-        uint256 immediateAmount = _liquidate(totalSupply / 2);
+        collateralPoolActions.liquidate(immediateReward, totalSupply / 2, liquidationProceeds);
+        uint256 immediateAmount = liquidationProceeds;
         // 1 notifyLiquidation --------------------------------------------------------
 
         assertEq(IERC20(pool).totalSupply(), totalSupply / 2, "Pool should be half emptied");
@@ -642,7 +644,8 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         daycount = 4;
         vm.warp(startTime + daycount * 1 days); // 4/7 of the reward period
 
-        immediateAmount += _liquidate(totalSupply);
+        collateralPoolActions.liquidate(immediateReward, totalSupply, liquidationProceeds);
+        immediateAmount += liquidationProceeds;
         // 2 notifyLiquidation ---------------------------------------------
 
         // Calculate expected user balances after complete liquidation

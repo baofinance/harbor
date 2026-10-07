@@ -308,7 +308,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         )[0];
 
         // Rebalancer sweeps some asset tokens - this should trigger _notifyLoss
-        _liquidate(DEPOSIT_AMOUNT / 2);
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 2, 0);
 
         // The claimable amounts should remain the same despite the loss
         // because rewards are calculated based on proportional shares
@@ -617,7 +617,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         uint256 rewardAmount = 300 ether;
 
         // Rebalancer sweeps some asset tokens - this should trigger _notifyLoss
-        _liquidate(IERC20(stabilityPoolCollateral).totalSupply());
+        collateralPoolActions.liquidate(wrappedCollateralToken, IERC20(stabilityPoolCollateral).totalSupply(), 0);
 
         // Distribute more rewards after loss
         _depositRewardAndWait(rewardToken1, rewardAmount);

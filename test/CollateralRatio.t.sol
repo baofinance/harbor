@@ -579,7 +579,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
             // each. Leveraged is the residual claim, so a collateral wei moves it by the collateral price times
             // the leverage ratio, and the market sells no leverage above `MAX_LEVERAGE_RATIO`: 20 is how far
             // one wei can reach at any ratio the sweep sells at.
-            uint256 creditFloorReach = repeats * 20 * (price / 1 ether);
+            uint256 creditFloorReach = repeats * 20 * (startPrice / 1 ether);
             compareDeltaHoldings(
                 largeChanges,
                 smallChanges,

@@ -4,7 +4,6 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -35,16 +34,6 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         vm.stopPrank();
     }
 
-    /// Sweep the pegged out and hand the pool `returned` of `token`, as a rebalance does before it notifies. These
-    /// are the external calls a guarded `notifyLiquidation` must not be preceded by, so the notify in each test is
-    /// the single call under its cheatcode.
-    function _sweepAndFund(address token, uint256 liquidated, uint256 returned) private {
-        vm.startPrank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, liquidated, rebalancer);
-        vm.stopPrank();
-        deal(token, stabilityPoolCollateral, IERC20(token).balanceOf(stabilityPoolCollateral) + returned);
-    }
-
     function _claimable(address account, address token) private view returns (uint256) {
         address[] memory tokens = new address[](1);
         tokens[0] = token;
@@ -56,7 +45,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
     function test_theNamedTokenIsCreditedAtOnce_toTheHoldersWhoBearTheLoss() public {
         _twoDepositors();
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
-        _sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
+        collateralPoolActions.sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
 
         vm.startPrank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);
@@ -86,7 +75,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
     /// The collateral is a token like any other the pool distributes: named, it is credited the same way.
     function test_theCollateralMayBeNamedLikeAnyOtherRewardToken() public {
         _twoDepositors();
-        _sweepAndFund(wrappedCollateralToken, LIQUIDATED, RETURNED);
+        collateralPoolActions.sweepAndFund(wrappedCollateralToken, LIQUIDATED, RETURNED);
 
         vm.startPrank(rebalancer);
         IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(wrappedCollateralToken, LIQUIDATED, RETURNED);
@@ -105,7 +94,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
     function test_notifyLiquidation_revertsOnATokenThePoolDoesNotDistribute() public {
         _twoDepositors();
         address stranger = address(new MockERC20("Stranger", "STR", 18));
-        _sweepAndFund(stranger, LIQUIDATED, 0);
+        collateralPoolActions.sweepAndFund(stranger, LIQUIDATED, 0);
 
         vm.startPrank(rebalancer);
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
@@ -120,7 +109,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         vm.startPrank(rewardManager);
         IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(rewardToken);
         vm.stopPrank();
-        _sweepAndFund(rewardToken, LIQUIDATED, 0);
+        collateralPoolActions.sweepAndFund(rewardToken, LIQUIDATED, 0);
 
         vm.startPrank(rebalancer);
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
@@ -134,7 +123,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         _twoDepositors();
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         uint256 headroom = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
-        _sweepAndFund(rewardToken, supplyBefore, RETURNED);
+        collateralPoolActions.sweepAndFund(rewardToken, supplyBefore, RETURNED);
 
         vm.startPrank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);
@@ -155,7 +144,11 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
     /// the balances there are exactly a quarter and three quarters of the floor and the shares of the proceeds exact.
     function test_liquidationAtTheFloor_writesNothingDown_reportsNoLoss_andCreditsTheProceeds() public {
         _twoDepositors();
-        _liquidate(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss());
+        collateralPoolActions.liquidate(
+            wrappedCollateralToken,
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            0
+        );
         uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "the pool is at its floor");
 
@@ -163,7 +156,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         uint256 balanceTwo = IERC20(stabilityPoolCollateral).balanceOf(user2);
         uint128 product = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
         uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
-        _sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
+        collateralPoolActions.sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
 
         vm.startPrank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);

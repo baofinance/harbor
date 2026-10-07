@@ -63,7 +63,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Perform a liquidate to trigger asset loss
-        _liquidate(DEPOSIT_AMOUNT / 13);
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 13, 0);
         // ------------prime number ^^
 
         // Loss error should now be non-zero
@@ -79,7 +79,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Force a "complete" liquidation to test product changes (limited by MIN_TOTAL_ASSET_SUPPLY)
-        _liquidate(DEPOSIT_AMOUNT);
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT, 0);
 
         // After "complete" liquidation, user retains MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
@@ -114,7 +114,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
             uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
             uint256 maxLiquidatable = totalSupply > MIN_TOTAL_ASSET_SUPPLY ? totalSupply - MIN_TOTAL_ASSET_SUPPLY : 0;
             if (maxLiquidatable > 0) {
-                _liquidate((maxLiquidatable * 999) / 1000);
+                collateralPoolActions.liquidate(wrappedCollateralToken, (maxLiquidatable * 999) / 1000, 0);
             }
         }
 
@@ -139,7 +139,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         assertEq(initialBalance, DEPOSIT_AMOUNT, "Initial balance should match deposit amount");
 
         // Perform a "full" liquidation (limited by MIN_TOTAL_ASSET_SUPPLY protection)
-        _liquidate(DEPOSIT_AMOUNT);
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT, 0);
 
         // Check final balance is MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
@@ -172,7 +172,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         deal(peggedToken, address(stabilityPoolCollateral), DEPOSIT_AMOUNT * 2);
 
         // Perform a liquidation that's more than the totalSupply
-        _liquidate((DEPOSIT_AMOUNT * 3) / 2);
+        collateralPoolActions.liquidate(wrappedCollateralToken, (DEPOSIT_AMOUNT * 3) / 2, 0);
 
         // Check final balance is MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
@@ -389,7 +389,11 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
             IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 10, user2, 0);
 
             // Perform near-total liquidation to force exponent changes
-            _liquidate((IERC20(peggedToken).balanceOf(stabilityPoolCollateral) * 999) / 1000);
+            collateralPoolActions.liquidate(
+                wrappedCollateralToken,
+                (IERC20(peggedToken).balanceOf(stabilityPoolCollateral) * 999) / 1000,
+                0
+            );
             vm.stopPrank();
         }
 
@@ -468,7 +472,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Sweep a tiny amount of asset tokens
         uint256 tinyAmount = 1;
-        _liquidate(tinyAmount);
+        collateralPoolActions.liquidate(wrappedCollateralToken, tinyAmount, 0);
 
         // Verify the impact on user balance
         uint256 finalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
@@ -490,7 +494,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Sweep exactly the total supply amount (but protection will limit it)
-        _liquidate(DEPOSIT_AMOUNT);
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT, 0);
 
         // Verify protection prevents complete depletion
         assertEq(

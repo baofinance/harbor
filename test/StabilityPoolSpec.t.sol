@@ -364,7 +364,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         uint256 initialBalance = IERC20(stabilityPoolCollateral).totalSupply();
 
         // Rebalancer sweeps some assets
-        _liquidate(DEPOSIT_AMOUNT / 4);
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 4, 0);
 
         // Check balances after sweep
         assertEq(
