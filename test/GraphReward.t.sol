@@ -12,6 +12,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 import {GraphSweepTestBase} from "@bao-test/GraphTestBase.t.sol";
 abstract contract TestGraphReward is GraphSweepTestBase, TestStabilityPoolSetUp {
     string rewardFile;
@@ -116,6 +117,8 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     bool depositedInPool;
 
     uint256 price;
+    /// @dev Liquidates the pool as its rebalancer, with the loss and proceeds the scenario states.
+    StabilityPoolActions internal poolActions;
 
     uint256 currentPoolDeposit;
 
@@ -129,6 +132,7 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         super.setUp();
 
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        poolActions = new StabilityPoolActions(stabilityPoolCollateral, rebalancer);
         vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
         vm.stopPrank();
@@ -234,16 +238,9 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         if (!rebalance1 && currentX >= startX + 3 days) {
             uint256 toLiquidate = (initialPoolDeposit * percentRebalance()) / 100;
             currentPoolDeposit -= toLiquidate;
+            // the scenario: the rebalance pays the pegged it asks for at the collateral's price - an immediate reward
             uint256 toLiquidateTo = (toLiquidate * 1 ether) / price;
-            // liquidate pegged into collateral, creating an immediate reward
-            IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
-            vm.startPrank(rebalancer);
-            IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(
-                wrappedCollateralToken,
-                toLiquidate,
-                toLiquidateTo
-            );
-            vm.stopPrank();
+            poolActions.liquidate(wrappedCollateralToken, toLiquidate, toLiquidateTo);
             rebalance1 = true;
         }
 
@@ -255,16 +252,9 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         }
 
         if (!rebalance2 && currentX >= startX + 7 days) {
+            // the scenario: the rebalance pays the pegged it asks for at the collateral's price - an immediate reward
             uint256 toLiquidateTo = (currentPoolDeposit * 1 ether) / price;
-            // liquidate pegged into collateral, creating an immediate reward
-            IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
-            vm.startPrank(rebalancer);
-            IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(
-                wrappedCollateralToken,
-                currentPoolDeposit,
-                toLiquidateTo
-            );
-            vm.stopPrank();
+            poolActions.liquidate(wrappedCollateralToken, currentPoolDeposit, toLiquidateTo);
             rebalance2 = true;
         }
     }
