@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -116,6 +117,14 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.stopPrank();
     }
 
+    /// @dev What the steam stream now running pays over its whole period: its rate times the period. A stream carries
+    ///      the queued remainder of the one before it, so this is read from the pool, not taken from the deposit - and
+    ///      read as the stream starts, before a later deposit replaces its rate.
+    function _steamStreamed() internal view returns (uint256) {
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(steam);
+        return rate * IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
+    }
+
     /// @dev Deposit pegged tokens into the stability pool for a user. The pool is v2 before the upgrade and v3 after,
     ///      so the deposit goes through the base `IStabilityPool` v2 implements, whose `deposit` v3 carries too.
     function _deposit(address user, uint256 amount) internal {
@@ -187,29 +196,30 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "Deposit works post-upgrade"
         );
 
-        // Reward
+        // Reward: the sole holder is owed all that streamed
         _depositReward(steam, 10 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0); // distribute pending
         uint256 claimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
-        assertGt(claimable, 0, "Rewards accumulate post-upgrade");
+        assertEq(claimable, streamed, "Rewards accumulate post-upgrade: the sole holder is owed the whole stream");
 
-        // Liquidate
+        // Liquidate: half the pool divides exactly, so nothing is carried and the balance is exactly halved
         uint256 totalSupply = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply();
         poolActions.liquidate(wrappedCollateralToken, totalSupply / 2, LIQUIDATION_PROCEEDS);
-        assertApproxEqRel(
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "fixture: the half loss divides");
+        assertEq(
             IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
             50 ether,
-            0.01e18,
             "Partial liquidation works post-upgrade"
         );
 
-        // Claim
+        // Claim: it pays what was claimable
         uint256 steamBefore = IERC20(steam).balanceOf(user1);
         vm.startPrank(user1);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
         vm.stopPrank();
-        assertGt(IERC20(steam).balanceOf(user1) - steamBefore, 0, "Claim works post-upgrade");
+        assertEq(IERC20(steam).balanceOf(user1) - steamBefore, claimable, "Claim works post-upgrade: it pays the claimable");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -484,6 +494,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         // Build state on v2
         _deposit(user1, 100 ether);
         _depositReward(steam, 7 ether); // ~1 ether/day over 1-week period
+        uint256 streamed = _steamStreamed();
 
         // Warp halfway through period
         vm.warp(block.timestamp + 3.5 days);
@@ -526,9 +537,12 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         // Post-upgrade: warp remaining 3.5 days and verify rewards complete
         vm.warp(block.timestamp + 3.5 days);
         _depositReward(steam, 0); // distribute remaining
-        uint256 finalClaimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
-        // After full period, should have ~7 ether of rewards (minus rate truncation)
-        assertGt(finalClaimable, claimableOnV3, "More rewards after remaining period");
+        // after the full period the sole holder is owed the whole stream, across the upgrade
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0],
+            streamed,
+            "the whole stream after the remaining period"
+        );
     }
 
     function test_upgradeFromV2_MidRewardPeriod_NoLiquidation() public {
@@ -619,14 +633,16 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Deposit more rewards → verify both accumulate correctly going forward
         _depositReward(steam, 10 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0); // distribute
 
         uint256 newClaimable1 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
         uint256 newClaimable2 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0];
 
-        // after a complete liquidation too: the holders keep their shares of the floor, so later rewards reach them
-        assertGt(newClaimable1, 0, "user1 accumulates new rewards post-upgrade");
+        // after a complete liquidation too: the holders keep their shares of the floor, so later rewards reach them -
+        // equal holders, half the stream each
+        assertEq(newClaimable1, streamed / 2, "user1 accumulates half the new stream post-upgrade");
         assertEq(newClaimable1, newClaimable2, "Equal new rewards for equal depositors");
     }
 
@@ -680,22 +696,27 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "nothing is owed at the new exponent before a reward is credited there"
         );
 
-        // a reward credited at exponent 1, on top of the holder's zero snapshot there
+        // a reward credited at exponent 1, on top of the holder's zero snapshot there: the sole holder is owed the whole
+        // stream, read across the flush into the integral, which may cost it a wei
         _depositReward(steam, 10 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
         uint256 firstClaimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
-        assertGt(firstClaimable, 0, "the holder earns the reward credited after their checkpoint");
+        assertLe(firstClaimable, streamed, "the holder earns the reward credited after their checkpoint: never more");
+        assertGe(firstClaimable + 1, streamed, "the holder earns the reward credited after their checkpoint: all of it");
 
         // a checkpoint carries it into the holder's pending, and the next reward adds to it
         vm.startPrank(user1);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).checkpoint(user1);
         vm.stopPrank();
         _depositReward(steam, 10 ether);
+        streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
         uint256 totalClaimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
-        assertGt(totalClaimable, firstClaimable, "and the rewards after that");
+        assertLe(totalClaimable, firstClaimable + streamed, "and the rewards after that: never more");
+        assertGe(totalClaimable + 1, firstClaimable + streamed, "and the rewards after that: all of them");
 
         vm.startPrank(user1);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
@@ -772,14 +793,14 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "Balance reduced after withdrawal"
         );
 
-        // Claim rewards post-withdrawal
+        // Claim rewards post-withdrawal: nothing streams after the upgrade, so the claim is the steam preserved through it
         vm.startPrank(user1);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
         vm.stopPrank();
-        assertGt(
+        assertEq(
             IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
-            0,
-            "Steam claimed post-withdraw"
+            claimableOnV2,
+            "Steam claimed post-withdraw: what was claimable through the upgrade"
         );
     }
 
@@ -876,14 +897,22 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 totalSteam = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0];
         assertEq(totalSteam, steamClaimableOnV2[0], "Full steam amount claimed post-upgrade");
 
-        // Post-upgrade: new rewards accumulate at exponent 2
+        // Post-upgrade: new rewards accumulate at exponent 2 - user2's share of the stream. The divisor is the supply
+        // less the upgrader's gap, the sum of the balances (user1's ten billion floors, written down two exponent steps,
+        // hold a ten-billionth). A holder earns on its unfloored compounded share, up to a wei above its balance, and a
+        // wei of share earns streamed / divisor; the flush into the integral may cost a wei.
         _depositReward(steam, 5 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
-        assertGt(
-            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0],
-            0,
-            "New rewards accumulate post-upgrade at exponent 2"
+        uint256 divisor = balanceOnV2[0] + balanceOnV2[1];
+        uint256 expected = steamClaimableOnV2[1] + Math.mulDiv(streamed, balanceOnV2[1], divisor);
+        uint256 claimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0];
+        assertGe(claimable + 1, expected, "New rewards accumulate post-upgrade at exponent 2: all of the share");
+        assertLe(
+            claimable,
+            expected + Math.ceilDiv(streamed, divisor),
+            "New rewards accumulate post-upgrade at exponent 2: never more than the share of a wei more"
         );
     }
 
@@ -942,25 +971,26 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "Balance preserved after re-deposit + partial liq"
         );
 
-        // Post-upgrade: claim works
+        // Post-upgrade: claim works - it pays the steam preserved through the upgrade
         vm.startPrank(user1);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
         vm.stopPrank();
-        assertGt(
+        assertEq(
             IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
-            0,
+            claimableOnV2,
             "Claim works after product mismatch upgrade"
         );
 
-        // Post-upgrade: another partial liquidation + new rewards work
+        // Post-upgrade: another partial liquidation + new rewards work - the sole holder is owed the whole new stream
         poolActions.liquidate(wrappedCollateralToken, 20 ether, LIQUIDATION_PROCEEDS);
         _depositReward(steam, 5 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
-        assertGt(
+        assertEq(
             IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0],
-            0,
-            "New rewards accumulate after post-upgrade liquidation"
+            streamed,
+            "New rewards accumulate after post-upgrade liquidation: the whole stream"
         );
     }
 

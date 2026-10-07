@@ -157,7 +157,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
     // Two losses in a row where the first does NOT divide evenly, so the pool keeps a ceiling-division
     // remainder. User ratios stay exact (all balances scale by the same product), and value is conserved:
-    // users never sum above supply, and the shortfall is bounded by the rounding the pool retains.
+    // each balance is its deposit through both per-unit losses, so they sum under the supply by the rounding.
     function test_rebalance_sequentialLosses_conserved() public {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(100 ether, user1, 0);
@@ -170,9 +170,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
 
         // 100/600 does not divide evenly; the ceiling division retains a remainder for the pool.
+        uint256 supplyBeforeFirst = IERC20(stabilityPoolCollateral).totalSupply();
         collateralPoolActions.liquidate(wrappedCollateralToken, 100 ether, 0);
+        uint256 firstError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         // Second loss on the reduced pool.
+        uint256 supplyBeforeSecond = IERC20(stabilityPoolCollateral).totalSupply();
         collateralPoolActions.liquidate(wrappedCollateralToken, 100 ether, 0);
+        uint256 secondError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
 
         uint256 b1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 b2 = IERC20(stabilityPoolCollateral).balanceOf(user2);
@@ -184,11 +188,24 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertEq(b2, 2 * b1, "user2 : user1 == 2 : 1");
         assertEq(b3, 3 * b1, "user3 : user1 == 3 : 1");
 
-        // Conservation: no value created, and the shortfall is only the rounding the pool retains. Each loss
-        // rounds loss-per-unit up by < 1 (scaled by 1e18), so it keeps < supplyBefore/1e18 asset-wei; supply
-        // only shrinks, so 600e18/1e18 = 600 bounds each of the two losses. Plus at most 1 wei floor per user.
-        uint256 maxDust = 2 * (600 ether / 1e18) + 3;
-        assertConserved(_threeParts(b1, b2, b3), 400 ether, maxDust, "two losses conserved within retained rounding");
+        // Conservation: no value created, and the shortfall is only the rounding the pool retains. Each loss's per-unit
+        // loss is recovered from the over-application it carried (the second spends the first's carry), and the
+        // product's magnitude stays whole through both, (1e18 - u1)(1e18 - u2), so each balance is its deposit through
+        // both, floored once.
+        assertLt(firstError, supplyBeforeFirst, "the first carry is under its supply: its loss per unit is the ceiling");
+        assertLt(secondError, supplyBeforeSecond, "the second carry is under its supply: its loss per unit is the ceiling");
+        uint256 firstScaled = 100 ether * 1 ether + firstError;
+        uint256 secondScaled = 100 ether * 1 ether - firstError + secondError;
+        assertEq(firstScaled % supplyBeforeFirst, 0, "the first loss and its carry make a whole loss per unit");
+        assertEq(secondScaled % supplyBeforeSecond, 0, "the second loss and its carries make a whole loss per unit");
+        uint256 throughBoth = (1 ether - firstScaled / supplyBeforeFirst) * (1 ether - secondScaled / supplyBeforeSecond);
+        assertEq(
+            b1 + b2 + b3,
+            Math.mulDiv(100 ether, throughBoth, 1e36) +
+                Math.mulDiv(200 ether, throughBoth, 1e36) +
+                Math.mulDiv(300 ether, throughBoth, 1e36),
+            "two losses conserved: the balances are the deposits through both per-unit losses"
+        );
     }
 
     // Successive losses compound across changes of the product's exponent, every balance exact. Each loss takes all
@@ -245,7 +262,8 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     }
 
     // A loss large enough to breach the floor is capped so the pool is left at exactly
-    // MIN_TOTAL_ASSET_SUPPLY. Every user keeps a positive proportional share; shares never sum above the floor.
+    // MIN_TOTAL_ASSET_SUPPLY. Every user keeps its proportional share, written down by the rounded-up per-unit loss, so
+    // the shares sum under the floor by the rounding.
     function test_rebalance_lossWipesToFloor() public {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(100 ether, user1, 0);
@@ -258,6 +276,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
 
         uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         // Sweep the entire withdrawable amount (supply - floor); notifyLoss caps the loss at supply - floor.
         collateralPoolActions.liquidate(wrappedCollateralToken, 600 ether - minSupply, 0);
 
@@ -266,18 +285,25 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         uint256 b1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 b2 = IERC20(stabilityPoolCollateral).balanceOf(user2);
         uint256 b3 = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        assertGt(b1, 0, "user1 keeps a share");
-        assertGt(b2, 0, "user2 keeps a share");
-        assertGt(b3, 0, "user3 keeps a share");
         assertEq(b2, 2 * b1, "user2 : user1 == 2 : 1");
         assertEq(b3, 3 * b1, "user3 : user1 == 3 : 1");
 
-        // Users sum to at most the floor; the pool retains only rounding dust (< supplyBefore/1e18 + N).
-        assertConserved(
-            _threeParts(b1, b2, b3),
-            minSupply,
-            600 ether / 1e18 + 3,
-            "wipe-to-floor conserved within retained rounding"
+        // Conserved: the per-unit loss is recovered from the over-application it carried, and each user is its deposit
+        // written down by it, rounded up - so the shares sum under the floor by that rounding.
+        uint256 carried = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
+        uint256 scaledLoss = (supplyBefore - minSupply) * 1 ether + carried;
+        assertLt(carried, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
+        assertEq(scaledLoss % supplyBefore, 0, "the loss and its carried over-application make a whole loss per unit");
+        uint256 lossPerUnit = scaledLoss / supplyBefore;
+        assertEq(
+            b1 + b2 + b3,
+            100 ether -
+                Math.ceilDiv(100 ether * lossPerUnit, 1 ether) +
+                200 ether -
+                Math.ceilDiv(200 ether * lossPerUnit, 1 ether) +
+                300 ether -
+                Math.ceilDiv(300 ether * lossPerUnit, 1 ether),
+            "wipe-to-floor conserved: each share is its deposit written down by the loss per unit"
         );
     }
 
@@ -418,23 +444,30 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // The error accumulated is ~1e24, so we need a loss bigger than 1e18 * 1e6
         uint256 largerLossAmount = 1e6 * 1e18; // 1 million ETH (larger than error/1e18)
 
+        uint256 supplyAfterFirst = IERC20(stabilityPoolCollateral).totalSupply();
         collateralPoolActions.liquidate(wrappedCollateralToken, largerLossAmount, 0);
 
-        uint256 finalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 finalLossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
-        assertApproxEqAbs(
-            finalLossError,
-            newLossError - 1e6 ether,
-            10 ether,
-            "Loss error should be reduced after second sweep"
+        // The second sweep consumes the carried error first: its per-unit loss is the ceiling of what is left of the
+        // loss over the supply the first left, and the new carry the over-application of that
+        uint256 secondNumerator = largerLossAmount * 1 ether - newLossError;
+        uint256 secondLossPerUnit = Math.ceilDiv(secondNumerator, supplyAfterFirst);
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
+            secondLossPerUnit * supplyAfterFirst - secondNumerator,
+            "Loss error should match the exact calculation after the second sweep"
         );
 
-        // The second sweep with a larger amount should consume some of the error
-        // and further reduce the balance
-        assertLt(finalBalance, newBalance, "Larger sweep should further reduce balance");
-
-        // The loss error should be reduced
-        assertLt(finalLossError, newLossError, "Error should be reduced after larger sweep");
+        // the product's magnitude stays whole through both losses, (1e18 - u1)(1e18 - u2), so the balance is the deposit
+        // through both per-unit losses, floored once
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            Math.mulDiv(
+                initialBalance,
+                (1 ether - assetLossPerUnitStaked) * (1 ether - secondLossPerUnit),
+                1e36
+            ),
+            "the balance is written down by both per-unit losses"
+        );
     }
 
     // An account that is neither the owner nor a rebalancer cannot sweep
@@ -461,68 +494,48 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
 
         // 2. Verify initial balances
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user2InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 user3InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
         uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
-
-        assertEq(user1InitialBalance, DEPOSIT_AMOUNT, "User1 initial balance incorrect");
-        assertEq(user2InitialBalance, DEPOSIT_AMOUNT * 2, "User2 initial balance incorrect");
-        assertEq(user3InitialBalance, DEPOSIT_AMOUNT / 2, "User3 initial balance incorrect");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), DEPOSIT_AMOUNT, "User1 initial balance incorrect");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), DEPOSIT_AMOUNT * 2, "User2 initial balance incorrect");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user3), DEPOSIT_AMOUNT / 2, "User3 initial balance incorrect");
         assertEq(totalSupply, (DEPOSIT_AMOUNT * 7) / 2, "Total supply incorrect");
 
         // 3. Perform complete liquidation (sweep exactly the total supply amount)
         collateralPoolActions.liquidate(wrappedCollateralToken, totalSupply, 0);
 
-        // 4. Verify all balances are now reduced to proportional shares of MIN_TOTAL_ASSET_SUPPLY
+        // 4. Verify all balances are now reduced to proportional shares of MIN_TOTAL_ASSET_SUPPLY: the loss stops at the
+        // floor, its per-unit loss rounded up with the over-application carried, so each balance is its deposit written
+        // down by that per-unit loss, rounded up - a little under its proportional share of the floor
         uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
-
-        // Calculate theoretical proportional balances based on original deposits
-        uint256 totalOriginalDeposits = DEPOSIT_AMOUNT + (DEPOSIT_AMOUNT * 2) + (DEPOSIT_AMOUNT / 2); // 350 ether
-        uint256 theoreticalUser1Balance = (DEPOSIT_AMOUNT * minSupply) / totalOriginalDeposits; // (100 * 1e18) / 350
-        uint256 theoreticalUser2Balance = (DEPOSIT_AMOUNT * 2 * minSupply) / totalOriginalDeposits; // (200 * 1e18) / 350
-        uint256 theoreticalUser3Balance = ((DEPOSIT_AMOUNT / 2) * minSupply) / totalOriginalDeposits; // (50 * 1e18) / 350
-
-        // Get actual balances
+        uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
+        uint256 lossPerUnit;
+        {
+            uint256 scaledLoss = (totalSupply - minSupply) * 1 ether + lossError;
+            assertLt(lossError, totalSupply, "the carried over-application is under the supply: the loss per unit is its ceiling");
+            assertEq(scaledLoss % totalSupply, 0, "the loss and its carried over-application make a whole loss per unit");
+            lossPerUnit = scaledLoss / totalSupply;
+        }
         uint256 actualUser1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 actualUser2Balance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 actualUser3Balance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-
-        // Verify theoretical vs actual with precision tolerance
-        assertApproxEqAbs(
+        assertEq(
             actualUser1Balance,
-            theoreticalUser1Balance,
-            100, // 100 wei tolerance for rounding
-            "User1 balance should match theoretical proportional share"
+            DEPOSIT_AMOUNT - Math.ceilDiv(DEPOSIT_AMOUNT * lossPerUnit, 1 ether),
+            "User1 is written down its share of the loss per unit"
         );
-        assertApproxEqAbs(
-            actualUser2Balance,
-            theoreticalUser2Balance,
-            100,
-            "User2 balance should match theoretical proportional share"
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user2),
+            DEPOSIT_AMOUNT * 2 - Math.ceilDiv(DEPOSIT_AMOUNT * 2 * lossPerUnit, 1 ether),
+            "User2 is written down its share of the loss per unit"
         );
-        assertApproxEqAbs(
-            actualUser3Balance,
-            theoreticalUser3Balance,
-            100,
-            "User3 balance should match theoretical proportional share"
-        );
-
-        // Verify conservation law: total balances equal MIN_TOTAL_ASSET_SUPPLY (with rounding tolerance)
-        uint256 totalUserBalances = actualUser1Balance + actualUser2Balance + actualUser3Balance;
-        assertApproxEqAbs(
-            totalUserBalances,
-            minSupply,
-            100, // Allow up to 100 wei tolerance for rounding errors in fixed-point arithmetic
-            "Sum of user balances should approximately equal MIN_TOTAL_ASSET_SUPPLY"
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user3),
+            DEPOSIT_AMOUNT / 2 - Math.ceilDiv((DEPOSIT_AMOUNT / 2) * lossPerUnit, 1 ether),
+            "User3 is written down its share of the loss per unit"
         );
 
         // 5. Verify lastAssetLossError retains accumulated error from ceiling division
         // In complete liquidation, error tracking continues to function normally
         // The accumulated error will be consumed by future losses
-        uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         assertEq(lossError, 50 ether, "lastAssetLossError should be 50 ether after complete liquidation");
-        assertLe(lossError, totalSupply * 1 ether, "lastAssetLossError should be reasonable");
 
         // 6. Test what happens when users try to withdraw after complete liquidation
         // User1 tries to withdraw more than their actual balance (should fail)
@@ -568,42 +581,44 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // 9. Test a partial liquidation after the complete liquidation to ensure the system still functions
         collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT, 0);
 
-        // 10. Verify the partial liquidation worked correctly
-        // User4's balance should be reduced proportionally
+        // 10. Verify the partial liquidation worked correctly: it first spends the carried error, so its per-unit loss is
+        // the ceiling of the loss less that error over the supply, and user4's balance is its deposit written down by it
+        assertEq(
+            IERC20(stabilityPoolCollateral).totalSupply(),
+            DEPOSIT_AMOUNT * 4 + minSupply, // No subtraction since no tokens were withdrawn
+            "Total supply after partial liquidation incorrect"
+        );
+        uint256 laterLossPerUnit;
         {
-            uint256 expectedUser4Balance = (DEPOSIT_AMOUNT * 5 * (DEPOSIT_AMOUNT * 4 + minSupply)) /
-                (DEPOSIT_AMOUNT * 5 + minSupply); // No subtraction since no tokens were withdrawn
-            assertApproxEqRel(
-                IERC20(stabilityPoolCollateral).balanceOf(user4),
-                expectedUser4Balance,
-                0.01e18, // 1% tolerance for rounding
-                "User4 balance after partial liquidation should be proportionally reduced"
-            );
-            assertEq(
-                IERC20(stabilityPoolCollateral).totalSupply(),
-                DEPOSIT_AMOUNT * 4 + minSupply, // No subtraction since no tokens were withdrawn
-                "Total supply after partial liquidation incorrect"
-            );
+            uint256 supplyBefore = DEPOSIT_AMOUNT * 5 + minSupply;
+            uint256 laterError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
+            uint256 scaledLoss = DEPOSIT_AMOUNT * 1 ether - lossError + laterError;
+            assertLt(laterError, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
+            assertEq(scaledLoss % supplyBefore, 0, "the loss less the error it spent, and the new carry, make a whole loss per unit");
+            laterLossPerUnit = scaledLoss / supplyBefore;
         }
-
-        // 11. Verify accumulated error system is functioning correctly
-        // The error system tracks accumulated rounding differences from ceiling division
-        // Error can increase or decrease depending on loss magnitude and existing error balance
-        assertLt(
-            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
-            1000 ether,
-            "Accumulated error should remain bounded"
+        uint256 user4Balance = DEPOSIT_AMOUNT * 5 - Math.ceilDiv(DEPOSIT_AMOUNT * 5 * laterLossPerUnit, 1 ether);
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user4),
+            user4Balance,
+            "User4 balance after partial liquidation should be written down its share of the loss per unit"
         );
 
-        // The important property is that the error system prevents precision loss accumulation
-        // by ensuring total user balances + error account for all precision differences
-        uint256 totalUserBalancesAfterLoss = IERC20(stabilityPoolCollateral).balanceOf(user1) +
-            IERC20(stabilityPoolCollateral).balanceOf(user2) +
-            IERC20(stabilityPoolCollateral).balanceOf(user3) +
-            IERC20(stabilityPoolCollateral).balanceOf(user4);
-
-        // The error system ensures system integrity is maintained
-        assertGe(totalUserBalancesAfterLoss, minSupply, "System should maintain minimum viable balance");
+        // 11. The holders from before the complete liquidation are written down by both per-unit losses: the product's
+        // magnitude stays whole through them, (1e18 - u)(1e18 - u'), so each balance is its deposit through both,
+        // floored once
+        uint256 throughBoth = (1 ether - lossPerUnit) * (1 ether - laterLossPerUnit);
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user1) +
+                IERC20(stabilityPoolCollateral).balanceOf(user2) +
+                IERC20(stabilityPoolCollateral).balanceOf(user3) +
+                IERC20(stabilityPoolCollateral).balanceOf(user4),
+            Math.mulDiv(DEPOSIT_AMOUNT, throughBoth, 1e36) +
+                Math.mulDiv(DEPOSIT_AMOUNT * 2, throughBoth, 1e36) +
+                Math.mulDiv(DEPOSIT_AMOUNT / 2, throughBoth, 1e36) +
+                user4Balance,
+            "every balance is its deposit through the losses since it was made"
+        );
     }
 
     function testNotifyLossWithZeroSupply() public {
@@ -756,6 +771,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // 8. Test partial liquidation in new epoch
+        uint256 errorBefore = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT, 0);
         assertEq(
             IERC20(stabilityPoolCollateral).totalSupply(),
@@ -763,15 +779,22 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             "the supply after the second loss"
         );
 
-        // 9. Verify product changed appropriately
-        uint128 productAfterPartialLiquidation = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
-        // Expected product reduction: 5e33 * (201/301) = 5e33 * 0.6677 ≈ 3.338e33
-        uint256 expectedProductMagnitude = uint256(5e33 * 201) / 301;
-        assertApproxEqAbs(
-            DecrementalFloatingPoint_v2.magnitude(productAfterPartialLiquidation),
-            expectedProductMagnitude,
-            1e30, // Small tolerance for rounding
-            "Product should decrease proportionally after partial liquidation"
+        // 9. Verify product changed appropriately: by the second loss's per-unit loss - the ceiling of what is left of
+        // the loss after the error carried in, over the supply - recovered from the over-application it carried. The
+        // magnitude is whole in 1e18, so the product's multiply is exact.
+        uint256 lossPerUnit;
+        {
+            uint256 supplyBefore = DEPOSIT_AMOUNT * 3 + minSupply;
+            uint256 carried = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
+            uint256 scaledLoss = DEPOSIT_AMOUNT * 1 ether - errorBefore + carried;
+            assertLt(carried, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
+            assertEq(scaledLoss % supplyBefore, 0, "the loss and its carried over-application make a whole loss per unit");
+            lossPerUnit = scaledLoss / supplyBefore;
+        }
+        assertEq(
+            DecrementalFloatingPoint_v2.magnitude(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            Math.mulDiv(DecrementalFloatingPoint_v2.magnitude(newEpochProduct), 1 ether - lossPerUnit, 1 ether),
+            "Product should decrease by the per-unit loss after partial liquidation"
         );
 
         // 10. Test withdrawal after liquidation

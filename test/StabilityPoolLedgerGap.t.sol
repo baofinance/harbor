@@ -791,8 +791,10 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         address newcomer = makeAddr("newcomer");
         uint256 amount = 1e19;
         _deposit(newcomer, amount);
+        // the newcomer joins at the current product and the pool loses nothing more, so its balance is its deposit, and
+        // the whole of it is above the floor
         uint256 received = _exit(newcomer);
-        assertApproxEqAbs(received, amount, 2, "newcomer recovers full principal");
+        assertEq(received, amount, "newcomer recovers full principal");
     }
 
     /// @notice A reward streamed into a floored pool is never over-credited: a depositor's claimable never exceeds the
