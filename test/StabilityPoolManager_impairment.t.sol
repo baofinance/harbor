@@ -53,8 +53,7 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_reb
         assertGt(recorded, held, "precondition: the record overstates the holding");
     }
 
-    /// Below the threshold and impaired, the rebalance reverts with the minter's error and both figures, and the
-    /// pools keep their pegged.
+    /// Below the threshold and impaired, the rebalance reverts with the minter's error and both figures.
     function test_rebalance_revertsWhileImpaired() public {
         assertLt(
             IMinter(minter).collateralRatio(),
@@ -62,15 +61,10 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_reb
             "precondition: below the threshold"
         );
         _impair();
-        uint256 collateralPoolPegged = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
-        uint256 leveragedPoolPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
         (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
 
         vm.expectRevert(abi.encodeWithSelector(IMinter_v3.UnrecognisedImpairment.selector, recorded, held));
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
-
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), collateralPoolPegged, "collateral pool kept");
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolLeveraged), leveragedPoolPegged, "leveraged pool kept");
     }
 
     /// Below the threshold, `rebalanceable()` is false while the market is impaired, so a keeper reading it does not

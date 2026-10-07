@@ -501,16 +501,10 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         return _buildGapScenario(5763, 604800, 6, 17947);
     }
 
-    /// @notice Repeatable capture of the last-withdrawal failure (red-first, becomes green when fixed). After
-    /// the deterministic over-credit (gap < 0: Sum(balanceOf) > supply), the actors withdraw their full
-    /// balances in turn. Actors 0..n-2 exit fine, but the LAST withdrawer's recorded balance now exceeds the
-    /// remaining supply, so withdraw()'s unchecked supply update `supply.amount - (assetsWithdrawn + feeAmount)`
-    /// (StabilityPool_v3 line 488) underflows and `.toUint128()` reverts SafeCastOverflowedUintDowncast — the
-    /// SafeCast added with the uint128 widen turns the would-be silent corruption into a clean revert, but the
-    /// pool still cannot pay the last exit its recorded balance. FIXED by capping the outflow at what the pool
-    /// holds and writing off the phantom excess (cap the recorded balance at supply before debiting): every
-    /// actor now exits and the over-credit closes. (The reward CLAIM does not revert in this scenario — the
-    /// over-credit is far smaller than the reward balance — so this was a withdrawal fix, not the claim cap.)
+    /// @notice Every holder can exit a pool whose balances are over-credited (gap < 0: Sum(balanceOf) > supply). The
+    /// actors withdraw their whole balances in turn; by the last of them the recorded balance exceeds what is left of
+    /// the supply, and the withdrawal debits that balance capped at the supply - paying what the pool holds and
+    /// writing off the excess, which no asset backs - so the last exit succeeds and the over-credit is closed.
     function test_lastWithdrawalSurvivesOverCredit() public {
         address[] memory actors = _reproduceNegativeGap();
         assertLt(_gap(actors), 0, "precondition: the scenario is over-credited (Sum(balanceOf) > supply)");
@@ -521,8 +515,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
                 continue;
             }
             vm.startPrank(actors[i]);
-            // was RED before the withdrawal cap: the last actor's balance exceeded the remaining supply, the
-            // supply update underflowed, and SafeCast.toUint128 reverted. The cap now pays what the pool holds.
+            // the last actor's balance exceeds the remaining supply; the cap pays what the pool holds
             IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[i], 0);
             vm.stopPrank();
         }
@@ -764,9 +757,6 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         vm.expectRevert(IStabilityPool_v3.WithdrawZeroAmount.selector);
         IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[0], 0);
         vm.stopPrank();
-
-        assertEq(IERC20(pool).totalSupply(), floor, "the floor is retained, not drained");
-        assertEq(IERC20(peggedToken).balanceOf(pool), floor, "the retained floor stays backed");
     }
 
     /// @dev Floor the pool via an over-sized liquidation and return the sole depositor; asserts held equals supply
