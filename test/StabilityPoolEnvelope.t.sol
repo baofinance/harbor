@@ -1372,7 +1372,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             uint256 totalHold = IERC20(pegged).balanceOf(stabilityPool) +
                 IERC20(pegged).balanceOf(stabilityPoolLeveraged);
             grossCollateral = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPool), totalHold);
-            grossLeveraged = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPoolLeveraged), totalHold);
+            grossLeveraged = Math.mulDiv(
+                harvestableAmount,
+                IERC20(pegged).balanceOf(stabilityPoolLeveraged),
+                totalHold
+            );
             if (grossCollateral + grossLeveraged < harvestableAmount) {
                 break; // the gross split leaves an un-owed remainder - the discriminating case
             }
@@ -1566,7 +1570,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
         // the skim's bands below are derived for these
         assertLt(bountyRatio, uint256(1e18) / 3, "fixture: the bounty ratio is under a third");
-        assertTrue(residualRatio == 0 || residualRatio > 0.5e18, "fixture: the residual ratio is nothing or over a half");
+        assertTrue(
+            residualRatio == 0 || residualRatio > 0.5e18,
+            "fixture: the residual ratio is nothing or over a half"
+        );
 
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);

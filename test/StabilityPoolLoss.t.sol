@@ -95,7 +95,11 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // left exactly B - ceil(B * u / 1e18).
         uint256 carried = IStabilityPool_v3(pool).lastAssetLossError();
         uint256 scaledLoss = lossAmount * DecrementalFloatingPoint_v2.FACTOR_PRECISION + carried;
-        assertLt(carried, totalDeposit, "the carried over-application is under the supply: the loss per unit is its ceiling");
+        assertLt(
+            carried,
+            totalDeposit,
+            "the carried over-application is under the supply: the loss per unit is its ceiling"
+        );
         assertEq(scaledLoss % totalDeposit, 0, "the loss and its carried over-application make a whole loss per unit");
         uint256 lossPerUnit = scaledLoss / totalDeposit;
         assertEq(
@@ -111,7 +115,6 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // Total supply is reduced by EXACTLY the loss (the pool subtracts it exactly) — no tolerance.
         assertEq(IERC20(pool).totalSupply(), totalDeposit - lossAmount, "supply = deposits - loss");
-
     }
 
     /// @notice Test withdrawals after loss with varying amounts
@@ -387,7 +390,11 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // loss is recovered from the over-application it carried, and each holder written down by it, rounded up.
         uint256 carried = IStabilityPool_v3(pool).lastAssetLossError();
         uint256 scaledLoss = 100 ether * DecrementalFloatingPoint_v2.FACTOR_PRECISION + carried;
-        assertLt(carried, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
+        assertLt(
+            carried,
+            supplyBefore,
+            "the carried over-application is under the supply: the loss per unit is its ceiling"
+        );
         assertEq(scaledLoss % supplyBefore, 0, "the loss and its carried over-application make a whole loss per unit");
         uint256 lossPerUnit = scaledLoss / supplyBefore;
         uint256 sum;
@@ -452,7 +459,11 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Second loss: 40 of 250, a per-unit loss of exactly 0.16e18 - again nothing carried
         uint256 secondLoss = 40 ether;
         collateralPoolActions.liquidate(wrappedCollateralToken, secondLoss, 0);
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "fixture: the second loss divides");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
+            0,
+            "fixture: the second loss divides"
+        );
 
         // Check final balances
         uint256 totalAssetsAfterAll = IERC20(stabilityPoolCollateral).totalSupply();
@@ -463,20 +474,29 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             secondLoss -
             user1WithdrawAmount;
 
-        assertEq(totalAssetsAfterAll, expectedTotalAssets, "the supply is the deposits less both losses and the withdrawal");
+        assertEq(
+            totalAssetsAfterAll,
+            expectedTotalAssets,
+            "the supply is the deposits less both losses and the withdrawal"
+        );
 
         // Ensure all users can withdraw remaining balances (considering MIN_TOTAL_ASSET_SUPPLY protection)
         uint256 user1FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 user2FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
         uint256 user3FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        assertEq(user1FinalBalance, ((user1RemainingBalance - user1WithdrawAmount) * 84) / 100, "user1 written down 16%");
-        assertEq(user2FinalBalance, (user2Deposit - expectedUser2LossFirst) * 84 / 100, "user2 written down 16%");
+        assertEq(
+            user1FinalBalance,
+            ((user1RemainingBalance - user1WithdrawAmount) * 84) / 100,
+            "user1 written down 16%"
+        );
+        assertEq(user2FinalBalance, ((user2Deposit - expectedUser2LossFirst) * 84) / 100, "user2 written down 16%");
         assertEq(user3FinalBalance, (user3Deposit * 84) / 100, "user3 written down 16%");
 
         // Calculate total withdrawable amount (total balances minus MIN_TOTAL_ASSET_SUPPLY protection)
         uint256 totalUserBalances = user1FinalBalance + user2FinalBalance + user3FinalBalance;
         assertEq(totalUserBalances, totalAssetsAfterAll, "the balances sum to the supply");
-        uint256 totalWithdrawable = totalUserBalances - IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 totalWithdrawable = totalUserBalances -
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
 
         // Withdraw proportionally based on user balances, leaving MIN_TOTAL_ASSET_SUPPLY protected
         uint256 user1Withdrawable = (user1FinalBalance * totalWithdrawable) / totalUserBalances;
@@ -663,8 +683,16 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         {
             uint256 carried = IStabilityPool_v3(pool).lastAssetLossError();
             uint256 scaledLoss = (totalSupply - floor) * DecrementalFloatingPoint_v2.FACTOR_PRECISION + carried;
-            assertLt(carried, totalSupply, "the carried over-application is under the supply: the loss per unit is its ceiling");
-            assertEq(scaledLoss % totalSupply, 0, "the loss and its carried over-application make a whole loss per unit");
+            assertLt(
+                carried,
+                totalSupply,
+                "the carried over-application is under the supply: the loss per unit is its ceiling"
+            );
+            assertEq(
+                scaledLoss % totalSupply,
+                0,
+                "the loss and its carried over-application make a whole loss per unit"
+            );
             uint256 lossPerUnit = scaledLoss / totalSupply;
             user1Balance =
                 user1Deposit / 2 -
@@ -747,15 +775,31 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
             (immediateAmount * 1) / 3,
             "new deposit, user1, immediate"
         );
-        assertLe(IMultipleRewardAccumulator(pool).claimable(user1, aa(delayedReward))[0], user1Delayed, "new deposit, user1, delayed");
-        assertGe(IMultipleRewardAccumulator(pool).claimable(user1, aa(delayedReward))[0], user1Delayed - 1, "new deposit, user1, delayed");
+        assertLe(
+            IMultipleRewardAccumulator(pool).claimable(user1, aa(delayedReward))[0],
+            user1Delayed,
+            "new deposit, user1, delayed"
+        );
+        assertGe(
+            IMultipleRewardAccumulator(pool).claimable(user1, aa(delayedReward))[0],
+            user1Delayed - 1,
+            "new deposit, user1, delayed"
+        );
         assertEq(
             IMultipleRewardAccumulator(pool).claimable(user2, aa(immediateReward))[0],
             (immediateAmount * 2) / 3,
             "new deposit, user2, immediate"
         );
-        assertLe(IMultipleRewardAccumulator(pool).claimable(user2, aa(delayedReward))[0], user2Delayed, "new deposit, user2, delayed");
-        assertGe(IMultipleRewardAccumulator(pool).claimable(user2, aa(delayedReward))[0], user2Delayed - 1, "new deposit, user2, delayed");
+        assertLe(
+            IMultipleRewardAccumulator(pool).claimable(user2, aa(delayedReward))[0],
+            user2Delayed,
+            "new deposit, user2, delayed"
+        );
+        assertGe(
+            IMultipleRewardAccumulator(pool).claimable(user2, aa(delayedReward))[0],
+            user2Delayed - 1,
+            "new deposit, user2, delayed"
+        );
 
         _checkRewards("new deposit", user3, 0, 0);
 
@@ -779,7 +823,11 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
                         IERC20(pool).balanceOf(holders[i]),
                         MockStabilityPool(pool).__rewardDivisor()
                     ),
-                    string.concat("deposit, 1 day, ", vm.getLabel(holders[i]), ": its rebased share of the day's stream")
+                    string.concat(
+                        "deposit, 1 day, ",
+                        vm.getLabel(holders[i]),
+                        ": its rebased share of the day's stream"
+                    )
                 );
             }
             _checkRewards("deposit, 1 day");

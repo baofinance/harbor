@@ -174,7 +174,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     /// @dev The exponent of the supply's product, read from the first slot of the pool's namespace, where v2 and v3
     ///      alike hold the product in the low 128 bits (see `test_upgradeFromV2_SlotLevelStorageIdentical`).
     function _productExponent() internal view returns (uint8) {
-        return DecrementalFloatingPoint_v2.exponent(uint128(uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE))));
+        return
+            DecrementalFloatingPoint_v2.exponent(
+                uint128(uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE)))
+            );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -219,7 +222,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.startPrank(user1);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
         vm.stopPrank();
-        assertEq(IERC20(steam).balanceOf(user1) - steamBefore, claimable, "Claim works post-upgrade: it pays the claimable");
+        assertEq(
+            IERC20(steam).balanceOf(user1) - steamBefore,
+            claimable,
+            "Claim works post-upgrade: it pays the claimable"
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -370,17 +377,20 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         _upgradeToV3();
 
-        uint256 steamClaimableOnV3 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
-            user1,
-            aa(steam)
-        )[0];
+        uint256 steamClaimableOnV3 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[
+            0
+        ];
         assertEq(steamClaimableOnV3, steamClaimableOnV2, "steam claimable preserved");
         assertEq(
             IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(wrappedCollateralToken))[0],
             collateralClaimableOnV2,
             "collateral claimable preserved"
         );
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1), balance1OnV2, "user1 balance preserved");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
+            balance1OnV2,
+            "user1 balance preserved"
+        );
         assertEq(IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply(), supplyOnV2, "total supply preserved");
 
         // Post-upgrade: claim works
@@ -704,7 +714,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _depositReward(steam, 0);
         uint256 firstClaimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
         assertLe(firstClaimable, streamed, "the holder earns the reward credited after their checkpoint: never more");
-        assertGe(firstClaimable + 1, streamed, "the holder earns the reward credited after their checkpoint: all of it");
+        assertGe(
+            firstClaimable + 1,
+            streamed,
+            "the holder earns the reward credited after their checkpoint: all of it"
+        );
 
         // a checkpoint carries it into the holder's pending, and the next reward adds to it
         vm.startPrank(user1);
@@ -843,12 +857,16 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _depositReward(steam, 0);
 
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user1, 2))))),
+            DecrementalFloatingPoint_v2.exponent(
+                uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user1, 2))))
+            ),
             0,
             "fixture: user1's snapshot is two exponent steps old"
         );
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user2, 2))))),
+            DecrementalFloatingPoint_v2.exponent(
+                uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user2, 2))))
+            ),
             1,
             "fixture: user2's snapshot is one exponent step old"
         );
@@ -1129,7 +1147,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             gettersOnV2.earlyWithdrawalFee,
             "early-withdrawal fee preserved"
         );
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), gettersOnV2.feeAddress, "fee address preserved");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(),
+            gettersOnV2.feeAddress,
+            "fee address preserved"
+        );
         {
             (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalWindow();
             assertEq(startDelay, gettersOnV2.withdrawalStartDelay, "withdrawal start delay preserved");

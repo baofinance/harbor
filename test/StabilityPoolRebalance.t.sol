@@ -192,13 +192,22 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // loss is recovered from the over-application it carried (the second spends the first's carry), and the
         // product's magnitude stays whole through both, (1e18 - u1)(1e18 - u2), so each balance is its deposit through
         // both, floored once.
-        assertLt(firstError, supplyBeforeFirst, "the first carry is under its supply: its loss per unit is the ceiling");
-        assertLt(secondError, supplyBeforeSecond, "the second carry is under its supply: its loss per unit is the ceiling");
+        assertLt(
+            firstError,
+            supplyBeforeFirst,
+            "the first carry is under its supply: its loss per unit is the ceiling"
+        );
+        assertLt(
+            secondError,
+            supplyBeforeSecond,
+            "the second carry is under its supply: its loss per unit is the ceiling"
+        );
         uint256 firstScaled = 100 ether * 1 ether + firstError;
         uint256 secondScaled = 100 ether * 1 ether - firstError + secondError;
         assertEq(firstScaled % supplyBeforeFirst, 0, "the first loss and its carry make a whole loss per unit");
         assertEq(secondScaled % supplyBeforeSecond, 0, "the second loss and its carries make a whole loss per unit");
-        uint256 throughBoth = (1 ether - firstScaled / supplyBeforeFirst) * (1 ether - secondScaled / supplyBeforeSecond);
+        uint256 throughBoth = (1 ether - firstScaled / supplyBeforeFirst) *
+            (1 ether - secondScaled / supplyBeforeSecond);
         assertEq(
             b1 + b2 + b3,
             Math.mulDiv(100 ether, throughBoth, 1e36) +
@@ -258,7 +267,11 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), left, "the supply is what the loss left");
         assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "the loss divided exactly");
-        assertEq(1e8 + 2e8 + (3e10 ether - left) / 1e10, left, "fixture: the three balances make up the supply exactly");
+        assertEq(
+            1e8 + 2e8 + (3e10 ether - left) / 1e10,
+            left,
+            "fixture: the three balances make up the supply exactly"
+        );
     }
 
     // A loss large enough to breach the floor is capped so the pool is left at exactly
@@ -292,7 +305,11 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // written down by it, rounded up - so the shares sum under the floor by that rounding.
         uint256 carried = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         uint256 scaledLoss = (supplyBefore - minSupply) * 1 ether + carried;
-        assertLt(carried, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
+        assertLt(
+            carried,
+            supplyBefore,
+            "the carried over-application is under the supply: the loss per unit is its ceiling"
+        );
         assertEq(scaledLoss % supplyBefore, 0, "the loss and its carried over-application make a whole loss per unit");
         uint256 lossPerUnit = scaledLoss / supplyBefore;
         assertEq(
@@ -461,11 +478,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // through both per-unit losses, floored once
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user1),
-            Math.mulDiv(
-                initialBalance,
-                (1 ether - assetLossPerUnitStaked) * (1 ether - secondLossPerUnit),
-                1e36
-            ),
+            Math.mulDiv(initialBalance, (1 ether - assetLossPerUnitStaked) * (1 ether - secondLossPerUnit), 1e36),
             "the balance is written down by both per-unit losses"
         );
     }
@@ -519,8 +532,16 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         uint256 lossPerUnit;
         {
             uint256 scaledLoss = (totalSupply - minSupply) * 1 ether + lossError;
-            assertLt(lossError, totalSupply, "the carried over-application is under the supply: the loss per unit is its ceiling");
-            assertEq(scaledLoss % totalSupply, 0, "the loss and its carried over-application make a whole loss per unit");
+            assertLt(
+                lossError,
+                totalSupply,
+                "the carried over-application is under the supply: the loss per unit is its ceiling"
+            );
+            assertEq(
+                scaledLoss % totalSupply,
+                0,
+                "the loss and its carried over-application make a whole loss per unit"
+            );
             lossPerUnit = scaledLoss / totalSupply;
         }
         assertEq(
@@ -604,8 +625,16 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         {
             uint256 laterError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
             uint256 scaledLoss = DEPOSIT_AMOUNT * 1 ether - lossError + laterError;
-            assertLt(laterError, totalSupply, "the carried over-application is under the supply: the loss per unit is its ceiling");
-            assertEq(scaledLoss % totalSupply, 0, "the loss less the error it spent, and the new carry, make a whole loss per unit");
+            assertLt(
+                laterError,
+                totalSupply,
+                "the carried over-application is under the supply: the loss per unit is its ceiling"
+            );
+            assertEq(
+                scaledLoss % totalSupply,
+                0,
+                "the loss less the error it spent, and the new carry, make a whole loss per unit"
+            );
             laterLossPerUnit = scaledLoss / totalSupply;
         }
         uint256 user4Balance = balancesBefore[3] - Math.ceilDiv(balancesBefore[3] * laterLossPerUnit, 1 ether);
@@ -798,8 +827,16 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             uint256 supplyBefore = DEPOSIT_AMOUNT * 3 + minSupply;
             uint256 carried = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
             uint256 scaledLoss = DEPOSIT_AMOUNT * 1 ether - errorBefore + carried;
-            assertLt(carried, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
-            assertEq(scaledLoss % supplyBefore, 0, "the loss and its carried over-application make a whole loss per unit");
+            assertLt(
+                carried,
+                supplyBefore,
+                "the carried over-application is under the supply: the loss per unit is its ceiling"
+            );
+            assertEq(
+                scaledLoss % supplyBefore,
+                0,
+                "the loss and its carried over-application make a whole loss per unit"
+            );
             lossPerUnit = scaledLoss / supplyBefore;
         }
         assertEq(

@@ -569,7 +569,11 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         uint256 carried = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         uint256 scaledLoss = loss * 1 ether + carried;
-        assertLt(carried, supplyBefore, "the carried over-application is under the supply: the loss per unit is its ceiling");
+        assertLt(
+            carried,
+            supplyBefore,
+            "the carried over-application is under the supply: the loss per unit is its ceiling"
+        );
         assertEq(scaledLoss % supplyBefore, 0, "the loss and its carried over-application make a whole loss per unit");
         uint256 writtenDown = DEPOSIT_AMOUNT - Math.ceilDiv(DEPOSIT_AMOUNT * (scaledLoss / supplyBefore), 1 ether);
 
@@ -777,7 +781,9 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
             assertEq(updatedAt, at[i], string.concat(change[i], " is recorded at its time"));
             assertEq(amount, supply[i], string.concat(change[i], " is recorded with the supply it leaves"));
         }
-        (uint40 pastUpdatedAt, uint256 pastAmount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(5);
+        (uint40 pastUpdatedAt, uint256 pastAmount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(
+            5
+        );
         assertEq(pastUpdatedAt, 0, "the row after the last is past the end: no timestamp");
         assertEq(pastAmount, 0, "the row after the last is past the end: no supply");
     }

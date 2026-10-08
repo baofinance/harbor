@@ -361,7 +361,11 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
             balanceBefore - gross,
             "the stake falls by the outflow"
         );
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore - gross, "the supply falls by the outflow");
+        assertEq(
+            IERC20(stabilityPoolCollateral).totalSupply(),
+            supplyBefore - gross,
+            "the supply falls by the outflow"
+        );
     }
 
     // The window includes both its ends: a withdrawal at exactly `start`, and one at exactly `end`, pays no fee.

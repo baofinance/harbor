@@ -482,8 +482,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         uint256[3] memory tolerance;
         uint256[3] memory byDeposit;
         for (uint256 i = 0; i < 3; i++) {
-            uint256 beforeTheLoss = streamed[0] * shareIn28ths[i][0] + streamed[1] * shareIn28ths[i][1] + streamed[2] *
-                shareIn28ths[i][2];
+            uint256 beforeTheLoss = streamed[0] * shareIn28ths[i][0] +
+                streamed[1] * shareIn28ths[i][1] +
+                streamed[2] * shareIn28ths[i][2];
             expected[i] = (beforeTheLoss + streamed[3] * shareIn28ths[i][3]) / 28;
             // Every rounding is down, so no claim exceeds its share. Short of it: the claim floors once at each of
             // the holder's own checkpoints (user1's withdrawal) and twice at the final read (the integral and the
@@ -510,7 +511,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
                 expected[i],
                 tolerance[i],
                 byDeposit[i],
-                string.concat("each reward shared as the pool stood, after the loss by balance: ", vm.getLabel(holders[i]))
+                string.concat(
+                    "each reward shared as the pool stood, after the loss by balance: ",
+                    vm.getLabel(holders[i])
+                )
             );
         }
     }
@@ -659,7 +663,11 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
             1,
             "fixture: the product moved one rung"
         );
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), floor, "fixture: the holder is left exactly the floor");
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            floor,
+            "fixture: the holder is left exactly the floor"
+        );
         assertEq(MockStabilityPool(stabilityPoolCollateral).__rewardDivisorGap(), 0, "fixture: no gap in the divisor");
 
         // at the floor nothing is written down, but the proceeds are credited - at the new rung

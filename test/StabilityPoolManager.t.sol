@@ -283,7 +283,8 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         (uint256 recorded, ) = IMinter_v3(minter).impairment();
         assertEq(
             IStabilityPoolManager_v2(stabilityPoolManager).harvestable(),
-            IERC20(wrappedCollateralToken).balanceOf(minter) - Math.mulDiv(recorded, 1 ether, risenRate, Math.Rounding.Ceil),
+            IERC20(wrappedCollateralToken).balanceOf(minter) -
+                Math.mulDiv(recorded, 1 ether, risenRate, Math.Rounding.Ceil),
             "the holding less the record's wrapped at the risen rate"
         );
     }
@@ -1795,8 +1796,8 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         uint256 residualRatio = 1 ether - bounty - cut;
         uint256 totalSupply = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply() +
             IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply();
-        uint256 grossCollateral = (harvestableAmount *
-            IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply()) / totalSupply;
+        uint256 grossCollateral = (harvestableAmount * IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply()) /
+            totalSupply;
         uint256 grossLeveraged = (harvestableAmount * IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply()) /
             totalSupply;
         uint256 totalGross = grossCollateral + grossLeveraged;

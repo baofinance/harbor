@@ -483,7 +483,11 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
         IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, address(0), 0);
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user1, 0), amount, "to the caller it succeeds");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user1, 0),
+            amount,
+            "to the caller it succeeds"
+        );
         vm.stopPrank();
     }
 

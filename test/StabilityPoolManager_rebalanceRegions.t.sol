@@ -216,7 +216,10 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// `paid`, and was credited their share of what the pool was paid in each token. Both are the pool's own measures,
     /// not the manager's arithmetic: what it gave up is its supply's fall, what it was paid its balance's rise. The
     /// holders must be every holder the pool has.
-    function _assertEachHolderTookTheirShare(PoolBeforeRebalance memory before, Liquidation[] memory paid) private view {
+    function _assertEachHolderTookTheirShare(
+        PoolBeforeRebalance memory before,
+        Liquidation[] memory paid
+    ) private view {
         uint256 supplyAfter = IERC20(before.pool).totalSupply();
         uint256 givenUp = before.supply - supplyAfter;
         assertEq(
@@ -325,12 +328,19 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
                 assertEq(
                     credited,
                     0,
-                    string.concat("credited nothing in a token the pool was not paid in: ", vm.getLabel(before.holders[i]))
+                    string.concat(
+                        "credited nothing in a token the pool was not paid in: ",
+                        vm.getLabel(before.holders[i])
+                    )
                 );
                 continue;
             }
             uint256 share = Math.mulDiv(payment.received, before.balances[i], before.supply);
-            assertLe(credited, share, string.concat("credited no more than their share: ", vm.getLabel(before.holders[i])));
+            assertLe(
+                credited,
+                share,
+                string.concat("credited no more than their share: ", vm.getLabel(before.holders[i]))
+            );
             assertDiscriminates(
                 credited,
                 share,
