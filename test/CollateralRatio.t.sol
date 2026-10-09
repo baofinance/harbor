@@ -465,8 +465,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         cambios.reservePoolCollateral = int256(postres.reservePoolCollateral) - int256(antes.reservePoolCollateral);
         cambios.minterCollateral = int256(postres.minterCollateral) - int256(antes.minterCollateral);
         cambios.minterUnderlyingCollateral =
-            int256(postres.minterUnderlyingCollateral) -
-            int256(antes.minterUnderlyingCollateral);
+            int256(postres.minterUnderlyingCollateral) - int256(antes.minterUnderlyingCollateral);
         cambios.minterPegged = int256(postres.minterPegged) - int256(antes.minterPegged);
         cambios.thisCollateral = int256(postres.thisCollateral) - int256(antes.thisCollateral);
         cambios.thisPegged = int256(postres.thisPegged) - int256(antes.thisPegged);
@@ -481,8 +480,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         withNewChanges.reservePoolCollateral = changesSoFar.reservePoolCollateral + cambios.reservePoolCollateral;
         withNewChanges.minterCollateral = changesSoFar.minterCollateral + cambios.minterCollateral;
         withNewChanges.minterUnderlyingCollateral =
-            changesSoFar.minterUnderlyingCollateral +
-            cambios.minterUnderlyingCollateral;
+            changesSoFar.minterUnderlyingCollateral + cambios.minterUnderlyingCollateral;
         withNewChanges.minterPegged = changesSoFar.minterPegged + cambios.minterPegged;
         withNewChanges.thisCollateral = changesSoFar.thisCollateral + cambios.thisCollateral;
         withNewChanges.thisPegged = changesSoFar.thisPegged + cambios.thisPegged;
@@ -805,7 +803,10 @@ contract TestCollateralRatioRangeRoutesNoReserve is TestCollateralRatioRangeInte
             assertLe(
                 IMinter(minter).collateralTokenBalance(),
                 IMinter(minter).peggedTokenBalance(),
-                string.concat(context, ": the collateral ratio's bound is derived for a backing below the pegged supply")
+                string.concat(
+                    context,
+                    ": the collateral ratio's bound is derived for a backing below the pegged supply"
+                )
             );
             assertLe(
                 IMinter(minter).collateralRatio(),
@@ -877,13 +878,15 @@ contract TestCollateralRatioRangeRoutesNoReserve is TestCollateralRatioRangeInte
                             1 ether
                         );
                         t.pegged =
-                            Math.max(perWrappedByPrice, perWrappedByRate) *
-                            lostBacking +
+                            Math.max(perWrappedByPrice, perWrappedByRate) * lostBacking +
                             _priceFloorReach(byPrice.changes.minterPegged, byPrice, byRate) +
                             Math.max(floorsByPrice, floorsByRate);
                     }
                 } else if (Action(a) == Action.RedeemPegged) {
-                    t.thisCollateral = lostBacking + _priceFloorReach(byPrice.changes.thisCollateral, byPrice, byRate) + 2;
+                    t.thisCollateral =
+                        lostBacking +
+                        _priceFloorReach(byPrice.changes.thisCollateral, byPrice, byRate) +
+                        2;
                     // two-signed on each side
                     t.feeReceiverCollateral =
                         lostBacking +
@@ -924,13 +927,15 @@ contract TestCollateralRatioRangeRoutesNoReserve is TestCollateralRatioRangeInte
                             byRate.rate + 1 ether
                         );
                         t.leveraged =
-                            Math.max(perWrappedByPrice, perWrappedByRate) *
-                            lostBacking +
+                            Math.max(perWrappedByPrice, perWrappedByRate) * lostBacking +
                             _priceFloorReach(byPrice.changes.thisLeveraged, byPrice, byRate) +
                             Math.max(floorsByPrice, floorsByRate);
                     }
                 } else {
-                    t.thisCollateral = lostBacking + _priceFloorReach(byPrice.changes.thisCollateral, byPrice, byRate) + 1;
+                    t.thisCollateral =
+                        lostBacking +
+                        _priceFloorReach(byPrice.changes.thisCollateral, byPrice, byRate) +
+                        1;
                     t.feeReceiverCollateral =
                         lostBacking +
                         _priceFloorReach(byPrice.changes.feeReceiverCollateral, byPrice, byRate) +
@@ -1037,7 +1042,11 @@ contract TestCollateralRatioRangeRoutesNoReserve is TestCollateralRatioRangeInte
         Action action,
         string memory context
     ) internal pure {
-        assertLe(trade.rate, 1 ether, string.concat(context, ": the record's bounds are derived for a rate of at most 1"));
+        assertLe(
+            trade.rate,
+            1 ether,
+            string.concat(context, ": the record's bounds are derived for a rate of at most 1")
+        );
         if (trade.changes.minterCollateral >= 0) {
             assertEq(
                 trade.changes.minterUnderlyingCollateral,
@@ -1052,7 +1061,11 @@ contract TestCollateralRatioRangeRoutesNoReserve is TestCollateralRatioRangeInte
                 Math.Rounding.Ceil
             );
             uint256 debit = uint256(-trade.changes.minterUnderlyingCollateral);
-            assertGe(debit, leastDebit, string.concat(context, ":minterUnderlyingCollateral gave up less than the holding"));
+            assertGe(
+                debit,
+                leastDebit,
+                string.concat(context, ":minterUnderlyingCollateral gave up less than the holding")
+            );
             assertLe(
                 debit,
                 action == Action.RedeemLeveraged ? leastDebit + 1 : leastDebit,
