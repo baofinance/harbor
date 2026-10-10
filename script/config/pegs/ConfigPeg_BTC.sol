@@ -11,10 +11,7 @@ contract ConfigPeg_BTC is ConfigPeg {
         return "BTC";
     }
 
-    function minDeposit() public pure virtual override returns (uint256) {
-        return 1e13;
-    }
-    function minTotalSupply() public pure virtual override returns (uint256) {
+    function aboutADollar() public pure virtual override returns (uint256) {
         return 1e13;
     }
 }

@@ -29,7 +29,7 @@ interface IHarborConfig {
 
     // ========== PEG ==========
 
-    function minTotalSupply() external view returns (uint256);
+    function aboutADollar() external view returns (uint256);
 
     // ========== STABILITY POOL ==========
 

@@ -87,6 +87,10 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IStabilityPool_v3
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable MINTER;
+
+    /// @inheritdoc IStabilityPool_v3
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable ASSET_TOKEN;
 
     /// @dev the pool cannot have less than this supply once it has reached it
@@ -268,6 +272,9 @@ contract StabilityPool_v3 is
         _disableInitializers();
         (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
         _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
+        Token.ensureContract(minter_);
+        // slither-disable-next-line missing-zero-check
+        MINTER = minter_;
         address asset = IMinter(minter_).PEGGED_TOKEN();
         Token.sanityCheckERC20Token(asset);
         // slither-disable-next-line missing-zero-check
@@ -370,12 +377,6 @@ contract StabilityPool_v3 is
     function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow) {
         startDelay = WITHDRAWAL_START_DELAY;
         endWindow = WITHDRAWAL_END_WINDOW;
-    }
-
-    /// @inheritdoc IStabilityPool_v3
-    // solhint-disable-next-line func-name-mixedcase
-    function MIN_DEPOSIT() external view returns (uint256) {
-        return MIN_TOTAL_ASSET_SUPPLY;
     }
 
     /****************************

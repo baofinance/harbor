@@ -446,7 +446,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
                 minter,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
-                marketConfig.minTotalSupply(),
+                marketConfig.aboutADollar(),
                 "Test SP",
                 "tSP"
             )

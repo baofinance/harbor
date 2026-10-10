@@ -98,7 +98,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | ASSET_TOKEN             |    282 | 2.820e+02 |
 | DOMAIN_SEPARATOR        |    686 | 6.860e+02 |
 | MAX_TOTAL_ASSET_SUPPLY  |    285 | 2.850e+02 |
-| MIN_DEPOSIT             |    302 | 3.020e+02 |
+| MINTER                  |    347 | 3.470e+02 |
 | MIN_TOTAL_ASSET_SUPPLY  |    262 | 2.620e+02 |
 | REBALANCER_ROLE         |    284 | 2.840e+02 |
 | REWARD_DEPOSITOR_ROLE   |    284 | 2.840e+02 |
@@ -125,7 +125,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | historicalRewardTokens  |   5180 | 5.180e+03 |
 | initialize              | 203857 | 2.039e+05 |
 | isActiveRewardToken     |   2744 | 2.744e+03 |
-| lastAssetLossError      |   2402 | 2.402e+03 |
+| lastAssetLossError      |   2380 | 2.380e+03 |
 | maxAssetLoss            |    637 | 6.370e+02 |
 | maxDepositReward        |   6302 | 6.302e+03 |
 | maxLiquidationReward    |   5813 | 5.813e+03 |
@@ -140,11 +140,11 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | sweep                   |  47527 | 4.753e+04 |
 | symbol                  |    555 | 5.550e+02 |
 | totalAssetSupply        |   2489 | 2.489e+03 |
-| totalAssetSupplyHistory |   4852 | 4.852e+03 |
+| totalAssetSupplyHistory |   4830 | 4.830e+03 |
 | totalSupply             |   2490 | 2.490e+03 |
 | transfer                | 186856 | 1.869e+05 |
 | transferFrom            | 131896 | 1.319e+05 |
-| transferOwnership       |  12067 | 1.207e+04 |
+| transferOwnership       |  12045 | 1.204e+04 |
 | unregisterRewardToken   |  93501 | 9.350e+04 |
 | withdraw                | 271892 | 2.719e+05 |
 

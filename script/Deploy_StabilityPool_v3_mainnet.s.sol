@@ -15,7 +15,6 @@ import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
 import {Script} from "forge-std/Script.sol";
-import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 /// @notice Deploy StabilityPool_v3 implementations and queue upgrade transactions for all pools.
 /// @dev Prerequisite: Remediate_Accumulators must have been executed first to force-migrate
@@ -49,8 +48,6 @@ contract Deploy_StabilityPool_v3_mainnet is
                 }
             }
             address minter = minterAddress(markets[i]);
-            address leveragedToken = leveragedTokenAddress(markets[i]);
-            address collateralToken = IHarborConfig(address(markets[i])).wrappedCollateralToken();
 
             address implLeveraged = deployStabilityPoolImplementation(
                 state,

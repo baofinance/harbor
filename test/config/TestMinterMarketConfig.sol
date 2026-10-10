@@ -67,7 +67,7 @@ contract TestMinterMarketConfig is ConfigMarket_BTC_stETH_mainnet {
     ///      than merely rescale it: this floor gates every deposit and withdrawal — a deposit must leave the
     ///      total at zero or at or above it — and 1e13 is 100,000x smaller, so the boundary cases the suites
     ///      drive would stop being boundaries at all.
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1 ether;
     }
 }

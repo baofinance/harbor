@@ -11,10 +11,7 @@ contract ConfigPeg_ETH is ConfigPeg {
         return "ETH";
     }
 
-    function minDeposit() public pure virtual override returns (uint256) {
-        return 2e14;
-    }
-    function minTotalSupply() public pure virtual override returns (uint256) {
+    function aboutADollar() public pure virtual override returns (uint256) {
         return 2e14;
     }
 }

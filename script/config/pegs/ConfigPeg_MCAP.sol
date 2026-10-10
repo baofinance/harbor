@@ -11,10 +11,7 @@ contract ConfigPeg_MCAP is ConfigPeg {
         return "MCAP";
     }
 
-    function minDeposit() public pure virtual override returns (uint256) {
-        return 0.5e18;
-    }
-    function minTotalSupply() public pure virtual override returns (uint256) {
+    function aboutADollar() public pure virtual override returns (uint256) {
         return 0.5e18;
     }
 }

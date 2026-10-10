@@ -192,8 +192,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
     }
 
     /// Each address the run reports belongs to the market it deployed, wired as the market uses it: the minter is the
-    /// one deployed, the tokens and the oracle are that minter's own, each pool holds the pegged token and carries its
-    /// own kind's name, and the manager serves this minter and these two pools.
+    /// one deployed, the tokens and the oracle are that minter's own, each pool serves this minter, holds the pegged
+    /// token and carries its own kind's name, and the manager serves this minter and these two pools.
     function test_marketAddresses_describesTheMarketTheRunDeployed() public {
         MarketAddresses memory addresses = deployRun.marketAddresses(config);
 
@@ -209,12 +209,14 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
         assertEq(addresses.oracle, IMinter(addresses.minter).priceOracle(), "the oracle it reads");
 
         ConfigTokenNames names = ConfigTokenNames(address(config));
+        assertEq(IStabilityPool_v3(addresses.collateralPool).MINTER(), addresses.minter, "a pool of this minter");
         assertEq(IStabilityPool_v3(addresses.collateralPool).ASSET_TOKEN(), addresses.pegged, "a pool of pegged");
         assertEq(
             IERC20Metadata(addresses.collateralPool).name(),
             names.stabilityPoolCollateralName(),
             "named the collateral pool"
         );
+        assertEq(IStabilityPool_v3(addresses.leveragedPool).MINTER(), addresses.minter, "a pool of this minter");
         assertEq(IStabilityPool_v3(addresses.leveragedPool).ASSET_TOKEN(), addresses.pegged, "a pool of pegged");
         assertEq(
             IERC20Metadata(addresses.leveragedPool).name(),

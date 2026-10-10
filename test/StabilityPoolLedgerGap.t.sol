@@ -41,7 +41,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     function setUp() public override {
         super.setUp();
         pool = stabilityPoolCollateral;
-        minSupply = IStabilityPool_v3(pool).MIN_DEPOSIT();
+        minSupply = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         poolActions = new StabilityPoolActions(pool, rebalancer);
     }
 

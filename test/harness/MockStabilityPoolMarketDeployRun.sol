@@ -46,7 +46,7 @@ contract MockStabilityPoolMarketDeployRun is MarketDeployRun {
                 minter_,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.minTotalSupply(),
+                cfg.aboutADollar(),
                 tokenName,
                 tokenSymbol
             )

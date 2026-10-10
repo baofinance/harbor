@@ -1594,11 +1594,11 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     ) public {
         // each pool holds nothing, or a deposit it accepts
         depositCollateral = bound(depositCollateral, 0, 400_000 ether);
-        if (depositCollateral < IStabilityPool_v3(stabilityPoolCollateral).MIN_DEPOSIT()) {
+        if (depositCollateral < IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY()) {
             depositCollateral = 0;
         }
         depositLeveraged = bound(depositLeveraged, 0, 400_000 ether);
-        if (depositLeveraged < IStabilityPool_v3(stabilityPoolLeveraged).MIN_DEPOSIT()) {
+        if (depositLeveraged < IStabilityPool_v3(stabilityPoolLeveraged).MIN_TOTAL_ASSET_SUPPLY()) {
             depositLeveraged = 0;
         }
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);

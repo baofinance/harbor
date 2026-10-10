@@ -24,12 +24,15 @@ stabilityPoolManager.updateRebalanceThreshold(1.35e18); // 1.35x
 
 Monitor `collateralRatio()` vs `rebalanceThreshold()` continuously to ensure adequate buffer.
 
-## Stability Pool Minimums
+## Stability Pool Supply Floor
 
 **Set in constructor (immutable):**
 
-- **MIN_DEPOSIT**: Prevents dust attacks while allowing small users. Typical: 100-1000 tokens.
-- **MIN_TOTAL_ASSET_SUPPLY**: Prevents complete pool drain. Size based on expected stress scenarios. Typical: 5-10% of total pegged token supply.
+- **MIN_TOTAL_ASSET_SUPPLY**: the pool's supply floor - a precision parameter, not a risk limit. It also sets the
+  pool's ceiling, `MIN_TOTAL_ASSET_SUPPLY * 1e18`, so the most whole tokens a pool can hold is the floor's value in
+  wei: set it, in wei, to at least the number of whole tokens the pool will ever hold, with headroom. Otherwise keep it
+  small: once reached, the floor is never withdrawn, and a liquidation can take the pool down to it but no further.
+  See [the floor's design note](../stability-pool-min-total-asset-supply.md).
 
 ## Early Withdrawal Fees
 

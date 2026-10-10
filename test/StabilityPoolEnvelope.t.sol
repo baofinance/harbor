@@ -226,7 +226,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // a nominal envelope point (geometric-mean centre of the log-range) so the seed mint has a price to work from
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), buildEnvelope().pegPriceUSD);
         _seedMarket(); // the market's deploy-time capital structure, at nominal conditions
-        _seedPool(); // a permanent MIN_DEPOSIT seed so every actor can fully exit later
+        _seedPool(); // a permanent seed at the supply floor so every actor can fully exit later
 
         // the owner drives the free-mints directly (onlyOwnerOrRoles), so it must never be granted ZERO_FEE_ROLE
         assertFalse(
@@ -243,18 +243,18 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     // ─── config integrity (layer 1: config sources must agree; no deploy, no mocks) ───
 
-    /// @notice The peg and market configs paired in the deploy must AGREE on minTotalSupply, the StabilityPool's floor.
+    /// @notice The peg and market configs paired in the deploy must AGREE on aboutADollar, the StabilityPool's floor.
     /// The stability pool deploy reads it from the MARKET config, so an override placed only on the peg is silently ignored and the
-    /// deployed floor is not the intended one - which is exactly how the minDepositHuge variant deployed the base 2e14
+    /// deployed floor is not the intended one - which is exactly how the floorHuge variant deployed the base 2e14
     /// rather than its intended 1e24 (the override was on the peg alone). Asserting the two sources cannot diverge
     /// catches an override on the wrong config object, deploy-free and mock-free.
-    function test_configIntegrity_minTotalSupplyPegMatchesMarket() public {
+    function test_configIntegrity_aboutADollarPegMatchesMarket() public {
         (ConfigPeg peg, Config_MinterMarket[] memory markets) = createETHMintersConfig();
         for (uint256 i = 0; i < markets.length; i++) {
             assertEq(
-                IHarborConfig(address(markets[i])).minTotalSupply(),
-                peg.minTotalSupply(),
-                "market minTotalSupply diverges from the peg's - an override lands on a config the stability pool deploy ignores"
+                IHarborConfig(address(markets[i])).aboutADollar(),
+                peg.aboutADollar(),
+                "market aboutADollar diverges from the peg's - an override lands on a config the stability pool deploy ignores"
             );
         }
     }
@@ -271,12 +271,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         assertEq(
             IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
-            cfg.minTotalSupply(),
+            cfg.aboutADollar(),
             "deployed supply floor is not the configured one"
         );
         assertEq(
             IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY(),
-            _expectedMaxTotalAssetSupply(cfg.minTotalSupply()),
+            _expectedMaxTotalAssetSupply(cfg.aboutADollar()),
             "deployed supply ceiling is not MIN * FACTOR_PRECISION (saturated at the supply field)"
         );
         (uint256 startDelay, uint256 endWindow) = IStabilityPool_v3(stabilityPool).getWithdrawalWindow();
@@ -295,11 +295,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     /// @dev The ceiling the constructor derives: `MIN * FACTOR_PRECISION`, saturated at the uint128 supply field above
     /// which a larger ceiling is unreachable anyway.
-    function _expectedMaxTotalAssetSupply(uint256 minTotalSupply) internal pure returns (uint256) {
+    function _expectedMaxTotalAssetSupply(uint256 minTotalAssetSupply) internal pure returns (uint256) {
         return
-            minTotalSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+            minTotalAssetSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
                 ? type(uint128).max
-                : minTotalSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+                : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
     }
 
     /// @notice The wrap rate is a SCALE axis, not a health one: the collateral ratio is computed from the RECORDED
@@ -558,7 +558,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     function _seedMarket() internal {
         // Three equal tranches of collateral: pegged and leveraged at genesis, then pegged again.
         // Value 3X against a pegged claim of 2X is a collateral ratio of 1.5.
-        uint256 tranche = _collateralFor(IStabilityPool_v3(stabilityPool).MIN_DEPOSIT()) + 1 ether;
+        uint256 tranche = _collateralFor(IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY()) + 1 ether;
         marketActions.mint(tranche, tranche, address(this)); // Genesis' half-and-half: ratio 2
         marketActions.mint(tranche, 0, address(this)); // the pegged tranche that takes it to 1.5
 
@@ -588,9 +588,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     function _seedPool() internal {
         // The pegged to deposit was already minted by `_seedMarket`; this establishes only the pool's own floor.
-        uint256 minDeposit = IStabilityPool_v3(stabilityPool).MIN_DEPOSIT();
+        uint256 minTotalAssetSupply = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
         IERC20(pegged).approve(stabilityPool, type(uint256).max);
-        IStabilityPool_v3(stabilityPool).deposit(minDeposit, address(this), 0);
+        IStabilityPool_v3(stabilityPool).deposit(minTotalAssetSupply, address(this), 0);
     }
 
     // ─── arrange: bring the real system to a StartState the action acts against ───
@@ -608,9 +608,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         }
 
         if (s.priorLossFraction > 0) {
-            uint256 minDeposit = IStabilityPool_v3(stabilityPool).MIN_DEPOSIT();
+            uint256 minTotalAssetSupply = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
             uint256 held = IERC20(pegged).balanceOf(stabilityPool);
-            uint256 headroom = held > minDeposit ? held - minDeposit : 0;
+            uint256 headroom = held > minTotalAssetSupply ? held - minTotalAssetSupply : 0;
             uint256 loss = (headroom * s.priorLossFraction) / 1e18;
             if (loss > 0) {
                 // a loss alone - no proceeds - decays the compounding product the envelope measures against
@@ -637,7 +637,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 lossSeed
     ) public {
         Envelope memory e = buildEnvelope();
-        uint256 minDeposit = IStabilityPool_v3(stabilityPool).MIN_DEPOSIT();
+        uint256 minTotalAssetSupply = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
 
         uint256 n = bound(nSeed, 1, _min(e.maxPoolUsers, MAX_FUZZ_USERS));
         uint256 collateralUSD = bound(collateralSeed, e.minCollateralUSD, e.maxCollateralUSD);
@@ -645,13 +645,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 pegPriceUSD = _logScale(pegSeed, e.minPegPriceUSD, e.maxPegPriceUSD);
 
         uint256 poolPegged = _poolPeggedFor(bound(poolSeed, e.maxPoolValueUSD / 1e5, e.maxPoolValueUSD), pegPriceUSD);
-        if (poolPegged < n * minDeposit) {
-            poolPegged = n * minDeposit; // every equal share must clear MIN_DEPOSIT
+        if (poolPegged < n * minTotalAssetSupply) {
+            poolPegged = n * minTotalAssetSupply; // every equal share must clear the supply floor
         }
         // Peak supply during the walk is the pre-existing deposit (<= poolPegged) plus one equal share (<= poolPegged)
         // on top of the baseline, so bound the pool at half the remaining headroom to keep that peak within the supply
         // cap. For a peg far below MIN this binds (the nominal pool for the $ value exceeds MAX_TOTAL_ASSET_SUPPLY);
-        // MIN * FACTOR_PRECISION / 2 dwarfs n * minDeposit, so it never conflicts with the floor above.
+        // MIN * FACTOR_PRECISION / 2 dwarfs n * minTotalAssetSupply, so it never conflicts with the floor above.
         uint256 halfHeadroom = (IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPool).totalSupply()) / 2;
         if (poolPegged > halfHeadroom) {
@@ -967,10 +967,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             pegPriceUSD
         );
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD)); // $ cap in tokens
-        // log-scale over the full PHYSICAL input range [MIN_DEPOSIT, uint256 max]: the fuzzer locates the field break
+        // log-scale over the full PHYSICAL input range [MIN_TOTAL_ASSET_SUPPLY, uint256 max]: the fuzzer locates the field break
         // within it, rather than a range sized to the field under test. _logScale samples every order of magnitude
         // equally, so the boundary (many orders below the max) is actually reached.
-        uint256 w = _logScale(wSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
+        uint256 w = _logScale(wSeed, IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(), type(uint256).max);
 
         address user = users[0];
         deal(pegged, user, w);
@@ -1009,7 +1009,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         );
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD));
         // log-scale over the full physical input range - see testFuzz_deposit_sweep
-        uint256 w = _logScale(wSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
+        uint256 w = _logScale(wSeed, IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(), type(uint256).max);
 
         try this.depositThenWithdrawProbe(w, users[0]) returns (uint256 returned, uint256 residual) {
             bool exact = returned == w && residual == 0;
@@ -1943,7 +1943,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     // ─── the reward-field worst case: the whole-pool reward concentrated in one holder's pending field ───
 
     /// @notice The reward field's worst case - the whole pool concentrated on ONE holder. A single whale deposits the
-    /// entire pool (the permanent MIN_DEPOSIT seed is the only other holder), the wrapped collateral sits at its
+    /// entire pool (the permanent seed at the supply floor is the only other holder), the wrapped collateral sits at its
     /// cheapest, and one full rebalance returns the whole-pool collateral reward - so the ENTIRE reward accrues to a
     /// SINGLE holder's uint128 `pending` field, the maximum any one reward-accrual field must hold (poolValueUSD /
     /// wrappedUSD). The field holds the concentrated reward and the whale reads it back; conservation and solvency hold
@@ -1954,7 +1954,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _mintLeveragedBuffer(poolPegged);
-        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
+        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the floor seed is the only other
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
         assertTrue(
@@ -1994,7 +1994,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _mintLeveragedBuffer(poolPegged);
-        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
+        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the floor seed is the only other
 
         _setEnvelopePointAtCollateralRatio(_belowRebalanceThreshold(), e.minWrapRate, e.pegPriceUSD); // max reward count
         if (!IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable()) {
@@ -2027,7 +2027,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     // a SUCCESS: the SAME shared conservation + solvency the `*_holds` guardrails use, asserted UNCONDITIONALLY (a
     // silent over-credit or insolvency is a bug at any size). Only a clean revert past the envelope is a located limit.
 
-    /// @notice Rebalance reward sweep: grow a pool - a single whale holding a swept size from MIN_DEPOSIT up to the
+    /// @notice Rebalance reward sweep: grow a pool - a single whale holding a swept size from MIN_TOTAL_ASSET_SUPPLY up to the
     /// supply field's own uint128 width - so the reward limit is located GIVEN that (2a) deposit limit AND the whole
     /// reward concentrates in ONE `pending` field (the worst case). Then drop the wrapped collateral to the envelope
     /// corner (CR below the rebalance threshold; the whole-pool collateral is liquidated back to the pool as the
@@ -2043,7 +2043,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         // pool swept big, up to the supply field's own width; grown in its own unit so exceeding that field (the 2a
         // deposit/supply limit, cross-confirmed here) is recorded and stops this run rather than masking a reward find.
-        uint256 poolPegged = _logScale(poolSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        uint256 poolPegged = _logScale(
+            poolSeed,
+            IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
+            type(uint128).max
+        );
         try this.growProbe(poolPegged) {
             // pool grew - proceed to stress the reward path
         } catch (bytes memory err) {
@@ -2118,7 +2122,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
-        uint256 poolPegged = _logScale(poolSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        uint256 poolPegged = _logScale(
+            poolSeed,
+            IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
+            type(uint128).max
+        );
         try this.growProbe(poolPegged) {
             // pool grew - proceed to stress the streamed reward path
         } catch (bytes memory err) {
@@ -2172,7 +2180,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
         uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
-        uint256 poolPegged = _logScale(poolSeed, IStabilityPool_v3(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        uint256 poolPegged = _logScale(
+            poolSeed,
+            IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
+            type(uint128).max
+        );
         try this.growProbe(poolPegged) {
             // pool grew - proceed to inject and claim
         } catch (bytes memory err) {
@@ -2238,7 +2250,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// @dev Log-uniform fuzz sample in [lo, hi]: pick an octave (bit-width) uniformly, then a value within it, so every
     /// order of magnitude is equally likely. A plain `bound` over a huge range samples almost only the top octave and
     /// never reaches a boundary many orders below the max - this is the "help" that lets the fuzzer locate one. The
-    /// range passed in is the physical input range (MIN_DEPOSIT..uint256 max, 1 wei..a price), never sized to the field
+    /// range passed in is the physical input range (MIN_TOTAL_ASSET_SUPPLY..uint256 max, 1 wei..a price), never sized to the field
     /// under test; the located limit is discovered, not encoded in the sweep bound.
     function _logScale(uint256 seed, uint256 lo, uint256 hi) internal pure returns (uint256 v) {
         if (lo < 1) {
@@ -2283,16 +2295,12 @@ contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
 // ENTIRE suite (every fuzz walk, sweep, and corner) against it; each writes its own tmp/sp-constraints-<slug>.csv so a
 // break is attributed to the config that produced it ───
 
-/// @notice ETH peg with a huge minimum-deposit floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions
-/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme. minTotalSupply is
+/// @notice ETH peg with a huge supply floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions
+/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme. aboutADollar is
 /// carried on BOTH this peg and its market (below) - the stability pool deploy reads the MARKET, and the config-integrity test
 /// asserts the two agree so an override can never again land on a config object the deploy ignores.
-contract ConfigPeg_ETH_minDepositHuge is ConfigPeg_ETH {
-    function minDeposit() public pure override returns (uint256) {
-        return 1e24;
-    }
-
-    function minTotalSupply() public pure override returns (uint256) {
+contract ConfigPeg_ETH_floorHuge is ConfigPeg_ETH {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e24;
     }
 }
@@ -2318,8 +2326,8 @@ contract ConfigMarket_ETH_fxUSD_rebalanceThreshold105 is ConfigMarket_ETH_fxUSD_
 /// the stability pool deploy actually reads (the peg-only override the prior variant used was silently ignored; the
 /// config-integrity test now forbids that). A large floor keeps the ceiling MAX = MIN * FACTOR_PRECISION saturated at
 /// the field width, so the reward-integral cap never binds here - the opposite corner from the reachable-cap markets.
-contract ConfigMarket_ETH_fxUSD_minDepositHuge is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function minTotalSupply() public pure override returns (uint256) {
+contract ConfigMarket_ETH_fxUSD_floorHuge is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e24;
     }
 }
@@ -2395,24 +2403,24 @@ contract StabilityPoolEnvelope_ETH_fxUSD_testCut is StabilityPoolEnvelopeBase {
     }
 }
 
-// A minDeposit=1-wei envelope variant is intentionally ABSENT: MAX = MIN * FACTOR_PRECISION ties the supply ceiling to
+// An aboutADollar=1-wei envelope variant is intentionally ABSENT: MAX = MIN * FACTOR_PRECISION ties the supply ceiling to
 // the floor, so a 1-wei MIN caps the whole pool at ~$1 and the base suite's realistic-pool tests (rebalance, harvest,
 // max-users, the field-width corners) cannot run. A low-floor deploy variant that also runs those tests cannot exist;
 // the MIN=1 cap/floor behaviour is instead pinned by the deterministic mock tests in StabilityPoolLedgerGap.
 
-contract StabilityPoolEnvelope_ETH_fxUSD_minDepositHuge is StabilityPoolEnvelopeBase {
+contract StabilityPoolEnvelope_ETH_fxUSD_floorHuge is StabilityPoolEnvelopeBase {
     function buildEnvelope() internal pure override returns (Envelope memory) {
         return EnvelopeLib.ethFxUSD();
     }
 
     function _marketSlug() internal pure override returns (string memory) {
-        return "ethFxUSD_minDepositHuge";
+        return "ethFxUSD_floorHuge";
     }
 
     function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
-        peg = new ConfigPeg_ETH_minDepositHuge();
+        peg = new ConfigPeg_ETH_floorHuge();
         markets = new Config_MinterMarket[](1);
-        markets[0] = new ConfigMarket_ETH_fxUSD_minDepositHuge();
+        markets[0] = new ConfigMarket_ETH_fxUSD_floorHuge();
     }
 }
 
@@ -2455,17 +2463,13 @@ contract StabilityPoolEnvelope_ETH_fxUSD_rebalance105 is StabilityPoolEnvelopeBa
 // are invented for future/hypothetical markets ───
 
 contract ConfigPeg_ETH_min1e13 is ConfigPeg_ETH {
-    function minDeposit() public pure override returns (uint256) {
-        return 1e13;
-    }
-
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e13;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e13 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e13;
     }
 }
@@ -2489,17 +2493,13 @@ contract StabilityPoolEnvelope_btcScale is StabilityPoolEnvelopeBase {
 }
 
 contract ConfigPeg_ETH_min1e27 is ConfigPeg_ETH {
-    function minDeposit() public pure override returns (uint256) {
-        return 1e27;
-    }
-
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e27;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e27 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e27;
     }
 }
@@ -2551,17 +2551,13 @@ contract StabilityPoolEnvelope_hyperCollateral is StabilityPoolEnvelopeBase {
 }
 
 contract ConfigPeg_ETH_min1e18 is ConfigPeg_ETH {
-    function minDeposit() public pure override returns (uint256) {
-        return 1e18;
-    }
-
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e18;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e18 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e18;
     }
 }
@@ -2597,17 +2593,13 @@ contract StabilityPoolEnvelope_ethScale is StabilityPoolEnvelopeBase {
 }
 
 contract ConfigPeg_ETH_min1e9 is ConfigPeg_ETH {
-    function minDeposit() public pure override returns (uint256) {
-        return 1e9;
-    }
-
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e9;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e9 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollar() public pure override returns (uint256) {
         return 1e9;
     }
 }

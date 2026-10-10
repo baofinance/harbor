@@ -178,7 +178,7 @@ function deployStabilityPoolImplementation(
     IHarborConfig cfg = IHarborConfig(address(marketConfig_));
     impl = address(new MockStabilityPool(
         minter_, liquidationToken,
-        cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.minTotalSupply(),
+        cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.aboutADollar(),
         tokenName, tokenSymbol
     ));
     _recordImplementation(stateData, key, "@harbor-test/StabilityPool.t.sol", "MockStabilityPool", impl);
@@ -381,7 +381,7 @@ function deployStabilityPoolImplementation(/* …signature unchanged… */)
     IHarborConfig cfg = IHarborConfig(address(marketConfig_));
     impl = MockStabilityPoolDeploy_v1.newMockStabilityPool(
         minter_, liquidationToken,
-        cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.minTotalSupply(),
+        cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.aboutADollar(),
         tokenName, tokenSymbol
     );
     _recordImplementation(

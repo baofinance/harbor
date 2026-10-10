@@ -280,15 +280,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         );
     }
 
-    // MIN_DEPOSIT returns MIN_TOTAL_ASSET_SUPPLY: there is no separate per-deposit minimum.
-    function test_MIN_DEPOSIT_aliasesMinTotalAssetSupply() public view {
-        assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).MIN_DEPOSIT(),
-            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
-            "MIN_DEPOSIT aliases MIN_TOTAL_ASSET_SUPPLY"
-        );
-    }
-
     function testDepositMaxAmount() public {
         // User1 deposits max amount
         vm.startPrank(user1);

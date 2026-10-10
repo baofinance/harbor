@@ -4,12 +4,14 @@ pragma solidity >=0.8.28 <0.9.0;
 
 /// @title IStabilityPool_v3
 /// @notice The stability pool's ABI surface as of v3.
-/// @dev A standalone copy of `IStabilityPool` rather than an extension of it, because v3 REMOVES two of its
+/// @dev A standalone copy of `IStabilityPool` rather than an extension of it, because v3 REMOVES three of its
 ///      declarations and Solidity has no way to withdraw an inherited one:
 ///      - `LIQUIDATION_TOKEN()`: a v3 pool has no single token it is liquidated into. The rebalancer names the
 ///        token per liquidation - the pool's own by default, collateral where the market sells no leverage - so
 ///        the truth is per `Liquidated` event, and the set of possible tokens is the pool's active reward tokens.
 ///      - `notifyLiquidation(uint256, uint256)`: replaced by the form that names the token.
+///      - `MIN_DEPOSIT()`: the same value as `MIN_TOTAL_ASSET_SUPPLY`, under a name that reads as a minimum for each
+///        deposit, which the pool does not have.
 ///      StabilityPool_v3 is also an ERC-20 (its shares are a transferable rebasing token), a well-known interface
 ///      callers reach through `IERC20`. The reward-manager and reward-depositor roles live on
 ///      `IMultipleRewardDistributor`, the claim surface on `IMultipleRewardAccumulator_v3`.
@@ -134,13 +136,11 @@ interface IStabilityPool_v3 {
     // solhint-disable-next-line func-name-mixedcase
     function MAX_TOTAL_ASSET_SUPPLY() external view returns (uint256 token);
 
-    /// @notice The same value as `MIN_TOTAL_ASSET_SUPPLY`, for callers that read it by this name. It is not a minimum
-    ///         for each deposit: the floor applies to the total a deposit leaves, so a pool at or above the floor
-    ///         accepts any deposit.
-    function MIN_DEPOSIT() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
-
     /// @notice The pegged token the pool holds, in which its balances are counted.
     function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The minter contract the pool is for
+    function MINTER() external view returns (address minter); // solhint-disable-line func-name-mixedcase
 
     /// @notice The pool's total supply: deposits less withdrawals and losses. The same as `totalSupply()`.
     function totalAssetSupply() external view returns (uint256 amount);

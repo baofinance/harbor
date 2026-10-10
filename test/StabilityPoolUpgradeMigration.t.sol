@@ -47,7 +47,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
                     liquidationToken,
                     marketConfig.stabilityPoolWithdrawalDelay(),
                     marketConfig.stabilityPoolWithdrawalPeriod(),
-                    marketConfig.minTotalSupply()
+                    marketConfig.aboutADollar()
                 )
             ),
             abi.encodeCall(

@@ -124,6 +124,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
     function test_initOnly(address stabilityPool) internal view {
         assertEq(IBaoOwnable(stabilityPool).owner(), owner());
+        assertEq(IStabilityPool_v3(stabilityPool).MINTER(), minter);
         assertEq(IStabilityPool_v3(stabilityPool).ASSET_TOKEN(), peggedToken);
         assertEq(IERC20(stabilityPool).totalSupply(), 0);
     }
@@ -132,7 +133,8 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 contract TestStabilityPoolInit is TestStabilityPoolSetUp {
     using SafeERC20 for IERC20;
 
-    /// The deployed pool is owned by the market owner, takes the pegged token, and starts with nothing deposited.
+    /// The deployed pool is owned by the market owner, serves the market's minter, takes its pegged token, and starts
+    /// with nothing deposited.
     function test_initOnly() public view {
         test_initOnly(stabilityPoolCollateral);
     }
@@ -193,7 +195,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
                 minter,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
-                marketConfig.minTotalSupply(),
+                marketConfig.aboutADollar(),
                 "Test SP",
                 "tSP"
             )
@@ -206,11 +208,36 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         // must be the construction, not these reads.
         uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
         uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
-        uint256 minTotalSupply = marketConfig.minTotalSupply();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollar();
 
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v3(minter, withdrawalDelay, withdrawalPeriod, minTotalSupply, "Test SP", "tSP"));
+        address(new StabilityPool_v3(minter, withdrawalDelay, withdrawalPeriod, minTotalAssetSupply, "Test SP", "tSP"));
+    }
+
+    /// A pool cannot be built for a zero minter: the constructor refuses it before reading anything from it.
+    function test_constructor_aZeroMinter_reverts() public {
+        // Hoisted: the config reads are external calls, and the `expectRevert` below binds to the NEXT call - which
+        // must be the construction, not these reads.
+        uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
+        uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollar();
+
+        vm.expectRevert(Token.ZeroAddress.selector);
+        new StabilityPool_v3(address(0), withdrawalDelay, withdrawalPeriod, minTotalAssetSupply, "Test SP", "tSP");
+    }
+
+    /// A pool cannot be built for a minter address with no code behind it: the constructor refuses it, naming it.
+    function test_constructor_aMinterWithNoCode_reverts() public {
+        address notAContract = makeAddr("notAContract");
+        // Hoisted: the config reads are external calls, and the `expectRevert` below binds to the NEXT call - which
+        // must be the construction, not these reads.
+        uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
+        uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollar();
+
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
+        new StabilityPool_v3(notAContract, withdrawalDelay, withdrawalPeriod, minTotalAssetSupply, "Test SP", "tSP");
     }
 
     /// The implementation's initializers are disabled when it is constructed, so initialising it directly reverts.

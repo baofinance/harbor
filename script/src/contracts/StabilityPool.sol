@@ -54,7 +54,7 @@ abstract contract StabilityPool is HarborDeployer {
                 minter,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.minTotalSupply(),
+                cfg.aboutADollar(),
                 tokenName,
                 tokenSymbol
             )

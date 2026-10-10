@@ -11,10 +11,7 @@ contract ConfigPeg_SILVER is ConfigPeg {
         return "SILVER";
     }
 
-    function minDeposit() public pure virtual override returns (uint256) {
+    function aboutADollar() public pure virtual override returns (uint256) {
         return 0.01e18;
-    }
-    function minTotalSupply() public pure virtual override returns (uint256) {
-        return minDeposit();
     }
 }

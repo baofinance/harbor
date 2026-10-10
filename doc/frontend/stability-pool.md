@@ -8,7 +8,7 @@
 function assetBalanceOf(address account) external view returns (uint256);
 function totalAssetSupply() external view returns (uint256);
 function ASSET_TOKEN() external view returns (address);
-function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the floor; MIN_DEPOSIT() returns the same value
+function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the floor
 function MAX_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the ceiling
 function maxAssetLoss() external view returns (uint256);           // the headroom above the floor: supply - floor, or 0
 function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end);
