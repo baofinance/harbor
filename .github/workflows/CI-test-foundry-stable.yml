@@ -1,5 +1,5 @@
-# this file is copy of lib/bao-base/.github/workflows/CI-test-foundry-stable.yml
-# the only modification is in the location of the action.
+# A copy of lib/bao-base/.github/workflows/CI-test-foundry-stable.yml, differing only in where the
+# action lives. bin/workflow_copy.py enforces that. Edit the bao-base original, not this copy.
 
 name: test-foundry-stable
 
@@ -40,7 +40,9 @@ jobs:
       - name: Checkout repository with submodules
         uses: actions/checkout@v6
         with:
-          submodules: recursive
+          # Each submodule of this repository, and none inside them: the action's dep sync step adds
+          # the ones inside that a remapping uses, which is all the build reads.
+          submodules: true
           fetch-depth: 0
 
       - name: Run Bao-base CI actions
