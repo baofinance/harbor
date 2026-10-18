@@ -1,0 +1,11 @@
+# One line per deployment tag, saying what was deployed. verify-audit --write puts each line at the
+# head of its tag's message, and adds an empty entry for a tag that has none. Write the labels here,
+# never on the tag.
+"deploy/mainnet/harbor_v1.state@1ee5aefaf5" = "harbor-1.1 StabilityPool_v1 -> StabilityPool_v2 for every pool; fixes the StabilityPool overflow, epoch removal, linear reward underflow, finishAt of zero and genesis end"
+"deploy/mainnet/harbor_v1.state@319e4f3696" = "ForceMigrateAccumulator_v1, for the StabilityPool_v2 data migration (Safe batches Migrate_StabilityPool_v2_Data, ETH and the rest)"
+"deploy/mainnet/harbor_v1.state@7df0f61f85" = "harbor-1.0.1 StabilityPool fix: corrected the minTotalAssetSupply constructor parameter in the BTC::fxUSD, BTC::stETH, ETH::fxUSD and GOLD::fxUSD stability pools; new StabilityPool_v1 implementations, proxies upgraded"
+"deploy/mainnet/harbor_v1.state@8059ab344e" = "harbor-1.0.2 new markets EUR::stETH, GOLD::stETH, MCAP::fxUSD and MCAP::stETH, on the same v1 contracts"
+"deploy/mainnet/harbor_v1.state@d469b83943" = "harbor-1.2 Minter_v1 -> Minter_v2 for all 11 markets"
+"deploy/mainnet/harbor_v1.state@f557a9daba" = "harbor-1.0.2 new markets SILVER::fxUSD and SILVER::stETH, on the same v1 contracts"
+"deploy/mainnet/test-BTC+ETH+EUR+GOLD+MCAP.state@628b30203a" = "test deployment: the MCAP pegged token and its fxUSD and stETH leveraged tokens"
+"deploy/mainnet/testEUR.state@a1060440bd" = "test deployment testEUR: the EUR::fxUSD and EUR::stETH markets, on v1 contracts"
