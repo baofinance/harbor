@@ -28,9 +28,8 @@ abstract contract StabilityPool is HarborDeployer {
     ///      layer keeps is that no ADDRESS resolution happens in it, so a test override never has to
     ///      reproduce address prediction. The one address arrives already resolved.
     /// @dev `minter` must already be DEPLOYED, unlike every other address here: `StabilityPool_v3`'s
-    ///      constructor calls `PEGGED_TOKEN()` on it. It uses the minter for nothing else and does not
-    ///      retain the address, so this is a lookup convenience rather than a real dependency — standing a
-    ///      pool up against a mock minter that answers that call is therefore enough.
+    ///      constructor refuses an address with no code, calls `PEGGED_TOKEN()` on it, and keeps it as
+    ///      `MINTER`. Standing a pool up against a mock minter that answers that call is therefore enough.
     function deployStabilityPoolImplementation(
         DeploymentTypes.State memory stateData,
         string memory key,

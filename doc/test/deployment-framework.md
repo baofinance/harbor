@@ -161,27 +161,42 @@ for setups that already inherit other bases.
 
 The vault, its entries, AutoCompounders, the stability pools: anything the deploy chain under test
 constructs. Override layer 2 and replace **only the `new`**. From
-[`test/StabilityPool.t.sol`](../../test/StabilityPool.t.sol):
+[`test/harness/MockStabilityPoolMarketDeployRun.sol`](../../test/harness/MockStabilityPoolMarketDeployRun.sol),
+which substitutes `MockStabilityPool` - `StabilityPool_v3` plus accessors that expose internals.
+Everything the constructor needs still comes from the market config, so a pool deployed here is the
+one the deploy script would produce:
 
 ```solidity
-/// Substitutes MockStabilityPool, which is StabilityPool_v3 plus accessors that expose internals.
-/// Everything the constructor needs still comes from the market config, so a pool deployed here is
-/// the one the deploy script would produce.
 function deployStabilityPoolImplementation(
     DeploymentTypes.State memory stateData,
     string memory key,
     StabilityPoolType poolType,
     Config_MinterMarket marketConfig_,
-    address minter_,
-    address liquidationToken
+    address minter_
 ) internal virtual override returns (address impl) {
+    ConfigTokenNames names = ConfigTokenNames(address(marketConfig_));
+    bool isCollateral = poolType == StabilityPoolType.Collateral;
+    string memory tokenName = isCollateral
+        ? names.stabilityPoolCollateralName()
+        : names.stabilityPoolLeveragedName();
+    string memory tokenSymbol = isCollateral
+        ? names.stabilityPoolCollateralSymbol()
+        : names.stabilityPoolLeveragedSymbol();
+
     IHarborConfig cfg = IHarborConfig(address(marketConfig_));
-    impl = address(new MockStabilityPool(
-        minter_, liquidationToken,
-        cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.aboutADollar(),
-        tokenName, tokenSymbol
-    ));
-    _recordImplementation(stateData, key, "@harbor-test/StabilityPool.t.sol", "MockStabilityPool", impl);
+
+    impl = address(
+        new MockStabilityPool(
+            minter_,
+            cfg.stabilityPoolWithdrawalDelay(),
+            cfg.stabilityPoolWithdrawalPeriod(),
+            cfg.aboutADollar(),
+            tokenName,
+            tokenSymbol
+        )
+    );
+
+    _recordImplementation(stateData, key, "@harbor-test/mocks/MockStabilityPool.sol", "MockStabilityPool", impl);
 }
 ```
 
@@ -363,12 +378,12 @@ function deployMinterImplementation(
 // test/mocks/MockStabilityPoolDeploy_v1.sol
 library MockStabilityPoolDeploy_v1 {
     function newMockStabilityPool(
-        address minter, address liquidationToken,
-        uint256 withdrawalDelay, uint256 withdrawalPeriod, uint256 minTotalSupply,
+        address minter,
+        uint256 withdrawalDelay, uint256 withdrawalPeriod, uint256 minTotalAssetSupply,
         string memory name, string memory symbol
     ) external returns (address) {
         return address(new MockStabilityPool(
-            minter, liquidationToken, withdrawalDelay, withdrawalPeriod, minTotalSupply, name, symbol
+            minter, withdrawalDelay, withdrawalPeriod, minTotalAssetSupply, name, symbol
         ));
     }
 }
@@ -380,7 +395,7 @@ function deployStabilityPoolImplementation(/* …signature unchanged… */)
 {
     IHarborConfig cfg = IHarborConfig(address(marketConfig_));
     impl = MockStabilityPoolDeploy_v1.newMockStabilityPool(
-        minter_, liquidationToken,
+        minter_,
         cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.aboutADollar(),
         tokenName, tokenSymbol
     );

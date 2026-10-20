@@ -344,8 +344,8 @@ it keeps is that **no address resolution happens at that layer** — every addre
 already resolved, so a test override substituting an implementation never has to reproduce
 address prediction. That is the whole of the rule. It does not forbid reading non-address values
 from the config: `deployStabilityPoolImplementation` takes the market config for its withdrawal
-delay, period, `aboutADollar` and token name/symbol, and is conforming, because its two
-addresses (`minter`, `liquidationToken`) are passed in. The orchestrator `deployX` is never
+delay, period, `aboutADollar` and token name/symbol, and is conforming, because its one
+address, `minter`, is passed in. The orchestrator `deployX` is never
 `virtual`; tests call it directly.
 
 Whether a value becomes an immutable or stays a setter is a separate judgement, made per value:
