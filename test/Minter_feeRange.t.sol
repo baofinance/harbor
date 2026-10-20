@@ -1316,6 +1316,56 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         );
     }
 
+    /// @dev How far apart the fee of one pegged mint and of the same mint in `steps` calls can be, where both take
+    ///      everything offered. The mint starts at the collateral ratio `startRatio`, and `endRatio` is the lower of
+    ///      the two paths' end ratios. `collateral` is the stepped path's collateral at its end.
+    ///      The fee is the band schedule's exact integral over the collateral offered, rounded down to a wrapped wei
+    ///      once per call: under `steps` wei apart. Within a band the fee does not depend on the state, so beyond
+    ///      that the paths differ only where they cross a bound R. The band walk cuts it at
+    ///        dC = (C*p - R*Z) / (p * (R - 1) * (1 - f))
+    ///      A stepped call starts from the state the earlier calls stored, not the exact one. Each stored its pegged
+    ///      rounded down: under one pegged wei, plus one collateral wei's worth, short. Each stored its collateral
+    ///      under one wei below, or one wrapped wei's worth (r) above, the exact figure. A call has at most
+    ///      `steps - 1` calls before it. Each of those calls moves the cut by under (r + R + R/p) / ((R - 1)(1 - f))
+    ///      collateral, f being at most the dearest band above R.
+    ///      A call that starts where the collateral ratio rounds down onto R is walked from the band below: that
+    ///      moves the cut by under C/1e18 / ((R - 1)(1 - f)) collateral more. Counted at every crossed bound, that
+    ///      term also covers how the call moves the cuts below, while no allowed fee ratio exceeds 50%. The
+    ///      collateral a cut moves pays the other band's fee ratio, so the fee moves by the two ratios' difference
+    ///      times it, over r in wrapped. Only the bounds the mint crossed count. At the 1-billionth price a pegged
+    ///      wei is a billion collateral wei, so one pegged wei rounded away moves the fee by millions of wrapped wei.
+    function _mintPeggedFeeDrift(
+        uint256 startRatio,
+        uint256 endRatio,
+        uint256 collateral
+    ) internal view returns (uint256 feeDrift) {
+        (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        IMinter.IncentiveConfig memory schedule = IMinter(minter).config().mintPeggedIncentiveConfig;
+        feeDrift = steps;
+        uint256 dearest = 0;
+        for (uint256 i = schedule.collateralRatioBandUpperBounds.length; i > 0; i--) {
+            uint256 upper = schedule.collateralRatioBandUpperBounds[i - 1];
+            int256 above = schedule.incentiveRatios[i];
+            int256 below = schedule.incentiveRatios[i - 1];
+            if (above != 1 ether) {
+                dearest = Math.max(dearest, uint256(above));
+            }
+            if (above != 1 ether && below != 1 ether && endRatio <= upper && upper < startRatio) {
+                feeDrift += Math.mulDiv(
+                    Math.mulDiv(
+                        SignedMath.abs(above - below),
+                        (steps - 1) * (r + upper + Math.mulDiv(upper, 1 ether, p, Math.Rounding.Ceil)) + collateral,
+                        upper - 1 ether,
+                        Math.Rounding.Ceil
+                    ),
+                    1 ether,
+                    (1 ether - dearest) * r,
+                    Math.Rounding.Ceil
+                );
+            }
+        }
+    }
+
     /// @dev The wrapped collateral the user parted with is exactly what the minter kept plus what the fee
     ///      receiver was paid — the mint moves no wrapped collateral anywhere else. Exact, not approximate.
     function _assertMintPeggedConserved(Measures memory pre, Measures memory m, string memory name) internal pure {
@@ -1431,26 +1481,26 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
             // between the paths is therefore bounded by steps * (1/pegged + 1/collateral) RELATIVE, which is
             // why no fixed wei count works: in the extreme price and rate regimes the pegged balance falls to
             // ~1e11 and that term reaches 4e-11, while at ordinary balances it vanishes and the absolute terms
-            // carry. Measured against the two pinned free-integral counterexamples this bound is tight, not
-            // generous — the 1-billionth-price fee sits inside it with only 20% to spare.
-            (, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-            uint256 reseed = steps *
-                ((1 ether) / Math.max(post.minterPegged, 1) + (1 ether) / Math.max(post.minterUnderlying, 1));
-            // The minter does its arithmetic in UNDERLYING collateral and converts to wrapped only at the end
-            // (`wrappedFee = underlyingFee / rate`). So a floor worth one wei of underlying is worth 1e18/rate
-            // wei of WRAPPED, and every wrapped-denominated bound below has to carry that factor. It is 1 at
-            // the usual rate of 1 ether — which is why the existing counts read as bare wei — but at the
-            // 1-million rate it is 1e6: there a whole fee can be 18 wei of underlying, so ten calls flooring
-            // it once each move the wrapped fee by millions. Underlying- and pegged-denominated bounds are
-            // untouched, since those quantities are stored in the units the minter floors them in.
-            uint256 wrappedPerUnderlying = Math.ceilDiv(1 ether, r);
+            // carry. The fee does not scale with the state, so it has its own bound.
             assertApprox(
                 post.feeWrapped,
                 postSteps.feeWrapped,
-                steps * wrappedPerUnderlying,
-                2e4 * steps + reseed,
+                _mintPeggedFeeDrift(
+                    pre.collateralRatio,
+                    Math.min(post.collateralRatio, postSteps.collateralRatio),
+                    postSteps.minterUnderlying
+                ),
                 "mp integral fee wrapped"
             );
+            (, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            uint256 reseed = steps *
+                ((1 ether) / Math.max(post.minterPegged, 1) + (1 ether) / Math.max(post.minterUnderlying, 1));
+            // The minter credits the record in UNDERLYING collateral, rounded down, so a floor worth one wei of
+            // underlying is worth 1e18/rate wei of WRAPPED, and every wrapped-denominated bound below carries that
+            // factor. It is 1 at the usual rate of 1 ether, which is why the counts read as bare wei, and 1e6 at
+            // the 1-million rate. Underlying- and pegged-denominated bounds are untouched, since those quantities
+            // are stored in the units the minter floors them in.
+            uint256 wrappedPerUnderlying = Math.ceilDiv(1 ether, r);
             assertApprox(
                 minted,
                 mintedSteps,
@@ -2037,6 +2087,14 @@ contract TestMinterIntegralDisallowSubsidyReverseLimitedReservePrice1BillionthCo
     /// @notice A mint in the same regime that runs to completion instead of reaching the disallow.
     function test_mintPeggedRange_freeIntegralCounterexample() public {
         test_mintPeggedRange_(1, 47330819957767311596, 249077380139801647028);
+    }
+
+    /// @notice A mint in the same regime that runs to completion across a fee band's bound.
+    /// @dev One of the split mint's calls rounds away a pegged wei before the call that crosses the bound. That moves
+    ///      the fee by 3.5 million wrapped wei, a quarter of a billionth of it: the band crossing that
+    ///      `_mintPeggedFeeDrift` bounds, which no bound in proportion to the state admits.
+    function test_mintPeggedRange_bandCrossingCounterexample() public {
+        test_mintPeggedRange_(123456789000000000000, 50000000000000000000, 1599999999999999999);
     }
 
     /// @notice A mint so small in this regime that the pegged it yields is a handful of wei.
