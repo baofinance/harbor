@@ -131,19 +131,6 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         return (amount * 1 ether) / 10000;
     }
 
-    /// @dev The number of adjacent incentive bands whose fee/subsidy rate differs — i.e. how many distinct
-    ///      fee "steps" an operation's collateral-ratio path can straddle. A flat config returns 0, so the
-    ///      operation is exactly path-independent (splitting it changes nothing but per-step rounding). Each
-    ///      transition admits a bounded, magnitude-scaled divergence between doing an operation in one call
-    ///      versus many, because the fee is recomputed per band as the collateral ratio moves during the op.
-    function _bandTransitions(int256[] memory incentiveRatios) internal pure returns (uint256 transitions) {
-        for (uint256 i = 1; i < incentiveRatios.length; i++) {
-            if (incentiveRatios[i] != incentiveRatios[i - 1]) {
-                transitions++;
-            }
-        }
-    }
-
     function ic(
         uint[] memory upToPercent,
         int[] memory amountBasisPoints

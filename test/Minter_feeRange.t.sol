@@ -1254,26 +1254,6 @@ contract TestMinterFixedFeeRangeRate1Millionth_ is TestMinterFixedFeeRange_ {
 abstract contract TestMinterIntegralFees is TestMinterFeeRange {
     uint steps;
 
-    // Fee-band transition count for the mint-pegged action. Balance-quantity path-independence tolerances scale
-    // with it: a flat config has 0 transitions, so the non-disallow branch collapses to (0,0) and mint-pegged is
-    // exactly path-independent. (Fees keep their own bound — fee = f(collateral)*rate drifts absolutely, large
-    // only in relative terms at a tiny near-cap fee; the disallow branch keeps the author's cap-aware tolerance.)
-    function _mpTransitions() internal view returns (uint256) {
-        return _bandTransitions(config.mintPeggedIncentiveConfig.incentiveRatios);
-    }
-
-    function _rpTransitions() internal view returns (uint256) {
-        return _bandTransitions(config.redeemPeggedIncentiveConfig.incentiveRatios);
-    }
-
-    function _mlTransitions() internal view returns (uint256) {
-        return _bandTransitions(config.mintLeveragedIncentiveConfig.incentiveRatios);
-    }
-
-    function _rlTransitions() internal view returns (uint256) {
-        return _bandTransitions(config.redeemLeveragedIncentiveConfig.incentiveRatios);
-    }
-
     function setUp() public virtual override {
         super.setUp();
         steps = 10;
@@ -1316,54 +1296,71 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         );
     }
 
-    /// @dev How far apart the fee of one pegged mint and of the same mint in `steps` calls can be, where both take
-    ///      everything offered. The mint starts at the collateral ratio `startRatio`, and `endRatio` is the lower of
-    ///      the two paths' end ratios. `collateral` is the stepped path's collateral at its end.
-    ///      The fee is the band schedule's exact integral over the collateral offered, rounded down to a wrapped wei
-    ///      once per call: under `steps` wei apart. Within a band the fee does not depend on the state, so beyond
-    ///      that the paths differ only where they cross a bound R. The band walk cuts it at
-    ///        dC = (C*p - R*Z) / (p * (R - 1) * (1 - f))
-    ///      A stepped call starts from the state the earlier calls stored, not the exact one. Each stored its pegged
-    ///      rounded down: under one pegged wei, plus one collateral wei's worth, short. Each stored its collateral
-    ///      under one wei below, or one wrapped wei's worth (r) above, the exact figure. A call has at most
-    ///      `steps - 1` calls before it. Each of those calls moves the cut by under (r + R + R/p) / ((R - 1)(1 - f))
-    ///      collateral, f being at most the dearest band above R.
-    ///      A call that starts where the collateral ratio rounds down onto R is walked from the band below: that
-    ///      moves the cut by under C/1e18 / ((R - 1)(1 - f)) collateral more. Counted at every crossed bound, that
-    ///      term also covers how the call moves the cuts below, while no allowed fee ratio exceeds 50%. The
-    ///      collateral a cut moves pays the other band's fee ratio, so the fee moves by the two ratios' difference
-    ///      times it, over r in wrapped. Only the bounds the mint crossed count. At the 1-billionth price a pegged
-    ///      wei is a billion collateral wei, so one pegged wei rounded away moves the fee by millions of wrapped wei.
-    function _mintPeggedFeeDrift(
-        uint256 startRatio,
-        uint256 endRatio,
-        uint256 collateral
-    ) internal view returns (uint256 feeDrift) {
-        (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        IMinter.IncentiveConfig memory schedule = IMinter(minter).config().mintPeggedIncentiveConfig;
-        feeDrift = steps;
-        uint256 dearest = 0;
-        for (uint256 i = schedule.collateralRatioBandUpperBounds.length; i > 0; i--) {
-            uint256 upper = schedule.collateralRatioBandUpperBounds[i - 1];
-            int256 above = schedule.incentiveRatios[i];
-            int256 below = schedule.incentiveRatios[i - 1];
-            if (above != 1 ether) {
-                dearest = Math.max(dearest, uint256(above));
-            }
-            if (above != 1 ether && below != 1 ether && endRatio <= upper && upper < startRatio) {
-                feeDrift += Math.mulDiv(
-                    Math.mulDiv(
-                        SignedMath.abs(above - below),
-                        (steps - 1) * (r + upper + Math.mulDiv(upper, 1 ether, p, Math.Rounding.Ceil)) + collateral,
-                        upper - 1 ether,
-                        Math.Rounding.Ceil
-                    ),
-                    1 ether,
-                    (1 ether - dearest) * r,
-                    Math.Rounding.Ceil
-                );
+    /// @dev The most a band walk over `schedule` and the same walk split into calls can differ by in exact incentive -
+    ///      fee and subsidy together - through where they cut the bounds they crossed, in collateral at 1e18.
+    ///      Within a band the incentive is the band's ratio of the collateral, whatever the state, so the two differ
+    ///      only where a cut falls. A walk cuts a bound where the collateral ratio reaches it, from the state its call
+    ///      started from, and a split call's state carries the roundings of the calls before it. The caller derives
+    ///      how far that moves the cut at bound R: `shiftE18 + R * shiftPerBoundE18 / 1e18`, over (R - 1) where
+    ///      `overBoundLessOne`. That is an action that moves the pegged balance with the collateral, so near 1 a wei
+    ///      moves the collateral ratio less. Collateral a cut moves pays the other band's ratio, so the incentive
+    ///      moves by the two ratios' difference times it. The walk crossed the bounds between the collateral ratio it
+    ///      started at, `from`, and the one it ended at, `to`. Where the ratio falls those are below `from` and at or
+    ///      above `to`: the band search places a ratio on a bound in the band below. Where it rises they are above
+    ///      `from` and at or below `to`: the band search places one in the band above. A bound beside a disallowed
+    ///      band is where a walk stops, not one it crosses.
+    function _crossedBoundsGapE18(
+        IMinter.IncentiveConfig memory schedule,
+        uint256 from,
+        uint256 to,
+        uint256 shiftE18,
+        uint256 shiftPerBoundE18,
+        bool overBoundLessOne
+    ) internal pure returns (uint256 gapE18) {
+        for (uint256 i = 0; i < schedule.collateralRatioBandUpperBounds.length; i++) {
+            uint256 upper = schedule.collateralRatioBandUpperBounds[i];
+            int256 below = schedule.incentiveRatios[i];
+            int256 above = schedule.incentiveRatios[i + 1];
+            bool crossed = to < from ? to <= upper && upper < from : from < upper && upper <= to;
+            if (crossed && below != 1 ether && above != 1 ether) {
+                uint256 shift = shiftE18 + Math.mulDiv(upper, shiftPerBoundE18, 1 ether, Math.Rounding.Ceil);
+                if (overBoundLessOne) {
+                    shift = Math.mulDiv(shift, 1 ether, upper - 1 ether, Math.Rounding.Ceil);
+                }
+                gapE18 += Math.mulDiv(SignedMath.abs(above - below), shift, 1 ether, Math.Rounding.Ceil);
             }
         }
+    }
+
+    /// @dev The largest fee ratio `schedule` charges short of a disallow, or nothing where it only subsidises. A band
+    ///      walk divides a fee band's cut by (1 - f), so this is the most that division amplifies a shift.
+    function _dearestFee(IMinter.IncentiveConfig memory schedule) internal pure returns (uint256 dearest) {
+        for (uint256 i = 0; i < schedule.incentiveRatios.length; i++) {
+            int256 ratio = schedule.incentiveRatios[i];
+            if (ratio > 0 && ratio != 1 ether) {
+                dearest = Math.max(dearest, uint256(ratio));
+            }
+        }
+    }
+
+    /// @dev A mint credits the record with the wrapped the minter keeps, at `rate`, rounded down once per call. Over
+    ///      `calls` calls the record gains what the kept wrapped is worth rounded down once, less under `calls` wei:
+    ///      exactly that for one call.
+    function _assertCreditedAsKept(
+        Measures memory pre,
+        Measures memory m,
+        uint256 rate,
+        uint256 calls,
+        string memory name
+    ) internal pure {
+        uint256 kept = Math.mulDiv(m.minterWrapped - pre.minterWrapped, rate, 1 ether);
+        uint256 credited = m.minterUnderlying - pre.minterUnderlying;
+        assertLe(credited, kept, string.concat(name, " record credited more than the wrapped kept is worth"));
+        assertGe(
+            credited + calls - 1,
+            kept,
+            string.concat(name, " record credited less than the wrapped kept is worth, beyond its roundings")
+        );
     }
 
     /// @dev The wrapped collateral the user parted with is exactly what the minter kept plus what the fee
@@ -1432,7 +1429,6 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertEq(post.minterLeveraged, postSteps.minterLeveraged, "mp integral minter leveraged");
         assertApprox(post.userLeveraged, postSteps.userLeveraged, 0, 0, "mp integral user leveraged");
 
-        uint256 stopBound = _mintPeggedStopBound();
         // A mint that consumed everything it was offered ran out of collateral before reaching the boundary,
         // and one that minted nothing started at or below it — neither is pinned by the boundary. Only a mint
         // that took some of the offer and left the rest was stopped by it.
@@ -1440,10 +1436,10 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         bool stepsStopped = postSteps.userPegged > pre.userPegged && pre.userWrapped - postSteps.userWrapped < wrapped;
 
         if (allStopped) {
-            _assertStoppedAtMintPeggedBound(post, stopBound, "mp integral all");
+            _assertStoppedAtMintPeggedBound(post, _mintPeggedStopBound(), "mp integral all");
         }
         if (stepsStopped) {
-            _assertStoppedAtMintPeggedBound(postSteps, stopBound, "mp integral steps");
+            _assertStoppedAtMintPeggedBound(postSteps, _mintPeggedStopBound(), "mp integral steps");
         }
 
         // Once the boundary stops a path, its end state is set by the boundary rather than by how the mint
@@ -1467,88 +1463,108 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         }
 
         if (!allStopped && !stepsStopped && allUsed == stepsUsed) {
-            // Away from the boundary the mint IS a free integral, so the two paths must land on the same state.
-            // The absolute terms are band-transition-scaled (a flat config has 0 transitions, hence exact).
-            // minterWrapped/minterUnderlying additionally carry the fee-path divergence: each step floors the
-            // fee computation (and the underlying write) once more than the single shot does, <= 1 wei per
-            // step beyond the carry-protected division, so their absolute term is (transitions + 1) * steps.
-            //
-            // The relative term is not a blanket: it is what re-entering the minter costs. A call stores the
-            // pegged it minted FLOORED and the collateral it added ROUNDED, and the next call seeds its band
-            // arithmetic from those stored values — so each of the `steps` calls re-enters carrying up to a
-            // wei of error in each, worth 1/peggedTokenBalance and 1/underlyingCollateral of the state it then
-            // computes from. The single shot pays this once, at the end, where nothing reads it back. The gap
-            // between the paths is therefore bounded by steps * (1/pegged + 1/collateral) RELATIVE, which is
-            // why no fixed wei count works: in the extreme price and rate regimes the pegged balance falls to
-            // ~1e11 and that term reaches 4e-11, while at ordinary balances it vanishes and the absolute terms
-            // carry. The fee does not scale with the state, so it has its own bound.
-            assertApprox(
-                post.feeWrapped,
-                postSteps.feeWrapped,
-                _mintPeggedFeeDrift(
-                    pre.collateralRatio,
-                    Math.min(post.collateralRatio, postSteps.collateralRatio),
-                    postSteps.minterUnderlying
-                ),
-                "mp integral fee wrapped"
-            );
-            (, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-            uint256 reseed = steps *
-                ((1 ether) / Math.max(post.minterPegged, 1) + (1 ether) / Math.max(post.minterUnderlying, 1));
-            // The minter credits the record in UNDERLYING collateral, rounded down, so a floor worth one wei of
-            // underlying is worth 1e18/rate wei of WRAPPED, and every wrapped-denominated bound below carries that
-            // factor. It is 1 at the usual rate of 1 ether, which is why the counts read as bare wei, and 1e6 at
-            // the 1-million rate. Underlying- and pegged-denominated bounds are untouched, since those quantities
-            // are stored in the units the minter floors them in.
-            uint256 wrappedPerUnderlying = Math.ceilDiv(1 ether, r);
-            assertApprox(
-                minted,
-                mintedSteps,
-                _mpTransitions() * steps,
-                (_mpTransitions() + 1) * steps + reseed,
-                "mp integral minted"
-            );
-            assertApprox(
-                post.userPegged,
-                postSteps.userPegged,
-                _mpTransitions() * steps,
-                (_mpTransitions() + 1) * steps + reseed,
-                "mp integral user pegged"
-            );
-            assertApprox(
-                post.userWrapped,
-                postSteps.userWrapped,
-                _mpTransitions() * steps * wrappedPerUnderlying,
-                (_mpTransitions() + 1) * steps + reseed,
-                "mp integral user wrapped"
-            );
-            assertApprox(
-                post.minterPegged,
-                postSteps.minterPegged,
-                _mpTransitions() * steps,
-                (_mpTransitions() + 1) * steps + reseed,
-                "mp integral minter pegged"
-            );
-            assertApprox(
-                post.minterWrapped,
-                postSteps.minterWrapped,
-                (_mpTransitions() + 1) * steps * wrappedPerUnderlying,
-                (_mpTransitions() + 1) * steps + reseed,
+            // Away from the boundary the mint IS a free integral. Both paths took the same wrapped, so the user's
+            // wrapped is the same on both, and conservation leaves the minter's wrapped apart by the fee's gap.
+            assertEq(
+                post.minterWrapped + post.feeWrapped,
+                postSteps.minterWrapped + postSteps.feeWrapped,
                 "mp integral minter wrapped"
             );
-            assertApprox(
-                post.minterUnderlying,
-                postSteps.minterUnderlying,
-                (_mpTransitions() + 1) * steps,
-                (_mpTransitions() + 1) * steps + reseed,
-                "mp integral minter underlying"
-            );
+            // Each path delivers the pegged it minted, and credits the record with the wrapped it kept.
+            assertEq(post.userPegged, pre.userPegged + minted, "mp integral all user pegged");
+            assertEq(postSteps.userPegged, pre.userPegged + mintedSteps, "mp integral steps user pegged");
+            assertEq(post.minterPegged, pre.minterPegged + minted, "mp integral all minter pegged");
+            assertEq(postSteps.minterPegged, pre.minterPegged + mintedSteps, "mp integral steps minter pegged");
+            {
+                (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+                _assertCreditedAsKept(pre, post, r, 1, "mp integral all");
+                _assertCreditedAsKept(pre, postSteps, r, steps, "mp integral steps");
+                // The exact fees of the two paths differ only where they cut the bounds they crossed. A split call
+                // starts from what the calls before it stored. Each stored its pegged rounded down: under one pegged
+                // wei, plus one collateral wei's worth (p), short. Each stored its collateral under one wei below, or
+                // one wrapped wei's worth (r) above, the exact figure. The band walk cuts bound R where
+                //   dC = (C*p - R*Z) / (p * (R - 1) * (1 - f))
+                // so each of the `steps - 1` calls before a cut moves it by under (r + R + R/p) / ((R - 1)(1 - f))
+                // collateral, f at most the dearest fee. A call that starts where the collateral ratio rounds down
+                // onto R is walked from the band below, which moves its cut by under C/1e18 / ((R - 1)(1 - f)) more.
+                // Counted at every crossed bound, that term also covers how the call moves the cuts below, while no
+                // allowed fee ratio exceeds 50%. At the 1-billionth price a pegged wei is a billion collateral wei, so
+                // one pegged wei rounded away moves the fee by millions of wrapped wei.
+                uint256 feeGapE18 = Math.mulDiv(
+                    _crossedBoundsGapE18(
+                        IMinter(minter).config().mintPeggedIncentiveConfig,
+                        pre.collateralRatio,
+                        Math.min(post.collateralRatio, postSteps.collateralRatio),
+                        (steps - 1) * r + postSteps.minterUnderlying,
+                        (steps - 1) * (1 ether + Math.ceilDiv(1e36, p)),
+                        true
+                    ),
+                    1 ether,
+                    1 ether - _dearestFee(IMinter(minter).config().mintPeggedIncentiveConfig),
+                    Math.Rounding.Ceil
+                );
+                // Each call rounds its fee down to a wrapped wei once: under `steps` wei apart, beyond the exact gap.
+                assertApprox(
+                    post.feeWrapped,
+                    postSteps.feeWrapped,
+                    steps + Math.ceilDiv(feeGapE18, r),
+                    "mp integral fee wrapped"
+                );
+                // Each call mints the lesser of its walk's net collateral and its record's credit at the price,
+                // rounded down: under one pegged wei, plus one collateral wei's worth, below its exact net collateral
+                // at the price. The net collateral of the two paths differs by the exact fee's gap.
+                assertApprox(
+                    minted,
+                    mintedSteps,
+                    steps * (1 + Math.ceilDiv(p, 1 ether)) + Math.mulDiv(feeGapE18, p, 1e36, Math.Rounding.Ceil),
+                    "mp integral minted"
+                );
+            }
         }
+    }
+
+    /// @dev A pegged redemption above the peg of `pegged` in `calls` calls, path by path. The calls redeem
+    ///      `pegged / calls` each, and a wei more for `pegged % calls` of them. Each call's pegged is worth its
+    ///      collateral at the price, whatever the state, so each releases that collateral rounded down at 1e18 and
+    ///      then to whole wrapped, and the record gives up the wrapped released at the rate, rounded up. The redeemer
+    ///      is paid `returned`, and the wrapped released goes to the redeemer and the fee receiver, with what the
+    ///      reserve sent.
+    function _assertRedeemPeggedPath(
+        Measures memory pre,
+        Measures memory m,
+        uint256 returned,
+        uint256 pegged,
+        uint256 calls,
+        string memory name
+    ) internal view {
+        // a pegged redemption reads the high edge of the price and of the rate
+        (, uint256 p, , uint256 r) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 released = Math.mulDiv(pegged / calls, 1e36, p * r);
+        uint256 releasedBumped = Math.mulDiv(pegged / calls + 1, 1e36, p * r);
+        uint256 bumped = pegged % calls;
+        assertEq(
+            pre.minterWrapped - m.minterWrapped,
+            (calls - bumped) * released + bumped * releasedBumped,
+            string.concat(name, " minter wrapped")
+        );
+        assertEq(
+            pre.minterUnderlying - m.minterUnderlying,
+            (calls - bumped) * Math.mulDiv(released, r, 1 ether, Math.Rounding.Ceil) +
+                bumped * Math.mulDiv(releasedBumped, r, 1 ether, Math.Rounding.Ceil),
+            string.concat(name, " minter underlying")
+        );
+        assertEq(m.userWrapped - pre.userWrapped, returned, string.concat(name, " user wrapped"));
+        assertEq(
+            (pre.minterWrapped - m.minterWrapped) + (pre.reservePoolWrapped - m.reservePoolWrapped),
+            returned + (m.feeWrapped - pre.feeWrapped),
+            string.concat(name, " wrapped conservation")
+        );
     }
 
     function _redeemPegged(uint256 wrapped) internal virtual override {
         // REDEEM PEGGED INTEGRAL
-        (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        // a pegged redemption reads the high edge of the price and of the rate
+        (, uint256 p, , uint256 r) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         uint256 wrappedReturnedSteps = 0;
         uint256 pegged = Math.min((wrapped * p * r) / 1e36, IMinter(minter).peggedTokenBalance());
@@ -1563,6 +1579,8 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
             deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
         }
 
+        // The integral suites' markets stand above the peg, where a pegged token is worth its collateral at the price.
+        assertGe(IMinter(minter).collateralRatio(), 1 ether, "precondition: the redemption starts at or above the peg");
         uint256 snap = vm.snapshotState();
 
         {
@@ -1591,6 +1609,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         }
         Measures memory postSteps = _measure();
         vm.revertToState(snap);
+        Measures memory pre = _measure();
 
         vm.startPrank(user);
         uint256 wrappedReturned = IMinter(minter).redeemPeggedToken(pegged, user, 0);
@@ -1599,53 +1618,44 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
         Measures memory post = _measure();
 
-        // Reserve-pool subsidy is consumed step-by-step, so it drifts by the same per-step rounding as the
-        // other wrapped quantities in this redeem.
+        assertApprox(post.userPegged, postSteps.userPegged, 0, 0, "rp integral user pegged");
+        assertApprox(post.userLeveraged, postSteps.userLeveraged, 0, 0, "rp integral user leveraged");
+        assertApprox(post.minterPegged, postSteps.minterPegged, 0, 0, "rp integral minter pegged");
+        assertApprox(post.minterLeveraged, postSteps.minterLeveraged, 0, 0, "rp integral minter leveraged");
+        _assertRedeemPeggedPath(pre, post, wrappedReturned, pegged, 1, "rp integral all");
+        _assertRedeemPeggedPath(pre, postSteps, wrappedReturnedSteps, pegged, steps, "rp integral steps");
+
+        // The exact incentives of the two paths differ only where they cut the bounds they crossed. A redemption
+        // burns exactly the pegged offered, so a split call starts from the exact pegged balance, and from a record
+        // that each call before it moved by under one wei more, or one wrapped wei's worth (r) less, than the exact
+        // collateral its pegged is worth. The band walk redeems up to bound B the pegged
+        //   dZ = (B*Z - C*p) / (B - 1)
+        // so each of the `steps - 1` calls before a cut moves it by under max(1, r) / (B - 1) collateral. A ratio on a
+        // bound is placed in the band above, so no call starts in the wrong band.
+        uint256 incentiveGap = Math.ceilDiv(
+            _crossedBoundsGapE18(
+                IMinter(minter).config().redeemPeggedIncentiveConfig,
+                pre.collateralRatio,
+                Math.max(post.collateralRatio, postSteps.collateralRatio),
+                (steps - 1) * Math.max(1 ether, r),
+                0,
+                true
+            ),
+            r
+        );
+        // Each call's subsidy is its exact subsidy rounded down, or what the reserve has left: under a wei apart per
+        // call, beyond the exact gap.
         assertApprox(
             post.reservePoolWrapped,
             postSteps.reservePoolWrapped,
-            steps,
-            steps,
+            steps + incentiveGap,
             "rp integral subsidy wrapped"
         );
-
-        assertApprox(post.feeWrapped, postSteps.feeWrapped, 2 * steps, 3e8 * steps, "rp integral fee wrapped");
-        assertApprox(
-            wrappedReturned,
-            wrappedReturnedSteps,
-            2 * steps,
-            (_rpTransitions() + 1) * steps * 10,
-            "rp integral returned"
-        );
-
-        assertApprox(post.userPegged, postSteps.userPegged, 0, 0, "rp integral user pegged");
-        assertApprox(post.userLeveraged, postSteps.userLeveraged, 0, 0, "rp integral user leveraged");
-        // The user's wrapped gain is the returned wrapped, so it inherits that quantity's bound (see
-        // "rp integral returned" above).
-        assertApprox(
-            post.userWrapped,
-            postSteps.userWrapped,
-            2 * steps,
-            (_rpTransitions() + 1) * steps * 10,
-            "rp integral user wrapped"
-        );
-
-        assertApprox(post.minterPegged, postSteps.minterPegged, 0, 0, "rp integral minter pegged");
-        assertApprox(post.minterLeveraged, postSteps.minterLeveraged, 0, 0, "rp integral minter leveraged");
-        assertApprox(
-            post.minterWrapped,
-            postSteps.minterWrapped,
-            2 * steps,
-            (_rpTransitions() + 1) * steps * 10,
-            "rp integral minter wrapped"
-        );
-        assertApprox(
-            post.minterUnderlying,
-            postSteps.minterUnderlying,
-            2 * steps,
-            (_rpTransitions() + 1) * steps * 10,
-            "rp integral minter underlying"
-        );
+        // Each call's fee is the wrapped released, plus the subsidy, less the payout: within two wei of its exact fee.
+        assertApprox(post.feeWrapped, postSteps.feeWrapped, 2 * steps + 2 + incentiveGap, "rp integral fee wrapped");
+        // Each call's payout is under two wei below its exact figure, and the exact subsidy it is paid on carries
+        // under a wei per call of the reserve's own roundings.
+        assertApprox(wrappedReturned, wrappedReturnedSteps, 3 * steps + incentiveGap, "rp integral returned");
     }
 
     function _mintLeveraged(uint256 wrapped) internal virtual override {
@@ -1658,25 +1668,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
             }
 
-            // How far the steps' subsidy can drift from the single mint's. Each step credits the record with its
-            // collateral rounded down to a whole collateral unit, so the steps run behind the single mint by under one
-            // unit per step - at most `steps` units. Where the walk crosses a bound, that lag is filled at the lower
-            // band's subsidy rate instead of the upper's: the drift there is at most lag x the rate's change. Summed
-            // over every crossing that is `steps` x the schedule's total subsidy variation, in collateral units,
-            // which is that / rate in wrapped. Plus the `steps` wrapped wei each step's own subsidy floors away.
-            uint256 subsidyDrift;
-            {
-                int256[] memory ratios = config.mintLeveragedIncentiveConfig.incentiveRatios;
-                uint256 variation = 0;
-                for (uint256 i = 1; i < ratios.length; i++) {
-                    int256 below = ratios[i - 1] < 0 ? -ratios[i - 1] : int256(0);
-                    int256 above = ratios[i] < 0 ? -ratios[i] : int256(0);
-                    variation += below > above ? uint256(below - above) : uint256(above - below);
-                }
-                (, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-                subsidyDrift = steps + Math.ceilDiv(steps * variation, r);
-            }
-
+            // a leveraged mint reads the high edge of the price and the low edge of the rate
+            (, uint256 p, uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            Measures memory pre = _measure();
             uint256 snap = vm.snapshotState();
             uint256 mintedSteps = 0;
             {
@@ -1694,9 +1688,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                     uint256 part = base + bump;
                     if (part > 0) {
                         sumpart += part;
-                        vm.startPrank(user);
-                        mintedSteps += IMinter(minter).mintLeveragedToken(part, user, 0);
-                        vm.stopPrank();
+                        mintedSteps += _mintLeveragedStep(part, p);
                         // ------------------------------------------------------------------
                     }
                 }
@@ -1711,55 +1703,69 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
             // ------------------------------------------------------------------
 
             Measures memory post = _measure();
+
+            assertApprox(post.userPegged, postSteps.userPegged, 0, 0, "ml integral user pegged");
+            assertApprox(post.minterPegged, postSteps.minterPegged, 0, 0, "ml integral minter pegged");
+            _assertMintLeveragedPath(pre, post, wrapped, minted, r, 1, "ml integral all");
+            _assertMintLeveragedPath(pre, postSteps, wrapped, mintedSteps, r, steps, "ml integral steps");
+            // The single call mints the record's gain at the residual's price, rounded down, as each split call did.
+            assertEq(
+                minted,
+                Math.mulDiv(
+                    (post.minterUnderlying - pre.minterUnderlying) * p,
+                    pre.minterLeveraged,
+                    pre.minterUnderlying * p - pre.minterPegged * 1 ether
+                ),
+                "ml integral all minted at the residual's price"
+            );
+
+            // The exact incentives of the two paths differ only where they cut the bounds they crossed. A leveraged
+            // mint leaves the pegged balance alone. A split call starts from a record that each call before it
+            // credited under one wei, plus one wrapped wei's worth (r), short: the kept wrapped and its worth are each
+            // rounded down. Where the reserve caps a subsidy, each call before it also left the reserve under a
+            // wrapped wei fuller than its exact subsidy would, which moves the cap by under r. The band walk cuts bound
+            // B where the collateral offered reaches (B*Z - C*p) / (p * (1 - f)), or (1 + s) for a subsidy, or that
+            // with the cap's remainder paid in full. So each of the `steps - 1` calls before a cut moves it by under
+            // (1 + 2r) / (1 - f) collateral, f at most the dearest fee. A ratio on a bound is placed in the band
+            // above, so no call starts in the wrong band.
+            uint256 incentiveGap;
+            {
+                IMinter.IncentiveConfig memory schedule = IMinter(minter).config().mintLeveragedIncentiveConfig;
+                incentiveGap = Math.ceilDiv(
+                    Math.mulDiv(
+                        _crossedBoundsGapE18(
+                            schedule,
+                            pre.collateralRatio,
+                            Math.max(post.collateralRatio, postSteps.collateralRatio),
+                            (steps - 1) * (1 ether + 2 * r),
+                            0,
+                            false
+                        ),
+                        1 ether,
+                        1 ether - _dearestFee(schedule),
+                        Math.Rounding.Ceil
+                    ),
+                    r
+                );
+            }
+            // Each call's subsidy is its exact subsidy rounded down, or what the reserve has left: under a wei apart
+            // per call, beyond the exact gap.
             assertApprox(
                 post.reservePoolWrapped,
                 postSteps.reservePoolWrapped,
-                subsidyDrift,
-                0,
+                steps + incentiveGap,
                 "ml integral subsidy wrapped"
             );
-
-            assertApprox(post.feeWrapped, postSteps.feeWrapped, steps, 2e4 * steps, "ml integral fee wrapped");
-            assertApprox(minted, mintedSteps, 2 * steps, (_mlTransitions() + 1) * steps * 10, "ml integral minted");
-
-            assertApprox(post.userPegged, postSteps.userPegged, 0, 0, "ml integral user pegged");
-            assertApprox(
-                post.userLeveraged,
-                postSteps.userLeveraged,
-                2 * steps,
-                (_mlTransitions() + 1) * steps * 10,
-                "ml integral user leveraged"
-            );
-            assertApprox(
-                post.userWrapped,
-                postSteps.userWrapped,
-                2 * steps,
-                (_mlTransitions() + 1) * steps * 10,
-                "ml integral user wrapped"
-            );
-
-            assertApprox(post.minterPegged, postSteps.minterPegged, 0, 0, "ml integral minter pegged");
-            assertApprox(
-                post.minterLeveraged,
-                postSteps.minterLeveraged,
-                2 * steps,
-                (_mlTransitions() + 1) * steps * 10,
-                "ml integral minter leveraged"
-            );
-            // the minter holds the subsidy it drew, so its wrapped drifts with that subsidy
+            // Each call's fee is the offer and the subsidy less the kept wrapped, which is rounded down once: within a
+            // wei of its exact fee.
+            assertApprox(post.feeWrapped, postSteps.feeWrapped, steps + 1 + incentiveGap, "ml integral fee wrapped");
+            // Each call keeps its exact figure rounded down, and the exact subsidy it is kept on carries under a wei
+            // per call of the reserve's own roundings.
             assertApprox(
                 post.minterWrapped,
                 postSteps.minterWrapped,
-                2 * steps + subsidyDrift,
-                (_mlTransitions() + 1) * steps * 10,
+                2 * steps + incentiveGap,
                 "ml integral minter wrapped"
-            );
-            assertApprox(
-                post.minterUnderlying,
-                postSteps.minterUnderlying,
-                steps,
-                steps,
-                "ml integral minter underlying"
             );
             // Splitting never credits more than the single mint: each step's credit is rounded down, and the lag that
             // leaves is only ever scaled - by the ratio of the collateral per input either side of each bound - so it
@@ -1770,6 +1776,82 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 "ml integral split credits no more than the single mint"
             );
         }
+    }
+
+    /// @dev One call of a split leveraged mint, as the user. It mints what the minter defines: the record's gain at the
+    ///      residual's price per leveraged token, at the price `p`, rounded down. Apart from the split loop only so
+    ///      that loop fits the stack.
+    function _mintLeveragedStep(uint256 part, uint256 p) internal returns (uint256 minted) {
+        uint256 record = IMinter(minter).collateralTokenBalance();
+        uint256 supply = IERC20(leveragedToken).totalSupply();
+        vm.startPrank(user);
+        minted = IMinter(minter).mintLeveragedToken(part, user, 0);
+        vm.stopPrank();
+        assertEq(
+            minted,
+            Math.mulDiv(
+                (IMinter(minter).collateralTokenBalance() - record) * p,
+                supply,
+                record * p - IMinter(minter).peggedTokenBalance() * 1 ether
+            ),
+            "ml integral step minted at the residual's price"
+        );
+    }
+
+    /// @dev A leveraged mint, path by path: it always takes the whole offer `wrapped`, delivers the `minted` leveraged
+    ///      tokens it mints, and the minter keeps the offer and the subsidy the reserve sent, less the fee.
+    function _assertMintLeveragedPath(
+        Measures memory pre,
+        Measures memory m,
+        uint256 wrapped,
+        uint256 minted,
+        uint256 rate,
+        uint256 calls,
+        string memory name
+    ) internal pure {
+        assertEq(pre.userWrapped - m.userWrapped, wrapped, string.concat(name, " user wrapped"));
+        assertEq(m.userLeveraged - pre.userLeveraged, minted, string.concat(name, " user leveraged"));
+        assertEq(m.minterLeveraged - pre.minterLeveraged, minted, string.concat(name, " minter leveraged"));
+        assertEq(
+            wrapped + (pre.reservePoolWrapped - m.reservePoolWrapped),
+            (m.minterWrapped - pre.minterWrapped) + (m.feeWrapped - pre.feeWrapped),
+            string.concat(name, " wrapped conservation")
+        );
+        _assertCreditedAsKept(pre, m, rate, calls, name);
+    }
+
+    /// @dev A leveraged redemption, path by path: the redeemer is paid `returned`, the wrapped the minter released goes
+    ///      to the redeemer and the fee receiver, and the supply falls by what the redeemer burned. Each call releases
+    ///      its collateral rounded down to whole wrapped and the record gives up that collateral rounded up, so over
+    ///      `calls` calls the record gives up at least what the wrapped released is worth at `rate`, and under a wrapped
+    ///      wei's worth and a wei more per call.
+    function _assertRedeemLeveragedPath(
+        Measures memory pre,
+        Measures memory m,
+        uint256 returned,
+        uint256 rate,
+        uint256 calls,
+        string memory name
+    ) internal pure {
+        uint256 released = pre.minterWrapped - m.minterWrapped;
+        uint256 removed = pre.minterUnderlying - m.minterUnderlying;
+        assertEq(m.userWrapped - pre.userWrapped, returned, string.concat(name, " user wrapped"));
+        assertEq(released, returned + (m.feeWrapped - pre.feeWrapped), string.concat(name, " wrapped conservation"));
+        assertEq(
+            pre.userLeveraged - m.userLeveraged,
+            pre.minterLeveraged - m.minterLeveraged,
+            string.concat(name, " leveraged burned")
+        );
+        assertGe(
+            removed,
+            Math.mulDiv(released, rate, 1 ether, Math.Rounding.Ceil),
+            string.concat(name, " record gave up less than the wrapped released is worth")
+        );
+        assertLe(
+            removed,
+            Math.mulDiv(released, rate, 1 ether) + calls * (Math.ceilDiv(rate, 1 ether) + 1),
+            string.concat(name, " record gave up more than the wrapped released is worth, beyond its roundings")
+        );
     }
 
     function redeemLeveragedIgnoreReturnZeroAmount(uint256 wrapped, address user) internal returns (uint256 minted) {
@@ -1792,13 +1874,15 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
     function _redeemLeveraged(uint256 wrapped) internal virtual override {
         // REDEEM LEVERAGED INTEGRAL
         if (IMinter(minter).collateralRatio() > 1 ether) {
-            (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+            // a leveraged redemption reads the low edge of the price and the high edge of the rate
+            (uint256 p, , , uint256 r) = IWrappedPriceOracle(priceOracle).latestAnswer();
             uint256 lp = IMinter(minter).leveragedTokenPrice();
             // console2.log("lp = %s", lp);
 
             uint256 wrappedReturnedSteps = 0;
             uint256 leveraged = (wrapped * r * p) / (lp * 1e18);
             if (leveraged <= IMinter(minter).leveragedTokenBalance()) {
+                Measures memory pre = _measure();
                 uint256 snap = vm.snapshotState();
                 {
                     uint256 base = leveraged / steps;
@@ -1836,55 +1920,79 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
                 Measures memory post = _measure();
 
-                assertApprox(post.feeWrapped, postSteps.feeWrapped, steps, steps, "rl integral fee wrapped");
-                assertApprox(
-                    wrappedReturned,
-                    wrappedReturnedSteps,
-                    2 * steps,
-                    (_rlTransitions() + 1) * steps * 10,
-                    "rl integral minted"
-                );
-
                 assertApprox(post.userPegged, postSteps.userPegged, 0, 0, "rl integral user pegged");
-                assertApprox(
-                    post.userLeveraged,
-                    postSteps.userLeveraged,
-                    2 * steps,
-                    (_rlTransitions() + 1) * steps * 10,
-                    "rl integral user leveraged"
-                );
-                // The user's wrapped gain is the returned wrapped, so it inherits that quantity's bound (see
-                // "rl integral minted" above).
-                assertApprox(
-                    post.userWrapped,
-                    postSteps.userWrapped,
-                    2 * steps,
-                    (_rlTransitions() + 1) * steps * 10,
-                    "rl integral user wrapped"
-                );
-
                 assertApprox(post.minterPegged, postSteps.minterPegged, 0, 0, "rl integral minter pegged");
-                assertApprox(
-                    post.minterLeveraged,
-                    postSteps.minterLeveraged,
-                    2 * steps,
-                    (_rlTransitions() + 1) * steps * 10,
-                    "rl integral minter leveraged"
-                );
-                assertApprox(
-                    post.minterWrapped,
-                    postSteps.minterWrapped,
-                    2 * steps,
-                    (_rlTransitions() + 1) * steps * 10,
-                    "rl integral minter wrapped"
-                );
-                assertApprox(
-                    post.minterUnderlying,
-                    postSteps.minterUnderlying,
-                    steps,
-                    steps,
-                    "rl integral minter underlying"
-                );
+                _assertRedeemLeveragedPath(pre, post, wrappedReturned, r, 1, "rl integral all");
+                _assertRedeemLeveragedPath(pre, postSteps, wrappedReturnedSteps, r, steps, "rl integral steps");
+                // A path burns less than it was offered only where its walk stopped at the disallowed band. A walk
+                // that reaches the bound takes the collateral down to the bound's, which depends on the pegged balance
+                // and the price alone. A split call can also find the collateral ratio already rounded down onto the
+                // bound, which places it in the disallowed band: that path stops above the bound by under the last
+                // digit of the collateral ratio, worth Z/price collateral. So two stopped paths end under that, and a
+                // wei, apart.
+                if (
+                    pre.userLeveraged - post.userLeveraged < leveraged &&
+                    pre.userLeveraged - postSteps.userLeveraged < leveraged
+                ) {
+                    assertApprox(
+                        post.minterUnderlying,
+                        postSteps.minterUnderlying,
+                        Math.ceilDiv(pre.minterPegged, p) + 1,
+                        "rl integral stopped paths end at the bound's record"
+                    );
+                }
+
+                // The collateral the two paths remove differs by under (steps + 1) wei and the last digit of the
+                // collateral ratio. Each call is priced at the residual per leveraged token, and the record gives up
+                // its collateral rounded up: under a wei more than its claim, which lowers that price for the calls
+                // after it. Each such wei falls only on the tokens still to redeem, so the split path's claims sum to
+                // under `steps` wei less than the single one's. Where both stop, they stop at the bound's record,
+                // under a wei and that last digit apart (above).
+                // The exact fees differ by the fee on that collateral, at most the dearest fee, and by where the two
+                // paths cut the bounds they crossed. A leveraged redemption leaves the pegged balance alone, so a cut
+                // falls where the collateral reaches B*Z/p: each of the `steps - 1` calls before it moves it by under
+                // a wei, the record's rounding. A call that starts where the collateral ratio rounds down onto B is
+                // walked from the band below, which moves its cut by under the last digit more.
+                {
+                    // the last digit of the collateral ratio, in collateral at 1e18
+                    uint256 lastDigitE18 = Math.mulDiv(pre.minterPegged, 1 ether, p, Math.Rounding.Ceil);
+                    uint256 feeGapE18;
+                    {
+                        IMinter.IncentiveConfig memory schedule = IMinter(minter)
+                            .config()
+                            .redeemLeveragedIncentiveConfig;
+                        feeGapE18 =
+                            _crossedBoundsGapE18(
+                                schedule,
+                                pre.collateralRatio,
+                                Math.min(post.collateralRatio, postSteps.collateralRatio),
+                                (steps - 1) * 1 ether + lastDigitE18,
+                                0,
+                                false
+                            ) +
+                            Math.mulDiv(
+                                _dearestFee(schedule),
+                                (steps + 1) * 1 ether + lastDigitE18,
+                                1 ether,
+                                Math.Rounding.Ceil
+                            );
+                    }
+                    // Each call's fee is its collateral and its payout each rounded down to whole wrapped: within a
+                    // wei of its exact fee.
+                    assertApprox(
+                        post.feeWrapped,
+                        postSteps.feeWrapped,
+                        steps + 1 + Math.ceilDiv(feeGapE18, r),
+                        "rl integral fee wrapped"
+                    );
+                    // Each call's payout is its collateral less its exact fee, rounded down to whole wrapped.
+                    assertApprox(
+                        wrappedReturned,
+                        wrappedReturnedSteps,
+                        steps + Math.ceilDiv((steps + 1) * 1 ether + lastDigitE18 + feeGapE18, r),
+                        "rl integral returned"
+                    );
+                }
 
                 // The leveraged price is not an independent quantity — it is read back from the state the
                 // assertions above have just bounded, so its tolerance is theirs propagated through
@@ -1892,18 +2000,27 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 // Differentiating: a wei of underlying collateral moves the price by price/leveraged, and a
                 // wei of leveraged balance moves it by leveragedPrice/leveraged. That amplification is why a
                 // bare wei count cannot hold here: at a 1-billionth price with a leveraged balance of ~1e8
-                // the collateral term alone is ~9 wei of price per wei of collateral, so the 10 wei of
-                // collateral drift "rl integral minter underlying" already permits shows up as ~88 wei of
-                // price. The collateral term uses that asserted bound; the leveraged term uses the MEASURED
-                // difference, because its own assertion allows 2 * steps, which propagates to a bound so wide
-                // it would admit anything. Two further wei cover each path's own floor in leveragedTokenPrice.
+                // the collateral term alone is ~9 wei of price per wei of collateral. The two records differ by
+                // under 2 * steps wei - the collateral removed by under `steps`, and each call's record by under a
+                // wei more - or, where both stop, by under a wei and the last digit of the collateral ratio, Z/price.
+                // The leveraged term uses the MEASURED difference in the supply, which a stopped walk's share
+                // rounded up sets. So this check does not test how many tokens a redemption burns: a partial fill's
+                // burn is tested call by call in Minter_redeemLeveraged.t.sol. Two further wei cover each path's own
+                // floor in leveragedTokenPrice.
                 if (lp != 1 ether) {
-                    uint256 leveragedDelta = Math.max(post.minterLeveraged, postSteps.minterLeveraged) -
-                        Math.min(post.minterLeveraged, postSteps.minterLeveraged);
-                    uint256 leveragedBalance = Math.max(post.minterLeveraged, 1);
-                    uint256 leveragedPriceTolerance = Math.ceilDiv(steps * p, leveragedBalance) +
-                        Math.ceilDiv(post.leveragedPrice * leveragedDelta, leveragedBalance) +
-                        2;
+                    uint256 leveragedPriceTolerance;
+                    {
+                        uint256 leveragedBalance = Math.max(post.minterLeveraged, 1);
+                        leveragedPriceTolerance =
+                            Math.ceilDiv((2 * steps + 1) * p + pre.minterPegged, leveragedBalance) +
+                            Math.ceilDiv(
+                                post.leveragedPrice *
+                                    (Math.max(post.minterLeveraged, postSteps.minterLeveraged) -
+                                        Math.min(post.minterLeveraged, postSteps.minterLeveraged)),
+                                leveragedBalance
+                            ) +
+                            2;
+                    }
                     assertApprox(
                         post.leveragedPrice,
                         postSteps.leveragedPrice,
@@ -1930,6 +2047,21 @@ contract TestMinterIntegralFixedFees is TestMinterIntegralFees {
 contract TestMinterIntegralDisallowSubsidyNoReserve is TestMinterIntegralFees {
     function setUpConfig() internal virtual override {
         setUp_config_flatDisallowSubsidyWide();
+    }
+}
+
+contract TestMinterIntegralDisallowSubsidyNoReserveCounterexample is TestMinterIntegralDisallowSubsidyNoReserve {
+    /// @notice A leveraged redemption, from the widest market, that both paths stop at the disallowed band.
+    /// @dev A split call finds the collateral ratio already rounded down onto the bound, 1.1 plus 1e-22, so it is
+    ///      walked from the disallowed band and redeems nothing. The split path stops 99,999,917 wei of collateral above
+    ///      the single call's, under the ratio's last digit, and its fee is 1,199,999 wrapped wei less: the band's
+    ///      1.2% of that collateral.
+    function test_redeemLeveragedRange_stoppedOnTheBoundCounterexample() public {
+        test_redeemLeveragedRange_(
+            855,
+            115792089237316195423570985008687907853269984665640564039457584007913129639935,
+            115792089237316195423570985008687907853269984665640564039457584007913129639932
+        );
     }
 }
 
@@ -2091,8 +2223,8 @@ contract TestMinterIntegralDisallowSubsidyReverseLimitedReservePrice1BillionthCo
 
     /// @notice A mint in the same regime that runs to completion across a fee band's bound.
     /// @dev One of the split mint's calls rounds away a pegged wei before the call that crosses the bound. That moves
-    ///      the fee by 3.5 million wrapped wei, a quarter of a billionth of it: the band crossing that
-    ///      `_mintPeggedFeeDrift` bounds, which no bound in proportion to the state admits.
+    ///      the fee by 3.5 million wrapped wei, a quarter of a billionth of it: the cut shift `_crossedBoundsGapE18`
+    ///      bounds, which no bound in proportion to the state admits.
     function test_mintPeggedRange_bandCrossingCounterexample() public {
         test_mintPeggedRange_(123456789000000000000, 50000000000000000000, 1599999999999999999);
     }
