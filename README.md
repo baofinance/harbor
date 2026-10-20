@@ -18,11 +18,11 @@
 
 ### harbor
 
-[![CI](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml)
+[![CI](https://github.com/baofinance/harbor/actions/workflows/test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/harbor/actions/workflows/test-foundry-stable.yml)
 
 ### bao-base
 
-[![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/test.yml)
+[![CI](https://github.com/baofinance/bao-base/actions/workflows/test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/test-foundry-stable.yml)
 
 # Introduction
 

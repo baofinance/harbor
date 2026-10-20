@@ -1,4 +1,4 @@
-# A copy of lib/bao-base/.github/workflows/CI-test-foundry-stable.yml, differing only in where the
+# A copy of lib/bao-base/.github/workflows/test-foundry-stable.yml, differing only in where the
 # action lives. bin/workflow_copy.py enforces that. Edit the bao-base original, not this copy.
 
 name: test-foundry-stable
