@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 
-import {HolderCaptureLib} from "@harbor-script/verify/holders/HolderCaptureLib.sol";
+import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 
 /// @notice HolderCaptureLib reads a capture written by `capture-holders` - the block it scanned to, and each pool's or
 ///         token's holder list - and judges a stability pool's ledger gap. The capture read is an incident's, kept in

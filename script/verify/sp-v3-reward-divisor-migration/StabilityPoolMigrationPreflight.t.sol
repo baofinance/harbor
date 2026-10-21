@@ -15,7 +15,7 @@ import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
 import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
-import {HolderCaptureLib} from "@harbor-script/verify/holders/HolderCaptureLib.sol";
+import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 
 /// @title StabilityPoolMigrationPreflight — is every deployed pool safe to upgrade v2->v3 with a plain upgrade?
 /// @notice The v2->v3 reward-divisor migration relies on the delta encoding: a plain `upgradeToAndCall(v3)` leaves
@@ -57,7 +57,7 @@ contract StabilityPoolMigrationPreflight is
     Deploy_MCAP_Minter,
     Deploy_SILVER_Minter
 {
-    /// @dev The capture this run checks, as produced by `script/verify/holders/capture-holders`. Set `SP_HOLDERS_DIR`
+    /// @dev The capture this run checks, as produced by `script/holders/capture-holders`. Set `SP_HOLDERS_DIR`
     ///      to point at one; the default is the capture tool's own default, which is deliberately NON-PERMANENT. A
     ///      capture for an upgrade is provisional until the upgrade has been verified end to end - only then is it worth
     ///      keeping - so nothing here writes to a tracked location.

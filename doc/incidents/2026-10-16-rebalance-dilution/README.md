@@ -2,13 +2,14 @@
 
 Two markets were exploited the same way on 2026-10-16, 124 blocks apart, by different senders:
 
-| Market | Figures | Every account's change, in wei |
-|---|---|---|
-| BTC::stETH | [BTC-stETH-figures.md](BTC-stETH-figures.md) | [BTC-stETH-accounts.csv](BTC-stETH-accounts.csv) |
-| EUR::stETH | [EUR-stETH-figures.md](EUR-stETH-figures.md) | [EUR-stETH-accounts.csv](EUR-stETH-accounts.csv) |
+| Market | Figures | Every account's change, in wei | With the new contracts | Each account's correction, in wei |
+|---|---|---|---|---|
+| BTC::stETH | [BTC-stETH-figures.md](BTC-stETH-figures.md) | [BTC-stETH-accounts.csv](BTC-stETH-accounts.csv) | [BTC-stETH-new-contracts.md](BTC-stETH-new-contracts.md) | [BTC-stETH-corrections.csv](BTC-stETH-corrections.csv) |
+| EUR::stETH | [EUR-stETH-figures.md](EUR-stETH-figures.md) | [EUR-stETH-accounts.csv](EUR-stETH-accounts.csv) | [EUR-stETH-new-contracts.md](EUR-stETH-new-contracts.md) | [EUR-stETH-corrections.csv](EUR-stETH-corrections.csv) |
 
 Every figure is in those files. They are generated from the chain by
-`script/verify/incidents/run-rebalance-dilution-report`, which checks a market's files before writing them. This page
+`script/verify/incidents/run-rebalance-dilution-report`, which checks a market's files before writing them, from the
+holder captures at each exploit's block (`holders-<block>/`, written by `script/holders/capture-holders`). This page
 explains the figures and carries none of its own.
 
 ## Summary
@@ -70,7 +71,7 @@ if (leverageRatio_ == _LEVERAGE_RATIO_CAP) {
   overpays the pool, and every other leveraged holder is diluted by the difference. Each figures file shows the rate
   paid against the fair rate.
 - **Minter_v3 converts at the fair rate at every collateral ratio**
-  (`src/minter/library/MinterAdjustments_v1.sol:671-694`).
+  (`src/minter/library/MinterAdjustments_v1.sol:671-694`). Each new-contracts file shows the exploit against it.
 
 Three things let one transaction exploit it:
 - anyone can call `rebalance` (StabilityPoolManager_v1, and v2 too);
@@ -102,9 +103,9 @@ How the values are worked out:
 - **The reference is the state just before the transaction, at its block's time.** A correction undoes that
   transaction's effect on each account. Rewards that stream over time are read as at that moment. A chain read at the
   end of the previous block shows them slightly lower, by what streamed in the 12 seconds between, which the
-  transaction did not cause. Undoing the whole transaction, rather than only its overpayment, matches what the
-  attacker would have done without the bug: paid the fair rate, the rebuilt attacker loses money (each figures file's
-  Minter_v3 row), so the transaction was worth sending only because of the overpayment.
+  transaction did not cause. Undoing the whole transaction, rather than only its overpayment, is what the new
+  contracts would have done: replayed on the market upgraded to them, the transaction changes nothing (each
+  new-contracts file). Each corrections file is that undoing, row by row: the reverse of the accounts file.
 - **Each position is valued in wrapped collateral at its own end's prices.**
   - A wrapped-collateral position counts its own amount, so its value change equals its token change exactly.
   - Any other position counts its amount times the minter's price for its token, over the oracle's price for the
@@ -169,10 +170,24 @@ with that market's exploit's own mints and loan.
 - **Both pools must move with the manager.** StabilityPoolManager_v2 calls `maxAssetLoss()`, which only
   StabilityPool_v3 has.
 - **The test upgrades all four together**, through the existing harness (`test/harness/DeployedMarket.sol`), and
-  restores the deployed rebalance threshold and bounty.
-- **The real transaction is not replayed under v3.** It calls the old manager, which cannot call Minter_v3, so the
-  replay would fail whatever the conversion did. The rebuilt attacker carries the result: it still reaches the capped
-  zone and still triggers the rebalance, but it is paid the fair rate and loses.
+  restores the deployed rebalance threshold and bounty. The rebuilt attacker still reaches the capped zone and still
+  triggers the rebalance, but it is paid the fair rate and loses.
+
+### The exploits against the new contracts
+
+Each new-contracts file upgrades its market just before its exploit by `UpgradeMarketToV3.upgradeMarketsToV3`
+(`script/src/UpgradeMarketToV3.sol`), the function the upgrade script `script/Upgrade_MarketsToV3_mainnet.s.sol`
+runs. It upgrades in place, as production will: the minter to Minter_v3, each pool through
+`StabilityPool_v3_Upgrader` with every holder in the capture and the pool's ledger gap, and the manager to
+StabilityPoolManager_v2 at its own address. The pools are StabilityPool_v3 with StabilityPool_v2's claim functions put
+back, because the exploits call them.
+- **The upgrade moves no token.** Every holder's wallet and deposits read the same before and after it, and each
+  reward the same to within the rounding the file derives.
+- **The exploit's own transaction changes nothing.** Paid the fair rate, it cannot repay its flash loan, and a trace
+  shows it reverting there.
+- **Without a flash loan the attack still runs, and loses.** The rebuilt attacker, with the loan as its own capital,
+  triggers the rebalance at the fair rate; the file shows every party's gain or loss, as the figures file does for the
+  exploit.
 
 ## Exposure of the other markets
 
@@ -187,8 +202,8 @@ at its exploit's block:
 1. **Keep the managers paused until a fix is in place.** Unpausing reopens the hole.
 2. **Refuse leveraged redemption below a collateral ratio of 1.10 on every Minter_v2 market** before unpausing, if
    Minter_v3 is not yet deployed. This is a config change only. EUR::fxUSD needs its own edit.
-3. **Bring the Minter_v3 deployment forward.** Upgrade the minter, the manager and both pools together. This is the
-   fix for the cause.
+3. **Bring the Minter_v3 deployment forward.** Upgrade the minter, the manager and both pools together, with
+   `script/Upgrade_MarketsToV3_mainnet.s.sol`. This is the fix for the cause.
 4. **Do not rely on a larger early-withdrawal fee.** An attacker who prepares one withdrawal delay ahead avoids it.
 5. **Decide on compensation** for the accounts listed in the two accounts files.
 

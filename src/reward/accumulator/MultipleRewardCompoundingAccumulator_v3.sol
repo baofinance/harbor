@@ -489,7 +489,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         }
     }
 
-    function _claimOneToken(address account, address token, uint256 cap) private returns (uint256 amount) {
+    function _claimOneToken(address account, address token, uint256 cap) internal returns (uint256 amount) {
         ClaimDataV3 storage rewards = _getMultipleRewardCompoundingAccumulatorStorage()
             .userRewardSnapshot[account][token]
             .rewards;

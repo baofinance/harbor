@@ -26,8 +26,9 @@ import {goldMintersConfig} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {silverMintersConfig} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
-import {HolderCaptureLib} from "@harbor-script/verify/holders/HolderCaptureLib.sol";
+import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 
+import {IncidentMarketUpgrade} from "@harbor-script/verify/incidents/IncidentMarketUpgrade.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 import {
@@ -57,8 +58,18 @@ import {
 abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     /// @dev Where the incident's files go: one figures file and one accounts file per exploited market, beside the
     ///      hand-written explanation of both and the holder capture at each exploit's block, `holders-<block>/`, written
-    ///      by `script/verify/holders/capture-holders`.
+    ///      by `script/holders/capture-holders`.
     string internal constant DIRECTORY = "doc/incidents/2026-10-16-rebalance-dilution/";
+    /// @dev The header of an accounts file: each row is one account's position in one token, from one reading to the
+    ///      next.
+    string internal constant ACCOUNTS_HEADER =
+        "account,role,position,token,before,after,change,value_change_pegged,value_change_wrapped\n";
+    /// @dev The header of a corrections file: each row takes one account's position in one token from what the exploit
+    ///      left back to what it held before the exploit.
+    string internal constant CORRECTIONS_HEADER =
+        "account,role,position,token,after_exploit,corrected,correction,correction_value_pegged,correction_value_wrapped\n";
+    /// @dev The rebuilt attacker's role in the new-contracts figures: it keeps what the attack pays it.
+    string internal constant OWN_CAPITAL_ATTACKER = "attacker with its own capital, paid by the exploit";
 
     /// @notice What one account holds: tokens in its wallet, and its positions in the two pools.
     struct Holding {
@@ -167,13 +178,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     function test_writeFigures() public {
-        // What the exploit did - who acted, who it paid, its mints - learned from one replay, then undone.
-        uint256 start = vm.snapshotState();
-        vm.recordLogs();
-        vm.transact(exploitTransaction());
-        Transaction memory exploit = _decode(vm.getRecordedLogs());
-        vm.revertToState(start);
-
+        Transaction memory exploit = _decodeExploit();
         _findParties(exploit.recipients);
         uint256 beforeExploit = vm.snapshotState();
         Reading memory before = _read();
@@ -187,12 +192,81 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             _partiesSections(before, afterwards),
             _callerSection(exploit, before, afterwards)
         );
-        string memory accounts = _accountsCsv(before, afterwards);
+        string memory accounts = _accountsCsv(ACCOUNTS_HEADER, before, afterwards);
         figures = string.concat(figures, _mitigationSection(beforeExploit, exploit), _marketsSection(beforeExploit));
         string memory market_ = _marketLabel();
         vm.createDir(DIRECTORY, true);
         vm.writeFile(string.concat(DIRECTORY, market_, "-figures.md"), figures);
         vm.writeFile(string.concat(DIRECTORY, market_, "-accounts.csv"), accounts);
+    }
+
+    /// @notice The exploit against the new contracts. Just before it, the market is upgraded by the upgrade script's
+    ///         own function; the exploit's transaction is replayed on it; and the rebuilt attacker runs the same attack
+    ///         without a flash loan, with the exploit's mints and the loan as its own capital. Writes
+    ///         `<market>-new-contracts.md`; every account's change in the attack without a flash loan, in wei, to
+    ///         `<market>-new-contracts-accounts.csv`; and - since on the new contracts the exploit's transaction changes
+    ///         nothing - each account's correction back to what it held before the exploit, in wei, to
+    ///         `<market>-corrections.csv`.
+    function test_writeNewContractsFigures() public {
+        Transaction memory exploit = _decodeExploit();
+        _findParties(exploit.recipients);
+        // Deployed before the snapshot, so it survives going back to it and every reading follows the same parties.
+        address attacker = address(new RebalanceDilutionAttacker(market, exploit.mints));
+        _addRole(attacker, OWN_CAPITAL_ATTACKER);
+
+        uint256 start = vm.snapshotState();
+        Reading memory before = _read();
+        vm.transact(exploitTransaction());
+        string memory corrections = _accountsCsv(CORRECTIONS_HEADER, _read(), before);
+        vm.revertToState(start);
+
+        new IncidentMarketUpgrade(exploitedMarket, _captureDirectory()).run(SALT_PREFIX);
+        Reading memory upgraded = _read();
+        string memory upgrade = _upgradeSection(before, upgraded);
+
+        vm.transact(exploitTransaction());
+        assertEq(
+            keccak256(abi.encode(_read())),
+            keccak256(abi.encode(upgraded)),
+            "the exploit's transaction changes nothing on the new contracts"
+        );
+
+        (string memory ownCapital, string memory accounts) = _ownCapitalAttack(exploit, attacker);
+        string memory market_ = _marketLabel();
+        vm.writeFile(
+            string.concat(DIRECTORY, market_, "-new-contracts.md"),
+            string.concat(_newContractsHeader(), ownCapital, _replaySection(), upgrade)
+        );
+        vm.writeFile(string.concat(DIRECTORY, market_, "-new-contracts-accounts.csv"), accounts);
+        vm.writeFile(string.concat(DIRECTORY, market_, "-corrections.csv"), corrections);
+    }
+
+    /// @dev The rebuilt attacker's run on the market as it stands, with the exploit's loan as its own capital: the
+    ///      figures' section for it, with the exploit's tables for this attack, and every account's change in wei.
+    function _ownCapitalAttack(
+        Transaction memory exploit,
+        address attacker
+    ) internal returns (string memory section, string memory accounts) {
+        deal(market.wrappedCollateral, attacker, exploit.borrowed);
+        Reading memory armed = _read();
+        Outcome memory outcome = _runAttack(attacker, attacker, exploit.borrowed);
+        Reading memory attacked = _read();
+        section = string.concat(_ownCapitalSection(exploit, outcome), _partiesSections(armed, attacked));
+        accounts = _accountsCsv(ACCOUNTS_HEADER, armed, attacked);
+    }
+
+    /// @dev What the exploit did - who acted, who it paid, its mints - learned from one replay, then undone.
+    function _decodeExploit() internal returns (Transaction memory exploit) {
+        uint256 start = vm.snapshotState();
+        vm.recordLogs();
+        vm.transact(exploitTransaction());
+        exploit = _decode(vm.getRecordedLogs());
+        vm.revertToState(start);
+    }
+
+    /// @dev The holder capture at the exploit's block.
+    function _captureDirectory() internal view returns (string memory) {
+        return string.concat(DIRECTORY, "holders-", vm.toString(block.number), "/");
     }
 
     /// @dev The exploited market, as its files are named: `<peg>-<collateral>`.
@@ -213,7 +287,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     ///      for the pegged or the leveraged token (each account it has been sent to), the fee receivers, the reserve pool
     ///      and the accounts the exploit paid - less the market's own contracts, whose wallets are read separately.
     function _findParties(address[] memory paidByTheExploit) internal {
-        string memory capture = string.concat(DIRECTORY, "holders-", vm.toString(block.number), "/");
+        string memory capture = _captureDirectory();
         assertEq(HolderCaptureLib.captureBlock(capture), block.number, "the holder capture is at the exploit's block");
         string[4] memory salts = [
             productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Leveraged),
@@ -1186,8 +1260,12 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     /// @dev One row per account, position and token whose amount or value changed: the amounts the contracts report
     ///      before and after the transaction and the change, in wei; and the change in value, in pegged-unit wei and in
     ///      wrapped-collateral wei, valued as `_header` states.
-    function _accountsCsv(Reading memory before, Reading memory afterwards) internal view returns (string memory csv) {
-        csv = "account,role,position,token,before,after,change,value_change_pegged,value_change_wrapped\n";
+    function _accountsCsv(
+        string memory header,
+        Reading memory before,
+        Reading memory afterwards
+    ) internal view returns (string memory csv) {
+        csv = header;
         for (uint256 i = 0; i < parties.length; ++i) {
             for (uint256 position = 0; position < 8; ++position) {
                 csv = string.concat(csv, _accountRow(before, afterwards, i, position));
@@ -1279,6 +1357,252 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             return prices.leveraged;
         }
         return prices.pegged;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The new contracts
+    // ---------------------------------------------------------------------------------------------------------------
+
+    function _newContractsHeader() internal view returns (string memory) {
+        string memory market_ = _marketLabel();
+        return
+            string.concat(
+                string.concat(
+                    "# The new contracts against the rebalance dilution exploit of ",
+                    IMarketConfig(address(exploitedMarket)).peg(),
+                    "::",
+                    IMarketConfig(address(exploitedMarket)).collateral(),
+                    ", 2026-10-16\n\n",
+                    "Generated by `script/verify/incidents/RebalanceDilutionReport.t.sol`; run ",
+                    "`script/verify/incidents/run-rebalance-dilution-report` to regenerate. Do not edit by hand. ",
+                    "The explanation is in [README.md](README.md); the exploit's own figures are in [",
+                    market_,
+                    "-figures.md](",
+                    market_,
+                    "-figures.md), whose conventions these follow.\n\n"
+                ),
+                string.concat(
+                    "On a fork at transaction `",
+                    vm.toString(exploitTransaction()),
+                    "`, block ",
+                    vm.toString(block.number),
+                    ", just before the exploit, the market is upgraded to Minter_v3, StabilityPool_v3 and ",
+                    "StabilityPoolManager_v2 by `UpgradeMarketToV3.upgradeMarketsToV3` - the function ",
+                    "`script/Upgrade_MarketsToV3_mainnet.s.sol` runs - with the holder capture at the exploit's block. ",
+                    "Its pools are StabilityPool_v3 with StabilityPool_v2's claim functions put back ",
+                    "(`StabilityPool_v3WithV2Claims`), because the exploit calls them.\n\n"
+                )
+            );
+    }
+
+    /// @dev Reports the pools' gaps, the holders migrated and the market's figures under each minter, once
+    ///      `_assertUpgradeKept` has checked the upgrade moved no token.
+    function _upgradeSection(Reading memory before, Reading memory upgraded) internal returns (string memory) {
+        uint256[2] memory supplies = [
+            IStabilityPool(market.leveragedPool).totalAssetSupply(),
+            IStabilityPool(market.collateralPool).totalAssetSupply()
+        ];
+        int256[2] memory gaps = [before.leveragedPoolGap, before.collateralPoolGap];
+        (uint256 changed, uint256 largest) = _assertUpgradeKept(before, upgraded, supplies, gaps);
+        string memory table = string.concat(
+            _upgradedPoolsTable(supplies, gaps),
+            "\nEvery party's wallet balances and pool deposits, and everything the pools and the manager hold, read the "
+            "same after the upgrade as before it. The upgrader copies each holder's settled reward exactly. A reward "
+            "still streaming is divided by what the holders hold - the supply less the gap - where StabilityPool_v2 "
+            "divided by the supply, so it may read up to that share more, plus a wei of rounding: ",
+            vm.toString(changed),
+            " rewards read differently, by at most ",
+            vm.toString(largest),
+            " wei.\n\n"
+        );
+        return string.concat(table, _upgradedMarketTable(before, upgraded));
+    }
+
+    /// @dev Each pool's holders migrated from the capture, its supply and the ledger gap the upgrade seeded.
+    function _upgradedPoolsTable(
+        uint256[2] memory supplies,
+        int256[2] memory gaps
+    ) internal returns (string memory) {
+        string memory pegged = _symbol(market.pegged);
+        uint256 leveragedHolders = HolderCaptureLib
+            .holders(
+                _captureDirectory(),
+                productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Leveraged)
+            )
+            .length;
+        uint256 collateralHolders = HolderCaptureLib
+            .holders(
+                _captureDirectory(),
+                productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Collateral)
+            )
+            .length;
+        return
+            string.concat(
+                "## The upgrade\n\n| | Leveraged pool | Collateral pool |\n|---|---|---|\n",
+                _row3("Holders migrated, from the capture", vm.toString(leveragedHolders), vm.toString(collateralHolders)),
+                _row3(string.concat("Supply, wei of ", pegged), vm.toString(supplies[0]), vm.toString(supplies[1])),
+                _row3(string.concat("Ledger gap seeded, wei of ", pegged), vm.toString(gaps[0]), vm.toString(gaps[1]))
+            );
+    }
+
+    /// @dev Asserts the upgrade moved no token: every party's and every contract's wallet balances and pool deposits
+    ///      read the same after it as before, and each pool reward the same to within `_rewardBound`. Returns how many
+    ///      rewards read differently, and the largest difference.
+    function _assertUpgradeKept(
+        Reading memory before,
+        Reading memory upgraded,
+        uint256[2] memory supplies,
+        int256[2] memory gaps
+    ) internal view returns (uint256 changed, uint256 largest) {
+        assertEq(
+            keccak256(abi.encode(upgraded.contracts)),
+            keccak256(abi.encode(before.contracts)),
+            "the upgrade moves nothing the pools and the manager hold"
+        );
+        for (uint256 i = 0; i < parties.length; ++i) {
+            uint256[8] memory was = _amounts(before.parties[i]);
+            uint256[8] memory is_ = _amounts(upgraded.parties[i]);
+            for (uint256 position = 0; position < 8; ++position) {
+                if (position == 4 || position == 5 || position == 7) {
+                    uint256 difference = _abs(int256(is_[position]) - int256(was[position]));
+                    assertLe(
+                        difference,
+                        position == 7
+                            ? _rewardBound(is_[position], gaps[1], supplies[1])
+                            : _rewardBound(is_[position], gaps[0], supplies[0]),
+                        _positionLabel(i, position)
+                    );
+                    if (difference > 0) {
+                        ++changed;
+                        largest = Math.max(largest, difference);
+                    }
+                } else {
+                    assertEq(is_[position], was[position], _positionLabel(i, position));
+                }
+            }
+        }
+    }
+
+    /// @dev How far the upgrade can move a pool reward reading `reward` after it. The upgrader copies each holder's
+    ///      settled reward exactly. v3 divides a stream not yet settled by what the holders hold - the supply less the
+    ///      ledger gap - where v2 divided by the supply, which moves a holder's share of it by at most the gap over
+    ///      that divisor, rounded up; and each version floors the share once, which adds a wei.
+    function _rewardBound(uint256 reward, int256 gap, uint256 supply) internal pure returns (uint256) {
+        return Math.mulDiv(reward, _abs(gap), uint256(int256(supply) - gap), Math.Rounding.Ceil) + 1;
+    }
+
+    /// @dev The upgrade check's message for party `party`'s position `position`.
+    function _positionLabel(uint256 party, uint256 position) internal view returns (string memory) {
+        return
+            string.concat(
+                "the upgrade keeps ",
+                vm.toString(parties[party].account),
+                "'s position ",
+                vm.toString(position)
+            );
+    }
+
+    /// @dev The market's figures under Minter_v2 just before the upgrade, and under Minter_v3 just after it.
+    function _upgradedMarketTable(Reading memory before, Reading memory upgraded) internal view returns (string memory) {
+        string memory leveraged = _symbol(market.leveraged);
+        return
+            string.concat(
+                "| | Minter_v2 | Minter_v3 |\n|---|---|---|\n",
+                _row3(
+                    string.concat("1 ", leveraged, " in pegged units"),
+                    _exact(before.prices.leveraged),
+                    _exact(upgraded.prices.leveraged)
+                ),
+                _row3(
+                    string.concat("1 ", _symbol(market.pegged), " in pegged units"),
+                    _exact(before.prices.pegged),
+                    _exact(upgraded.prices.pegged)
+                ),
+                _row3(
+                    "Collateral backing (underlying)",
+                    _exact(before.collateralBacking),
+                    _exact(upgraded.collateralBacking)
+                ),
+                _row3("Collateral ratio", _fixed(before.collateralRatio, 4), _fixed(upgraded.collateralRatio, 4)),
+                "\n"
+            );
+    }
+
+    function _replaySection() internal view returns (string memory) {
+        string memory market_ = _marketLabel();
+        string memory text = string.concat(
+            "## The exploit's transaction on the upgraded market\n\n",
+            "Replayed on the upgraded market, the transaction leaves every holding, price and supply exactly as it ",
+            "found them. On the new contracts the exploit changes nothing, so each ",
+            "account's correction takes it back to what it held just before the exploit - the reverse of its change ",
+            "in [",
+            market_,
+            "-accounts.csv](",
+            market_
+        );
+        return
+            string.concat(
+                text,
+                "-accounts.csv) - and is written, in wei, to [",
+                market_,
+                "-corrections.csv](",
+                market_,
+                "-corrections.csv).\n\n"
+            );
+    }
+
+    function _ownCapitalSection(
+        Transaction memory exploit,
+        Outcome memory outcome
+    ) internal view returns (string memory) {
+        string memory wrapped = _symbol(market.wrappedCollateral);
+        string memory intro = string.concat(
+            "## Without a flash loan\n\nThe exploit borrowed ",
+            _exact(exploit.borrowed),
+            " ",
+            wrapped,
+            " for the length of its transaction, and had to repay it. The same attack with that much of its own ",
+            "capital has nothing to repay. The rebuilt attacker that the exploit's figures run the mitigations with ",
+            "runs it here, on the upgraded market: the exploit's mints, in order; its pegged deposit in the leveraged ",
+            "pool; leveraged redemptions down to its target collateral ratio, or until the minter redeems no more; the ",
+            "rebalance; and everything turned back into "
+        );
+        intro = string.concat(
+            intro,
+            wrapped,
+            ". The tables after this one are the exploit's tables, for this attack; the attacker is the party \"",
+            OWN_CAPITAL_ATTACKER,
+            "\".\n\n| | |\n|---|---|\n"
+        );
+        intro = string.concat(
+            intro,
+            _row2("Rebalanced", outcome.rebalance.rebalanced ? "yes" : "no"),
+            _row2("Collateral ratio at the rebalance", _fixed(outcome.rebalance.collateralRatio, 4)),
+            _row2(
+                string.concat(_symbol(market.pegged), " the rebalance converted"),
+                _exact(outcome.rebalance.peggedConverted)
+            )
+        );
+        intro = string.concat(
+            intro,
+            _row2(
+                string.concat(_symbol(market.leveraged), " it minted for them"),
+                _exact(outcome.rebalance.leveragedMinted)
+            ),
+            _row2(
+                "1 leveraged token in pegged units, before / after the attack",
+                string.concat(_exact(outcome.leveragedPriceBefore), " / ", _exact(outcome.leveragedPriceAfter))
+            )
+        );
+        return
+            string.concat(
+                intro,
+                _row2(
+                    string.concat("The attacker's gain, ", wrapped, ", as the mitigation table measures it"),
+                    _exactSigned(outcome.attackerGain)
+                ),
+                "\n"
+            );
     }
 
     // ---------------------------------------------------------------------------------------------------------------
