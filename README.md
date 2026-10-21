@@ -33,9 +33,9 @@ Harbor turns a single yield-bearing collateral asset into **two tokens with oppo
 
 Every unit of collateral value is claimed by exactly one of the two, so they are complementary by construction — the anchor holder gets stability, and the sail holder is paid to carry the price risk that provides it.
 
-The protocol's job is to keep that split solvent, meaning the collateral it holds is always worth at least the anchor tokens it has issued. Four mechanisms do that: a fee and discount schedule that varies with the collateral ratio, stability pools that can be drawn down to restore it, a reserve pool funding the discounts, and a per-contract pause.
+The protocol's job is to keep that split solvent, meaning the collateral it holds is always worth at least the anchor tokens it has issued. Four mechanisms do that: a fee and subsidy schedule that varies with the collateral ratio, stability pools that can be drawn down to restore it, a reserve pool funding the subsidies, and a per-contract pause.
 
-Harbor is deployed once per **market** — one (collateral, underlying) pair — and each market is independent, with its own tokens, pools and solvency.
+Harbor is deployed once per **market** — one (collateral, underlying) pair — and each market is independent, with its own sail token, pools and solvency. The anchor token is shared by every market with the same underlying, and each market redeems only the anchor tokens it minted.
 
 ## Documentation
 
@@ -48,8 +48,15 @@ Harbor is deployed once per **market** — one (collateral, underlying) pair —
 | [Risk parameters](doc/guides/risk-parameters.md) | Collateral ratio thresholds and their meaning |
 | [Oracle price feeds](doc/guides/oracle-price-feeds.md) | How prices are sourced and validated |
 | [Numerical envelope](doc/DataEnvelope.md) | What the stack can hold, and the limits testing located |
-| [HarborYield design](https://github.com/baofinance/harbor-yield/blob/main/doc/design.md) | The yield layer above the stability pools — designed and deployed in the harbor-yield repository |
+| HarborYield design | The yield layer above the stability pools — `doc/design.md` in the harbor-yield repository (see [Related repositories](#related-repositories)) |
 | [Deployment design](doc/harbor-deployment.md) | Peg families, markets, seeding and deploy switches |
+
+## Related repositories
+
+| Repository | What it holds |
+|---|---|
+| [harbor-yield](https://github.com/baofinance/harbor-yield) | The yield layer above the stability pools: its contracts, deployment and design (`doc/design.md`) |
+| [bao-base](lib/bao-base) | Shared contracts, deployment framework and tooling, included here as a submodule |
 
 # Development
 

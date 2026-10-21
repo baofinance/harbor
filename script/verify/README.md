@@ -59,6 +59,17 @@ StabilityPool v3 upgrade and accumulator force-migration.
 - `capture-sp-holders --to-block <block>` — every account that has held a position in each stability pool, the capture
   the v3 pre-flight checks
 
+### [incidents/](incidents/)
+
+The figures of an incident report, generated from the chain so none is copied by hand.
+
+- `RebalanceDilutionReport.t.sol` — on a fork at the 2026-10-16 exploit of BTC::stETH: finds every holder, replays
+  the exploit, values every party before and after, decodes the transaction, runs the mitigations, and writes
+  `doc/incidents/2026-10-16-rebalance-dilution-figures.md`. It checks that the holders found hold the whole supplies,
+  that every party's change sums to zero and that the caller's flows sum to its proceeds, each to within rounding,
+  before writing
+- `run-rebalance-dilution-report` — runs it (needs `MAINNET_RPC_URL`, archival)
+
 ### [roles/](roles/)
 
 Post-deployment role verification. Run after any deployment to verify roles are correct.
