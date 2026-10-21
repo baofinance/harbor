@@ -32,8 +32,9 @@ import {
     RebalanceDilutionFork
 } from "@harbor-test/deployment/RebalanceDilutionFork.sol";
 
-/// @notice Writes every figure of the report on the exploit of 2026-10-16 into `FIGURES`, from the chain and from the
-///         exploit replayed on a fork, so that no figure in the report is copied by hand.
+/// @notice Writes every figure of the report on the exploit of 2026-10-16 into `FIGURES`, and every account's change, in
+///         wei, into `ACCOUNTS`, from the chain and from the exploit replayed on a fork, so that no figure is copied by
+///         hand and the balances can be corrected from exact amounts.
 ///
 /// It finds every account that has held a position in either stability pool or held the leveraged token, reads what
 /// each holds, replays the exploit, and reads again. It decodes the transaction's actions, the fees and the caller's
@@ -45,6 +46,8 @@ import {
 /// caller's flows sum to its proceeds, to within the rounding of its trades. A failed check leaves the file as it was.
 contract RebalanceDilutionReport is RebalanceDilutionFork {
     string internal constant FIGURES = "doc/incidents/2026-10-16-rebalance-dilution-figures.md";
+    /// @dev Every account's change, position by position and in wei: the input to correcting their balances.
+    string internal constant ACCOUNTS = "doc/incidents/2026-10-16-rebalance-dilution-accounts.csv";
     /// @dev The most blocks the RPC lets one log query span.
     uint256 internal constant LOG_QUERY_BLOCKS = 10_000;
     /// @dev A pause between log queries, in milliseconds, to stay under the RPC's rate limit.
@@ -164,8 +167,10 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             _partiesSections(before, afterwards),
             _callerSection(exploit, before, afterwards)
         );
+        string memory accounts = _accountsCsv(before, afterwards);
         figures = string.concat(figures, _mitigationSection(beforeExploit), _marketsSection(beforeExploit));
         vm.writeFile(FIGURES, figures);
+        vm.writeFile(ACCOUNTS, accounts);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -609,9 +614,21 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
                 " (",
                 BaoTestLib.toUtcString(block.timestamp),
                 "), replayed on a fork with `vm.transact`. Before is the state the transaction started from; after ",
-                "is the state it left. Values are in ",
+                "is the state it left. Both are read at the block's time, so a reward that streams over time is read ",
+                "as at that moment: a chain read at the end of the previous block shows such a reward slightly lower, ",
+                "by what streamed in between, which the transaction did not cause.\n\n",
+                "Every amount, price and value is printed in full, to all 18 decimals; only ratios and rates are ",
+                "rounded. Values are in ",
                 _symbol(market.wrappedCollateral),
-                " at the oracle's price, which did not move within the block.\n\n"
+                ". Each position is valued at its own end's prices: a ",
+                _symbol(market.wrappedCollateral),
+                " position at its amount; a token position at its amount times the minter's price for the token, over ",
+                "the oracle's price for ",
+                _symbol(market.wrappedCollateral),
+                ", floored to the wei. A change in value is the value after less the value before, so an account's ",
+                "figures here are the sums of its rows in the accounts file. The books check values in pegged units. ",
+                "Every account's change, position by position and in wei, is in ",
+                "[2026-10-16-rebalance-dilution-accounts.csv](2026-10-16-rebalance-dilution-accounts.csv).\n\n"
             );
     }
 
@@ -640,21 +657,21 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             table,
             _row3(
                 string.concat("1 ", leveraged, " in pegged units"),
-                _fixed(before.prices.leveraged, 6),
-                _fixed(afterwards.prices.leveraged, 6)
+                _exact(before.prices.leveraged),
+                _exact(afterwards.prices.leveraged)
             )
         );
         table = string.concat(
             table,
-            _row3("Collateral backing (underlying)", _fixed(before.collateralBacking, 4), _fixed(afterwards.collateralBacking, 4))
+            _row3("Collateral backing (underlying)", _exact(before.collateralBacking), _exact(afterwards.collateralBacking))
         );
         table = string.concat(
             table,
-            _row3(string.concat(pegged, " outstanding"), _fixed(before.peggedSupply, 4), _fixed(afterwards.peggedSupply, 4))
+            _row3(string.concat(pegged, " outstanding"), _exact(before.peggedSupply), _exact(afterwards.peggedSupply))
         );
         table = string.concat(
             table,
-            _row3(string.concat(leveraged, " outstanding"), _fixed(before.leveragedSupply, 4), _fixed(afterwards.leveragedSupply, 4))
+            _row3(string.concat(leveraged, " outstanding"), _exact(before.leveragedSupply), _exact(afterwards.leveragedSupply))
         );
         table = string.concat(
             table,
@@ -768,22 +785,34 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         uint256 bound = _booksBound(before, afterwards);
         assertLe(_abs(residual), bound, "every party's change sums to zero, to within the valuation's rounding");
 
+        // Shown in wrapped collateral as the accounts file values each position, so each row is the sum of its rows there.
+        int256[6] memory shown; // held, leveraged pool, collateral pool, fee receivers, reserve pool, exploit's sender
+        for (uint256 i = 0; i < parties.length; ++i) {
+            uint256 kind = _kind(parties[i].role);
+            if (kind == 0) {
+                shown[0] += _wrappedChange(before, afterwards, i, 0, 3);
+                shown[1] += _wrappedChange(before, afterwards, i, 3, 6);
+                shown[2] += _wrappedChange(before, afterwards, i, 6, 8);
+            } else {
+                shown[kind + 2] += _wrappedChange(before, afterwards, i, 0, 8);
+            }
+        }
         Prices memory prices = before.prices;
         string memory table = string.concat(
             "## Losses and gains by party\n\n| Party | ",
             _symbol(market.wrappedCollateral),
             " |\n|---|---|\n"
         );
-        table = string.concat(table, _row2("Holders: their own wallets", _signedWrapped(totals[0], prices)));
-        table = string.concat(table, _row2("Holders: their leveraged pool positions", _signedWrapped(totals[1], prices)));
-        table = string.concat(table, _row2("Holders: their collateral pool positions", _signedWrapped(totals[2], prices)));
+        table = string.concat(table, _row2("Holders: their own wallets", _exactSigned(shown[0])));
+        table = string.concat(table, _row2("Holders: their leveraged pool positions", _exactSigned(shown[1])));
+        table = string.concat(table, _row2("Holders: their collateral pool positions", _exactSigned(shown[2])));
         table = string.concat(
             table,
-            _row2("**All holders**", string.concat("**", _signedWrapped(totals[0] + totals[1] + totals[2], prices), "**"))
+            _row2("**All holders**", string.concat("**", _exactSigned(shown[0] + shown[1] + shown[2]), "**"))
         );
-        table = string.concat(table, _row2("Fee receivers", _signedWrapped(totals[3], prices)));
-        table = string.concat(table, _row2("Reserve pool", _signedWrapped(totals[4], prices)));
-        table = string.concat(table, _row2("The exploit's sender", _signedWrapped(totals[5], prices)));
+        table = string.concat(table, _row2("Fee receivers", _exactSigned(shown[3])));
+        table = string.concat(table, _row2("Reserve pool", _exactSigned(shown[4])));
+        table = string.concat(table, _row2("The exploit's sender", _exactSigned(shown[5])));
         table = string.concat(
             table,
             _row2("The pools' and the manager's undistributed balances", _signedWrapped(contractsChange, prices))
@@ -846,17 +875,17 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         for (uint256 i = 0; i < parties.length; ++i) {
             Holding memory b = before.parties[i];
             Holding memory a = afterwards.parties[i];
-            int256 change = _leveragedPoolValue(a, afterwards.prices) - _leveragedPoolValue(b, before.prices);
+            int256 change = _wrappedChange(before, afterwards, i, 3, 6);
             if (change == 0 && b.leveragedPoolDeposit == a.leveragedPoolDeposit) {
                 continue;
             }
             total += change;
             table = string.concat(
                 table,
-                _row5(_name(i), _signedFixed(int256(a.leveragedPoolDeposit) - int256(b.leveragedPoolDeposit), 4), _signedFixed(int256(a.leveragedPoolLeveraged) - int256(b.leveragedPoolLeveraged), 4), _signedFixed(int256(a.leveragedPoolWrapped) - int256(b.leveragedPoolWrapped), 4), _signedWrapped(change, before.prices))
+                _row5(_name(i), _exactSigned(int256(a.leveragedPoolDeposit) - int256(b.leveragedPoolDeposit)), _exactSigned(int256(a.leveragedPoolLeveraged) - int256(b.leveragedPoolLeveraged)), _exactSigned(int256(a.leveragedPoolWrapped) - int256(b.leveragedPoolWrapped)), _exactSigned(change))
             );
         }
-        table = string.concat(table, _row5("**All depositors found**", "", "", "", string.concat("**", _signedWrapped(total, before.prices), "**")), "\n");
+        table = string.concat(table, _row5("**All depositors found**", "", "", "", string.concat("**", _exactSigned(total), "**")), "\n");
     }
 
     function _collateralPoolSection(Reading memory before, Reading memory afterwards) internal view returns (string memory table) {
@@ -869,17 +898,17 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         for (uint256 i = 0; i < parties.length; ++i) {
             Holding memory b = before.parties[i];
             Holding memory a = afterwards.parties[i];
-            int256 change = _collateralPoolValue(a, afterwards.prices) - _collateralPoolValue(b, before.prices);
+            int256 change = _wrappedChange(before, afterwards, i, 6, 8);
             if (change == 0 && b.collateralPoolDeposit == a.collateralPoolDeposit) {
                 continue;
             }
             total += change;
             table = string.concat(
                 table,
-                _row4(_name(i), _signedFixed(int256(a.collateralPoolDeposit) - int256(b.collateralPoolDeposit), 4), _signedFixed(int256(a.collateralPoolWrapped) - int256(b.collateralPoolWrapped), 4), _signedWrapped(change, before.prices))
+                _row4(_name(i), _exactSigned(int256(a.collateralPoolDeposit) - int256(b.collateralPoolDeposit)), _exactSigned(int256(a.collateralPoolWrapped) - int256(b.collateralPoolWrapped)), _exactSigned(change))
             );
         }
-        table = string.concat(table, _row4("**All depositors found**", "", "", string.concat("**", _signedWrapped(total, before.prices), "**")), "\n");
+        table = string.concat(table, _row4("**All depositors found**", "", "", string.concat("**", _exactSigned(total), "**")), "\n");
     }
 
     function _heldSection(Reading memory before, Reading memory afterwards) internal view returns (string memory table) {
@@ -894,13 +923,12 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             if (leveraged == 0 || _kind(parties[i].role) != 0) {
                 continue;
             }
-            int256 change = int256(Math.mulDiv(afterwards.parties[i].leveraged, afterwards.prices.leveraged, 1 ether)) -
-                int256(Math.mulDiv(leveraged, before.prices.leveraged, 1 ether));
+            int256 change = _wrappedChange(before, afterwards, i, 2, 3);
             total += change;
             held += leveraged;
-            table = string.concat(table, _row3(_name(i), _fixed(leveraged, 6), _signedWrapped(change, before.prices)));
+            table = string.concat(table, _row3(_name(i), _exact(leveraged), _exactSigned(change)));
         }
-        table = string.concat(table, _row3("**All holders**", string.concat("**", _fixed(held, 6), "**"), string.concat("**", _signedWrapped(total, before.prices), "**")), "\n");
+        table = string.concat(table, _row3("**All holders**", string.concat("**", _exact(held), "**"), string.concat("**", _exactSigned(total), "**")), "\n");
     }
 
     function _holderSection(Reading memory before, Reading memory afterwards) internal view returns (string memory table) {
@@ -910,24 +938,49 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             ". Parties whose holdings did not change are left out.\n\n| Party | Role | Own wallet | Leveraged pool | Collateral pool | Total |\n|---|---|---|---|---|---|\n"
         );
         for (uint256 i = 0; i < parties.length; ++i) {
-            Holding memory b = before.parties[i];
-            Holding memory a = afterwards.parties[i];
-            int256 wallet = _walletValue(a, afterwards.prices) - _walletValue(b, before.prices);
-            int256 leveragedPool = _leveragedPoolValue(a, afterwards.prices) - _leveragedPoolValue(b, before.prices);
-            int256 collateralPool = _collateralPoolValue(a, afterwards.prices) - _collateralPoolValue(b, before.prices);
+            int256 wallet = _wrappedChange(before, afterwards, i, 0, 3);
+            int256 leveragedPool = _wrappedChange(before, afterwards, i, 3, 6);
+            int256 collateralPool = _wrappedChange(before, afterwards, i, 6, 8);
             if (wallet == 0 && leveragedPool == 0 && collateralPool == 0) {
                 continue;
             }
             string[] memory cells = new string[](6);
             cells[0] = string.concat("`", vm.toString(parties[i].account), "`");
             cells[1] = parties[i].role;
-            cells[2] = _signedWrapped(wallet, before.prices);
-            cells[3] = _signedWrapped(leveragedPool, before.prices);
-            cells[4] = _signedWrapped(collateralPool, before.prices);
-            cells[5] = _signedWrapped(wallet + leveragedPool + collateralPool, before.prices);
+            cells[2] = _exactSigned(wallet);
+            cells[3] = _exactSigned(leveragedPool);
+            cells[4] = _exactSigned(collateralPool);
+            cells[5] = _exactSigned(wallet + leveragedPool + collateralPool);
             table = string.concat(table, _row(cells));
         }
         table = string.concat(table, "\n");
+    }
+
+    /// @dev The change in value of party `party`'s positions `from` up to `to`, in wrapped collateral, as the accounts
+    ///      file values each position.
+    function _wrappedChange(
+        Reading memory before,
+        Reading memory afterwards,
+        uint256 party,
+        uint256 from,
+        uint256 to
+    ) internal view returns (int256 change) {
+        uint256[8] memory amountsBefore = _amounts(before.parties[party]);
+        uint256[8] memory amountsAfter = _amounts(afterwards.parties[party]);
+        for (uint256 position = from; position < to; ++position) {
+            change += _positionWrappedValue(position, amountsAfter[position], afterwards.prices) -
+                _positionWrappedValue(position, amountsBefore[position], before.prices);
+        }
+    }
+
+    /// @dev A position's value in wrapped collateral: its own amount, for wrapped collateral; otherwise its amount at the
+    ///      token's price over the wrapped collateral's price, floored to the wei.
+    function _positionWrappedValue(uint256 position, uint256 amount, Prices memory prices) internal view returns (int256) {
+        address token = _positionToken(position);
+        if (token == market.wrappedCollateral) {
+            return int256(amount);
+        }
+        return int256(Math.mulDiv(amount, _priceOf(token, prices), prices.wrapped));
     }
 
     /// @dev The caller's gain, flow by flow, checked against what it sent to the exploit's sender.
@@ -960,14 +1013,14 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         table = string.concat(
             table,
             _row2(
-                string.concat("Leveraged pool: ", _fixed(exploit.callerPoolLoss, 4), " ", _symbol(market.pegged), " taken by the rebalance"),
+                string.concat("Leveraged pool: ", _exact(exploit.callerPoolLoss), " ", _symbol(market.pegged), " taken by the rebalance"),
                 _signedWrapped(flows[0], b)
             )
         );
         table = string.concat(
             table,
             _row2(
-                string.concat("Leveraged pool: ", _fixed(exploit.claimedLeveraged, 4), " ", leveraged, " claimed, at the price after"),
+                string.concat("Leveraged pool: ", _exact(exploit.claimedLeveraged), " ", leveraged, " claimed, at the price after"),
                 _signedWrapped(flows[1], b)
             )
         );
@@ -975,7 +1028,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         table = string.concat(
             table,
             _row2(
-                string.concat("Its own ", _fixed(exploit.callerLeveragedAtRebalance, 4), " ", leveraged, " held through the rebalance"),
+                string.concat("Its own ", _exact(exploit.callerLeveragedAtRebalance), " ", leveraged, " held through the rebalance"),
                 _signedWrapped(flows[3], b)
             )
         );
@@ -1026,6 +1079,108 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
+    // Every account, in wei
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @dev One row per account, position and token whose amount or value changed: the amounts the contracts report
+    ///      before and after the transaction and the change, in wei; and the change in value, in pegged-unit wei and in
+    ///      wrapped-collateral wei, valued as `_header` states.
+    function _accountsCsv(Reading memory before, Reading memory afterwards) internal view returns (string memory csv) {
+        csv = "account,role,position,token,before,after,change,value_change_pegged,value_change_wrapped\n";
+        for (uint256 i = 0; i < parties.length; ++i) {
+            for (uint256 position = 0; position < 8; ++position) {
+                csv = string.concat(csv, _accountRow(before, afterwards, i, position));
+            }
+        }
+    }
+
+    /// @dev Party `party`'s row for `position`, or nothing if neither its amount nor its value changed.
+    function _accountRow(
+        Reading memory before,
+        Reading memory afterwards,
+        uint256 party,
+        uint256 position
+    ) internal view returns (string memory) {
+        uint256 amountBefore = _amounts(before.parties[party])[position];
+        uint256 amountAfter = _amounts(afterwards.parties[party])[position];
+        address token = _positionToken(position);
+        int256 peggedChange = int256(Math.mulDiv(amountAfter, _priceOf(token, afterwards.prices), 1 ether)) -
+            int256(Math.mulDiv(amountBefore, _priceOf(token, before.prices), 1 ether));
+        if (amountAfter == amountBefore && peggedChange == 0) {
+            return "";
+        }
+        int256 wrappedChange = _positionWrappedValue(position, amountAfter, afterwards.prices) -
+            _positionWrappedValue(position, amountBefore, before.prices);
+        return
+            string.concat(
+                _accountFields(party, position, amountBefore, amountAfter),
+                vm.toString(peggedChange),
+                ",",
+                vm.toString(wrappedChange),
+                "\n"
+            );
+    }
+
+    /// @dev The first seven fields of an account's row, each followed by a comma.
+    function _accountFields(
+        uint256 party,
+        uint256 position,
+        uint256 amountBefore,
+        uint256 amountAfter
+    ) internal view returns (string memory) {
+        string[8] memory positions = [
+            string("wallet"),
+            "wallet",
+            "wallet",
+            "leveraged pool deposit",
+            "leveraged pool reward",
+            "leveraged pool reward",
+            "collateral pool deposit",
+            "collateral pool reward"
+        ];
+        return
+            string.concat(
+                string.concat(vm.toString(parties[party].account), ",\"", parties[party].role, "\",", positions[position]),
+                string.concat(",", _symbol(_positionToken(position)), ",", vm.toString(amountBefore), ","),
+                string.concat(vm.toString(amountAfter), ",", vm.toString(int256(amountAfter) - int256(amountBefore)), ",")
+            );
+    }
+
+    /// @dev A holding's eight amounts, in the order `_positionToken` and `_accountFields` name them.
+    function _amounts(Holding memory holding) internal pure returns (uint256[8] memory) {
+        return [
+            holding.wrapped,
+            holding.pegged,
+            holding.leveraged,
+            holding.leveragedPoolDeposit,
+            holding.leveragedPoolWrapped,
+            holding.leveragedPoolLeveraged,
+            holding.collateralPoolDeposit,
+            holding.collateralPoolWrapped
+        ];
+    }
+
+    function _positionToken(uint256 position) internal view returns (address) {
+        if (position == 0 || position == 4 || position == 7) {
+            return market.wrappedCollateral;
+        }
+        if (position == 2 || position == 5) {
+            return market.leveraged;
+        }
+        return market.pegged;
+    }
+
+    function _priceOf(address token, Prices memory prices) internal view returns (uint256) {
+        if (token == market.wrappedCollateral) {
+            return prices.wrapped;
+        }
+        if (token == market.leveraged) {
+            return prices.leveraged;
+        }
+        return prices.pegged;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
     // Mitigations
     // ---------------------------------------------------------------------------------------------------------------
 
@@ -1047,7 +1202,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             if (m != uint256(Mitigation.MinterV3) && m != uint256(Mitigation.WithdrawalFeeOpenWindow)) {
                 vm.revertToState(beforeExploit);
                 _install(Mitigation(m));
-                replay = _signedFixed(_replay(), 4);
+                replay = _exactSigned(_replay());
             }
             vm.revertToState(beforeExploit);
             _install(Mitigation(m));
@@ -1073,7 +1228,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             "% (the deployed fee is ",
             _fixed(deployedFee * 100, 2),
             "%). The leveraged price before the exploit was ",
-            _fixed(leveragedPriceBefore, 6),
+            _exact(leveragedPriceBefore),
             " pegged units.\n\n"
         );
     }
@@ -1113,12 +1268,12 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         string[] memory cells = new string[](8);
         cells[0] = names[uint256(mitigation)];
         cells[1] = replay;
-        cells[2] = _signedFixed(outcome.attackerGain, 4);
+        cells[2] = _exactSigned(outcome.attackerGain);
         cells[3] = _fixed(outcome.rebalance.collateralRatio, 4);
-        cells[4] = _fixed(outcome.rebalance.peggedConverted, 6);
-        cells[5] = _fixed(outcome.rebalance.leveragedMinted, 6);
-        cells[6] = _fixed(Math.mulDiv(outcome.rebalance.peggedConverted, 1 ether, outcome.rebalance.leveragedPrice), 6);
-        cells[7] = _fixed(outcome.leveragedPriceAfter, 6);
+        cells[4] = _exact(outcome.rebalance.peggedConverted);
+        cells[5] = _exact(outcome.rebalance.leveragedMinted);
+        cells[6] = _exact(Math.mulDiv(outcome.rebalance.peggedConverted, 1 ether, outcome.rebalance.leveragedPrice));
+        cells[7] = _exact(outcome.leveragedPriceAfter);
         return _row(cells);
     }
 
@@ -1162,8 +1317,8 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         cells[4] = bands.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds.length > 1
             ? _fixed(bands.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds[1], 4)
             : "none";
-        cells[5] = supply == 0 ? "no leveraged tokens" : _fixed(price, 6);
-        cells[6] = _fixed(Math.mulDiv(supply, price, 1 ether), 6);
+        cells[5] = supply == 0 ? "no leveraged tokens" : _exact(price);
+        cells[6] = _exact(Math.mulDiv(supply, price, 1 ether));
         cells[7] = supply == 0 || price * LEVERAGE_RATIO_CAP <= 1 ether
             ? "none"
             : string.concat(_fixed(price * LEVERAGE_RATIO_CAP, 2), " times");
@@ -1178,22 +1333,28 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     // Formatting
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev `value` (1e18) to `places` decimals, rounded half up.
+    /// @dev A ratio or a rate (1e18) to `places` decimals, rounded half up. Amounts and values are never rounded: see
+    ///      `_exact`.
     function _fixed(uint256 value, uint256 places) internal pure returns (string memory) {
         uint256 unit = 10 ** (18 - places);
         return BaoTestLib.toStringScaled((value + unit / 2) / unit, places);
     }
 
-    function _signedFixed(int256 value, uint256 places) internal pure returns (string memory) {
-        return string.concat(value < 0 ? "-" : "+", _fixed(_abs(value), places));
+    /// @dev An amount or a value (1e18) in full: every one of its 18 decimals.
+    function _exact(uint256 value) internal pure returns (string memory) {
+        return BaoTestLib.toStringScaled(value, 18);
+    }
+
+    function _exactSigned(int256 value) internal pure returns (string memory) {
+        return string.concat(value < 0 ? "-" : "+", _exact(_abs(value)));
     }
 
     function _signedWrapped(int256 pegged, Prices memory prices) internal pure returns (string memory) {
-        return _signedFixed(_inWrapped(pegged, prices), 4);
+        return _exactSigned(_inWrapped(pegged, prices));
     }
 
     function _wrappedPer(uint256 peggedPrice, Prices memory prices) internal pure returns (string memory) {
-        return _fixed(Math.mulDiv(peggedPrice, 1 ether, prices.wrapped), 4);
+        return _exact(Math.mulDiv(peggedPrice, 1 ether, prices.wrapped));
     }
 
     function _abs(int256 value) internal pure returns (uint256) {
@@ -1256,9 +1417,9 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         string[] memory cells = new string[](5);
         cells[0] = step;
         cells[1] = vm.toString(count);
-        cells[2] = bytes(tokenIn).length > 0 ? string.concat(_fixed(amountIn, 6), " ", tokenIn) : "";
-        cells[3] = bytes(tokenOut).length > 0 ? string.concat(_fixed(amountOut, 6), " ", tokenOut) : "";
-        cells[4] = fee > 0 ? _fixed(fee, 6) : "";
+        cells[2] = bytes(tokenIn).length > 0 ? string.concat(_exact(amountIn), " ", tokenIn) : "";
+        cells[3] = bytes(tokenOut).length > 0 ? string.concat(_exact(amountOut), " ", tokenOut) : "";
+        cells[4] = fee > 0 ? _exact(fee) : "";
         return _row(cells);
     }
 }

@@ -1,8 +1,10 @@
 # Rebalance dilution exploit — BTC::stETH, 2026-10-16
 
-Every figure is in [2026-10-16-rebalance-dilution-figures.md](2026-10-16-rebalance-dilution-figures.md). That file
-is generated from the chain by `script/verify/incidents/run-rebalance-dilution-report`, and checks itself before it
-is written. This page explains the figures and carries none of its own.
+Every figure is in [2026-10-16-rebalance-dilution-figures.md](2026-10-16-rebalance-dilution-figures.md). Every
+account's change, position by position and in wei, is in
+[2026-10-16-rebalance-dilution-accounts.csv](2026-10-16-rebalance-dilution-accounts.csv), the input to correcting
+their balances. Both are generated from the chain by `script/verify/incidents/run-rebalance-dilution-report`, which
+checks them before writing either. This page explains the figures and carries none of its own.
 
 ## Summary
 
@@ -71,6 +73,31 @@ The figures file values every party before and after, and the rows sum to zero.
 - **Gains went to the caller and to the fee receivers.** One multisig is configured for every fee role: the minter's
   fee receiver, both pools' early-withdrawal fee address, and the manager's fee receiver for the harvest cut. There
   was no harvest in the transaction, so no cut was taken.
+
+### Correcting the balances
+
+The accounts file lists every account whose holdings changed, losers and gainers alike, one row per position and
+token:
+- **Positions:** the wallet; the leveraged pool deposit and rewards; the collateral pool deposit and reward.
+- **Columns:** the amount the contracts reported just before the transaction and just after it, and the change, all
+  in wei.
+- **The change in value,** in pegged-unit wei and in wrapped-collateral wei.
+
+How the values are worked out:
+- **The reference is the state just before the transaction, at its block's time.** A correction undoes that
+  transaction's effect on each account. Rewards that stream over time are read as at that moment. A chain read at the
+  end of the previous block shows them slightly lower, by what streamed in the 12 seconds between, which the
+  transaction did not cause. Undoing the whole transaction, rather than only its overpayment, matches what the attacker would have
+  done without the bug: paid the fair rate, the rebuilt attacker loses money (the figures file's Minter_v3 row), so
+  the transaction was worth sending only because of the overpayment.
+- **Each position is valued in wrapped collateral at its own end's prices.**
+  - A wrapped-collateral position counts its own amount, so its value change equals its token change exactly.
+  - Any other position counts its amount times the minter's price for its token, over the oracle's price for the
+    wrapped collateral, floored to the wei.
+  - For a leveraged token held in a wallet the amount does not change, and the loss is all in value: the amount times
+    the fall in the leveraged price.
+- **The rows add up.** An account's figures in the figures file are the sums of its rows in the accounts file, to the
+  wei. The file also carries each change in pegged-unit wei, the unit the generator's books check uses.
 
 The figures file also reconciles the caller's gain flow by flow:
 - what it lost in the leveraged pool;

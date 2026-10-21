@@ -65,9 +65,10 @@ The figures of an incident report, generated from the chain so none is copied by
 
 - `RebalanceDilutionReport.t.sol` — on a fork at the 2026-10-16 exploit of BTC::stETH: finds every holder, replays
   the exploit, values every party before and after, decodes the transaction, runs the mitigations, and writes
-  `doc/incidents/2026-10-16-rebalance-dilution-figures.md`. It checks that the holders found hold the whole supplies,
-  that every party's change sums to zero and that the caller's flows sum to its proceeds, each to within rounding,
-  before writing
+  `doc/incidents/2026-10-16-rebalance-dilution-figures.md` and every account's change, in wei, to
+  `doc/incidents/2026-10-16-rebalance-dilution-accounts.csv`. It checks that the holders found hold the whole
+  supplies, that every party's change sums to zero and that the caller's flows sum to its proceeds, each to within
+  rounding, before writing either
 - `run-rebalance-dilution-report` — runs it (needs `MAINNET_RPC_URL`, archival)
 
 ### [roles/](roles/)
