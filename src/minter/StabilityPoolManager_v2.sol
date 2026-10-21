@@ -287,7 +287,7 @@ contract StabilityPoolManager_v2 is
             revert InvalidHarvestBountyRatio(harvestBountyRatio_);
         }
         if (harvestCutRatio_ > 1 ether) {
-            revert InvalidHarvestBountyRatio(harvestCutRatio_);
+            revert InvalidHarvestCutRatio(harvestCutRatio_);
         }
         if (harvestBountyRatio_ + harvestCutRatio_ > 1 ether) {
             revert InvalidHarvestRatioSum(harvestBountyRatio_, harvestCutRatio_);

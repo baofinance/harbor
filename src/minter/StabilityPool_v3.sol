@@ -23,8 +23,7 @@ import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 // slither-disable-start timestamp
 
 /// @title StabilityPool_v3
-/// @notice Stability pool with rebasing ERC20, selective claim, and reward alias support.
-/// Uses v3 accumulator and distributor which add alias detection and resolution.
+/// @notice Stability pool with a rebasing ERC20 share and selective claim.
 /// @notice This contract hold asset minted as pegged tokens by the Minter contract.
 /// Depositing pegged assets here results in:
 /// * wrapped collateral being deposited here automatically from the minter when wrapped collateral's value increases

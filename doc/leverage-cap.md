@@ -10,10 +10,10 @@ percent it moves for one percent of the collateral price, is
 
 $$\text{leverage ratio} = \frac{CR}{CR - 1}$$
 
-where $CR$ is the collateral ratio. The minter will not mint sail above a leverage of `MAX_LEVERAGE_RATIO` = 20.
-Leverage of 20 is a collateral ratio of 20/19, so the cap is a floor on the ratio:
+where $CR$ is the collateral ratio. The minter will not mint sail above a leverage of `MAX_LEVERAGE_RATIO` = 100.
+Leverage of 100 is a collateral ratio of 100/99, so the cap is a floor on the ratio:
 
-$$\text{MINIMUM\_COLLATERAL\_RATIO} = \frac{K}{K-1} = \frac{20}{19} \approx 1.0526$$
+$$\text{MINIMUM\_COLLATERAL\_RATIO} = \frac{K}{K-1} = \frac{100}{99} \approx 1.0101$$
 
 Both are constants on the minter. The floor is derived from the cap, so changing the cap moves the floor with it.
 It is rounded up to the collateral ratio's 18 decimal places, so a market standing exactly at the floor is sold
@@ -21,28 +21,27 @@ leverage of the cap or a hair under it, never over.
 
 ### Choosing the cap
 
-The cap is 20 today and is expected to be raised. The higher the cap, the closer the floor sits to the peg:
+The cap is 100. The higher the cap, the closer the floor sits to the peg:
 
 | cap `K` | floor `K/(K-1)` |
 |---|---|
 | 20 | 1.0526 |
-| 100 | 1.0101 |
+| 100 | 1.0101 — the cap |
 | 500 | 1.0020 |
 
 The floor has to sit well below the rebalance threshold, or the market spends its whole rebalance range unable to
-mint sail. A market with a threshold of 1.05 shows it. With a cap of 20 its floor, 1.0526, is ABOVE the
-threshold: sail cannot be minted anywhere a rebalance is offered, a rebalance never pays the sail pool in sail,
-and nobody can buy sail to recapitalise the market as it approaches the threshold. With a cap of 100 sail can be
-minted down to 1.0101, most of the way from the threshold to the peg; with 500, to 1.0020.
+mint sail. A market with a threshold of 1.05 shows it. A cap of 20 would put its floor, 1.0526, ABOVE the
+threshold: sail could not be minted anywhere a rebalance is offered, a rebalance would never pay the sail pool in
+sail, and nobody could buy sail to recapitalise the market as it approaches the threshold. The cap of 100 lets sail
+be minted down to 1.0101, most of the way from the threshold to the peg; a cap of 500 would reach 1.0020.
 
-| collateral ratio | leverage ratio | with a cap of 20 |
+| collateral ratio | leverage ratio | with the cap of 100 |
 |---|---|---|
 | 1.3 | 4.3 | healthy, a typical rebalance threshold |
 | 1.1 | 11 | stressed |
-| 1.0526 | 20 | the floor |
-| 1.02 | 51 | between the peg and the floor: no sail mints |
-| 1.01 | 101 | the same; the floor for a cap of 100 |
-| 1.002 | 501 | the same; the floor for a cap of 500 |
+| 1.05 | 21 | a low rebalance threshold |
+| 1.0101 | 100 | the floor |
+| 1.005 | 201 | between the peg and the floor: no sail mints |
 | 1.0 or below | a claim on nothing | at or below the peg: no sail mints, no rebalance |
 
 ## What is capped, and what is not

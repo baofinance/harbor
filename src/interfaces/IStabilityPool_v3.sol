@@ -119,8 +119,8 @@ interface IStabilityPool_v3 {
     /// @notice The role used for notifying rebalancing.
     function REBALANCER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Role whose holders are exempt from the early-withdrawal fee on `withdraw`. Held by the
-    ///         AutoCompounders and by the HarborYield Router, so the yield layer's exits are not charged it.
+    /// @notice Role whose holders are exempt from the early-withdrawal fee on `withdraw`. Held by harbor-yield's
+    ///         `Compounder_v1` contracts, so the yield layer's exits are not charged it.
     function EXEMPT_WITHDRAWAL_FEE_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice The floor: once the pool holds it, the total supply never falls below it. A deposit must leave the total

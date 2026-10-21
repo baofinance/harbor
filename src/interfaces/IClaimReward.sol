@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 /// @title IClaimReward
-/// @notice Shared claim interface implemented by StabilityPool_v3 and AutoCompounder_v1.
+/// @notice Shared claim interface implemented by StabilityPool_v3 and by harbor-yield's Compounder_v1.
 /// @dev Both contracts distribute reward tokens proportionally to their depositors/shareholders.
 ///      Callers obtain the token list from activeRewardTokens() / historicalRewardTokens()
 ///      (on IMultipleRewardDistributor) before calling view or mutator functions here.

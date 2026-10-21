@@ -53,12 +53,10 @@ import {RebalanceSizing_v1} from "@harbor/minter/library/RebalanceSizing_v1.sol"
 /// The leverage mechanism is provided by this contract and is designed such that the leverage ratio increases as the
 /// underlying collateral ratio decreases. The leveraged ratio is capped at 100.
 /// ### Collateral Ratio
-/// The collateral ratio value returned by the this contract is the value of the underlying collateral tokens divided by the value
-/// of the pegged tokens, not assuming one pegged token's value is 1 - if the underlying collateral value is less than the
-/// value of the underlying collateral, then the pegged token is valued as it's share of the underlying collateral. This effectively
-/// places a lower limit on the collateral ratio of 1.
-/// The collateral ratio used internally assumes the pegged token value is 1. This allows the collateral ratio to reach 0.
-/// and consequently allows the configuration of fees/subsidies to be applied in the event of a depeg.
+/// The collateral ratio is the value of the underlying collateral divided by the face value of the pegged tokens this
+/// market minted, each pegged token counted as one unit of the peg. It has no floor: in a depeg it falls below 1 and can
+/// reach 0, which lets the config apply fees and subsidies there. `collateralRatio()` reports this raw ratio; the pegged
+/// token's market value is `peggedTokenPrice()`.
 /// ### Fees, subsidies and disallows
 /// Fees, subsidies and disallows are defined by the config. Two arrays, one defining fee/subsidy/disallow values
 /// between -1 and 1, and the other defining the collateral ratio levels at which those values apply.
@@ -136,10 +134,8 @@ contract Minter_v3 is
     address public immutable LEVERAGED_TOKEN;
 
     /// @inheritdoc IMinter_v3
-    /// @dev `K = 20` puts the floor at `K/(K-1)` = 1.0526, which is where the count cap of `Minter_v2` was
-    /// measured to let go: the same number, seen from the other side. That cap bounded the COUNT a conversion
-    /// minted and left the retail route unbounded; this one refuses, on every route, so no token is ever sold
-    /// carrying more than `K`.
+    /// @dev `K = 100` puts the floor at `K/(K-1)` = 1.0101. The cap refuses on every route, so no token is ever
+    /// sold carrying more than `K`.
     uint256 public constant override MAX_LEVERAGE_RATIO = 100 ether;
 
     /// @inheritdoc IMinter_v3

@@ -340,7 +340,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
     }
 
     // Only the owner sets the pair, and only a pair that harvest can split: each ratio within 100% (which also keeps
-    // the sum from wrapping) and the two summing within it.
+    // the sum from wrapping), reported by its own error, and the two summing within it.
     function test_updateHarvestRatiosInvalid() public {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
@@ -357,6 +357,14 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(type(uint256).max, 1);
 
         vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.InvalidHarvestBountyRatio.selector, 1.1 ether));
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(1.1 ether, 0);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPoolManager_v2.InvalidHarvestCutRatio.selector, type(uint256).max)
+        );
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(1, type(uint256).max);
+
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.InvalidHarvestCutRatio.selector, 1.1 ether));
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0, 1.1 ether);
         vm.stopPrank();
 

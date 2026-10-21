@@ -39,6 +39,8 @@ interface IStabilityPoolManager_v2 {
     error NoHarvestable();
     /// @dev Thrown when the harvest bounty ratio is > 1
     error InvalidHarvestBountyRatio(uint256 ratio);
+    /// @dev Thrown when the harvest cut ratio is > 1
+    error InvalidHarvestCutRatio(uint256 ratio);
     /// @dev Thrown when the harvest bounty and cut ratios together are > 1, leaving no gross to split
     error InvalidHarvestRatioSum(uint256 bountyRatio, uint256 cutRatio);
     /// @dev Thrown when the rebalance bounty ratio is > 1
@@ -110,7 +112,7 @@ interface IStabilityPoolManager_v2 {
     function updateRebalanceBountyRatio(uint256 rebalanceRatio) external;
     /// @notice Updates the collateral ratio threshold below which rebalances may happen
     /// This form the target collateral ration when a rebalance is performed
-    /// @param newRatio The new collateral ratio threshold, must be >= 1
+    /// @param newRatio The new collateral ratio threshold, must be > 1
     function updateRebalanceThreshold(uint256 newRatio) external;
     /// @notice Updates the cut receiver to the given (non-zero) address
     /// @param feeReceiver_ The new cut receiver (the harvest fee destination)
