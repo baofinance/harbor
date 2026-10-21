@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {LibString} from "@solady/utils/LibString.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
@@ -16,6 +15,7 @@ import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
 import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
+import {HolderCaptureLib} from "@harbor-script/verify/holders/HolderCaptureLib.sol";
 
 /// @title StabilityPoolMigrationPreflight — is every deployed pool safe to upgrade v2->v3 with a plain upgrade?
 /// @notice The v2->v3 reward-divisor migration relies on the delta encoding: a plain `upgradeToAndCall(v3)` leaves
@@ -57,23 +57,17 @@ contract StabilityPoolMigrationPreflight is
     Deploy_MCAP_Minter,
     Deploy_SILVER_Minter
 {
-    /// @dev The capture this run checks, as produced by `script/verify/sp-holders/capture-sp-holders`. Set
-    ///      `SP_HOLDERS_DIR` to point at one; the default is the capture tool's own default, which is deliberately
-    ///      NON-PERMANENT. A capture is provisional until an upgrade using it has been verified end to end - only then
-    ///      is it worth keeping - so nothing here reads from, or writes to, a tracked location.
-    using LibString for string;
-
-    string internal constant DEFAULT_HOLDERS_DIR = "tmp/sp-holders/";
-    /// @dev The capture directory in use, and the block its scan ran to - read from the capture's own manifest rather
+    /// @dev The capture this run checks, as produced by `script/verify/holders/capture-holders`. Set `SP_HOLDERS_DIR`
+    ///      to point at one; the default is the capture tool's own default, which is deliberately NON-PERMANENT. A
+    ///      capture for an upgrade is provisional until the upgrade has been verified end to end - only then is it worth
+    ///      keeping - so nothing here writes to a tracked location.
+    ///
+    ///      The capture directory in use, and the block its scan ran to - read from the capture's own manifest rather
     ///      than configured here. Holding the block as a constant beside a separately-supplied holder list is what lets
     ///      the two drift apart, and a run that measures supply at one block against holders from another is silently
-    ///      wrong: it was reporting 45 already-migrated pairs as live defects until the block was checked.
+    ///      wrong.
     string internal holdersDir;
     uint256 internal captureBlock;
-    /// @dev A gap above this fraction of supply (parts-per-billion) is not rounding dust - the holder list is
-    ///      stale/incomplete and must be re-captured. Legitimate gaps measure ~0 ppb; the incomplete-list artifact
-    ///      measures ~9e8 ppb, so this cleanly separates them.
-    uint256 internal constant MAX_REL_GAP_PPB = 1_000_000; // 0.1% of supply
 
     uint256 internal deployedCount;
     uint256 internal negativeGapCount; // pools that need a seed (Sum(balanceOf) > supply)
@@ -249,28 +243,11 @@ contract StabilityPoolMigrationPreflight is
     }
 
     function setUp() public {
-        holdersDir = vm.envOr("SP_HOLDERS_DIR", DEFAULT_HOLDERS_DIR);
-        if (!holdersDir.endsWith("/")) {
-            holdersDir = string.concat(holdersDir, "/");
-        }
-
-        // The capture states the block it ran to; this reads it rather than being told separately. A missing manifest
-        // means the directory is not a capture at all - fail here, naming it, rather than reading zero holders from
-        // every pool and reporting that as a finding about the pools.
-        string memory manifest = string.concat(holdersDir, "manifest.txt");
-        require(vm.isFile(manifest), string.concat("no capture manifest at ", manifest, " - run capture-sp-holders"));
-        while (true) {
-            string memory line = vm.readLine(manifest);
-            if (bytes(line).length == 0) {
-                break;
-            }
-            if (line.startsWith("to-block: ")) {
-                captureBlock = vm.parseUint(line.slice(10));
-                break;
-            }
-        }
-        vm.closeFile(manifest);
-        require(captureBlock != 0, string.concat("capture manifest has no `to-block:` line: ", manifest));
+        holdersDir = vm.envOr("SP_HOLDERS_DIR", HolderCaptureLib.DEFAULT_DIRECTORY);
+        // The capture states the block it ran to; this reads it rather than being told separately. A directory with no
+        // manifest is not a capture at all, and fails here, naming it, rather than reading zero holders from every pool
+        // and reporting that as a finding about the pools.
+        captureBlock = HolderCaptureLib.captureBlock(holdersDir);
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
         _setSaltPrefix("harbor_v1");
@@ -379,7 +356,7 @@ contract StabilityPoolMigrationPreflight is
             }
         }
 
-        address[] memory holders = _readHolders(saltKey);
+        address[] memory holders = HolderCaptureLib.holders(holdersDir, saltKey);
 
         // Inventory where each holder's reward snapshot currently lives, and pin the no-historical-tokens invariant
         // the copy's active-token loop relies on. Scoped so its results do not stay live across the gap measurement
@@ -391,7 +368,7 @@ contract StabilityPoolMigrationPreflight is
             sumBalance += IStabilityPool(pool).assetBalanceOf(holders[h]);
         }
         int256 gap = int256(totalSupply) - int256(sumBalance);
-        uint256 relGapPpb = totalSupply == 0 ? 0 : (_abs(gap) * 1e9) / totalSupply; // |gap| as parts-per-billion of supply
+        HolderCaptureLib.Gap measured = HolderCaptureLib.classify(gap, totalSupply);
 
         // Classify the pool for the migration and flag any condition that blocks an all-pools plain upgrade.
         string memory action;
@@ -402,14 +379,12 @@ contract StabilityPoolMigrationPreflight is
                 emptyNonZeroCount++;
                 console.log(string.concat("INCOMPLETE: ", saltKey, " has no captured holders but totalSupply > 0"));
             }
-        } else if (gap < 0) {
+        } else if (measured == HolderCaptureLib.Gap.Negative) {
             // Sum(balanceOf) > supply: a plain upgrade (divisor = supply) would over-credit. Seed this pool.
-            // Classified ahead of the stale-list check at any magnitude: a missing holder only shrinks the sum, so
-            // it can never drive the gap negative - a negative gap is always a seed case, never a stale list.
             action = "seed";
             negativeGapCount++;
             console.log(string.concat("SEED REQUIRED: ", saltKey, " has a negative gap"));
-        } else if (relGapPpb >= MAX_REL_GAP_PPB) {
+        } else if (measured == HolderCaptureLib.Gap.Incomplete) {
             // The captured holders do not account for the supply: the list is stale, re-capture before migrating.
             action = "recapture";
             looseGapCount++;
@@ -429,83 +404,5 @@ contract StabilityPoolMigrationPreflight is
                 vm.toString(gap)
             )
         );
-    }
-
-    function _abs(int256 x) internal pure returns (uint256 absolute) {
-        absolute = x < 0 ? uint256(-x) : uint256(x);
-    }
-
-    // Holder-file reader for the FILTERED capture format: bare `0x...` lines are holders that needed
-    // reward-migration work; `# no-work: 0x...` lines are holders that needed none but still hold a balance. BOTH
-    // are real holders and must be summed - reading only the bare lines undercounts Sum(balanceOf) massively (the
-    // no-work holders are usually the majority). Other `#` header lines (proxy, source, ...) are skipped.
-    function _readHolders(string memory saltKey) internal returns (address[] memory holders) {
-        string memory path = string.concat(holdersDir, saltKey, ".txt");
-        if (!vm.isFile(path)) {
-            return new address[](0);
-        }
-        uint256 count = 0;
-        while (true) {
-            string memory line = vm.readLine(path);
-            if (bytes(line).length == 0) {
-                break;
-            }
-            if (_isHolderLine(line)) {
-                count++;
-            }
-        }
-        vm.closeFile(path);
-
-        holders = new address[](count);
-        uint256 idx = 0;
-        while (true) {
-            string memory line = vm.readLine(path);
-            if (bytes(line).length == 0) {
-                break;
-            }
-            if (_isHolderLine(line)) {
-                holders[idx] = _holderAddress(line);
-                idx++;
-            }
-        }
-        vm.closeFile(path);
-    }
-
-    /// @dev A holder line is a bare `0x...` address, or a `# no-work: 0x...` filtered entry. Header `#` lines
-    ///      (e.g. `# proxy: 0x...`) are not holders and return false.
-    function _isHolderLine(string memory line) internal pure returns (bool) {
-        bytes memory b = bytes(line);
-        if (b.length == 0) {
-            return false;
-        }
-        if (b[0] != 0x23) {
-            return true; // bare address line
-        }
-        return _hasPrefix(b, "# no-work: ");
-    }
-
-    /// @dev The holder address is the trailing `0x`+40-hex (42 chars): a bare line IS it, a `# no-work: ` line
-    ///      suffixes it. Taking the last 42 chars is robust to the comment prefix length.
-    function _holderAddress(string memory line) internal pure returns (address) {
-        bytes memory b = bytes(line);
-        bytes memory a = new bytes(42);
-        uint256 start = b.length - 42;
-        for (uint256 i = 0; i < 42; i++) {
-            a[i] = b[start + i];
-        }
-        return vm.parseAddress(string(a));
-    }
-
-    function _hasPrefix(bytes memory b, string memory prefixStr) internal pure returns (bool) {
-        bytes memory p = bytes(prefixStr);
-        if (b.length < p.length) {
-            return false;
-        }
-        for (uint256 i = 0; i < p.length; i++) {
-            if (b[i] != p[i]) {
-                return false;
-            }
-        }
-        return true;
     }
 }

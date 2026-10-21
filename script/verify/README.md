@@ -54,22 +54,26 @@ StabilityPool v3 upgrade and accumulator force-migration.
 - `SPv3MigrationTest.t.sol` — mainnet fork migration test
 - [sp-v3-upgrade.md](sp-v3-migration/sp-v3-upgrade.md) — upgrade documentation
 
-### [sp-holders/](sp-holders/)
+### [holders/](holders/)
 
-- `capture-sp-holders --to-block <block>` — every account that has held a position in each stability pool, the capture
-  the v3 pre-flight checks
+- `capture-holders --to-block <block>` — every account that has held a position in each stability pool, or held each
+  pegged and leveraged token, from Etherscan's logs: the capture the v3 pre-flight checks and an incident report reads
+- `HolderCaptureLib.sol` — reads a capture, and holds the rule for a pool's ledger gap (its supply less what its
+  captured holders hold): negative is never an incomplete list; 0.1% of supply or more is
 
 ### [incidents/](incidents/)
 
 The figures of an incident report, generated from the chain so none is copied by hand.
 
-- `RebalanceDilutionReport.t.sol` — on a fork at the 2026-10-16 exploit of BTC::stETH: finds every holder, replays
-  the exploit, values every party before and after, decodes the transaction, runs the mitigations, and writes
-  `doc/incidents/2026-10-16-rebalance-dilution-figures.md` and every account's change, in wei, to
-  `doc/incidents/2026-10-16-rebalance-dilution-accounts.csv`. It checks that the holders found hold the whole
-  supplies, that every party's change sums to zero and that the caller's flows sum to its proceeds, each to within
-  rounding, before writing either
-- `run-rebalance-dilution-report` — runs it (needs `MAINNET_RPC_URL`, archival)
+- `RebalanceDilutionReport.t.sol` — one report per exploited market (BTC::stETH, EUR::stETH), each on a fork at its
+  2026-10-16 exploit: reads every holder from the capture at the exploit's block
+  (`doc/incidents/2026-10-16-rebalance-dilution/holders-<block>/`, written by `holders/capture-holders`), replays the
+  exploit, values every party before and after, decodes the transaction, runs the mitigations with the exploit's own
+  mints and loan, and writes `<PEG>-<collateral>-figures.md` and every account's change, in wei, to
+  `<PEG>-<collateral>-accounts.csv` beside the capture. It checks that the holders found hold the whole token supplies
+  and that each pool's ledger gap is rounding or negative, that every party's change sums to zero and that the caller's
+  flows sum to what it paid out, each to within rounding, before writing either
+- `run-rebalance-dilution-report` — runs it (needs `MAINNET_RPC_URL`, archival; makes no log queries)
 
 ### [roles/](roles/)
 

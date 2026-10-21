@@ -11,11 +11,11 @@
 # chain state at the block its holder list was scanned to. The two cannot disagree.
 #
 # Usage:
-#   run-migration-preflight --holders-dir tmp/sp-holders          # check that capture
-#   run-migration-preflight --holders-dir tmp/sp-holders --list   # list the checks
+#   run-migration-preflight --holders-dir tmp/holders          # check that capture
+#   run-migration-preflight --holders-dir tmp/holders --list   # list the checks
 #
 # Produce a capture first with:
-#   script/verify/sp-holders/capture-sp-holders --to-block <block>
+#   script/verify/holders/capture-holders --to-block <block>
 #
 # Needs MAINNET_RPC_URL, archival at the capture's block. A run fails unless the pre-flight's tests actually ran - see
 # script/verify/run-campaign-test - and keeps its full output in tmp/sp-v3-reward-divisor-migration.log.
@@ -41,7 +41,7 @@ done
 
 if [[ -z "$HOLDERS_DIR" ]]; then
   echo "ERROR: --holders-dir is required (the capture to check)" >&2
-  echo "       produce one with: script/verify/sp-holders/capture-sp-holders --to-block <block>" >&2
+  echo "       produce one with: script/verify/holders/capture-holders --to-block <block>" >&2
   exit 1
 fi
 if [[ ! -f "${HOLDERS_DIR}/manifest.txt" ]]; then

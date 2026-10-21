@@ -16,6 +16,8 @@ import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.so
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 import {Config_MinterMarket, IMarketConfig} from "@harbor-script/config/ConfigBase.sol";
+import {ConfigMarket_BTC_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
+import {ConfigMarket_EUR_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
@@ -23,35 +25,40 @@ import {eurMintersConfig} from "@harbor-script/src/Deploy_EUR_Minter.sol";
 import {goldMintersConfig} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {silverMintersConfig} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {HolderCaptureLib} from "@harbor-script/verify/holders/HolderCaptureLib.sol";
 
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 import {
+    BTC_STETH_EXPLOIT,
+    EUR_STETH_EXPLOIT,
     OpenWindowWithdrawer,
     RebalanceDilutionAttacker,
     RebalanceDilutionFork
 } from "@harbor-test/deployment/RebalanceDilutionFork.sol";
 
-/// @notice Writes every figure of the report on the exploit of 2026-10-16 into `FIGURES`, and every account's change, in
-///         wei, into `ACCOUNTS`, from the chain and from the exploit replayed on a fork, so that no figure is copied by
-///         hand and the balances can be corrected from exact amounts.
+/// @notice Writes the figures of one exploit of 2026-10-16 into `<market>-figures.md`, and every account's change, in
+///         wei, into `<market>-accounts.csv`, both in `DIRECTORY`, from the chain and from the exploit replayed on a
+///         fork, so that no figure is copied by hand and the balances can be corrected from exact amounts. A derived
+///         contract names the exploit's transaction and market.
 ///
-/// It finds every account that has held a position in either stability pool or held the leveraged token, reads what
-/// each holds, replays the exploit, and reads again. It decodes the transaction's actions, the fees and the caller's
-/// flows from the replay's events, runs the mitigation scenarios through the same installers and attacker the tests
-/// use, and reads every market's configuration at the exploit's block.
+/// It replays the exploit once to learn what it did - who acted, who lent, who it paid, the mints it made - and goes
+/// back. It reads, from the holder capture at the exploit's block, every account that has held a position in either
+/// stability pool or held the pegged or the leveraged token, reads what each holds, replays the exploit, and reads
+/// again. It decodes the transaction's actions, the fees and the caller's flows from the replay's events, runs the
+/// mitigation scenarios through the same installers and attacker the tests use, with the exploit's own mints and loan,
+/// and reads every market's configuration at the exploit's block.
 ///
-/// It checks itself before writing anything: the accounts found hold each pool's whole supply and the whole leveraged
-/// supply, before and after; every party's change sums to zero, to within the rounding of the valuation; and the
-/// caller's flows sum to its proceeds, to within the rounding of its trades. A failed check leaves the file as it was.
-contract RebalanceDilutionReport is RebalanceDilutionFork {
-    string internal constant FIGURES = "doc/incidents/2026-10-16-rebalance-dilution-figures.md";
-    /// @dev Every account's change, position by position and in wei: the input to correcting their balances.
-    string internal constant ACCOUNTS = "doc/incidents/2026-10-16-rebalance-dilution-accounts.csv";
-    /// @dev The most blocks the RPC lets one log query span.
-    uint256 internal constant LOG_QUERY_BLOCKS = 10_000;
-    /// @dev A pause between log queries, in milliseconds, to stay under the RPC's rate limit.
-    uint256 internal constant LOG_QUERY_PAUSE = 250;
+/// It checks itself before writing anything: the accounts found hold the whole pegged and leveraged supplies, and leave
+/// each pool's ledger gap negative or within rounding, before and after; every party's change sums to zero, to within
+/// the rounding of the valuation; and the caller's flows sum to what it paid out, to within the rounding of its trades.
+/// A failed check leaves the files as they were.
+abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
+    /// @dev Where the incident's files go: one figures file and one accounts file per exploited market, beside the
+    ///      hand-written explanation of both and the holder capture at each exploit's block, `holders-<block>/`, written
+    ///      by `script/verify/holders/capture-holders`.
+    string internal constant DIRECTORY = "doc/incidents/2026-10-16-rebalance-dilution/";
 
     /// @notice What one account holds: tokens in its wallet, and its positions in the two pools.
     struct Holding {
@@ -87,6 +94,10 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         Holding[] contracts;
         /// @dev The minter's wrapped collateral beyond its recorded backing, in pegged units.
         int256 minterSurplus;
+        /// @dev Each pool's recorded supply less what its depositors hold - its ledger gap, the figure the
+        ///      StabilityPool_v3 upgrade seeds - in wei of the pegged token; negative when they hold more.
+        int256 leveragedPoolGap;
+        int256 collateralPoolGap;
     }
 
     /// @notice An account the report follows, and why.
@@ -131,7 +142,13 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         uint256 callerPoolLoss;
         uint256 callerLeveragedAtRebalance;
         uint256 reservePaid;
-        uint256 proceeds;
+        /// @dev The accounts outside the market the caller paid, other than the lender, and what it paid them.
+        address[] recipients;
+        uint256 paidWrapped;
+        uint256 paidPegged;
+        uint256 paidLeveraged;
+        /// @dev The caller's mints, in order.
+        RebalanceDilutionAttacker.Mint[] mints;
     }
 
     /// @notice A mitigation to measure.
@@ -150,16 +167,19 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     function test_writeFigures() public {
-        _findParties();
-        uint256 beforeExploit = vm.snapshotState();
-
-        Reading memory before = _read();
+        // What the exploit did - who acted, who it paid, its mints - learned from one replay, then undone.
+        uint256 start = vm.snapshotState();
         vm.recordLogs();
-        vm.transact(EXPLOIT_TX);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
+        vm.transact(exploitTransaction());
+        Transaction memory exploit = _decode(vm.getRecordedLogs());
+        vm.revertToState(start);
+
+        _findParties(exploit.recipients);
+        uint256 beforeExploit = vm.snapshotState();
+        Reading memory before = _read();
+        vm.transact(exploitTransaction());
         Reading memory afterwards = _read();
 
-        Transaction memory exploit = _decode(logs);
         string memory figures = string.concat(
             _header(),
             _marketSection(before, afterwards),
@@ -168,28 +188,50 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             _callerSection(exploit, before, afterwards)
         );
         string memory accounts = _accountsCsv(before, afterwards);
-        figures = string.concat(figures, _mitigationSection(beforeExploit), _marketsSection(beforeExploit));
-        vm.writeFile(FIGURES, figures);
-        vm.writeFile(ACCOUNTS, accounts);
+        figures = string.concat(figures, _mitigationSection(beforeExploit, exploit), _marketsSection(beforeExploit));
+        string memory market_ = _marketLabel();
+        vm.createDir(DIRECTORY, true);
+        vm.writeFile(string.concat(DIRECTORY, market_, "-figures.md"), figures);
+        vm.writeFile(string.concat(DIRECTORY, market_, "-accounts.csv"), accounts);
+    }
+
+    /// @dev The exploited market, as its files are named: `<peg>-<collateral>`.
+    function _marketLabel() internal view returns (string memory) {
+        return
+            string.concat(
+                IMarketConfig(address(exploitedMarket)).peg(),
+                "-",
+                IMarketConfig(address(exploitedMarket)).collateral()
+            );
     }
 
     // ---------------------------------------------------------------------------------------------------------------
     // Finding the parties
     // ---------------------------------------------------------------------------------------------------------------
 
-    /// @dev Every account that has held a position in either pool (each `UserDepositChange` owner), every account the
-    ///      leveraged token has been sent to, the fee receivers, the reserve pool and the exploit's sender - less the
-    ///      market's own contracts, whose wallets are read separately.
-    function _findParties() internal {
+    /// @dev Every account the capture at the exploit's block lists for either pool (each `UserDepositChange` owner) or
+    ///      for the pegged or the leveraged token (each account it has been sent to), the fee receivers, the reserve pool
+    ///      and the accounts the exploit paid - less the market's own contracts, whose wallets are read separately.
+    function _findParties(address[] memory paidByTheExploit) internal {
+        string memory capture = string.concat(DIRECTORY, "holders-", vm.toString(block.number), "/");
+        assertEq(HolderCaptureLib.captureBlock(capture), block.number, "the holder capture is at the exploit's block");
+        string[4] memory salts = [
+            productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Leveraged),
+            productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Collateral),
+            productionRun.peggedTokenKey(exploitedMarket),
+            productionRun.leveragedTokenKey(exploitedMarket)
+        ];
         address[] memory found = new address[](0);
-        found = _logAddresses(found, market.leveragedPool, IStabilityPool.UserDepositChange.selector, 1);
-        found = _logAddresses(found, market.collateralPool, IStabilityPool.UserDepositChange.selector, 1);
-        found = _logAddresses(found, market.leveraged, IERC20.Transfer.selector, 2);
+        for (uint256 s = 0; s < salts.length; ++s) {
+            address[] memory listed = HolderCaptureLib.holders(capture, salts[s]);
+            for (uint256 i = 0; i < listed.length; ++i) {
+                found = _include(found, listed[i]);
+            }
+        }
 
-        address genesis = productionRun.genesisAddress(btcStEth);
+        address genesis = productionRun.genesisAddress(exploitedMarket);
         for (uint256 i = 0; i < found.length; ++i) {
             if (
-                found[i] != address(0) &&
                 found[i] != market.minter &&
                 found[i] != market.leveragedPool &&
                 found[i] != market.collateralPool &&
@@ -203,7 +245,9 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         _addRole(IStabilityPool(market.collateralPool).getFeeAddress(), "collateral pool fee address");
         _addRole(IStabilityPoolManager(market.manager).feeReceiver(), "manager fee receiver (harvest cut)");
         _addRole(IMinter(market.minter).reservePool(), "reserve pool");
-        _addRole(EXPLOIT_SENDER, "exploit's sender");
+        for (uint256 i = 0; i < paidByTheExploit.length; ++i) {
+            _addRole(paidByTheExploit[i], "paid by the exploit");
+        }
     }
 
     /// @dev Adds `account` to the parties, or adds `role` to its roles if it is there already.
@@ -221,31 +265,6 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         parties.push(Party(account, role));
     }
 
-    /// @dev `found`, with every address in topic `topicIndex` of `target`'s `selector` events added, from the block
-    ///      `target` was deployed in to this one. The RPC answers at most `LOG_QUERY_BLOCKS` blocks a query.
-    function _logAddresses(
-        address[] memory found,
-        address target,
-        bytes32 selector,
-        uint256 topicIndex
-    ) internal returns (address[] memory) {
-        bytes32[] memory topics = new bytes32[](1);
-        topics[0] = selector;
-        for (uint256 from = _deploymentBlock(target); from <= block.number; from += LOG_QUERY_BLOCKS) {
-            Vm.EthGetLogs[] memory logs = vm.eth_getLogs(
-                from,
-                Math.min(from + LOG_QUERY_BLOCKS - 1, block.number),
-                target,
-                topics
-            );
-            for (uint256 i = 0; i < logs.length; ++i) {
-                found = _include(found, address(uint160(uint256(logs[i].topics[topicIndex]))));
-            }
-            vm.sleep(LOG_QUERY_PAUSE);
-        }
-        return found;
-    }
-
     /// @dev `found` with `account` appended, unless it is there already.
     function _include(address[] memory found, address account) internal pure returns (address[] memory grown) {
         for (uint256 i = 0; i < found.length; ++i) {
@@ -260,25 +279,6 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         grown[found.length] = account;
     }
 
-    /// @dev The first block at whose end `account` has code, by bisection on `eth_getCode`.
-    function _deploymentBlock(address account) internal returns (uint256 withCode) {
-        uint256 withoutCode = 0;
-        withCode = block.number;
-        while (withCode - withoutCode > 1) {
-            uint256 middle = (withCode + withoutCode) / 2;
-            bytes memory code = vm.rpc(
-                "eth_getCode",
-                string.concat('["', vm.toString(account), '","', LibString.toMinimalHexString(middle), '"]')
-            );
-            if (code.length > 0) {
-                withCode = middle;
-            } else {
-                withoutCode = middle;
-            }
-            vm.sleep(LOG_QUERY_PAUSE);
-        }
-    }
-
     // ---------------------------------------------------------------------------------------------------------------
     // Reading
     // ---------------------------------------------------------------------------------------------------------------
@@ -286,7 +286,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     function _read() internal view returns (Reading memory reading) {
         (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(market.oracle)
             .latestAnswer();
-        // The caller's flows are valued at one price; with a spread they would not sum to its proceeds.
+        // The caller's flows are valued at one price; with a spread they would not sum to what it paid out.
         assertEq(minPrice, maxPrice, "the oracle reports one price");
         assertEq(minRate, maxRate, "the oracle reports one rate");
         // The minter's mid price: the two halves summed and halved, rounding half up.
@@ -334,39 +334,42 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         );
     }
 
-    /// @dev The parties found hold each pool's whole supply, and they and the market's contracts hold the whole
-    ///      leveraged supply - so no holder is missing from what follows.
-    ///
-    ///      A pool scales each deposit down by its losses and floors the result, while its supply falls by the exact
-    ///      loss. So after a loss the deposits found may fall short of the supply by less than one wei each, and never
-    ///      exceed it; a missing depositor would leave the whole of its deposit unaccounted for.
+    /// @dev The parties found and the market's contracts hold the whole pegged and leveraged supplies - token balances,
+    ///      exact. Each pool's ledger gap - its `totalAssetSupply()` less the sum of the depositors' `assetBalanceOf` - is
+    ///      recorded, and must be negative or within rounding by the rule the StabilityPool_v3 upgrade's pre-flight
+    ///      applies (`HolderCaptureLib.classify`). It is not zero: a pool spreads each loss with its per-unit share
+    ///      rounded up and carries the over-charge to the next loss (`lastAssetLossError`), so its supply and its
+    ///      depositors' balances drift apart by design, by up to about its supply in 1e-18 units a liquidation.
     function _assertComplete(Reading memory reading) internal view {
         uint256 leveragedPoolDeposits;
         uint256 collateralPoolDeposits;
+        uint256 peggedHeld;
         uint256 leveragedHeld;
         for (uint256 i = 0; i < reading.parties.length; ++i) {
             leveragedPoolDeposits += reading.parties[i].leveragedPoolDeposit;
             collateralPoolDeposits += reading.parties[i].collateralPoolDeposit;
+            peggedHeld += reading.parties[i].pegged;
             leveragedHeld += reading.parties[i].leveraged;
         }
         for (uint256 i = 0; i < reading.contracts.length; ++i) {
+            peggedHeld += reading.contracts[i].pegged;
             leveragedHeld += reading.contracts[i].leveraged;
         }
+        assertEq(peggedHeld, IERC20(market.pegged).totalSupply(), "the holders found hold the pegged supply");
+        assertEq(leveragedHeld, IERC20(market.leveraged).totalSupply(), "the holders found hold the leveraged supply");
+
         uint256 leveragedPoolSupply = IStabilityPool(market.leveragedPool).totalAssetSupply();
         uint256 collateralPoolSupply = IStabilityPool(market.collateralPool).totalAssetSupply();
-        assertLe(leveragedPoolDeposits, leveragedPoolSupply, "the depositors found hold no more than the leveraged pool");
-        assertLe(
-            leveragedPoolSupply - leveragedPoolDeposits,
-            parties.length,
-            "the depositors found hold the leveraged pool's supply, less a wei each"
+        reading.leveragedPoolGap = int256(leveragedPoolSupply) - int256(leveragedPoolDeposits);
+        reading.collateralPoolGap = int256(collateralPoolSupply) - int256(collateralPoolDeposits);
+        assertTrue(
+            HolderCaptureLib.classify(reading.leveragedPoolGap, leveragedPoolSupply) != HolderCaptureLib.Gap.Incomplete,
+            "the depositors found hold the leveraged pool's supply, to within rounding"
         );
-        assertLe(collateralPoolDeposits, collateralPoolSupply, "the depositors found hold no more than the collateral pool");
-        assertLe(
-            collateralPoolSupply - collateralPoolDeposits,
-            parties.length,
-            "the depositors found hold the collateral pool's supply, less a wei each"
+        assertTrue(
+            HolderCaptureLib.classify(reading.collateralPoolGap, collateralPoolSupply) != HolderCaptureLib.Gap.Incomplete,
+            "the depositors found hold the collateral pool's supply, to within rounding"
         );
-        assertEq(leveragedHeld, IERC20(market.leveraged).totalSupply(), "the holders found hold the leveraged supply");
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -455,10 +458,11 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             return lastAction;
         }
         bytes32 kind = log.topics[0];
-        if (kind == IMinter.MintLeveragedToken.selector) {
-            _count(exploit.mintLeveraged, log.data);
-        } else if (kind == IMinter.MintPeggedToken.selector) {
-            _count(exploit.mintPegged, log.data);
+        if (kind == IMinter.MintLeveragedToken.selector || kind == IMinter.MintPeggedToken.selector) {
+            bool leveraged = kind == IMinter.MintLeveragedToken.selector;
+            _count(leveraged ? exploit.mintLeveraged : exploit.mintPegged, log.data);
+            (uint256 collateralIn, ) = abi.decode(log.data, (uint256, uint256));
+            exploit.mints = _withMint(exploit.mints, RebalanceDilutionAttacker.Mint(leveraged, collateralIn));
         } else if (kind == IMinter.RedeemLeveragedToken.selector) {
             _count(beforeRebalance ? exploit.redeemLeveragedBefore : exploit.redeemLeveragedAfter, log.data);
         } else if (kind == IMinter.RedeemPeggedToken.selector) {
@@ -470,6 +474,18 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             return lastAction;
         }
         return beforeRebalance || kind != IMinter.RedeemLeveragedToken.selector ? kind : bytes32("after");
+    }
+
+    /// @dev `mints` with `mint` appended.
+    function _withMint(
+        RebalanceDilutionAttacker.Mint[] memory mints,
+        RebalanceDilutionAttacker.Mint memory mint
+    ) internal pure returns (RebalanceDilutionAttacker.Mint[] memory grown) {
+        grown = new RebalanceDilutionAttacker.Mint[](mints.length + 1);
+        for (uint256 i = 0; i < mints.length; ++i) {
+            grown[i] = mints[i];
+        }
+        grown[mints.length] = mint;
     }
 
     function _count(Action memory action, bytes memory data) internal pure {
@@ -538,6 +554,17 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
                 exploit.bountyLeveraged += amount;
             }
         }
+        // What the caller pays outside the market, other than repaying the lender, is the exploit's payout.
+        if (from == exploit.caller && !_isMarketContract(to) && to != exploit.lender) {
+            exploit.recipients = _include(exploit.recipients, to);
+            if (log.emitter == market.wrappedCollateral) {
+                exploit.paidWrapped += amount;
+            } else if (log.emitter == market.pegged) {
+                exploit.paidPegged += amount;
+            } else if (log.emitter == market.leveraged) {
+                exploit.paidLeveraged += amount;
+            }
+        }
         if (log.emitter != market.wrappedCollateral) {
             return;
         }
@@ -555,9 +582,6 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         }
         if (from == exploit.caller && to == exploit.lender) {
             exploit.repaid += amount;
-        }
-        if (from == exploit.caller && to == EXPLOIT_SENDER) {
-            exploit.proceeds += amount;
         }
     }
 
@@ -601,14 +625,21 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     // ---------------------------------------------------------------------------------------------------------------
 
     function _header() internal view returns (string memory) {
+        string memory title = string.concat(
+            "# Figures: the rebalance dilution exploit of ",
+            IMarketConfig(address(exploitedMarket)).peg(),
+            "::",
+            IMarketConfig(address(exploitedMarket)).collateral(),
+            ", 2026-10-16\n\n",
+            "Generated by `script/verify/incidents/RebalanceDilutionReport.t.sol`; run ",
+            "`script/verify/incidents/run-rebalance-dilution-report` to regenerate. Do not edit by hand. ",
+            "The explanation is in [README.md](README.md).\n\n"
+        );
         return
             string.concat(
-                "# Figures: the rebalance dilution exploit of BTC::stETH, 2026-10-16\n\n",
-                "Generated by `script/verify/incidents/RebalanceDilutionReport.t.sol`; run ",
-                "`script/verify/incidents/run-rebalance-dilution-report` to regenerate. Do not edit by hand. ",
-                "The explanation is in [2026-10-16-rebalance-dilution.md](2026-10-16-rebalance-dilution.md).\n\n",
+                title,
                 "Transaction `",
-                vm.toString(EXPLOIT_TX),
+                vm.toString(exploitTransaction()),
                 "`, block ",
                 vm.toString(block.number),
                 " (",
@@ -627,8 +658,11 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
                 _symbol(market.wrappedCollateral),
                 ", floored to the wei. A change in value is the value after less the value before, so an account's ",
                 "figures here are the sums of its rows in the accounts file. The books check values in pegged units. ",
-                "Every account's change, position by position and in wei, is in ",
-                "[2026-10-16-rebalance-dilution-accounts.csv](2026-10-16-rebalance-dilution-accounts.csv).\n\n"
+                "Every account's change, position by position and in wei, is in [",
+                _marketLabel(),
+                "-accounts.csv](",
+                _marketLabel(),
+                "-accounts.csv).\n\n"
             );
     }
 
@@ -677,7 +711,34 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             table,
             _row3("Collateral ratio", _fixed(before.collateralRatio, 4), _fixed(afterwards.collateralRatio, 4))
         );
-        return string.concat(table, "\n");
+        table = string.concat(
+            table,
+            _row3(
+                string.concat("Leveraged pool supply no depositor holds (ledger gap), wei of ", pegged),
+                vm.toString(before.leveragedPoolGap),
+                vm.toString(afterwards.leveragedPoolGap)
+            )
+        );
+        table = string.concat(
+            table,
+            _row3(
+                string.concat("Collateral pool supply no depositor holds (ledger gap), wei of ", pegged),
+                vm.toString(before.collateralPoolGap),
+                vm.toString(afterwards.collateralPoolGap)
+            )
+        );
+        return
+            string.concat(
+                table,
+                "\nA pool's ledger gap is its `totalAssetSupply()` less the sum of its depositors' `assetBalanceOf`, ",
+                "negative when they hold more. A pool spreads each loss with its per-unit share rounded up and carries ",
+                "the over-charge to its next loss, so the two drift apart by design, by up to about the supply in 1e-18 ",
+                "units a liquidation; the StabilityPool_v3 upgrade measures the gap and seeds it so rewards divide by ",
+                "what depositors hold. This report requires each gap to be negative or below ",
+                vm.toString(HolderCaptureLib.MAX_GAP_PARTS_PER_BILLION),
+                " parts per billion of the pool's supply, the rule the upgrade's pre-flight applies to a holder ",
+                "capture.\n\n"
+            );
     }
 
     function _transactionSection(Transaction memory exploit) internal view returns (string memory) {
@@ -739,7 +800,23 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         table = string.concat(table, _actionRow(string.concat("Repaid ", wrapped), 1, exploit.repaid, wrapped, 0, "", 0));
         table = string.concat(
             table,
-            _actionRow(string.concat("Sent to the exploit's sender, ", wrapped), 1, 0, "", exploit.proceeds, wrapped, 0)
+            _actionRow(string.concat("Paid out, ", wrapped), exploit.recipients.length, 0, "", exploit.paidWrapped, wrapped, 0)
+        );
+        table = string.concat(
+            table,
+            _actionRow(string.concat("Paid out, ", pegged), exploit.recipients.length, 0, "", exploit.paidPegged, pegged, 0)
+        );
+        table = string.concat(
+            table,
+            _actionRow(
+                string.concat("Paid out, ", leveraged),
+                exploit.recipients.length,
+                0,
+                "",
+                exploit.paidLeveraged,
+                leveraged,
+                0
+            )
         );
         return
             string.concat(
@@ -767,7 +844,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     function _summarySection(Reading memory before, Reading memory afterwards) internal view returns (string memory) {
-        int256[6] memory totals; // held, leveraged pool, collateral pool, fee receivers, reserve pool, exploit's sender
+        int256[6] memory totals; // held, leveraged pool, collateral pool, fee receivers, reserve pool, paid by the exploit
         for (uint256 i = 0; i < parties.length; ++i) {
             int256 change = _value(afterwards.parties[i], afterwards.prices) - _value(before.parties[i], before.prices);
             uint256 kind = _kind(parties[i].role);
@@ -786,7 +863,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         assertLe(_abs(residual), bound, "every party's change sums to zero, to within the valuation's rounding");
 
         // Shown in wrapped collateral as the accounts file values each position, so each row is the sum of its rows there.
-        int256[6] memory shown; // held, leveraged pool, collateral pool, fee receivers, reserve pool, exploit's sender
+        int256[6] memory shown; // held, leveraged pool, collateral pool, fee receivers, reserve pool, paid by the exploit
         for (uint256 i = 0; i < parties.length; ++i) {
             uint256 kind = _kind(parties[i].role);
             if (kind == 0) {
@@ -812,7 +889,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         );
         table = string.concat(table, _row2("Fee receivers", _exactSigned(shown[3])));
         table = string.concat(table, _row2("Reserve pool", _exactSigned(shown[4])));
-        table = string.concat(table, _row2("The exploit's sender", _exactSigned(shown[5])));
+        table = string.concat(table, _row2("Paid by the exploit", _exactSigned(shown[5])));
         table = string.concat(
             table,
             _row2("The pools' and the manager's undistributed balances", _signedWrapped(contractsChange, prices))
@@ -832,12 +909,30 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             );
     }
 
-    /// @dev The rounding the books can show: every party and contract valued with at most eight floored products, at
-    ///      each end; the leveraged price floored to the wei, which undervalues the whole leveraged supply by less than
-    ///      its size in 1e18 units at each end; and the backing and the surplus floored once each, at each end.
+    /// @dev The rounding the books can show: every contract, and every party whose valuation can round differently at
+    ///      the two ends, valued with at most eight floored products at each end; the leveraged price floored to the
+    ///      wei, which undervalues the whole leveraged supply by less than its size in 1e18 units at each end; and the
+    ///      backing and the surplus floored once each, at each end. Each position is one floored product of its amount
+    ///      and its token's price, so a party whose amounts are the same at both ends, and whose held positions' prices
+    ///      are too, is valued the same at both ends and adds no rounding.
     function _booksBound(Reading memory before, Reading memory afterwards) internal view returns (uint256) {
+        uint256 rounding;
+        for (uint256 i = 0; i < parties.length; ++i) {
+            uint256[8] memory amountsBefore = _amounts(before.parties[i]);
+            uint256[8] memory amountsAfter = _amounts(afterwards.parties[i]);
+            for (uint256 position = 0; position < 8; ++position) {
+                address token = _positionToken(position);
+                if (
+                    amountsBefore[position] != amountsAfter[position] ||
+                    (amountsBefore[position] != 0 && _priceOf(token, before.prices) != _priceOf(token, afterwards.prices))
+                ) {
+                    ++rounding;
+                    break;
+                }
+            }
+        }
         return
-            2 * 8 * (parties.length + 3) +
+            2 * 8 * (rounding + 3) +
             (before.leveragedSupply + afterwards.leveragedSupply) / 1 ether + 2 + 4;
     }
 
@@ -851,7 +946,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         }
     }
 
-    /// @dev 0 for a holder, 1 for a fee receiver, 2 for the reserve pool, 3 for the exploit's sender.
+    /// @dev 0 for a holder, 1 for a fee receiver, 2 for the reserve pool, 3 for an account the exploit paid.
     function _kind(string memory role) internal pure returns (uint256) {
         if (LibString.contains(role, "fee")) {
             return 1;
@@ -859,7 +954,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         if (LibString.contains(role, "reserve pool")) {
             return 2;
         }
-        if (LibString.contains(role, "exploit's sender")) {
+        if (LibString.contains(role, "paid by the exploit")) {
             return 3;
         }
         return 0;
@@ -983,7 +1078,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         return int256(Math.mulDiv(amount, _priceOf(token, prices), prices.wrapped));
     }
 
-    /// @dev The caller's gain, flow by flow, checked against what it sent to the exploit's sender.
+    /// @dev The caller's gain, flow by flow, checked against what it paid out of the market.
     function _callerSection(
         Transaction memory exploit,
         Reading memory before,
@@ -1000,9 +1095,13 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         flows[5] = -int256(Math.mulDiv(_mintingAndRedemptionFees(exploit), b.wrapped, 1 ether));
         flows[6] = int256(Math.mulDiv(exploit.reservePaid, b.wrapped, 1 ether));
         int256 sum = flows[0] + flows[1] + flows[2] + flows[3] + flows[4] + flows[5] + flows[6];
-        int256 proceeds = int256(Math.mulDiv(exploit.proceeds, b.wrapped, 1 ether));
+        int256 proceeds = int256(
+            Math.mulDiv(exploit.paidWrapped, a.wrapped, 1 ether) +
+                Math.mulDiv(exploit.paidPegged, a.pegged, 1 ether) +
+                Math.mulDiv(exploit.paidLeveraged, a.leveraged, 1 ether)
+        );
         uint256 bound = _callerBound(exploit);
-        assertLe(_abs(sum - proceeds), bound, "the caller's flows sum to its proceeds, to within its trades' rounding");
+        assertLe(_abs(sum - proceeds), bound, "the caller's flows sum to what it paid out, to within its trades' rounding");
 
         string memory leveraged = _symbol(market.leveraged);
         string memory table = string.concat(
@@ -1038,7 +1137,7 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         table = string.concat(table, _row2("**Sum**", string.concat("**", _signedWrapped(sum, b), "**")));
         table = string.concat(
             table,
-            _row2("**Sent to the exploit's sender**", string.concat("**", _signedWrapped(proceeds, b), "**"))
+            _row2("**Paid out by the exploit**", string.concat("**", _signedWrapped(proceeds, b), "**"))
         );
         return
             string.concat(
@@ -1061,8 +1160,9 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     /// @dev The rounding the caller's flows can show: each of its minter trades floors what it pays and what it gets,
-    ///      each of the seven flows is a floored product, and the leveraged price is floored to the wei, which misprices
-    ///      the leveraged tokens it traded, claimed and held by less than their amount in 1e18 units.
+    ///      each of the seven flows is at most two floored products and the payout three, and the leveraged price is
+    ///      floored to the wei, which misprices the leveraged tokens it traded, claimed, held and paid out by less than
+    ///      their amount in 1e18 units.
     function _callerBound(Transaction memory exploit) internal pure returns (uint256) {
         uint256 trades = exploit.mintLeveraged.count +
             exploit.mintPegged.count +
@@ -1074,8 +1174,9 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             exploit.redeemLeveragedAfter.tokensIn +
             exploit.claimedLeveraged +
             exploit.bountyLeveraged +
-            exploit.callerLeveragedAtRebalance;
-        return 2 * trades + 2 * 7 + leveragedTraded / 1 ether + 1;
+            exploit.callerLeveragedAtRebalance +
+            exploit.paidLeveraged;
+        return 2 * trades + 2 * 7 + 3 + leveragedTraded / 1 ether + 1;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -1184,16 +1285,21 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
     // Mitigations
     // ---------------------------------------------------------------------------------------------------------------
 
-    function _mitigationSection(uint256 beforeExploit) internal returns (string memory table) {
+    function _mitigationSection(
+        uint256 beforeExploit,
+        Transaction memory exploit
+    ) internal returns (string memory table) {
         vm.revertToState(beforeExploit);
         uint256 deployedFee = IStabilityPool(market.leveragedPool).getEarlyWithdrawalFee();
         uint256 leveragedPriceBefore = IMinter(market.minter).leveragedTokenPrice();
         table = string.concat(
             "## Mitigations\n\nEach row starts from the state before the exploit. The replay runs the exploit's own ",
-            "transaction; the rebuilt attacker (`test/deployment/RebalanceDilutionFork.sol`) pursues the same goal ",
-            "against the mitigated market. Gains in ", _symbol(market.wrappedCollateral), "; the fair amount is the ",
-            "pegged converted over the leveraged price at the rebalance.\n\n",
-            "| Mitigation | Replay pays its sender | Attacker's gain | Collateral ratio at the rebalance | Pegged converted | Leveraged minted | Fair amount | Leveraged price after, in pegged units |\n",
+            "transaction, and pays out what reaches the accounts the exploit paid; the rebuilt attacker ",
+            "(`test/deployment/RebalanceDilutionFork.sol`) makes the exploit's own mints with the wrapped collateral it ",
+            "borrowed and pursues the same goal against the mitigated market. Gains in ",
+            _symbol(market.wrappedCollateral),
+            "; the fair amount is the pegged converted over the leveraged price at the rebalance.\n\n",
+            "| Mitigation | Replay pays out | Attacker's gain | Collateral ratio at the rebalance | Pegged converted | Leveraged minted | Fair amount | Leveraged price after, in pegged units |\n",
             "|---|---|---|---|---|---|---|---|\n"
         );
         int256[5] memory gains;
@@ -1202,11 +1308,11 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
             if (m != uint256(Mitigation.MinterV3) && m != uint256(Mitigation.WithdrawalFeeOpenWindow)) {
                 vm.revertToState(beforeExploit);
                 _install(Mitigation(m));
-                replay = _exactSigned(_replay());
+                replay = _exactSigned(_replay(exploit.recipients));
             }
             vm.revertToState(beforeExploit);
             _install(Mitigation(m));
-            Outcome memory outcome = _attack(Mitigation(m));
+            Outcome memory outcome = _attack(Mitigation(m), exploit);
             gains[m] = outcome.attackerGain;
             table = string.concat(table, _mitigationRow(Mitigation(m), replay, outcome));
         }
@@ -1243,14 +1349,15 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         }
     }
 
-    function _attack(Mitigation mitigation) internal returns (Outcome memory) {
-        address attacker = address(new RebalanceDilutionAttacker(market));
+    /// @dev The rebuilt attacker, making the exploit's own mints with the wrapped collateral it borrowed.
+    function _attack(Mitigation mitigation, Transaction memory exploit) internal returns (Outcome memory) {
+        address attacker = address(new RebalanceDilutionAttacker(market, exploit.mints));
         address poolAccount = attacker;
         if (mitigation == Mitigation.WithdrawalFeeOpenWindow) {
             poolAccount = address(new OpenWindowWithdrawer(market.leveragedPool));
             _openWithdrawalWindow(poolAccount);
         }
-        return _runAttack(attacker, poolAccount);
+        return _runAttack(attacker, poolAccount, exploit.borrowed);
     }
 
     function _mitigationRow(
@@ -1421,5 +1528,27 @@ contract RebalanceDilutionReport is RebalanceDilutionFork {
         cells[3] = bytes(tokenOut).length > 0 ? string.concat(_exact(amountOut), " ", tokenOut) : "";
         cells[4] = fee > 0 ? _exact(fee) : "";
         return _row(cells);
+    }
+}
+
+/// @notice The exploit of BTC::stETH.
+contract RebalanceDilutionReport_BTC_stETH is RebalanceDilutionReport {
+    function exploitTransaction() internal pure override returns (bytes32) {
+        return BTC_STETH_EXPLOIT;
+    }
+
+    function exploitMarket() internal override returns (Config_MinterMarket) {
+        return new ConfigMarket_BTC_stETH_mainnet();
+    }
+}
+
+/// @notice The exploit of EUR::stETH.
+contract RebalanceDilutionReport_EUR_stETH is RebalanceDilutionReport {
+    function exploitTransaction() internal pure override returns (bytes32) {
+        return EUR_STETH_EXPLOIT;
+    }
+
+    function exploitMarket() internal override returns (Config_MinterMarket) {
+        return new ConfigMarket_EUR_stETH_mainnet();
     }
 }

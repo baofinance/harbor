@@ -15,28 +15,35 @@ import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.so
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
-import {ConfigMarket_BTC_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {DeployedMarket} from "@harbor-test/harness/DeployedMarket.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MarketReaderV2Lineage} from "@harbor-test/harness/MarketReader.sol";
 
-/// @notice The attack of 2026-10-16 on BTC::stETH, rebuilt from its events to pursue its goal rather than repeat its
-///         amounts. It mints as the exploit did, deposits its pegged tokens in the leveraged stability pool, redeems
+/// @dev The exploit of BTC::stETH on 2026-10-16.
+bytes32 constant BTC_STETH_EXPLOIT = 0xb8701591c0fa3ee44a9f42379d167261f70e0532f7c0cea6fcda26ef999df3db;
+/// @dev The exploit of EUR::stETH on 2026-10-16, 124 blocks later, by another sender.
+bytes32 constant EUR_STETH_EXPLOIT = 0x14ce80309b26d251b5e1e71c8aa03df677917cd627cf35b825767c97b3fcb84f;
+
+/// @notice The attack of 2026-10-16, rebuilt from its events to pursue its goal rather than repeat its amounts. It makes
+///         the exploit's own mints, in order, deposits its pegged tokens in the leveraged stability pool, redeems
 ///         leveraged tokens until the collateral ratio reaches `TARGET_COLLATERAL_RATIO` or the minter redeems no
 ///         further, rebalances, and turns everything back into wrapped collateral. Under a mitigation it therefore does
 ///         the best the mitigated market allows, which is what a mitigation has to withstand.
 contract RebalanceDilutionAttacker {
     /// @dev Just below 20/19, the collateral ratio at which Minter_v2's leverage ratio reaches its cap of 20.
     uint256 internal constant TARGET_COLLATERAL_RATIO = 1.05 ether;
-    /// @dev The exploit's own mint sizes, in wrapped collateral: one leveraged mint, then four pegged mints.
-    uint256 internal constant LEVERAGED_MINT = 108.5 ether;
-    uint256 internal constant PEGGED_MINT = 80 ether;
-    uint256 internal constant PEGGED_MINT_LAST = 1.5 ether;
     /// @dev Enough passes for a redemption loop to reach its target or a disallowed band.
     uint256 internal constant MAX_PASSES = 8;
+
+    /// @notice One of the exploit's mints: which token, and the wrapped collateral paid in.
+    struct Mint {
+        bool leveraged;
+        uint256 collateralIn;
+    }
 
     /// @notice What the rebalance did, read around it.
     struct RebalanceRecord {
@@ -55,14 +62,19 @@ contract RebalanceDilutionAttacker {
     address internal immutable MANAGER;
 
     RebalanceRecord internal _record;
+    Mint[] internal _mints;
 
-    constructor(MarketAddresses memory market) {
+    /// @param mints The exploit's mints, in the order it made them.
+    constructor(MarketAddresses memory market, Mint[] memory mints) {
         MINTER = market.minter;
         PEGGED = market.pegged;
         LEVERAGED = market.leveraged;
         WRAPPED_COLLATERAL = market.wrappedCollateral;
         LEVERAGED_POOL = market.leveragedPool;
         MANAGER = market.manager;
+        for (uint256 i = 0; i < mints.length; ++i) {
+            _mints.push(mints[i]);
+        }
     }
 
     function record() external view returns (RebalanceRecord memory) {
@@ -78,11 +90,13 @@ contract RebalanceDilutionAttacker {
         IERC20(LEVERAGED).approve(MINTER, type(uint256).max);
         IERC20(PEGGED).approve(LEVERAGED_POOL, type(uint256).max);
 
-        IMinter(MINTER).mintLeveragedToken(LEVERAGED_MINT, address(this), 0);
-        IMinter(MINTER).mintPeggedToken(PEGGED_MINT, address(this), 0);
-        IMinter(MINTER).mintPeggedToken(PEGGED_MINT, address(this), 0);
-        IMinter(MINTER).mintPeggedToken(PEGGED_MINT, address(this), 0);
-        IMinter(MINTER).mintPeggedToken(PEGGED_MINT_LAST, address(this), 0);
+        for (uint256 i = 0; i < _mints.length; ++i) {
+            if (_mints[i].leveraged) {
+                IMinter(MINTER).mintLeveragedToken(_mints[i].collateralIn, address(this), 0);
+            } else {
+                IMinter(MINTER).mintPeggedToken(_mints[i].collateralIn, address(this), 0);
+            }
+        }
 
         IStabilityPool(LEVERAGED_POOL).deposit(IERC20(PEGGED).balanceOf(address(this)), poolAccount, 0);
 
@@ -175,19 +189,11 @@ contract OpenWindowWithdrawer {
     }
 }
 
-/// @notice BTC::stETH as it stood immediately before the exploit of 2026-10-16, on a fork at that transaction, with
-///         the exploit's own transaction, a rebuilt attacker to run against it, and the mitigations to put in its way.
-///         The tests in `RebalanceDilution.t.sol` and the figures campaign in `script/verify/incidents/` both stand on
-///         it, so a mitigation is installed the same way wherever it is measured.
+/// @notice A market as it stood immediately before an exploit of 2026-10-16, on a fork at the exploit's transaction,
+///         with that transaction, a rebuilt attacker to run against it, and the mitigations to put in its way. The
+///         tests in `RebalanceDilution.t.sol` and the figures campaign in `script/verify/incidents/` both stand on it,
+///         so a mitigation is installed the same way wherever it is measured. A derived contract names the incident.
 abstract contract RebalanceDilutionFork is DeployedMarket {
-    /// @dev The exploit. Forking at it gives the state just before it ran; no earlier transaction in its block
-    ///      touched the market.
-    bytes32 internal constant EXPLOIT_TX = 0xb8701591c0fa3ee44a9f42379d167261f70e0532f7c0cea6fcda26ef999df3db;
-    /// @dev The account the exploit paid, and what it paid it: the transaction's last wrapped collateral transfer.
-    address internal constant EXPLOIT_SENDER = 0x61F31C7B10ab421dD45aaC97813286A5Ed8aA880;
-    uint256 internal constant EXPLOIT_PROCEEDS = 6.425312520857398299 ether;
-    /// @dev The wrapped collateral the exploit borrowed to run with.
-    uint256 internal constant ATTACK_CAPITAL = 350 ether;
     /// @dev Minter_v2's `_LEVERAGE_RATIO_CAP`, which is private: the leveraged tokens its capped conversion pays per
     ///      pegged token.
     uint256 internal constant LEVERAGE_RATIO_CAP = 20;
@@ -196,7 +202,14 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
     /// @dev The early-withdrawal fee proposed after the incident.
     uint256 internal constant EARLY_WITHDRAWAL_FEE = 0.05 ether;
 
-    ConfigMarket_BTC_stETH_mainnet internal btcStEth;
+    /// @dev The exploited market's configuration.
+    Config_MinterMarket internal exploitedMarket;
+
+    /// @dev The exploit's transaction. Forking at it gives the state just before it ran.
+    function exploitTransaction() internal pure virtual returns (bytes32);
+
+    /// @dev The configuration of the market it exploited.
+    function exploitMarket() internal virtual returns (Config_MinterMarket);
 
     /// @notice What an attack left behind.
     struct Outcome {
@@ -207,12 +220,12 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
     }
 
     function setUp() public virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), EXPLOIT_TX);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), exploitTransaction());
         // After the fork is selected, which would otherwise discard it.
         productionRun = new HarborDeployRun(address(0), address(0), SALT_PREFIX, "mainnet", HarborDeployRun.Cut.Whole);
-        btcStEth = new ConfigMarket_BTC_stETH_mainnet();
-        reader = new MarketReaderV2Lineage(ConfigTokenNames(address(btcStEth)));
-        market = productionRun.marketAddresses(btcStEth);
+        exploitedMarket = exploitMarket();
+        reader = new MarketReaderV2Lineage(ConfigTokenNames(address(exploitedMarket)));
+        market = productionRun.marketAddresses(exploitedMarket);
         deployedOwner = IBaoOwnable(market.minter).owner();
     }
 
@@ -224,7 +237,7 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
         assertEq(overrideLabel(), "_v3", "the V3 rule is installed");
         uint256 rebalanceThreshold = IStabilityPoolManager(market.manager).rebalanceThreshold();
         uint256 rebalanceBountyRatio = IStabilityPoolManager(market.manager).rebalanceBountyRatio();
-        _upgradeMarketToV3(btcStEth);
+        _upgradeMarketToV3(exploitedMarket);
         IStabilityPoolManager_v2(market.manager).updateRebalanceThreshold(rebalanceThreshold);
         IStabilityPoolManager_v2(market.manager).updateRebalanceBountyRatio(rebalanceBountyRatio);
 
@@ -284,18 +297,25 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
         vm.store(pool, requestSlot, bytes32(block.timestamp | ((block.timestamp + endWindow) << 64)));
     }
 
-    /// @dev Replays the exploit on the market as it stands and returns the wrapped collateral it paid its sender.
-    function _replay() internal returns (int256 senderGain) {
-        uint256 before = IERC20(market.wrappedCollateral).balanceOf(EXPLOIT_SENDER);
-        vm.transact(EXPLOIT_TX);
-        senderGain = int256(IERC20(market.wrappedCollateral).balanceOf(EXPLOIT_SENDER)) - int256(before);
-        console2.log("exploit sender's gain, wrapped collateral", senderGain);
+    /// @dev Replays the exploit on the market as it stands and returns the wrapped collateral it paid `recipients` - the
+    ///      accounts the unmitigated exploit paid.
+    function _replay(address[] memory recipients) internal returns (int256 paid) {
+        int256[] memory before = new int256[](recipients.length);
+        for (uint256 i = 0; i < recipients.length; ++i) {
+            before[i] = int256(IERC20(market.wrappedCollateral).balanceOf(recipients[i]));
+        }
+        vm.transact(exploitTransaction());
+        for (uint256 i = 0; i < recipients.length; ++i) {
+            paid += int256(IERC20(market.wrappedCollateral).balanceOf(recipients[i])) - before[i];
+        }
+        console2.log("wrapped collateral the replay paid out", paid);
     }
 
-    /// @dev Funds `attacker` with the exploit's capital, runs it, and values what it ends with at the oracle's mid
-    ///      price: wrapped collateral as it is, leveraged and pegged tokens at the minter's prices for them.
-    function _runAttack(address attacker, address poolAccount) internal returns (Outcome memory outcome) {
-        deal(market.wrappedCollateral, attacker, ATTACK_CAPITAL);
+    /// @dev Funds `attacker` with `capital`, the wrapped collateral the exploit borrowed, runs it, and values what it ends
+    ///      with at the oracle's mid price: wrapped collateral as it is, leveraged and pegged tokens at the minter's prices
+    ///      for them.
+    function _runAttack(address attacker, address poolAccount, uint256 capital) internal returns (Outcome memory outcome) {
+        deal(market.wrappedCollateral, attacker, capital);
         outcome.leveragedPriceBefore = IMinter(market.minter).leveragedTokenPrice();
 
         RebalanceDilutionAttacker(attacker).attack(poolAccount);
@@ -314,7 +334,7 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
         ) + Math.mulDiv(IERC20(market.pegged).balanceOf(attacker), IMinter(market.minter).peggedTokenPrice(), 1 ether);
         uint256 endValue = IERC20(market.wrappedCollateral).balanceOf(attacker) +
             Math.mulDiv(tokensValue, 1 ether, wrappedPrice);
-        outcome.attackerGain = int256(endValue) - int256(ATTACK_CAPITAL);
+        outcome.attackerGain = int256(endValue) - int256(capital);
 
         console2.log("attacker's gain, wrapped collateral", outcome.attackerGain);
         console2.log("leveraged price before", outcome.leveragedPriceBefore);

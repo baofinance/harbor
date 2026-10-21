@@ -9,22 +9,61 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {ConfigMarket_BTC_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
+
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 import {
+    BTC_STETH_EXPLOIT,
     OpenWindowWithdrawer,
     RebalanceDilutionAttacker,
     RebalanceDilutionFork
 } from "@harbor-test/deployment/RebalanceDilutionFork.sol";
 
+/// @notice The exploit of BTC::stETH, the incident the tests measure the mitigations against.
+abstract contract RebalanceDilutionBtcStEth is RebalanceDilutionFork {
+    /// @dev The account the exploit paid, and what it paid it: the transaction's last wrapped collateral transfer.
+    address internal constant EXPLOIT_SENDER = 0x61F31C7B10ab421dD45aaC97813286A5Ed8aA880;
+    uint256 internal constant EXPLOIT_PROCEEDS = 6.425312520857398299 ether;
+    /// @dev The wrapped collateral the exploit borrowed to run with.
+    uint256 internal constant ATTACK_CAPITAL = 350 ether;
+
+    function exploitTransaction() internal pure override returns (bytes32) {
+        return BTC_STETH_EXPLOIT;
+    }
+
+    function exploitMarket() internal override returns (Config_MinterMarket) {
+        return new ConfigMarket_BTC_stETH_mainnet();
+    }
+
+    /// @dev An attacker making the exploit's own mints, in wrapped collateral: one leveraged mint, then four pegged.
+    function _newAttacker() internal returns (address) {
+        RebalanceDilutionAttacker.Mint[] memory mints = new RebalanceDilutionAttacker.Mint[](5);
+        mints[0] = RebalanceDilutionAttacker.Mint(true, 108.5 ether);
+        mints[1] = RebalanceDilutionAttacker.Mint(false, 80 ether);
+        mints[2] = RebalanceDilutionAttacker.Mint(false, 80 ether);
+        mints[3] = RebalanceDilutionAttacker.Mint(false, 80 ether);
+        mints[4] = RebalanceDilutionAttacker.Mint(false, 1.5 ether);
+        return address(new RebalanceDilutionAttacker(market, mints));
+    }
+
+    /// @dev Replays the exploit and returns the wrapped collateral it paid its sender.
+    function _replayToSender() internal returns (int256) {
+        address[] memory recipients = new address[](1);
+        recipients[0] = EXPLOIT_SENDER;
+        return _replay(recipients);
+    }
+}
+
 /// @notice The market as deployed: Minter_v2, StabilityPool_v2, StabilityPoolManager_v1.
-contract RebalanceDilutionAsDeployedTest is RebalanceDilutionFork {
+contract RebalanceDilutionAsDeployedTest is RebalanceDilutionBtcStEth {
     // The replay reproduces the incident: the exploit pays its sender exactly what it paid on chain, and its
     // rebalance converts the leveraged pool's pegged tokens at the capped 20 leveraged per pegged.
     function test_replay_reproducesTheIncident() public {
         uint256 leveragedPriceBefore = IMinter(market.minter).leveragedTokenPrice();
         vm.recordLogs();
 
-        int256 senderGain = _replay();
+        int256 senderGain = _replayToSender();
 
         assertEq(senderGain, int256(EXPLOIT_PROCEEDS), "the exploit's payout");
         uint256 peggedConverted;
@@ -53,9 +92,9 @@ contract RebalanceDilutionAsDeployedTest is RebalanceDilutionFork {
     // The rebuilt attack reproduces the exploit on the market as deployed: it reaches the capped conversion, the
     // leveraged holders are diluted, and the attacker gains.
     function test_attack_dilutesLeveragedHolders() public {
-        address attacker = address(new RebalanceDilutionAttacker(market));
+        address attacker = _newAttacker();
 
-        Outcome memory outcome = _runAttack(attacker, attacker);
+        Outcome memory outcome = _runAttack(attacker, attacker, ATTACK_CAPITAL);
 
         assertTrue(outcome.rebalance.rebalanced, "rebalanced");
         assertEq(
@@ -71,7 +110,7 @@ contract RebalanceDilutionAsDeployedTest is RebalanceDilutionFork {
 /// @notice The pending upgrade: the minter to Minter_v3, with the manager and both pools moved with it.
 /// @dev The exploit's own transaction is not replayed here. It calls the manager the upgrade replaces, and that
 ///      manager cannot call Minter_v3 at all, so the replay would fail on the selector whatever the conversion did.
-contract RebalanceDilutionMinterV3Test is RebalanceDilutionFork {
+contract RebalanceDilutionMinterV3Test is RebalanceDilutionBtcStEth {
     constructor() {
         useRule(new V3Rule());
     }
@@ -84,9 +123,9 @@ contract RebalanceDilutionMinterV3Test is RebalanceDilutionFork {
     // The rebuilt attack still reaches the collateral ratio the exploit reached and still rebalances, but the
     // conversion is at the fair rate: the leveraged holders are not diluted and the attacker loses.
     function test_attack_convertsAtTheFairRate() public {
-        address attacker = address(new RebalanceDilutionAttacker(market));
+        address attacker = _newAttacker();
 
-        Outcome memory outcome = _runAttack(attacker, attacker);
+        Outcome memory outcome = _runAttack(attacker, attacker, ATTACK_CAPITAL);
 
         assertLe(
             outcome.rebalance.collateralRatio,
@@ -99,7 +138,7 @@ contract RebalanceDilutionMinterV3Test is RebalanceDilutionFork {
 }
 
 /// @notice Minter_v2 with leveraged redemptions refused below a collateral ratio of 1.10.
-contract RebalanceDilutionRedemptionFloorTest is RebalanceDilutionFork {
+contract RebalanceDilutionRedemptionFloorTest is RebalanceDilutionBtcStEth {
     function setUp() public override {
         super.setUp();
         _refuseLeveragedRedemptionBelow(REDEMPTION_FLOOR);
@@ -107,15 +146,15 @@ contract RebalanceDilutionRedemptionFloorTest is RebalanceDilutionFork {
 
     // The exploit's own transaction no longer pays its sender.
     function test_replay_paysNothing() public {
-        assertLe(_replay(), 0, "the exploit's payout");
+        assertLe(_replayToSender(), 0, "the exploit's payout");
     }
 
     // The rebuilt attack cannot take the collateral ratio below the floor, so its rebalance converts at the fair
     // rate: the leveraged holders are not diluted and the attacker loses.
     function test_attack_stopsAtTheFloor() public {
-        address attacker = address(new RebalanceDilutionAttacker(market));
+        address attacker = _newAttacker();
 
-        Outcome memory outcome = _runAttack(attacker, attacker);
+        Outcome memory outcome = _runAttack(attacker, attacker, ATTACK_CAPITAL);
 
         assertGe(outcome.rebalance.collateralRatio, REDEMPTION_FLOOR, "the floor held");
         _assertConvertedAtTheFairRate(outcome);
@@ -124,7 +163,7 @@ contract RebalanceDilutionRedemptionFloorTest is RebalanceDilutionFork {
 }
 
 /// @notice The market as deployed, with the leveraged pool's early-withdrawal fee at 5% instead of 1%.
-contract RebalanceDilutionWithdrawalFeeTest is RebalanceDilutionFork {
+contract RebalanceDilutionWithdrawalFeeTest is RebalanceDilutionBtcStEth {
     function setUp() public override {
         super.setUp();
         _setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
@@ -132,14 +171,14 @@ contract RebalanceDilutionWithdrawalFeeTest is RebalanceDilutionFork {
 
     // The exploit's own transaction no longer pays its sender.
     function test_replay_paysNothing() public {
-        assertLe(_replay(), 0, "the exploit's payout");
+        assertLe(_replayToSender(), 0, "the exploit's payout");
     }
 
     // The rebuilt attack, withdrawing in the open, pays the fee and loses.
     function test_attack_withdrawingInTheOpen_paysTheFee() public {
-        address attacker = address(new RebalanceDilutionAttacker(market));
+        address attacker = _newAttacker();
 
-        Outcome memory outcome = _runAttack(attacker, attacker);
+        Outcome memory outcome = _runAttack(attacker, attacker, ATTACK_CAPITAL);
 
         assertTrue(outcome.rebalance.rebalanced, "rebalanced");
         assertLt(outcome.attackerGain, 0, "the attacker loses");
@@ -149,12 +188,12 @@ contract RebalanceDilutionWithdrawalFeeTest is RebalanceDilutionFork {
     // holders are diluted and the attacker gains as if the fee were not there.
     function test_attack_throughAnOpenWindow_avoidsTheFee() public {
         address pool = market.leveragedPool;
-        address attacker = address(new RebalanceDilutionAttacker(market));
+        address attacker = _newAttacker();
         address withdrawer = address(new OpenWindowWithdrawer(pool));
         _openWithdrawalWindow(withdrawer);
         uint256 feeAddressPegged = IERC20(market.pegged).balanceOf(IStabilityPool(pool).getFeeAddress());
 
-        Outcome memory outcome = _runAttack(attacker, withdrawer);
+        Outcome memory outcome = _runAttack(attacker, withdrawer, ATTACK_CAPITAL);
 
         assertEq(
             IERC20(market.pegged).balanceOf(IStabilityPool(pool).getFeeAddress()),
