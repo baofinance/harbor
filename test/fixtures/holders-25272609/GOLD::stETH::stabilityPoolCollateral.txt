@@ -1,0 +1,4 @@
+# Holders: GOLD::stETH::stabilityPoolCollateral
+# address: 0x215C28DcCe0041eF9a17277CA271F100d9F345CF
+# to-block: 25272609
+# source: UserDepositChange owners (Etherscan), blocks 24049000-25272609

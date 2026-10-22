@@ -106,7 +106,7 @@ contract UpgradedDeployedMarketProvenanceTest is DeployedMarket {
         string memory expected = string.concat("lineage,", reader.lineage(), ",\n");
         expected = string.concat(expected, "contract,code at the address,implementation\n");
         expected = string.concat(expected, "minter,", vm.toString(market.minter), ",Minter_v3\n");
-        expected = string.concat(expected, "manager,ERC1967Proxy,StabilityPoolManager_v2\n");
+        expected = string.concat(expected, "manager,", vm.toString(market.manager), ",StabilityPoolManager_v2\n");
         expected = string.concat(
             expected,
             "collateralPool,",

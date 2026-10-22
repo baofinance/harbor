@@ -169,9 +169,9 @@ with that market's exploit's own mints and loan.
   which Minter_v3 replaced with a five-argument version.
 - **Both pools must move with the manager.** StabilityPoolManager_v2 calls `maxAssetLoss()`, which only
   StabilityPool_v3 has.
-- **The test upgrades all four together**, through the existing harness (`test/harness/DeployedMarket.sol`), and
-  restores the deployed rebalance threshold and bounty. The rebuilt attacker still reaches the capped zone and still
-  triggers the rebalance, but it is paid the fair rate and loses.
+- **The test upgrades all four together, in place**, by the upgrade script's own function (see below), so the manager
+  keeps its rebalance threshold and bounty. The rebuilt attacker still reaches the capped zone and still triggers the
+  rebalance, but it is paid the fair rate and loses.
 
 ### The exploits against the new contracts
 

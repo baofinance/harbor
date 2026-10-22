@@ -1,0 +1,6 @@
+# Holders: EUR::fxUSD::stabilityPoolLeveraged
+# address: 0xc5e0dA7e0a178850438E5E97ed59b6eb2562e88E
+# to-block: 25691117
+# source: UserDepositChange owners (Etherscan), blocks 24049000-25691117
+0x1a9152528AEFbcD9E5df4E0770f4F510e7056913
+0xb9ab9578a34a05c86124c399735fdE44dEc80E7F

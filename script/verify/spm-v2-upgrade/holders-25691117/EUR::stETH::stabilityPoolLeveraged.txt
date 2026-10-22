@@ -1,0 +1,7 @@
+# Holders: EUR::stETH::stabilityPoolLeveraged
+# address: 0x7553fb328ef35aF1c2ac4E91e53d6a6B62DFDdEa
+# to-block: 25691117
+# source: UserDepositChange owners (Etherscan), blocks 24049000-25691117
+0x619e71ec0d528520961571Dcea6f13f8B63410E3
+0xbA26035B9CD76cdA5b767A966b8A3392E476Fc0F
+0xF1e73F7d7656b9b00d970b58aaB3Bb19b5518060

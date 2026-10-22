@@ -56,10 +56,6 @@ import {
 /// the rounding of the valuation; and the caller's flows sum to what it paid out, to within the rounding of its trades.
 /// A failed check leaves the files as they were.
 abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
-    /// @dev Where the incident's files go: one figures file and one accounts file per exploited market, beside the
-    ///      hand-written explanation of both and the holder capture at each exploit's block, `holders-<block>/`, written
-    ///      by `script/holders/capture-holders`.
-    string internal constant DIRECTORY = "doc/incidents/2026-10-16-rebalance-dilution/";
     /// @dev The header of an accounts file: each row is one account's position in one token, from one reading to the
     ///      next.
     string internal constant ACCOUNTS_HEADER =
@@ -220,7 +216,9 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         string memory corrections = _accountsCsv(CORRECTIONS_HEADER, _read(), before);
         vm.revertToState(start);
 
-        new IncidentMarketUpgrade(exploitedMarket, _captureDirectory()).run(SALT_PREFIX);
+        Config_MinterMarket[] memory toUpgrade = new Config_MinterMarket[](1);
+        toUpgrade[0] = exploitedMarket;
+        new IncidentMarketUpgrade(toUpgrade, _captureDirectory()).run(SALT_PREFIX);
         Reading memory upgraded = _read();
         string memory upgrade = _upgradeSection(before, upgraded);
 
@@ -264,10 +262,6 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         vm.revertToState(start);
     }
 
-    /// @dev The holder capture at the exploit's block.
-    function _captureDirectory() internal view returns (string memory) {
-        return string.concat(DIRECTORY, "holders-", vm.toString(block.number), "/");
-    }
 
     /// @dev The exploited market, as its files are named: `<peg>-<collateral>`.
     function _marketLabel() internal view returns (string memory) {
@@ -1397,7 +1391,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
 
     /// @dev Reports the pools' gaps, the holders migrated and the market's figures under each minter, once
     ///      `_assertUpgradeKept` has checked the upgrade moved no token.
-    function _upgradeSection(Reading memory before, Reading memory upgraded) internal returns (string memory) {
+    function _upgradeSection(Reading memory before, Reading memory upgraded) internal view returns (string memory) {
         uint256[2] memory supplies = [
             IStabilityPool(market.leveragedPool).totalAssetSupply(),
             IStabilityPool(market.collateralPool).totalAssetSupply()
@@ -1422,7 +1416,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     function _upgradedPoolsTable(
         uint256[2] memory supplies,
         int256[2] memory gaps
-    ) internal returns (string memory) {
+    ) internal view returns (string memory) {
         string memory pegged = _symbol(market.pegged);
         uint256 leveragedHolders = HolderCaptureLib
             .holders(

@@ -12,7 +12,6 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
@@ -194,6 +193,9 @@ contract OpenWindowWithdrawer {
 ///         tests in `RebalanceDilution.t.sol` and the figures campaign in `script/verify/incidents/` both stand on it,
 ///         so a mitigation is installed the same way wherever it is measured. A derived contract names the incident.
 abstract contract RebalanceDilutionFork is DeployedMarket {
+    /// @dev The incident's directory: the hand-written explanation, each exploited market's generated files, and the
+    ///      holder capture at each exploit's block, `holders-<block>/`, written by `script/holders/capture-holders`.
+    string internal constant DIRECTORY = "doc/incidents/2026-10-16-rebalance-dilution/";
     /// @dev Minter_v2's `_LEVERAGE_RATIO_CAP`, which is private: the leveraged tokens its capped conversion pays per
     ///      pegged token.
     uint256 internal constant LEVERAGE_RATIO_CAP = 20;
@@ -229,20 +231,22 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
         deployedOwner = IBaoOwnable(market.minter).owner();
     }
 
-    /// @dev The pending upgrade: the minter to Minter_v3, and with it the manager to StabilityPoolManager_v2 and both
-    ///      pools to StabilityPool_v3 - a rebalance needs all four, so `_upgradeMarketToV3` moves them together. The
-    ///      deployed manager's rebalance terms are carried over to the manager the upgrade puts in its place, so an
-    ///      attacker meets the same threshold and earns the same bounty as on chain. The `V3Rule` must be installed.
+    /// @dev The pending upgrade, as production will make it: the minter to Minter_v3, and with it the manager to
+    ///      StabilityPoolManager_v2 and both pools to StabilityPool_v3 - a rebalance needs all four, so
+    ///      `_upgradeMarketToV3` moves them together, in place, with the holder capture at the exploit's block. The
+    ///      manager keeps its rebalance terms, so an attacker meets the same threshold and earns the same bounty as on
+    ///      chain. The `V3Rule` must be installed.
     function _upgradeToMinterV3() internal {
         assertEq(overrideLabel(), "_v3", "the V3 rule is installed");
-        uint256 rebalanceThreshold = IStabilityPoolManager(market.manager).rebalanceThreshold();
-        uint256 rebalanceBountyRatio = IStabilityPoolManager(market.manager).rebalanceBountyRatio();
-        _upgradeMarketToV3(exploitedMarket);
-        IStabilityPoolManager_v2(market.manager).updateRebalanceThreshold(rebalanceThreshold);
-        IStabilityPoolManager_v2(market.manager).updateRebalanceBountyRatio(rebalanceBountyRatio);
+        _upgradeMarketToV3(exploitedMarket, _captureDirectory());
 
         (uint256 recorded, uint256 held) = IMinter_v3(market.minter).impairment();
         assertLe(recorded, held, "the upgraded market is not halted by an impairment");
+    }
+
+    /// @dev The holder capture at the exploit's block.
+    function _captureDirectory() internal view returns (string memory) {
+        return string.concat(DIRECTORY, "holders-", vm.toString(block.number), "/");
     }
 
     /// @dev Refuses leveraged redemptions below `floor` through the owner's `updateConfig`: band 0, below the first

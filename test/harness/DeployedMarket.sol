@@ -4,22 +4,16 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
-import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
-import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
-import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
-import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {MarketReaderV2Lineage, MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
@@ -28,6 +22,7 @@ import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
+import {RuleMarketUpgradeRun} from "@harbor-test/harness/RuleMarketUpgradeRun.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @notice The market that is DEPLOYED, driven through its own proxies on a pinned fork.
@@ -111,14 +106,19 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         // EITHER the market as deployed, OR the whole v3 upgrade. There is no third option and none can be
         // written here, which is the point: a candidate behind the minter proxy is a v3-family minter, and
         // the rest of the market has to move with it.
+        //
+        // Either way the manager's keeper bounty and harvest ratios are zeroed: the deployed manager carries the
+        // production ones, where the local market's config zeroes them, so that a column read against a local run
+        // compares the RULE and not the fee schedule - a deployed conversion paid its pool exactly 0.99 of fair value
+        // before this, and the 0.01 was the bounty, not the rule.
         if (bytes(overrideLabel()).length > 0) {
-            _upgradeMarketToV3(config);
+            _upgradeMarketToV3(config, string.concat("test/fixtures/holders-", vm.toString(FORK_BLOCK), "/"));
+            // The upgraded manager is v2, which sets the two harvest ratios as one pair.
+            vm.startPrank(IBaoOwnable(market.manager).owner());
+            IStabilityPoolManager_v2(market.manager).updateRebalanceBountyRatio(0);
+            IStabilityPoolManager_v2(market.manager).updateHarvestRatios(0, 0);
+            vm.stopPrank();
         } else {
-            // The deployed manager carries the production keeper bounty and harvest cut - one percent each -
-            // where the local market's config zeroes both and the upgrade's manager is built without them. Zeroed
-            // here too, so that a column read against a local run compares the RULE and not the fee schedule: a
-            // deployed conversion paid its pool exactly 0.99 of fair value before this, and the 0.01 was the
-            // bounty, not the rule.
             // The deployed manager is v1, whose interface this is.
             vm.startPrank(IBaoOwnable(market.manager).owner());
             IStabilityPoolManager(market.manager).updateRebalanceBountyRatio(0);
@@ -138,107 +138,20 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         return market;
     }
 
-    /// @dev THE WHOLE v3 UPGRADE, IN ONE FUNCTION, because there is no smaller one that works. Minter,
-    /// manager and BOTH pools move together; a caller cannot ask for part of it.
+    /// @dev THE WHOLE v3 UPGRADE of the live market, as production will make it: `UpgradeMarketToV3`'s
+    /// `upgradeMarketsToV3`, the function the upgrade script runs, with the holders the capture in `capture` lists.
+    /// Minter, manager and BOTH pools move together - why none can move alone is written on the upgrade - and a
+    /// caller cannot ask for part of it. Only the minter and the manager come from the rule under test
+    /// (`RuleMarketUpgradeRun`), so a run measures the rule and nothing else.
     ///
-    /// Each dependency here was found the hard way, which is why they are written down rather than left to be
-    /// rediscovered:
-    ///
-    ///   - The MANAGER must move with the minter. The deployed manager speaks v2: it calls
-    ///     `redeemPeggedForCollateralRatio(uint256)`, selector `0x510d20e7`, which `Minter_v3` replaced with a
-    ///     five-argument version - so the deployed manager's first call into an upgraded minter reverts on an
-    ///     unrecognised selector. Measured, not assumed: that selector is present on `Minter_v2` and absent
-    ///     from `Minter_v3`.
-    ///   - BOTH POOLS must move with the manager. `StabilityPoolManager_v2.rebalance` calls `maxAssetLoss()`
-    ///     on each pool, unconditionally and whatever their balances, and that function is declared only on
-    ///     `IStabilityPool_v3`. A new manager over deployed pools reverts on the first rebalance.
-    ///
-    /// The second of those was found only because the old pools happen to LACK that selector. Had they
-    /// carried it with different meaning, this market would have produced numbers and we would have plotted
-    /// them. That is the reason this is one function instead of three calls a caller must remember to make.
-    ///
-    /// The implementations are built HERE while the proxies are the ones on chain, which is the general
-    /// shape: only the contract whose behaviour is measured need be deployed bytecode. Upgrading in place
-    /// leaves every address, role, balance and immutable exactly where it was, so what changes between this
-    /// run and the un-upgraded one is the code and nothing else.
-    /// @dev The pool implementations are built from names the CURRENT reader supplies - the v2 one, since
-    /// that is what is behind the proxies until the line after. Its answers come from the config, because a
-    /// v2 pool is not an ERC20 and cannot be asked. The reader is replaced as part of the same step, so the
-    /// market's dialect and its bytecode move together and cannot disagree.
-    function _upgradeMarketToV3(Config_MinterMarket config) internal {
-        // The minter FIRST, and inside this function rather than beside it. It was once called separately,
-        // and when this function was introduced the separate call was dropped by accident - the pools and the
-        // manager moved, the minter stayed on `Minter_v2`, and the market reverted on a selector the manager
-        // expected it to have. One function that performs the whole upgrade is what stops that being possible
-        // a second time. The rule builds it from the immutables the proxy already carries, so the replacement is
-        // constructed with what the market is living with.
-        address minterImplementation = ruleUnderTest.buildMinter(
-            IMinter(market.minter).WRAPPED_COLLATERAL_TOKEN(),
-            IMinter(market.minter).PEGGED_TOKEN(),
-            IMinter(market.minter).LEVERAGED_TOKEN()
-        );
-        address collateralImplementation = _buildStabilityPool(config, market.collateralPool, true);
-        address leveragedImplementation = _buildStabilityPool(config, market.leveragedPool, false);
-
-        vm.startPrank(deployedOwner);
-        UUPSUpgradeable(market.minter).upgradeToAndCall(minterImplementation, "");
-        UUPSUpgradeable(market.collateralPool).upgradeToAndCall(collateralImplementation, "");
-        UUPSUpgradeable(market.leveragedPool).upgradeToAndCall(leveragedImplementation, "");
-        vm.stopPrank();
-
-        _replaceManager();
+    /// Upgrading in place leaves every address, role, balance and immutable exactly where it was, so what
+    /// changes between this run and the un-upgraded one is the code and nothing else. The reader is replaced as
+    /// part of the same step, so the market's dialect and its bytecode move together and cannot disagree.
+    function _upgradeMarketToV3(Config_MinterMarket config, string memory capture) internal {
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = config;
+        new RuleMarketUpgradeRun(ruleUnderTest, markets, capture).run(SALT_PREFIX);
         reader = new MarketReaderV3Lineage();
-    }
-
-    /// @dev A `StabilityPool_v3` implementation for an EXISTING pool proxy.
-    ///
-    /// WHERE EACH ARGUMENT COMES FROM IS THE WHOLE OF THIS FUNCTION. The two withdrawal figures come from the
-    /// market CONFIG, exactly as the deploy script reads them, and not off the proxy - they are immutables
-    /// declared on no interface, so reading them back would mean guessing which version is behind that proxy
-    /// today, which is the mistake this upgrade exists to stop being possible. The floor comes off the proxy
-    /// through the BASE `IStabilityPool`, which every deployed version implements. The deployed pool's
-    /// liquidation token is not carried over: a v3 pool has none, the rebalancer naming one of the pool's
-    /// registered reward tokens per liquidation, and the proxy keeps its registrations across the upgrade.
-    function _buildStabilityPool(
-        Config_MinterMarket config,
-        address pool,
-        bool isCollateralPool
-    ) internal returns (address) {
-        IHarborConfig cfg = IHarborConfig(address(config));
-        return
-            address(
-                new StabilityPool_v3(
-                    market.minter,
-                    cfg.stabilityPoolWithdrawalDelay(),
-                    cfg.stabilityPoolWithdrawalPeriod(),
-                    IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY(),
-                    reader.poolName(pool, isCollateralPool),
-                    reader.poolSymbol(pool, isCollateralPool)
-                )
-            );
-    }
-
-    /// @dev A manager from THIS tree - or the rule's own, via `buildManager` - constructed with the deployed
-    /// minter proxy and the deployed pools, and granted the roles the deployed one holds. The pools grant
-    /// `REBALANCER` and the minter `ZERO_FEE`.
-    function _replaceManager() private {
-        market.manager = UnsafeUpgrades.deployUUPSProxy(
-            ruleUnderTest.buildManager(market.minter, market.collateralPool, market.leveragedPool),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), deployedOwner))
-        );
-        IStabilityPoolManager_v2(market.manager).updateRebalanceThreshold(1.3 ether);
-
-        vm.startPrank(deployedOwner);
-        IBaoRoles(market.collateralPool).grantRoles(
-            market.manager,
-            IStabilityPool_v3(market.collateralPool).REBALANCER_ROLE()
-        );
-        IBaoRoles(market.leveragedPool).grantRoles(
-            market.manager,
-            IStabilityPool_v3(market.leveragedPool).REBALANCER_ROLE()
-        );
-        IBaoRoles(market.minter).grantRoles(market.manager, IMinter(market.minter).ZERO_FEE_ROLE());
-        vm.stopPrank();
     }
 
     function _mintGenesis() internal virtual {

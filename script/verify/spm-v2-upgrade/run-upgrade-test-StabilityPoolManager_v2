@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Verify the StabilityPoolManager v1 -> v2 upgrade against live mainnet state.
 #
-# Unlike the StabilityPool and Minter upgrade verifications, this one needs no anvil instance and no prior
-# deploy run: the test forks mainnet at a pinned block and performs the upgrade itself, because there is no
-# StabilityPoolManager v2 upgrade script yet. It needs MAINNET_RPC_URL, nothing else.
+# It needs no anvil instance and no prior deploy run: the test forks mainnet at a pinned block and runs the upgrade
+# script's own function there, from the holder capture at that block kept beside it. It needs MAINNET_RPC_URL, nothing
+# else.
 #
 # A run fails unless the checks actually ran - see script/verify/run-campaign-test.
 #

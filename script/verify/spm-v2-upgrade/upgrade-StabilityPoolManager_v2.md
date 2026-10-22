@@ -24,7 +24,10 @@ A market upgraded without that repair is not bricked: harvest is unavailable unt
 
 ## What the verification asserts
 
-Forking mainnet at block 25691117 and upgrading each of the eleven live stability pool managers:
+Forking mainnet at block 25691117 and upgrading each of the eleven live markets - the manager in place, with the minter
+and both pools - by `UpgradeMarketToV3.upgradeMarketsToV3` (`script/src/UpgradeMarketToV3.sol`), the function the
+upgrade script `script/Upgrade_MarketsToV3_mainnet.s.sol` runs, from the holder capture at that block
+(`holders-25691117/`):
 
 - **`test_upgradePreservesSettings_`** - both harvest ratios, both rebalance settings and the fee receiver survive
   the upgrade unchanged, and the reported interface swaps from the v1 ABI to the v2 one.
@@ -38,6 +41,5 @@ Forking mainnet at block 25691117 and upgrading each of the eleven live stabilit
 
     script/verify/spm-v2-upgrade/run-upgrade-test-StabilityPoolManager_v2
 
-No anvil instance and no prior deploy run: the test forks mainnet at the pinned block and performs the upgrade
-itself, because there is no StabilityPoolManager v2 upgrade script yet. When that script exists, these assertions
-apply unchanged to a proxy it upgraded - only the test's own upgrade step goes away.
+No anvil instance and no prior deploy run: the test forks mainnet at the pinned block and runs the upgrade script's own
+function there, so these assertions are about the proxies that function upgrades.

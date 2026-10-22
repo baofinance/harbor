@@ -6,6 +6,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
@@ -22,6 +23,9 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 ///      versions: the old manager calls a minter function Minter_v3 replaced, and the new manager calls a pool function
 ///      only StabilityPool_v3 has. Each implementation is built by the deploy's own function, from the addresses a fresh
 ///      deploy predicts, so the upgrade installs what a fresh deploy would.
+///
+///      The minter's upgrade loads its stored config again through Minter_v3's loader, which refuses configs v2
+///      accepted: a config v3 would refuse reverts the market's whole batch rather than leaving the minter on it.
 ///
 ///      Each pool goes through `StabilityPool_v3_Upgrader`, never a plain upgrade: v3 keeps the reward streams and
 ///      each holder's reward snapshot in widened storage, which the upgrader copies across, and divides rewards by what
@@ -67,10 +71,15 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
             // The upgrader upgrades each pool away from itself in the call that runs it, so it serves both pools.
             address upgrader = address(new StabilityPool_v3_Upgrader(owner()));
 
+            // The stored config is loaded again, through Minter_v3's own loader, in the call that upgrades: the plain
+            // swap would carry the stored encoding across unchecked, and v3 refuses configs v2 accepted.
             queue(
                 minterKey(config),
-                abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (minterImplementation, "")),
-                "upgrade to Minter_v3"
+                abi.encodeCall(
+                    UUPSUpgradeable.upgradeToAndCall,
+                    (minterImplementation, abi.encodeCall(IMinter.updateConfig, (IMinter(minter).config())))
+                ),
+                "upgrade to Minter_v3, loading its config through v3's loader"
             );
             _queuePoolMigration(state, config, StabilityPoolType.Collateral, capture, upgrader);
             _queuePoolMigration(state, config, StabilityPoolType.Leveraged, capture, upgrader);

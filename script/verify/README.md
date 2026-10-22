@@ -24,18 +24,20 @@ loader reverts on schedules v2's accepted (a subsidy in the highest band, a boun
 walks rely on that. It carries the recorded backing across too, and v3 halts a market whose record exceeds its holding
 at the low edge of the rate band, which v2 never checked.
 
-- `MinterUpgradePreflight.t.sol` — on a mainnet fork, loads every deployed minter's config through a fresh Minter_v3's
-  `updateConfig`, failing naming any minter whose config it reverts on or that would read back differently; and
-  upgrades every deployed minter as its owner would, failing naming any that v3's `impairment()` reports would halt
-- `run-preflight` — runs it (needs `MAINNET_RPC_URL`); run before upgrading
+- `MinterUpgradePreflight.t.sol` — on a mainnet fork at a holder capture's block, upgrades every deployed market by
+  `UpgradeMarketToV3.upgradeMarketsToV3`, the function the upgrade script runs, which loads each minter's stored config
+  through Minter_v3's loader; fails naming any market whose config the loader refuses or reads back differently, or
+  that v3's `impairment()` reports would halt
+- `run-preflight --holders-dir <capture>` — runs it (needs `MAINNET_RPC_URL`, archival at the capture's block); run
+  before upgrading, with the capture the upgrade will use
 
 ### [spm-v2-upgrade/](spm-v2-upgrade/)
 
-StabilityPoolManager v1→v2 upgrade verification. There is no upgrade script yet, so the test performs the upgrade
-itself, on a mainnet fork at a pinned block.
+StabilityPoolManager v1→v2 upgrade verification, on a mainnet fork at a pinned block: each market is upgraded by the
+upgrade script's own function, from the holder capture at that block (`holders-25691117/`).
 
-- `StabilityPoolManagerUpgradeTest.t.sol` — upgrades every live manager and asserts the configuration survives, the
-  reported interface becomes v2's, and harvest still works on the inherited state
+- `StabilityPoolManagerUpgradeTest.t.sol` — upgrades every live market and asserts the manager's configuration
+  survives, its reported interface becomes v2's, and harvest still works on the inherited state
 - `run-upgrade-test-StabilityPoolManager_v2` — runs it (needs `MAINNET_RPC_URL`)
 - [upgrade-StabilityPoolManager_v2.md](spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md)
 
