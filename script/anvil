@@ -6,6 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Block number when BaoFactory was deployed
 FACTORY_BLOCK=24046017 # set operator # created 24033720
 
+# The rebalance dilution exploit transactions of 2026-10-16 are defined in the incident's fork test
+EXPLOITS_SOURCE="$SCRIPT_DIR/../test/deployment/RebalanceDilutionFork.sol"
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [--block <spec>] [anvil-options...]
@@ -17,6 +20,16 @@ Options:
   --block factory    Use block $FACTORY_BLOCK (when BaoFactory was deployed) [default]
   --block <number>   Use a specific block number
   --block <time>     Use block at given time (ISO 8601, e.g., 2025-12-01T12:00:00Z)
+  --block before-rebalance-exploit-BTC-stETH
+                     Use the state the BTC::stETH exploit of 2026-10-16 started from:
+                     after the transaction just ahead of it in its block
+  --block after-rebalance-exploit-BTC-stETH
+                     Use the state the BTC::stETH exploit of 2026-10-16 left
+  --block before-rebalance-exploit-EUR-stETH
+                     Use the state the EUR::stETH exploit of 2026-10-16 started from:
+                     after the transaction just ahead of it in its block
+  --block after-rebalance-exploit-EUR-stETH
+                     Use the state the EUR::stETH exploit of 2026-10-16 left
   -h, --help         Show this help
 
 All other options are passed through to anvil.
@@ -48,48 +61,73 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Resolve block spec to a block number
-resolve_block() {
-  local spec="$1"
+# Resolve the block spec to anvil's fork-point options, and a description of the fork point
+FORK_ARGS=()
+EXPLOIT=""
+case "$BLOCK_SPEC" in
+  latest)
+    FORK_POINT="at the latest block"
+    ;;
+  factory)
+    FORK_ARGS=(--fork-block-number "$FACTORY_BLOCK")
+    FORK_POINT="at block $FACTORY_BLOCK"
+    ;;
+  before-rebalance-exploit-BTC-stETH | after-rebalance-exploit-BTC-stETH)
+    EXPLOIT=BTC_STETH_EXPLOIT
+    ;;
+  before-rebalance-exploit-EUR-stETH | after-rebalance-exploit-EUR-stETH)
+    EXPLOIT=EUR_STETH_EXPLOIT
+    ;;
+  [0-9]*)
+    # Numeric block number
+    FORK_ARGS=(--fork-block-number "$BLOCK_SPEC")
+    FORK_POINT="at block $BLOCK_SPEC"
+    ;;
+  *)
+    # Assume ISO 8601 timestamp - convert to block number
+    timestamp=$(date -d "$BLOCK_SPEC" +%s 2>/dev/null) || {
+      echo "Error: Invalid time format '$BLOCK_SPEC'. Use ISO 8601 (e.g., 2025-12-01T12:00:00Z)" >&2
+      exit 1
+    }
+    # Use cast to find block by timestamp
+    block=$(cast find-block "$timestamp" --rpc-url mainnet)
+    FORK_ARGS=(--fork-block-number "$block")
+    FORK_POINT="at block $block"
+    ;;
+esac
 
-  case "$spec" in
-    latest)
-      echo "" # Empty means no --fork-block-number flag
-      ;;
-    factory)
-      echo "$FACTORY_BLOCK"
-      ;;
-    [0-9]*)
-      # Numeric block number
-      echo "$spec"
-      ;;
-    *)
-      # Assume ISO 8601 timestamp - convert to block number
-      local timestamp
-      timestamp=$(date -d "$spec" +%s 2>/dev/null) || {
-        echo "Error: Invalid time format '$spec'. Use ISO 8601 (e.g., 2025-12-01T12:00:00Z)" >&2
-        exit 1
-      }
-      # Use cast to find block by timestamp
-      cast find-block "$timestamp" --rpc-url mainnet
-      ;;
-  esac
-}
-
-BLOCK=$(resolve_block "$BLOCK_SPEC")
+if [[ -n "$EXPLOIT" ]]; then
+  exploit_hash=$(sed -nE "s/^bytes32 constant $EXPLOIT = (0x[0-9a-fA-F]{64});$/\1/p" "$EXPLOITS_SOURCE")
+  if [[ -z "$exploit_hash" ]]; then
+    echo "Error: no 'bytes32 constant $EXPLOIT = <hash>;' line in $EXPLOITS_SOURCE" >&2
+    exit 1
+  fi
+  if [[ "$BLOCK_SPEC" == after-* ]]; then
+    FORK_ARGS=(--fork-transaction-hash "$exploit_hash")
+    FORK_POINT="after the exploit transaction $exploit_hash"
+  else
+    # anvil forks to the state after a transaction, so the state an exploit started from is the state after the
+    # transaction just ahead of it in its block
+    exploit_block=$(cast tx "$exploit_hash" blockNumber --rpc-url mainnet)
+    exploit_index=$(cast tx "$exploit_hash" transactionIndex --rpc-url mainnet)
+    previous_hash=$(cast rpc eth_getTransactionByBlockNumberAndIndex "$(cast to-hex "$exploit_block")" \
+      "$(cast to-hex $((exploit_index - 1)))" --rpc-url mainnet | jq -r '.hash')
+    if [[ ! "$previous_hash" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+      echo "Error: no transaction before $exploit_hash, at position $exploit_index in block $exploit_block" >&2
+      exit 1
+    fi
+    FORK_ARGS=(--fork-transaction-hash "$previous_hash")
+    FORK_POINT="after transaction $previous_hash, just ahead of the exploit transaction $exploit_hash"
+  fi
+fi
 
 # Build anvil command
 ANVIL_ARGS=(
   --fork-url "mainnet"
   --auto-impersonate
+  "${FORK_ARGS[@]}"
 )
-
-if [[ -n "$BLOCK" ]]; then
-  ANVIL_ARGS+=(--fork-block-number "$BLOCK")
-  echo "Forking mainnet at block $BLOCK"
-else
-  echo "Forking mainnet at latest block"
-fi
+echo "Forking mainnet $FORK_POINT"
 
 # Handle deployment state files based on block spec
 LOCAL_STATE_DIR="$SCRIPT_DIR/../deployments/local/mainnet"
@@ -123,7 +161,7 @@ case "$BLOCK_SPEC" in
     ;;
   *)
     echo ""
-    echo "WARNING: Using custom block $BLOCK - state files in deployments/local/mainnet may not be correct."
+    echo "WARNING: Forking $FORK_POINT - state files in deployments/local/mainnet may not be correct."
     read -rn1 -p "Continue anyway? [Yn] " response
     echo
     if [[ "$response" =~ ^[Nn]$ ]]; then

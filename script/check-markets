@@ -54,10 +54,7 @@ for market in $markets; do
     contracts=$((contracts + 1))
     total[$contract]=$((total[$contract] + 1))
 
-    # script/predict passes its --network to cast as the RPC URL, and exits zero when that call fails, so its
-    # output is checked instead
-    address=$(script/predict --network "$rpc_url" --porcelain "$salt_prefix::$key" 2>&1)
-    if [[ ! "$address" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+    if ! address=$(script/predict --rpc-url "$rpc_url" --porcelain "$salt_prefix::$key" 2>&1); then
       printf '%s address prediction failed:\n%s\n' "$key" "$address"
       failed=$((failed + 1))
       continue
