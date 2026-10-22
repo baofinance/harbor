@@ -119,11 +119,24 @@ contract MinterUpgradePreflight is
                 if (recorded > held) {
                     wouldHaltCount++;
                     console.log(
-                        string.concat("WOULD HALT: ", key, " recorded ", vm.toString(recorded), " held ", vm.toString(held))
+                        string.concat(
+                            "WOULD HALT: ",
+                            key,
+                            " recorded ",
+                            vm.toString(recorded),
+                            " held ",
+                            vm.toString(held)
+                        )
                     );
                 } else {
                     console.log(
-                        string.concat(key, " upgraded; covered: recorded ", vm.toString(recorded), " held ", vm.toString(held))
+                        string.concat(
+                            key,
+                            " upgraded; covered: recorded ",
+                            vm.toString(recorded),
+                            " held ",
+                            vm.toString(held)
+                        )
                     );
                 }
             } catch (bytes memory reason) {

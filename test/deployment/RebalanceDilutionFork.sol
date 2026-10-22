@@ -318,7 +318,11 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
     /// @dev Funds `attacker` with `capital`, the wrapped collateral the exploit borrowed, runs it, and values what it ends
     ///      with at the oracle's mid price: wrapped collateral as it is, leveraged and pegged tokens at the minter's prices
     ///      for them.
-    function _runAttack(address attacker, address poolAccount, uint256 capital) internal returns (Outcome memory outcome) {
+    function _runAttack(
+        address attacker,
+        address poolAccount,
+        uint256 capital
+    ) internal returns (Outcome memory outcome) {
         deal(market.wrappedCollateral, attacker, capital);
         outcome.leveragedPriceBefore = IMinter(market.minter).leveragedTokenPrice();
 

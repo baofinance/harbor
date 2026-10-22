@@ -12,10 +12,7 @@ import {StabilityPool_v3WithV2Claims} from "@harbor-script/verify/incidents/Stab
 /// @notice The production upgrade of live markets whose pools are `StabilityPool_v3WithV2Claims`, so an exploit
 ///         written against StabilityPool_v2 replays on them. Everything else is the production upgrade's.
 contract IncidentMarketUpgrade is MarketUpgradeRun {
-    constructor(
-        Config_MinterMarket[] memory markets_,
-        string memory capture_
-    ) MarketUpgradeRun(markets_, capture_) {}
+    constructor(Config_MinterMarket[] memory markets_, string memory capture_) MarketUpgradeRun(markets_, capture_) {}
 
     /// @dev The deploy's pool implementation, with StabilityPool_v2's claim forms put back. Everything the constructor
     ///      takes comes from the market config, as the deploy's own function takes it.
