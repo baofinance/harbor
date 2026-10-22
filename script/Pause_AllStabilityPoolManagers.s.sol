@@ -6,8 +6,8 @@ import {Script} from "forge-std/Script.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {Market} from "@harbor-script/config/ConfigBase.sol";
 
-/// @notice Queue a Safe transaction to pause the ETH::fxUSD stabilityPoolLeveraged
-/// by upgrading its proxy to BaoPauser_v1.
+/// @notice Queue Safe transactions to pause every market's stability pool manager by upgrading its proxy to
+/// BaoPauser_v1.
 /// @dev Run via: script/run-script Pause_AllStabilityPoolManagers --salt harbor_v1 --network mainnet --local
 contract Pause_AllStabilityPoolManagers is Script, HarborDeployer {
     address constant BAO_PAUSER = 0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61;
