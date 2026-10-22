@@ -24,10 +24,10 @@ off at a discount to cover someone else's debt.
 
 From a deposit of one collateral asset the protocol mints:
 
-- an **anchor token** (an *ha* token, e.g. `haETH`, `haBTC`, `haUSD`), which tracks the value of a
+- an **anchor token** (an *ha* token, e.g. `haETH`, `haBTC`, `haEUR`), which tracks the value of a
   chosen underlying — a currency, a commodity, an index, anything with a price feed; and
-- a **sail token** (an *hs* token, e.g. `hsfxUSD`), which absorbs everything the anchor token does
-  not: a leveraged long position on the collateral.
+- a **sail token** (an *hs* token, e.g. `hsFXUSD-ETH`, collateral then underlying), which absorbs
+  everything the anchor token does not: a leveraged long position on the collateral.
 
 The two are complementary by construction. Every unit of collateral value in the system is claimed
 by exactly one of them. The anchor token holder gets stability; the sail token holder gets the
@@ -73,10 +73,12 @@ front-end application.
 ### 1.4 One protocol, many markets
 
 Harbor is deployed once per **market** — a (collateral asset, anchor underlying) pair. Each market
-is an independent instance with its own tokens, its own stability pools, its own collateral ratio
-and its own solvency. A stress event in one market has no mechanical effect on another. Currently
-configured markets pair collateral such as wstETH, fxSAVE and sUSDe against underlyings including
-ETH, BTC, EUR, gold, silver and a market-capitalisation index.
+has its own sail token, its own stability pools, its own collateral ratio and its own solvency. The
+**anchor token is shared**: there is one per underlying on a chain, and every market with that
+underlying mints and burns it. Each market tracks the anchor tokens it minted itself and redeems no
+more than those (§2.1), so a stress event in one market has no mechanical effect on another. A
+market might pair, for example, wstETH or fxSAVE collateral with an underlying such as ETH, BTC, EUR,
+gold, silver or a market-capitalisation index.
 
 Throughout this document "the system" means one such market.
 
@@ -88,24 +90,23 @@ Throughout this document "the system" means one such market.
 
 | Asset | What it is | Who holds it |
 |---|---|---|
-| **Collateral** | The asset backing the market, in two forms: the **collateral token** it is accounted in — stETH, fxUSD, USDe — and the yield-bearing **wrapped collateral token** actually held, wstETH, fxSAVE, sUSDe. The wrapper is worth progressively more collateral token over time. | The protocol (backing both tokens it has minted) |
+| **Collateral** | The asset backing the market, in two forms: the **collateral token** it is accounted in — e.g. stETH, fxUSD — and the yield-bearing **wrapped collateral token** actually held, e.g. wstETH, fxSAVE. The wrapper is worth progressively more collateral token over time. | The protocol (backing both tokens it has minted) |
 | **Anchor token** (*ha*) | An ERC-20 whose value tracks a chosen underlying — a currency, commodity or index. Redeemable from the protocol for collateral. | Users, stability pools, the yield layer |
 | **Sail token** (*hs*) | An ERC-20 whose value is the *residual*: the collateral value left over after every anchor token is covered. A leveraged long on the collateral. | Users, the leveraged stability pool |
 
 Two properties of the anchor token matter for the design:
 
-- It is an **ordinary ERC-20** and may be minted by means other than this protocol — including by a
-  Harbor deployment on another chain. The protocol therefore tracks how many anchor tokens *it*
-  minted and will never redeem more than that, so tokens minted elsewhere cannot drain this
-  market's collateral.
-- The sail token, by contrast, is **exclusive to the protocol**: only Harbor mints and burns it, and
-  its total supply is exactly what Harbor has minted.
+- It is an **ordinary ERC-20** and may be minted by means other than this market — by every other
+  market with the same underlying on the same chain, and by a Harbor deployment on another chain.
+  Each market therefore tracks how many anchor tokens *it* minted and will never redeem more than
+  that, so tokens minted elsewhere cannot drain this market's collateral.
+- The sail token, by contrast, is **exclusive to its market**: only that market mints and burns it,
+  and its total supply is exactly what the market has minted.
 
-Both tokens accept a **signed approval** (EIP-2612 `permit`), so a holder can approve and act in one
-transaction rather than sending a separate `approve` first. They are built on bao-base's
-`PermittableERC20_v1` / `MintableBurnableERC20_v1`, and are exercised by the same shared
-`PermitTestBase` suite as the protocol's other permit-bearing tokens, so all of them are held to one
-definition of correct permit behaviour.
+Both tokens, and the stability-pool share (§2.6), accept a **signed approval** (EIP-2612 `permit`),
+so a holder can approve and act in one transaction rather than sending a separate `approve` first.
+Permit2 gets no standing allowance from any of them: a holder who wants to use it approves it like
+any other spender.
 
 #### Held versus accounted
 
@@ -119,7 +120,8 @@ conversion rate falls. Harbor does not decide by itself that such a fall is a lo
 and recover — so every price, ratio and fee band goes on reporting the **record**, and every
 operation that would update it is **refused** while the record exceeds what the holding converts to
 at the low edge of the oracle's rate band. That covers every mint and redeem, fee-paying and free,
-and so the rebalance; each reverts `UnrecognisedImpairment(recorded, held)`. The market is **halted,
+and so the rebalance; each reverts `UnrecognisedImpairment(recorded, held)`. Two updates still run: a
+donation, which can only narrow the shortfall, and the owner's recognition, which ends it. The market is **halted,
 not repriced**, so nothing can act on cover it does not have. The halt lifts by itself if the rate
 recovers, or when the owner calls `recogniseImpairment()`, which writes the record down to the
 holding (§6.7, US-16). `impairment()` reports the two figures, so anyone can tell a halted market
@@ -139,7 +141,7 @@ an automatic one (§6.7, §9.12).
 ### 2.2 The accounting identity
 
 The model rests on one identity. Writing $C$ for the value of the collateral **accounted**, $P$ for
-the value of the anchor tokens minted, and $L$ for the value of the sail tokens:
+the face value of the anchor tokens this market minted, and $L$ for the value of the sail tokens:
 
 $$C = P + L$$
 
@@ -188,10 +190,10 @@ fee design leans on (§7).
 
 The formula diverges at a ratio of 1, and near it the sail token's price approaches zero, so minting
 sail there would hand out an unbounded number of tokens for a unit of value. **The protocol therefore
-caps the leverage it will MINT**, at `MAX_LEVERAGE_RATIO` $K$ — 20 today, expected to be raised.
+caps the leverage it will MINT**, at `MAX_LEVERAGE_RATIO` $K$ = 100, a constant of the code.
 Leverage $K$ is a collateral ratio of $K/(K-1)$, so the cap is a floor on the ratio, the **leverage
-floor** `MINIMUM_COLLATERAL_RATIO`: about 1.0526 for a cap of 20, 1.0101 for 100, 1.0020 for 500.
-Below the leverage floor no route mints sail (§5.4, §5.6).
+floor** `MINIMUM_COLLATERAL_RATIO`: $100/99 \approx 1.0101$, rounded up. Below the leverage floor no
+route mints sail (§5.4, §5.6).
 
 **Only minting is capped.** The *reported* leverage ratio is the true figure, however high: a price
 fall can take holders' leverage past the cap, and they carry it; the cap only stops anyone buying in
@@ -200,19 +202,19 @@ at that leverage. Where the residual is gone the report is `type(uint256).max`, 
 redeem fee schedule and to there being a residual to pay out. See
 [leverage cap](leverage-cap.md), and [what was wrong before](leverage-cap-before.md).
 
-The leverage floor must sit well below the rebalance threshold, or a market spends its whole rebalance
-range unable to mint sail. With a cap of 20, a 1.05-threshold market's leverage floor is *above* its
-threshold, which is why the cap is to be raised.
+The leverage floor must sit well below a market's rebalance threshold, or the market spends its
+whole rebalance range unable to mint sail. A cap of 20 would put the floor at 1.0526, above a
+threshold of 1.05; the cap of 100 puts it close to the peg, below any threshold a market would use.
 
-| Collateral ratio | Leverage ratio | System state, with a cap of 20 |
+| Collateral ratio | Leverage ratio | System state |
 |---|---|---|
 | 3.0× | 1.5× | Very healthy — sail token barely leveraged |
 | 2.0× | 2.0× | Healthy |
 | 1.5× | 3.0× | Comfortable |
-| 1.3× | 4.3× | Rebalancing typically begins around here |
+| 1.3× | 4.3× | A typical rebalance threshold |
 | 1.1× | 11× | Stressed |
-| 1.053× | 20× | The leverage floor — below it no sail is minted |
-| 1.02× | 51× | Holders carry 51×; nobody can buy in |
+| 1.0101× | 100× | The leverage floor — below it no sail is minted |
+| 1.005× | 201× | Holders carry 201×; nobody can buy in |
 | 1.0× | a claim on nothing | Sail token worthless; anchor exactly covered |
 | < 1.0× | — | **Depegged** — anchor token under-covered |
 
@@ -222,17 +224,19 @@ threshold, which is why the cap is to be raised.
 system is depegged, at which point it becomes the token's pro-rata share of the remaining
 collateral:
 
-$$\text{anchor price} = \min\left(1,\ \frac{C}{\text{anchor supply}}\right)$$
+$$\text{anchor price} = \min\left(1,\ \frac{C}{\text{anchor tokens this market minted}}\right)$$
 
 **Sail token price** is the residual value spread over the sail supply:
 
 $$\text{sail price} = \frac{C - P}{\text{sail supply}}$$
 
-A property that matters for user trust: **minting or redeeming either token does not move the sail
-token's price.** Every mint adds collateral and minted-token claims in the same proportion; every
-redeem removes them in the same proportion. The sail price moves only when the *collateral price*
-moves — which is what a leveraged long is supposed to do. Users are therefore not diluted by other
-users' activity, only by their own fees.
+A property that matters for user trust: **minting or redeeming either token never lowers the sail
+token's price.** Every mint adds collateral and minted-token claims in proportion; every redeem
+removes them in proportion. Each trade is priced at the end of the band that pays its caller less
+(§2.5), so measured at the middle of the band the market is left no poorer per sail token. Otherwise
+the sail price moves with the *collateral price*, which is what a leveraged long is supposed to do,
+and with a donation or a recognised impairment (§2.1). Users are therefore not
+diluted by other users' activity, only by their own fees.
 
 #### The anchor price can be exactly zero
 
@@ -275,8 +279,7 @@ price to floor to zero. No price crash reaches that; it is annihilation, not a d
 1. **The Minter's wrapped balance is zero or dust while anchor tokens are outstanding.** Until the
    loss is recognised the market is halted and reports the record; recognised, the record is
    written down to what is held, so a zero *holding* forces the backing to zero however healthy the
-   *record* was. This is the state `test_noBacking_freeAnchorMintIsRefusedByName` builds in
-   `test/Minter_impairedBacking.t.sol`.
+   *record* was.
 2. **A wound-down market left holding dust on both sides** — a handful of wei of wrapped collateral
    against leftover anchor dust. The rounding is the same; the economic stake is negligible.
 3. **A dust collateral price with the backing fully intact.** The Minter takes the price the oracle
@@ -322,14 +325,16 @@ $p = 10^{-18}$ multiplies the anchor supply by $10^{18}$ while every reported pr
 |---|---|---|
 | `mintPeggedToken` | `BelowMinimumCollateralRatio` | `BelowMinimumCollateralRatio` |
 | `freeMintPeggedToken` | `ZeroPeggedTokenPrice` | `ZeroPeggedTokenPrice` |
-| `redeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
-| `freeRedeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
+| `redeemPeggedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` for a redemption whose share of the 99 wei floors to zero |
+| `freeRedeemPeggedToken` | `ReturnZeroAmount`; `BelowMinimumCollateralRatio` first if a conversion is asked for | as `redeemPeggedToken`; `BelowMinimumCollateralRatio` first if a conversion is asked for |
 | `mintLeveragedToken` | `BelowMinimumCollateralRatio` | `BelowMinimumCollateralRatio` |
 | `redeemLeveragedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
 | `freeRedeemLeveragedToken` | `ReturnZeroAmount` | `ReturnZeroAmount` |
 
-Every path now refuses, and each refuses by name. Three properties hold across the table, and each
-is worth stating separately because each was once false:
+Every path refuses, and each refuses by name. At 99 wei held the anchor redeems are the exception: a
+redemption is paid its pro-rata share of what is held, so one of about 1% of the anchor supply or more
+(here, about 2,000 tokens) is paid a wei or more and goes through. Three properties hold across the
+table, and each is worth stating separately because each was once false:
 
 1. **The refusal does not depend on configuration.** The fee band table may disallow anchor minting
    below some ratio, and every production config does — but that is market policy, and a market
@@ -349,7 +354,7 @@ tighter floor is a policy question — how far below par may the anchor be minte
 retail mint it is settled: not below the leverage floor (§5.4). For the zero-fee mint, a trusted
 route a genesis uses, it is not settled here.
 
-**The invariant a test could assert.** For any market with anchor tokens outstanding:
+**The invariant.** For any market with anchor tokens outstanding:
 
 > `peggedTokenPrice() == min(1e18, collateralRatio())`, and it is zero if and only if
 > `recognisedBacking * price < peggedTokenBalance`.
@@ -423,32 +428,36 @@ efficient of the two: the collateral backing the exchanged anchor tokens stays i
 sail-token backing, so a smaller exchange achieves the same ratio improvement.
 
 A deposit is a **rebasing balance**: it shrinks by the anchor tokens taken, and the depositor receives
-the exchanged asset in return. Pool shares are themselves a transferable ERC-20.
+the exchanged asset in return. Pool shares are themselves a transferable ERC-20 with a signed approval
+(EIP-2612 `permit`); Permit2 is an ordinary spender, with no standing allowance.
 
 The code calls the pool's side of this a *liquidation* and this document follows it, but the word
 carries none of its lending-protocol meaning: nothing is seized to cover a debt, and the exchange is
-**fair** — at the middle of the price band, no fee (§5.6), anchor exchanged at par and sail minted at
-its own price. What changes is *what the depositor holds*.
+**fair** — at the middle of the price band, with no fee charged by the protocol (§5.6), anchor
+exchanged at par and sail minted at its own price. The keeper that triggers it takes its bounty from
+the proceeds (§7.7). What changes is *what the depositor holds*.
 
 **Where the leveraged pool is paid depends on the ratio.** Sail is the residual claim, so its price
 falls toward zero near the peg, and below the leverage floor (§2.3) the protocol mints none. There the
-leveraged pool gives up anchor by the collateral route alongside the collateral pool, pro rata to what
-each holds, and is paid in wrapped collateral, until the ratio reaches the leverage floor; from the
-floor it is paid in sail. **At or below the peg there is no rebalance at all**: an anchor token
-redeemed there takes its share of the backing with it, so no amount redeemed moves the ratio, and the
-pools keep their anchor for when the price recovers.
+leveraged pool gives up anchor by the collateral route alongside the collateral pool, pro rata to each
+pool's deposits and within each pool's headroom above its floor, and is paid in wrapped collateral,
+until the ratio reaches the leverage floor, or the rebalance threshold if that is lower; from the floor
+it is paid in sail. **At or below the peg there is no rebalance at all**: an anchor token redeemed
+there takes its share of the backing with it, so no amount redeemed moves the ratio, and the pools keep
+their anchor for when the price recovers.
 
 Two structural bounds govern each pool, and both are **numerical-precision parameters, not risk
 limits**:
 
-- a **floor** — once seeded, the pool's total deposits may never be driven below it. A liquidation
-  is capped at the headroom above the floor, so every depositor keeps a share of the minimum, and
-  the loss arithmetic can never round a near-total liquidation into a total one.
+- a **floor** — the first deposit must reach it, every deposit must leave the total at or above it,
+  and every outflow (a withdrawal, a sweep of the anchor, a liquidation) is capped at the headroom
+  above it. So once seeded the pool's total deposits never fall below it, every depositor keeps a
+  share of the minimum, and the loss arithmetic can never round a near-total liquidation into a total
+  one. The floor is also the least the reward arithmetic ever divides by.
 - a **ceiling**, derived from the floor, above which deposits are refused for the same arithmetic
   reason.
 
-Both are set per market at deployment, sized so that in normal operation neither is approached — the
-configured markets sit four to fourteen orders of magnitude below the ceiling.
+Both are fixed per pool when it is deployed, sized so that in normal operation neither is approached.
 
 ### 2.7 Reward accrual
 
@@ -457,19 +466,26 @@ Stability-pool depositors receive value from two distinct sources, which behave 
 | Source | Arrives | Distribution |
 |---|---|---|
 | **Liquidation proceeds** (from a rebalance) | In one step, immediately | Credited at once, proportional to holdings |
-| **Harvested yield** (from collateral appreciation) | Streamed | Vests linearly over a fixed reward period (7 days) |
+| **Harvested yield** (from collateral appreciation) | Streamed | Vests linearly over a fixed reward period (one week) |
 
 Both are credited proportionally to a depositor's share of the pool at the time of accrual, and both
 accumulate until claimed. A depositor's accrued-but-unclaimed rewards are not capped.
+
+Each source is net of what the keeper that triggered it is paid. A harvest also pays a **cut** to the
+fee receiver first. The owner sets both ratios, and the design intends both to be small, so that
+nearly all the yield reaches the pools (§5.7, §7.7).
 
 ### 2.8 The reserve pool
 
 A separate pool of collateral funds **subsidies** — negative fees, where a user receives *more* than
 the arithmetic exchange rate for performing an action that improves the system's health. It is
-funded by a share of collected fees and by direct transfers.
+funded by direct transfers; no fee is routed to it.
 
 The reserve pool is a **best-effort** facility. When it empties, subsidies silently stop applying
-and actions simply proceed at zero fee; no operation fails because a subsidy could not be paid.
+and actions simply proceed at zero fee; no operation fails because a subsidy could not be paid. The
+subsidy asked for is sized to the reserve's balance in the same call, so it is never short. A reserve
+that paid less than asked would make the operation revert `RequestedSubsidyNotGiven`, rather than the
+difference being paid out of the backing.
 Users are told the actual subsidy available, not the configured one, by the dry-run functions
 (§4, §5.3).
 
@@ -477,7 +493,8 @@ Users are told the actual subsidy available, not the configured one, by the dry-
 
 The terms introduced above — anchor and sail token, wrapped collateral, underlying, collateral and
 leverage ratio, depeg — are defined where they first appear and collected, with everything else this
-document uses, in the **glossary at §11**.
+document uses, in the **glossary at §11**. Where this document says anchor and sail, the code says
+**pegged** and **leveraged**.
 
 ---
 
@@ -524,8 +541,8 @@ if the collateral ratio reaches 1. Cares that mint and redeem are available and 
 activity does not move the price against them.
 
 **Stability-pool depositor.** Deposits anchor tokens to earn yield, accepting that some or all of
-the deposit may be converted — at a favourable rate — into collateral or sail tokens when the system
-needs to rebalance. This is the protocol's backstop and its most complex role: the depositor is
+the deposit may be converted — at the fair, middle price, less the keeper's bounty — into collateral
+or sail tokens when the system needs to rebalance. This is the protocol's backstop and its most complex role: the depositor is
 being paid to stand ready to absorb a loss that is usually profitable and occasionally is not.
 
 **Yield vault.** The one participant that is a contract rather than a person. Mints anchor tokens,
@@ -533,15 +550,24 @@ holds a stability-pool position, claims and reinvests rewards — all on behalf 
 whom the core never sees and cannot distinguish. Several of the core's capabilities exist for it and
 have no other consumer (§5.9), and it is called back to compound after every rebalance and harvest.
 
-**Genesis depositor.** Supplies collateral before a market has any, when there is no price to mint
-against and no ratio to defend. Receives a proportional claim on both tokens once the market opens.
-Bears the risk that the market opens on unfavourable terms, in exchange for founding allocation.
+**Genesis depositor.** Supplies collateral before a market has any, when there is no ratio to
+defend. Receives a proportional claim on both tokens once the market opens, each minted at the end
+of the oracle's bands that pays the caller less (§2.5). Bears the risk that the market opens on
+unfavourable terms, in exchange for founding allocation, and trusts the owner with the deposit until
+then (§3.3).
 
-**Contributor.** Gives value to the protocol and takes no claim in return — typically the treasury,
-but anyone, since both routes accept direct transfers. The choice of route decides who benefits:
-collateral sent to the reserve pool funds subsidies for users restoring the ratio, while wrapped
-collateral sent to the Minter becomes yield for stability-pool depositors. Neither is an investment
-and neither is recoverable (§4.8).
+**Contributor.** Gives value to the protocol and takes no claim in return — typically the treasury.
+There are three routes, and the choice decides who benefits:
+
+- collateral sent to the **reserve pool** funds subsidies for users restoring the ratio — anyone can
+  send it;
+- wrapped collateral **sent to the Minter** by plain transfer becomes harvestable yield for
+  stability-pool depositors — anyone can send it;
+- wrapped collateral **donated** through the Minter's donation call is credited to the backing, which
+  raises the collateral ratio and the sail price — only the owner and holders of the donor or
+  zero-fee role can make it.
+
+None is an investment and none is recoverable (§4.8).
 
 ### 3.2 Operational participants
 
@@ -550,23 +576,36 @@ rebalancing, harvesting, compounding — and is paid a **bounty** in the proceed
 protocol depends on keepers being profitable; §6 covers what happens when they are not. Keepers are
 permissionless and unprivileged: they choose *when* to call, never *what* the call does.
 
-**Owner / governance.** A multisig. Sets the fee and subsidy schedule, the rebalance threshold, the
-bounty and cut ratios, the price source, and the fee and reserve destinations. Holds upgrade
-authority over every contract, and thereby the pause mechanism. This is the system's principal trust
-assumption and is enumerated as such in §9.
+**Owner / governance.** A multisig. Holds upgrade authority over every contract, and thereby the
+pause mechanism. Beyond the upgrade, it can:
 
-**Fee receiver.** The destination for mint and redeem fees, the harvest cut, and early-withdrawal
-fees. A passive recipient; holds no authority.
+- set the fee and subsidy schedule, the rebalance threshold, the rebalance bounty ratio and the
+  harvest bounty and cut ratios — each ratio up to 100%;
+- point the Minter at any non-zero price source, and set the fee and reserve destinations;
+- register yield vaults, and recognise an impairment (§2.1);
+- grant the zero-fee, donor, harvester and fee-exempt-withdrawal roles;
+- sweep tokens: any token, in any amount, from the Minter and from the genesis contract; and, from a
+  stability pool, any token other than the anchor in full, and the anchor down to the pool's floor
+  without writing down depositors' balances.
+
+This is the system's principal trust assumption and is enumerated as such in §9.
+
+**Fee receivers.** Three destinations, set separately: the Minter's, for mint and redeem fees; the
+stability-pool manager's, for the harvest cut; and each stability pool's, for early-withdrawal fees,
+fixed when the pool is initialised. Passive recipients; they hold no authority.
 
 ### 3.3 Trust relationships
 
 | Actor | Must trust | Need not trust |
 |---|---|---|
-| Anchor holder | Owner (upgrade), price source | Other users, keepers |
-| Sail holder | Owner (upgrade), price source | Other users, keepers |
-| Stability-pool depositor | Owner (upgrade), price source, rebalance sizing | Individual keepers — anyone may rebalance |
-| Genesis depositor | Owner (to end genesis on fair terms) | — |
+| Anchor holder | Owner, price source | Other users, keepers |
+| Sail holder | Owner, price source | Other users, keepers |
+| Stability-pool depositor | Owner, price source, rebalance sizing | Individual keepers — anyone may rebalance |
+| Genesis depositor | Owner (to end genesis on fair terms, and not to sweep the deposits), price source (the opening mints are priced from it) | — |
 | Keeper | Nothing — a keeper risks only gas | — |
+
+"Owner" means every power listed in §3.2, not only the upgrade: in particular the choice of price
+source and the sweeps of the Minter, the stability pools and the genesis contract.
 
 Anyone reaching the protocol through a yield vault inherits every assumption above, plus the vault's
 own — including its swap routing, which the core has none of.
@@ -2553,17 +2592,20 @@ paused. "Depegged **and** halted" is a real and particularly awkward combination
 
 ### 10.1 The health axis
 
-Boundaries are per market, taken from its volatility class (§7.3). The concrete figures below are
-the 1.30-threshold class; a 1.05-threshold market has the same structure with different numbers.
+Four boundaries place a market on this axis. The **peg** (a ratio of 1) and the **leverage floor**
+(§2.3) are fixed by the code. The **rebalance threshold** $T$, and the **disallow floor** $D$ — the
+ratio at or below which the schedule refuses anchor minting — are set per market by the owner and
+can change. The names below stand for whatever they are set to. For example, a market
+configured with `ConfigPriceVolatility_130` has $T = 1.30$ and $D = 1.31$.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Genesis
     Genesis --> Healthy: endGenesis()<br/>opens at ~2.0x
 
-    Healthy --> Guarded: collateral price falls<br/>(CR < 1.31)
-    Guarded --> Healthy: CR recovers above 1.31
-    Guarded --> Rebalanceable: CR < 1.30<br/>(the threshold)
+    Healthy --> Guarded: collateral price falls<br/>(CR ≤ D)
+    Guarded --> Healthy: CR recovers above D
+    Guarded --> Rebalanceable: CR < T<br/>(the threshold)
     Rebalanceable --> Guarded: rebalance, or<br/>market activity
     Rebalanceable --> Depegged: CR ≤ 1.00
     Depegged --> Rebalanceable: CR recovers above 1.00
@@ -2579,60 +2621,76 @@ stateDiagram-v2
     end note
 ```
 
-Note the ordering, which is the design's main safety property on this axis: **anchor minting shuts
-off before rebalancing arms**, and rebalancing arms long before a depeg. Each defence engages while
-the previous one still has room.
+Note the ordering, which is the design's main safety property on this axis: with the schedule set as
+designed, $D$ above $T$, **anchor minting shuts off before rebalancing arms**, and rebalancing arms
+long before a depeg. Each defence engages while the previous one still has room. The code does not
+tie $D$ to $T$: the schedule is set on the Minter and the threshold on the stability-pool manager,
+separately.
 
-| State | Entry condition (1.30 class) | Anchor mint | Anchor redeem | Sail mint | Sail redeem | Rebalance |
+| State | Entry condition | Anchor mint | Anchor redeem | Sail mint | Sail redeem | Rebalance |
 |---|---|---|---|---|---|---|
 | **Genesis** | market not yet opened | — | — | — | — | — |
-| **Healthy** | CR ≥ 1.31 | ✅ 0.25–2% | ✅ 0–0.5% | ✅ 0–1% | ✅ 1–2.5% | ❌ not armed |
-| **Guarded** | 1.30 ≤ CR < 1.31 | ⛔ **disallowed** | ✅ free | ✅ free | ✅ 2.5% | ❌ not armed |
-| **Rebalanceable**, above the leverage floor | 1.053 ≤ CR < 1.30 | ⛔ disallowed | ✅ **paid** 0.3–0.75% | ✅ **paid** 1–2.5% | ✅ 4% | ✅ **armed**, both legs |
-| **Rebalanceable**, below the leverage floor | 1.00 < CR < 1.053 | ⛔ disallowed | ✅ **paid** 0.75% | ⛔ **refused by the cap** | ✅ 4% | ✅ **armed**, collateral route to the floor first |
-| **Depegged** | CR ≤ 1.00 | ⛔ disallowed | ✅ **paid** 0.75–1% | ⛔ refused by the cap | ⛔ **disallowed** below 1 | ⛔ **refused** |
+| **Healthy** | CR > D | ✅ schedule | ✅ schedule | ✅ schedule | ✅ schedule | ❌ not armed |
+| **Guarded** | T ≤ CR ≤ D | ⛔ **disallowed** by the schedule | ✅ schedule | ✅ schedule | ✅ schedule | ❌ not armed |
+| **Rebalanceable**, at or above the leverage floor | floor ≤ CR < T | ⛔ disallowed by the schedule | ✅ schedule | ✅ schedule | ✅ schedule | ✅ **armed**, both legs |
+| **Rebalanceable**, below the leverage floor | 1 < CR < floor | ⛔ **refused by the code** | ✅ schedule | ⛔ **refused by the cap** | ✅ schedule | ✅ **armed**, collateral route to the floor first |
+| **Depegged** | CR ≤ 1 | ⛔ refused by the code | ✅ schedule | ⛔ refused by the cap | ⛔ **refused**: no residual to pay | ⛔ **refused** |
 
-The leverage floor shown is for a cap of 20 (§2.3); a higher cap moves it toward 1.00 and shrinks the
-second row.
+"Schedule" means the action is priced by the market's fee and subsidy schedule (§7), and what a
+schedule can do to each action is fixed by the code's validation of it:
 
-"Paid" means a subsidy — the user receives more than the arithmetic rate, funded by the reserve
-pool while it lasts (§7.6).
+- **Anchor mint and sail redeem** lower the ratio. Their schedules charge fees only, from zero up to
+  a disallow, and only the lowest band can disallow. The code refuses a retail anchor mint at or
+  below the leverage floor whatever the schedule says.
+- **Anchor redeem and sail mint** raise the ratio. Their schedules charge a fee or pay a subsidy, but
+  can never disallow, and the highest band is never a subsidy. So anchor redemption is always open
+  (C1), though a schedule may charge a fee just short of 100%.
+- A ratio exactly on a band's bound is priced in the band the action moves toward: below the bound
+  for a lowering action, above it for a raising one.
+
+As designed, a schedule subsidises the restoring actions — redeeming anchor, minting sail — once
+the ratio is below the threshold, and charges sail redemption its steepest fee there. A subsidy means
+the user receives more than the arithmetic rate, funded by the reserve pool while it lasts (§7.6).
 
 ### 10.2 Genesis
 
 The market has no collateral, no tokens minted and therefore no meaningful collateral ratio.
 
-Only the genesis contract is live: collateral may be deposited, and **withdrawn in full at any
-time** until the owner closes the phase. No minting, redeeming or stability-pool activity exists
-yet. Closing is a one-way owner action that mints both tokens from the pooled collateral and opens
-the market at roughly 2.0× (§5.1).
+The genesis contract is live: collateral may be deposited, and **withdrawn in full at any time**
+until the owner closes the phase — subject to the owner's sweep of the contract (§3.2). No minting or
+redeeming exists yet. The market's stability pools already accept deposits: they check no market
+state, and the anchor token may already exist, minted by another market with the same underlying
+(§1.4). Closing is a one-way owner action that mints both tokens from the pooled collateral, half
+for each, and opens the market at roughly 2.0× (§5.1).
 
 ### 10.3 Healthy
 
-The ordinary operating state. All four actions are available, fees are mild — a fraction of a
-percent to a few percent — and no subsidy applies in either direction because the system needs
-nothing from anyone.
+The ordinary operating state. All four actions are available, priced by the schedule. As designed,
+its fees here are mild and it pays no subsidy in either direction, because the system needs nothing
+from anyone.
 
 Harvesting runs on its keeper cadence; rebalancing is unavailable and reverts if attempted.
 
 ### 10.4 Guarded
 
-A narrow band — one percentage point of collateral ratio in every deployed class — between the point
-where anchor minting stops and the point where rebalancing begins.
+The band between $T$ and $D$: between the point where anchor minting stops and the point where
+rebalancing begins. It exists when the disallow floor sits above the threshold, as the design
+intends.
 
 Its purpose is to stop the system walking into rebalance territory while still minting new anchor
 claims. **Anchor minting is already disallowed here, but no rebalance is armed yet**: the market has
-one band's worth of room in which the restoring actions (redeeming anchor, minting sail) are free
-and the damaging one is shut off, before the backstop is needed at all.
+room in which the restoring actions (redeeming anchor, minting sail) stay open and the damaging one
+is shut off, before the backstop is needed at all.
 
-The band is deliberately thin. It is a boundary condition, not a place a market is expected to sit.
+The band is meant to be thin. It is a boundary condition, not a place a market is expected to sit.
 
 ### 10.5 Rebalanceable
 
 The collateral ratio is below the threshold, so a keeper may rebalance at any time and is paid to.
 
-Subsidies are now live: redeeming anchor tokens and minting sail tokens both pay the user, funded by
-the reserve pool. Sail redemption carries its steepest permitted fee. This is the state in which the
+As designed, subsidies are now live: the schedule pays users to redeem anchor tokens and to mint
+sail tokens, funded by the reserve pool, and charges sail redemption its steepest fee. This is the
+state in which the
 economic mechanism and the backstop both work at once — the fee schedule recruits volunteers while
 rebalancing stands ready regardless of whether any appear.
 
@@ -2647,18 +2705,18 @@ the threshold (§5.6). The higher the cap, the thinner this part of the state.
 
 ### 10.6 Depegged
 
-The collateral no longer covers the anchor tokens. Three things change qualitatively:
+The collateral no longer covers the anchor tokens. Four things change qualitatively:
 
 1. **The anchor token stops being worth 1.** Its reported price becomes its pro-rata share of the
    remaining collateral, and redemption is priced from that share. The system reports this plainly
    rather than concealing it.
 2. **The sail claim is worthless.** `C − P` is zero or negative, so sail tokens have no residual
-   value. Sail redemption is disallowed outright — allowing it would pay sail holders out of anchor
-   holders' backing — and sail minting is refused by the leverage cap, the ratio being below the
-   leverage floor (§2.3).
-3. **Redeeming anchor tokens stays open and is paid.** Each redemption takes the holder's pro-rata
-   share of the backing, so it leaves the ratio where it is rather than raising it, but it is the one
-   exit and it remains permanently available (C1).
+   value. Sail redemption is refused by the code, whatever the schedule: it would pay nothing, and
+   reverts `ReturnZeroAmount` rather than pay sail holders out of anchor holders' backing. Sail
+   minting is refused by the leverage cap, the ratio being below the leverage floor (§2.3).
+3. **Redeeming anchor tokens stays open.** Each redemption takes the holder's pro-rata share of the
+   backing, so it leaves the ratio where it is rather than raising it, but it is the one exit, and no
+   schedule can disallow it (C1). As designed, the schedule subsidises it here.
 4. **No rebalance.** For the same reason a rebalance could not move the ratio, so it is refused, and
    the stability pools keep their anchor. Depositors hold anchor worth its depressed share, as every
    anchor holder does.
@@ -2669,14 +2727,14 @@ which is why the pools are not spent while the market is depegged.
 
 ### 10.7 Halted — the price feed has failed
 
-Not a health state. The feed has returned an invalid, zero, stale or abnormally-deviant reading, so
-every operation that must be priced **reverts** (§6.8, P2).
+Not a health state. The price source reverts instead of answering — it cannot price, for example
+because its feed is stale — so every call that reads it **reverts** (§6.8, P2).
 
 | | |
 |---|---|
-| **Unavailable** | Minting and redeeming either token; rebalancing |
+| **Unavailable** | Minting and redeeming either token; rebalancing; harvesting; donating; recognising an impairment; every Minter view and dry run that reads the price or the rate, and the manager's `rebalanceable()` |
 | **Still available** | Stability-pool deposit, withdrawal, reward claim — **none of these reads the oracle** |
-| **Controlled by** | Nobody. It clears when the feed recovers |
+| **Controlled by** | Nobody inside the protocol. It clears when the feed recovers, or when the owner points the Minter at another price source |
 
 Depositors therefore keep access to their positions throughout. Solvency is untouched — refusing to
 transact at an unknown price is what preserves it — but liveness is lost, and the loss includes
@@ -2691,7 +2749,7 @@ held)`.
 
 | | |
 |---|---|
-| **Unavailable** | Minting and redeeming either token, fee-paying or free; rebalancing; harvesting yields nothing |
+| **Unavailable** | Minting and redeeming either token, fee-paying or free; rebalancing; harvesting, which reverts `NoHarvestable` because the holding has no surplus over the record |
 | **Still available** | Every view and dry run, answering from the record; donation; stability-pool deposit, withdrawal, reward claim |
 | **Seen in** | `impairment()` reports `recorded > held`; the manager's `rebalanceable()` reports false |
 | **Clears** | By itself if the rate recovers; or when the owner calls `recogniseImpairment()`, writing the record down to the holding |
@@ -2715,11 +2773,11 @@ is to reject everything. There is no pause flag anywhere in the system.
 
 | | |
 |---|---|
-| **Effect** | Every call, including plain ether transfers, reverts with a "paused" error |
+| **Effect** | Every call reverts with a `Paused` error, except the few the stub answers itself: `owner()`, `supportsInterface()`, `proxiableUUID()`, and `upgradeToAndCall` for its owner. A plain ether transfer reverts too, without the `Paused` error |
 | **State** | Entirely preserved — the proxy's storage is untouched, so no balance, deposit or accrual is lost |
 | **Cost when unused** | **Zero.** Ordinary operation pays no gas for a pause check that isn't there |
 | **Scope** | Per contract. Pausing the Minter does not pause the stability pools |
-| **Exit** | Upgrade back to a working implementation |
+| **Exit** | Upgrade back to a working implementation, by the stub's fixed owner |
 
 Two properties of this approach are worth stating because they are unusual:
 
@@ -2743,9 +2801,9 @@ document, the section is given.
 
 | Term | Meaning |
 |---|---|
-| **Anchor token** (*ha*) | The stable, senior token, tracking the value of a chosen underlying. Redeemable from the protocol for collateral. An ordinary ERC-20 that may also exist from other sources (§2.1) |
-| **Sail token** (*hs*) | The leveraged, junior token, holding the residual claim `C − P`. Minted and burned only by the protocol (§2.1) |
-| **Wrapped collateral** | The yield-bearing asset the protocol actually holds — wstETH, fxSAVE, sUSDe. Worth progressively more of its underlying over time |
+| **Anchor token** (*ha*) | The stable, senior token, tracking the value of a chosen underlying. Redeemable from the protocol for collateral. One per underlying on a chain, shared by that underlying's markets, and an ordinary ERC-20 that may also exist from other sources (§1.4, §2.1). The code calls it the **pegged token**: `PEGGED_TOKEN`, `peggedTokenPrice()` |
+| **Sail token** (*hs*) | The leveraged, junior token, holding the residual claim `C − P`. Minted and burned only by its market (§2.1). The code calls it the **leveraged token**: `LEVERAGED_TOKEN`, `leveragedTokenPrice()` |
+| **Wrapped collateral** | The yield-bearing asset the protocol actually holds — e.g. wstETH, fxSAVE. Worth progressively more of its underlying over time |
 | **Underlying** | The asset an anchor token tracks — ETH, BTC, EUR, gold |
 | **Stability-pool share** | A depositor's claim on a stability pool. A transferable, rebasing ERC-20 (§2.6) |
 
@@ -2753,14 +2811,14 @@ document, the section is given.
 
 | Term | Meaning |
 |---|---|
-| **Collateral ratio** | Collateral value ÷ anchor token value. The system's health metric, computed from the *recognised* backing rather than the balance held (§2.3, §6.3) |
+| **Collateral ratio** | Collateral value ÷ the face value of the anchor tokens this market minted. The system's health metric, computed from the *recognised* backing rather than the balance held, and reported raw: it can fall below 1, to 0 (§2.3, §6.3) |
 | **Unrecognised impairment** | The recorded backing exceeding what the wrapped holding converts to at the low edge of the rate band, after the rate has fallen. Every price, ratio and fee band goes on reporting the record, and every updating operation reverts `UnrecognisedImpairment` until the rate recovers or the owner recognises the loss. Reported by `impairment()` (§2.1, A6, §10.7) |
 | **Leverage ratio** | Collateral value ÷ sail token value. Rises without bound as the collateral ratio approaches 1, and is reported uncapped (§2.3) |
 | **Leverage cap** | `MAX_LEVERAGE_RATIO`: the most leverage the protocol will mint sail at. Caps minting only — never redeeming, never the reported ratio (§2.3) |
 | **Leverage floor** | `MINIMUM_COLLATERAL_RATIO`, `K/(K−1)` for a cap `K`: the collateral ratio below which no sail is minted and a rebalance pays both pools in collateral (§2.3, §5.6) |
 | **Depeg** | Collateral ratio below 1 — anchor tokens no longer fully covered (§10.6) |
 | **Rebalance threshold** | The collateral ratio below which rebalancing becomes available. Set per market by its volatility class (§7.3) |
-| **Disallow floor** | The collateral ratio below which anchor minting is refused. Sits one point *above* the rebalance threshold in every deployed class (§7.3) |
+| **Disallow floor** | The collateral ratio at or below which the schedule refuses anchor minting. Set by the owner with the schedule; designed to sit *above* the rebalance threshold (§7.3, §10.1) |
 | **Price band** | The minimum and maximum the price source reports. Each mint and redeem picks the end that pays its caller less; the market's measures and the rebalance use the middle (§2.5) |
 | **Rate** | The wrapped-to-collateral conversion. Its growth over time is the source of harvestable yield (§2.5) |
 
@@ -2771,7 +2829,7 @@ document, the section is given.
 | **Incentive ratio** | One signed number carrying fee, subsidy and permission: positive is a fee, negative a subsidy, `+1.0` means disallowed (§7.1) |
 | **Subsidy** | A negative fee — the user receives more than the arithmetic rate, funded by the reserve pool. Best-effort: it shrinks silently if the pool is short (§7.6) |
 | **Band** | A collateral-ratio interval with one incentive ratio. A large order is priced slice-by-slice across the bands it moves through (§7.2) |
-| **Volatility class** | The per-market configuration supplying both the fee schedule and its matching rebalance threshold (§7.3) |
+| **Volatility class** | A deploy-time configuration supplying a market's fee schedule and a matching rebalance threshold. On chain the two are separate settings, on the Minter and on the stability-pool manager (§7.3) |
 | **Harvestable yield** | The surplus of wrapped collateral held over the tracked backing. Belongs to no claim in the accounting identity until harvested (§2.5) |
 | **Owed ledger** | Per-pool record of harvested yield allocated but not yet streamed. Never re-split between pools (§5.7, H2) |
 | **Bounty** | A keeper's share of the value its own call released (§7.7) |
@@ -2783,7 +2841,7 @@ document, the section is given.
 | Term | Meaning |
 |---|---|
 | **Rebalance** | Drawing anchor tokens from the stability pools and redeeming them, to raise the collateral ratio. Keeper-triggered, permissionless; refused at or below the peg (§5.6) |
-| **Harvest** | Distributing accrued collateral yield to the stability pools. Keeper-triggered, permissionless (§5.7) |
+| **Harvest** | Paying out accrued collateral yield: a bounty to the keeper, a cut to the fee receiver, and the rest streamed to the stability pools. Keeper-triggered, permissionless (§5.7) |
 | **Compound** | Reinvesting a yield vault's rewards. Runs automatically after every rebalance and harvest (§6.4) |
 | **Liquidation** | The pool's side of a rebalance: anchor tokens are exchanged for the payout asset the manager names, at the middle of the price band and zero fee, and the proceeds credited immediately. Not a seizure — see §2.6 (§2.7) |
 | **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
@@ -2796,7 +2854,7 @@ document, the section is given.
 | Term | Meaning |
 |---|---|
 | **Market** | One deployed instance: a (collateral, underlying) pair with its own tokens, pools and solvency. Independent of every other market (§1.4) |
-| **Floor / ceiling** | The stability pool's supply bounds. **Precision parameters, not risk limits** — they exist to keep the liquidation loss factor positive (§2.6, S2) |
+| **Floor / ceiling** | The stability pool's supply bounds. **Precision parameters, not risk limits** — they exist to keep the liquidation loss factor positive and the reward divisor above zero (§2.6, S2, S4) |
 | **Reward divisor** | The denominator each reward accrual divides by. Held at or above the summed depositor balances so rewards conserve by construction (S4) |
 | **Reserve pool** | Collateral funding subsidies. Best-effort — it never reverts for being short (§2.8) |
 | **Pause** | Halting a contract by upgrading its proxy to a stub that rejects everything. No pause flag exists (§10.9) |
