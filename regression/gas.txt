@@ -25,13 +25,13 @@ src/minter/Minter_v3.sol:Minter_v3
 | harvestable                                      |  29857 | 2.986e+04 |
 | hasAllRoles                                      |   2615 | 2.615e+03 |
 | hasAnyRole                                       |   2680 | 2.680e+03 |
-| impairment                                       |  22143 | 2.214e+04 |
+| impairment                                       |  85830 | 8.583e+04 |
 | initialize                                       | 184219 | 1.842e+05 |
 | leverageRatio                                    |  19481 | 1.948e+04 |
 | leveragedMintable                                |  19667 | 1.967e+04 |
 | leveragedTokenBalance                            |  10374 | 1.037e+04 |
-| leveragedTokenPrice                              |  29635 | 2.964e+04 |
-| mintLeveragedToken                               | 169805 | 1.698e+05 |
+| leveragedTokenPrice                              |  95817 | 9.582e+04 |
+| mintLeveragedToken                               | 182888 | 1.829e+05 |
 | mintLeveragedTokenDryRun                         |  79591 | 7.959e+04 |
 | mintLeveragedTokenIncentiveRatio                 |  31132 | 3.113e+04 |
 | mintPeggedToken(uint256,address,uint256)         | 181547 | 1.815e+05 |
@@ -41,7 +41,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | mintPeggedTokenIncentiveRatio                    |  30026 | 3.003e+04 |
 | owner                                            |   2402 | 2.402e+03 |
 | peggedTokenBalance                               |   2409 | 2.409e+03 |
-| peggedTokenPrice                                 |  19105 | 1.910e+04 |
+| peggedTokenPrice                                 |  85287 | 8.529e+04 |
 | priceOracle                                      |   2472 | 2.472e+03 |
 | proxiableUUID                                    |    342 | 3.420e+02 |
 | recogniseImpairment                              |  28616 | 2.862e+04 |
@@ -76,6 +76,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | hasStabilityPool           |    559 | 5.590e+02 |
 | initialize                 |  92816 | 9.282e+04 |
 | owner                      |   2401 | 2.401e+03 |
+| proxiableUUID              |    375 | 3.750e+02 |
 | rebalance                  | 883452 | 8.835e+05 |
 | rebalanceBountyRatio       |   2399 | 2.399e+03 |
 | rebalanceThreshold         |   2348 | 2.348e+03 |
