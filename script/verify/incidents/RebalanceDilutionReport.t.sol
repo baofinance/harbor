@@ -52,7 +52,7 @@ import {
 /// and reads every market's configuration at the exploit's block.
 ///
 /// It checks itself before writing anything: the accounts found hold the whole pegged and leveraged supplies, and leave
-/// each pool's ledger gap negative or within rounding, before and after; every party's change sums to zero, to within
+/// each pool's ledger gap within rounding either way, before and after; every party's change sums to zero, to within
 /// the rounding of the valuation; and the caller's flows sum to what it paid out, to within the rounding of its trades.
 /// A failed check leaves the files as they were.
 abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
@@ -262,7 +262,6 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         vm.revertToState(start);
     }
 
-
     /// @dev The exploited market, as its files are named: `<peg>-<collateral>`.
     function _marketLabel() internal view returns (string memory) {
         return
@@ -376,8 +375,9 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         reading.contracts[1] = _holding(market.collateralPool);
         reading.contracts[2] = _holding(market.manager);
         reading.minterSurplus =
-            int256(Math.mulDiv(IERC20(market.wrappedCollateral).balanceOf(market.minter), reading.prices.wrapped, 1 ether)) -
-            int256(Math.mulDiv(reading.collateralBacking, reading.prices.collateral, 1 ether));
+            int256(
+                Math.mulDiv(IERC20(market.wrappedCollateral).balanceOf(market.minter), reading.prices.wrapped, 1 ether)
+            ) - int256(Math.mulDiv(reading.collateralBacking, reading.prices.collateral, 1 ether));
 
         _assertComplete(reading);
     }
@@ -404,8 +404,8 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
 
     /// @dev The parties found and the market's contracts hold the whole pegged and leveraged supplies - token balances,
     ///      exact. Each pool's ledger gap - its `totalAssetSupply()` less the sum of the depositors' `assetBalanceOf` - is
-    ///      recorded, and must be negative or within rounding by the rule the StabilityPool_v3 upgrade's pre-flight
-    ///      applies (`HolderCaptureLib.classify`). It is not zero: a pool spreads each loss with its per-unit share
+    ///      recorded, and must be within rounding, either side of zero, by the rule the StabilityPool_v3 upgrade applies
+    ///      (`HolderCaptureLib.classify`). It is not zero: a pool spreads each loss with its per-unit share
     ///      rounded up and carries the over-charge to the next loss (`lastAssetLossError`), so its supply and its
     ///      depositors' balances drift apart by design, by up to about its supply in 1e-18 units a liquidation.
     function _assertComplete(Reading memory reading) internal view {
@@ -431,11 +431,12 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         reading.leveragedPoolGap = int256(leveragedPoolSupply) - int256(leveragedPoolDeposits);
         reading.collateralPoolGap = int256(collateralPoolSupply) - int256(collateralPoolDeposits);
         assertTrue(
-            HolderCaptureLib.classify(reading.leveragedPoolGap, leveragedPoolSupply) != HolderCaptureLib.Gap.Incomplete,
+            HolderCaptureLib.classify(reading.leveragedPoolGap, leveragedPoolSupply) == HolderCaptureLib.Gap.Rounding,
             "the depositors found hold the leveraged pool's supply, to within rounding"
         );
         assertTrue(
-            HolderCaptureLib.classify(reading.collateralPoolGap, collateralPoolSupply) != HolderCaptureLib.Gap.Incomplete,
+            HolderCaptureLib.classify(reading.collateralPoolGap, collateralPoolSupply) ==
+                HolderCaptureLib.Gap.Rounding,
             "the depositors found hold the collateral pool's supply, to within rounding"
         );
     }
@@ -765,7 +766,11 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         );
         table = string.concat(
             table,
-            _row3("Collateral backing (underlying)", _exact(before.collateralBacking), _exact(afterwards.collateralBacking))
+            _row3(
+                "Collateral backing (underlying)",
+                _exact(before.collateralBacking),
+                _exact(afterwards.collateralBacking)
+            )
         );
         table = string.concat(
             table,
@@ -773,7 +778,11 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         );
         table = string.concat(
             table,
-            _row3(string.concat(leveraged, " outstanding"), _exact(before.leveragedSupply), _exact(afterwards.leveragedSupply))
+            _row3(
+                string.concat(leveraged, " outstanding"),
+                _exact(before.leveragedSupply),
+                _exact(afterwards.leveragedSupply)
+            )
         );
         table = string.concat(
             table,
@@ -802,10 +811,10 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                 "negative when they hold more. A pool spreads each loss with its per-unit share rounded up and carries ",
                 "the over-charge to its next loss, so the two drift apart by design, by up to about the supply in 1e-18 ",
                 "units a liquidation; the StabilityPool_v3 upgrade measures the gap and seeds it so rewards divide by ",
-                "what depositors hold. This report requires each gap to be negative or below ",
+                "what depositors hold. This report requires each gap to be within ",
                 vm.toString(HolderCaptureLib.MAX_GAP_PARTS_PER_BILLION),
-                " parts per billion of the pool's supply, the rule the upgrade's pre-flight applies to a holder ",
-                "capture.\n\n"
+                " parts per billion of the pool's supply, either side of zero, the rule the upgrade applies to a ",
+                "holder capture.\n\n"
             );
     }
 
@@ -820,59 +829,164 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             vm.toString(exploit.lender),
             "`.\n\n| Step | Count | In | Out | Fee to the minter's fee receiver |\n|---|---|---|---|---|\n"
         );
-        table = string.concat(table, _actionRow(string.concat("Borrowed ", wrapped), 1, exploit.borrowed, wrapped, 0, "", 0));
-        table = string.concat(table, _actionRow(string.concat("Minted ", leveraged), exploit.mintLeveraged, wrapped, leveraged));
+        table = string.concat(
+            table,
+            _actionRow(string.concat("Borrowed ", wrapped), 1, exploit.borrowed, wrapped, 0, "", 0)
+        );
+        table = string.concat(
+            table,
+            _actionRow(string.concat("Minted ", leveraged), exploit.mintLeveraged, wrapped, leveraged)
+        );
         table = string.concat(table, _actionRow(string.concat("Minted ", pegged), exploit.mintPegged, wrapped, pegged));
-        table = string.concat(table, _actionRow("Deposited in the leveraged pool", 1, exploit.deposited, pegged, 0, "", 0));
         table = string.concat(
             table,
-            _actionRow(string.concat("Redeemed ", leveraged, " before the rebalance"), exploit.redeemLeveragedBefore, leveraged, wrapped)
+            _actionRow("Deposited in the leveraged pool", 1, exploit.deposited, pegged, 0, "", 0)
         );
         table = string.concat(
             table,
-            _actionRow("Rebalance: pegged redeemed by the manager", 1, exploit.rebalancePegged, pegged, exploit.rebalanceWrapped, wrapped, 0)
+            _actionRow(
+                string.concat("Redeemed ", leveraged, " before the rebalance"),
+                exploit.redeemLeveragedBefore,
+                leveraged,
+                wrapped
+            )
         );
         table = string.concat(
             table,
-            _actionRow(string.concat("Rebalance: ", leveraged, " minted for it"), 1, 0, "", exploit.rebalanceLeveraged, leveraged, 0)
+            _actionRow(
+                "Rebalance: pegged redeemed by the manager",
+                1,
+                exploit.rebalancePegged,
+                pegged,
+                exploit.rebalanceWrapped,
+                wrapped,
+                0
+            )
         );
         table = string.concat(
             table,
-            _actionRow("Rebalance: from the collateral pool", 1, exploit.collateralPoolPegged, pegged, exploit.collateralPoolWrapped, wrapped, 0)
+            _actionRow(
+                string.concat("Rebalance: ", leveraged, " minted for it"),
+                1,
+                0,
+                "",
+                exploit.rebalanceLeveraged,
+                leveraged,
+                0
+            )
         );
         table = string.concat(
             table,
-            _actionRow("Rebalance: from the leveraged pool", 1, exploit.leveragedPoolPegged, pegged, exploit.leveragedPoolLeveraged, leveraged, 0)
+            _actionRow(
+                "Rebalance: from the collateral pool",
+                1,
+                exploit.collateralPoolPegged,
+                pegged,
+                exploit.collateralPoolWrapped,
+                wrapped,
+                0
+            )
         );
         table = string.concat(
             table,
-            _actionRow(string.concat("Rebalance bounty to the caller, ", wrapped), 1, 0, "", exploit.bountyWrapped, wrapped, 0)
+            _actionRow(
+                "Rebalance: from the leveraged pool",
+                1,
+                exploit.leveragedPoolPegged,
+                pegged,
+                exploit.leveragedPoolLeveraged,
+                leveraged,
+                0
+            )
         );
         table = string.concat(
             table,
-            _actionRow(string.concat("Rebalance bounty to the caller, ", leveraged), 1, 0, "", exploit.bountyLeveraged, leveraged, 0)
+            _actionRow(
+                string.concat("Rebalance bounty to the caller, ", wrapped),
+                1,
+                0,
+                "",
+                exploit.bountyWrapped,
+                wrapped,
+                0
+            )
         );
         table = string.concat(
             table,
-            _actionRow(string.concat("Claimed ", leveraged, " from the leveraged pool"), 1, 0, "", exploit.claimedLeveraged, leveraged, 0)
+            _actionRow(
+                string.concat("Rebalance bounty to the caller, ", leveraged),
+                1,
+                0,
+                "",
+                exploit.bountyLeveraged,
+                leveraged,
+                0
+            )
         );
         table = string.concat(
             table,
-            _actionRow(string.concat("Redeemed ", leveraged, " after the rebalance"), exploit.redeemLeveragedAfter, leveraged, wrapped)
+            _actionRow(
+                string.concat("Claimed ", leveraged, " from the leveraged pool"),
+                1,
+                0,
+                "",
+                exploit.claimedLeveraged,
+                leveraged,
+                0
+            )
         );
         table = string.concat(
             table,
-            _actionRow("Withdrew from the leveraged pool (the early-withdrawal fee in the last column)", 1, 0, "", exploit.withdrawn, pegged, exploit.earlyWithdrawalFee)
+            _actionRow(
+                string.concat("Redeemed ", leveraged, " after the rebalance"),
+                exploit.redeemLeveragedAfter,
+                leveraged,
+                wrapped
+            )
         );
-        table = string.concat(table, _actionRow(string.concat("Redeemed ", pegged), exploit.redeemPegged, pegged, wrapped));
-        table = string.concat(table, _actionRow(string.concat("Repaid ", wrapped), 1, exploit.repaid, wrapped, 0, "", 0));
         table = string.concat(
             table,
-            _actionRow(string.concat("Paid out, ", wrapped), exploit.recipients.length, 0, "", exploit.paidWrapped, wrapped, 0)
+            _actionRow(
+                "Withdrew from the leveraged pool (the early-withdrawal fee in the last column)",
+                1,
+                0,
+                "",
+                exploit.withdrawn,
+                pegged,
+                exploit.earlyWithdrawalFee
+            )
         );
         table = string.concat(
             table,
-            _actionRow(string.concat("Paid out, ", pegged), exploit.recipients.length, 0, "", exploit.paidPegged, pegged, 0)
+            _actionRow(string.concat("Redeemed ", pegged), exploit.redeemPegged, pegged, wrapped)
+        );
+        table = string.concat(
+            table,
+            _actionRow(string.concat("Repaid ", wrapped), 1, exploit.repaid, wrapped, 0, "", 0)
+        );
+        table = string.concat(
+            table,
+            _actionRow(
+                string.concat("Paid out, ", wrapped),
+                exploit.recipients.length,
+                0,
+                "",
+                exploit.paidWrapped,
+                wrapped,
+                0
+            )
+        );
+        table = string.concat(
+            table,
+            _actionRow(
+                string.concat("Paid out, ", pegged),
+                exploit.recipients.length,
+                0,
+                "",
+                exploit.paidPegged,
+                pegged,
+                0
+            )
         );
         table = string.concat(
             table,
@@ -917,16 +1031,29 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             int256 change = _value(afterwards.parties[i], afterwards.prices) - _value(before.parties[i], before.prices);
             uint256 kind = _kind(parties[i].role);
             if (kind == 0) {
-                totals[0] += _walletValue(afterwards.parties[i], afterwards.prices) - _walletValue(before.parties[i], before.prices);
-                totals[1] += _leveragedPoolValue(afterwards.parties[i], afterwards.prices) - _leveragedPoolValue(before.parties[i], before.prices);
-                totals[2] += _collateralPoolValue(afterwards.parties[i], afterwards.prices) - _collateralPoolValue(before.parties[i], before.prices);
+                totals[0] +=
+                    _walletValue(afterwards.parties[i], afterwards.prices) -
+                    _walletValue(before.parties[i], before.prices);
+                totals[1] +=
+                    _leveragedPoolValue(afterwards.parties[i], afterwards.prices) -
+                    _leveragedPoolValue(before.parties[i], before.prices);
+                totals[2] +=
+                    _collateralPoolValue(afterwards.parties[i], afterwards.prices) -
+                    _collateralPoolValue(before.parties[i], before.prices);
             } else {
                 totals[kind + 2] += change;
             }
         }
         int256 contractsChange = _contractsValue(afterwards) - _contractsValue(before);
         int256 surplusChange = afterwards.minterSurplus - before.minterSurplus;
-        int256 residual = totals[0] + totals[1] + totals[2] + totals[3] + totals[4] + totals[5] + contractsChange + surplusChange;
+        int256 residual = totals[0] +
+            totals[1] +
+            totals[2] +
+            totals[3] +
+            totals[4] +
+            totals[5] +
+            contractsChange +
+            surplusChange;
         uint256 bound = _booksBound(before, afterwards);
         assertLe(_abs(residual), bound, "every party's change sums to zero, to within the valuation's rounding");
 
@@ -992,16 +1119,15 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                 address token = _positionToken(position);
                 if (
                     amountsBefore[position] != amountsAfter[position] ||
-                    (amountsBefore[position] != 0 && _priceOf(token, before.prices) != _priceOf(token, afterwards.prices))
+                    (amountsBefore[position] != 0 &&
+                        _priceOf(token, before.prices) != _priceOf(token, afterwards.prices))
                 ) {
                     ++rounding;
                     break;
                 }
             }
         }
-        return
-            2 * 8 * (rounding + 3) +
-            (before.leveragedSupply + afterwards.leveragedSupply) / 1 ether + 2 + 4;
+        return 2 * 8 * (rounding + 3) + (before.leveragedSupply + afterwards.leveragedSupply) / 1 ether + 2 + 4;
     }
 
     /// @dev What the pools and the manager hold beyond what the parties are owed by them.
@@ -1010,7 +1136,9 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             value += _walletValue(reading.contracts[i], reading.prices);
         }
         for (uint256 i = 0; i < reading.parties.length; ++i) {
-            value -= _leveragedPoolValue(reading.parties[i], reading.prices) + _collateralPoolValue(reading.parties[i], reading.prices);
+            value -=
+                _leveragedPoolValue(reading.parties[i], reading.prices) +
+                _collateralPoolValue(reading.parties[i], reading.prices);
         }
     }
 
@@ -1028,11 +1156,20 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         return 0;
     }
 
-    function _leveragedPoolSection(Reading memory before, Reading memory afterwards) internal view returns (string memory table) {
+    function _leveragedPoolSection(
+        Reading memory before,
+        Reading memory afterwards
+    ) internal view returns (string memory table) {
         table = string.concat(
             "## Leveraged stability pool, depositor by depositor\n\n| Depositor | ",
-            _symbol(market.pegged), " deposit | ", _symbol(market.leveraged), " owed | ", _symbol(market.wrappedCollateral),
-            " owed | Net ", _symbol(market.wrappedCollateral), " |\n|---|---|---|---|---|\n"
+            _symbol(market.pegged),
+            " deposit | ",
+            _symbol(market.leveraged),
+            " owed | ",
+            _symbol(market.wrappedCollateral),
+            " owed | Net ",
+            _symbol(market.wrappedCollateral),
+            " |\n|---|---|---|---|---|\n"
         );
         int256 total;
         for (uint256 i = 0; i < parties.length; ++i) {
@@ -1045,17 +1182,34 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             total += change;
             table = string.concat(
                 table,
-                _row5(_name(i), _exactSigned(int256(a.leveragedPoolDeposit) - int256(b.leveragedPoolDeposit)), _exactSigned(int256(a.leveragedPoolLeveraged) - int256(b.leveragedPoolLeveraged)), _exactSigned(int256(a.leveragedPoolWrapped) - int256(b.leveragedPoolWrapped)), _exactSigned(change))
+                _row5(
+                    _name(i),
+                    _exactSigned(int256(a.leveragedPoolDeposit) - int256(b.leveragedPoolDeposit)),
+                    _exactSigned(int256(a.leveragedPoolLeveraged) - int256(b.leveragedPoolLeveraged)),
+                    _exactSigned(int256(a.leveragedPoolWrapped) - int256(b.leveragedPoolWrapped)),
+                    _exactSigned(change)
+                )
             );
         }
-        table = string.concat(table, _row5("**All depositors found**", "", "", "", string.concat("**", _exactSigned(total), "**")), "\n");
+        table = string.concat(
+            table,
+            _row5("**All depositors found**", "", "", "", string.concat("**", _exactSigned(total), "**")),
+            "\n"
+        );
     }
 
-    function _collateralPoolSection(Reading memory before, Reading memory afterwards) internal view returns (string memory table) {
+    function _collateralPoolSection(
+        Reading memory before,
+        Reading memory afterwards
+    ) internal view returns (string memory table) {
         table = string.concat(
             "## Collateral stability pool, depositor by depositor\n\n| Depositor | ",
-            _symbol(market.pegged), " deposit | ", _symbol(market.wrappedCollateral), " owed | Net ",
-            _symbol(market.wrappedCollateral), " |\n|---|---|---|---|\n"
+            _symbol(market.pegged),
+            " deposit | ",
+            _symbol(market.wrappedCollateral),
+            " owed | Net ",
+            _symbol(market.wrappedCollateral),
+            " |\n|---|---|---|---|\n"
         );
         int256 total;
         for (uint256 i = 0; i < parties.length; ++i) {
@@ -1068,16 +1222,33 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             total += change;
             table = string.concat(
                 table,
-                _row4(_name(i), _exactSigned(int256(a.collateralPoolDeposit) - int256(b.collateralPoolDeposit)), _exactSigned(int256(a.collateralPoolWrapped) - int256(b.collateralPoolWrapped)), _exactSigned(change))
+                _row4(
+                    _name(i),
+                    _exactSigned(int256(a.collateralPoolDeposit) - int256(b.collateralPoolDeposit)),
+                    _exactSigned(int256(a.collateralPoolWrapped) - int256(b.collateralPoolWrapped)),
+                    _exactSigned(change)
+                )
             );
         }
-        table = string.concat(table, _row4("**All depositors found**", "", "", string.concat("**", _exactSigned(total), "**")), "\n");
+        table = string.concat(
+            table,
+            _row4("**All depositors found**", "", "", string.concat("**", _exactSigned(total), "**")),
+            "\n"
+        );
     }
 
-    function _heldSection(Reading memory before, Reading memory afterwards) internal view returns (string memory table) {
+    function _heldSection(
+        Reading memory before,
+        Reading memory afterwards
+    ) internal view returns (string memory table) {
         table = string.concat(
-            "## ", _symbol(market.leveraged), " held outside the pools\n\n| Holder | ", _symbol(market.leveraged),
-            " held before | Net ", _symbol(market.wrappedCollateral), " |\n|---|---|---|\n"
+            "## ",
+            _symbol(market.leveraged),
+            " held outside the pools\n\n| Holder | ",
+            _symbol(market.leveraged),
+            " held before | Net ",
+            _symbol(market.wrappedCollateral),
+            " |\n|---|---|---|\n"
         );
         int256 total;
         uint256 held;
@@ -1091,13 +1262,25 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             held += leveraged;
             table = string.concat(table, _row3(_name(i), _exact(leveraged), _exactSigned(change)));
         }
-        table = string.concat(table, _row3("**All holders**", string.concat("**", _exact(held), "**"), string.concat("**", _exactSigned(total), "**")), "\n");
+        table = string.concat(
+            table,
+            _row3(
+                "**All holders**",
+                string.concat("**", _exact(held), "**"),
+                string.concat("**", _exactSigned(total), "**")
+            ),
+            "\n"
+        );
     }
 
-    function _holderSection(Reading memory before, Reading memory afterwards) internal view returns (string memory table) {
+    function _holderSection(
+        Reading memory before,
+        Reading memory afterwards
+    ) internal view returns (string memory table) {
         string memory wrapped = _symbol(market.wrappedCollateral);
         table = string.concat(
-            "## Every party, all positions together\n\nIn ", wrapped,
+            "## Every party, all positions together\n\nIn ",
+            wrapped,
             ". Parties whose holdings did not change are left out.\n\n| Party | Role | Own wallet | Leveraged pool | Collateral pool | Total |\n|---|---|---|---|---|---|\n"
         );
         for (uint256 i = 0; i < parties.length; ++i) {
@@ -1131,14 +1314,19 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         uint256[8] memory amountsBefore = _amounts(before.parties[party]);
         uint256[8] memory amountsAfter = _amounts(afterwards.parties[party]);
         for (uint256 position = from; position < to; ++position) {
-            change += _positionWrappedValue(position, amountsAfter[position], afterwards.prices) -
+            change +=
+                _positionWrappedValue(position, amountsAfter[position], afterwards.prices) -
                 _positionWrappedValue(position, amountsBefore[position], before.prices);
         }
     }
 
     /// @dev A position's value in wrapped collateral: its own amount, for wrapped collateral; otherwise its amount at the
     ///      token's price over the wrapped collateral's price, floored to the wei.
-    function _positionWrappedValue(uint256 position, uint256 amount, Prices memory prices) internal view returns (int256) {
+    function _positionWrappedValue(
+        uint256 position,
+        uint256 amount,
+        Prices memory prices
+    ) internal view returns (int256) {
         address token = _positionToken(position);
         if (token == market.wrappedCollateral) {
             return int256(amount);
@@ -1156,8 +1344,14 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         Prices memory a = afterwards.prices;
         int256[7] memory flows;
         flows[0] = -int256(Math.mulDiv(exploit.callerPoolLoss, b.pegged, 1 ether));
-        flows[1] = int256(Math.mulDiv(exploit.claimedLeveraged, a.leveraged, 1 ether) + Math.mulDiv(exploit.claimedWrapped, a.wrapped, 1 ether));
-        flows[2] = int256(Math.mulDiv(exploit.bountyWrapped, a.wrapped, 1 ether) + Math.mulDiv(exploit.bountyLeveraged, a.leveraged, 1 ether));
+        flows[1] = int256(
+            Math.mulDiv(exploit.claimedLeveraged, a.leveraged, 1 ether) +
+                Math.mulDiv(exploit.claimedWrapped, a.wrapped, 1 ether)
+        );
+        flows[2] = int256(
+            Math.mulDiv(exploit.bountyWrapped, a.wrapped, 1 ether) +
+                Math.mulDiv(exploit.bountyLeveraged, a.leveraged, 1 ether)
+        );
         flows[3] = -int256(Math.mulDiv(exploit.callerLeveragedAtRebalance, b.leveraged - a.leveraged, 1 ether));
         flows[4] = -int256(Math.mulDiv(exploit.earlyWithdrawalFee, a.pegged, 1 ether));
         flows[5] = -int256(Math.mulDiv(_mintingAndRedemptionFees(exploit), b.wrapped, 1 ether));
@@ -1169,7 +1363,11 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                 Math.mulDiv(exploit.paidLeveraged, a.leveraged, 1 ether)
         );
         uint256 bound = _callerBound(exploit);
-        assertLe(_abs(sum - proceeds), bound, "the caller's flows sum to what it paid out, to within its trades' rounding");
+        assertLe(
+            _abs(sum - proceeds),
+            bound,
+            "the caller's flows sum to what it paid out, to within its trades' rounding"
+        );
 
         string memory leveraged = _symbol(market.leveraged);
         string memory table = string.concat(
@@ -1180,14 +1378,26 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         table = string.concat(
             table,
             _row2(
-                string.concat("Leveraged pool: ", _exact(exploit.callerPoolLoss), " ", _symbol(market.pegged), " taken by the rebalance"),
+                string.concat(
+                    "Leveraged pool: ",
+                    _exact(exploit.callerPoolLoss),
+                    " ",
+                    _symbol(market.pegged),
+                    " taken by the rebalance"
+                ),
                 _signedWrapped(flows[0], b)
             )
         );
         table = string.concat(
             table,
             _row2(
-                string.concat("Leveraged pool: ", _exact(exploit.claimedLeveraged), " ", leveraged, " claimed, at the price after"),
+                string.concat(
+                    "Leveraged pool: ",
+                    _exact(exploit.claimedLeveraged),
+                    " ",
+                    leveraged,
+                    " claimed, at the price after"
+                ),
                 _signedWrapped(flows[1], b)
             )
         );
@@ -1195,7 +1405,13 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         table = string.concat(
             table,
             _row2(
-                string.concat("Its own ", _exact(exploit.callerLeveragedAtRebalance), " ", leveraged, " held through the rebalance"),
+                string.concat(
+                    "Its own ",
+                    _exact(exploit.callerLeveragedAtRebalance),
+                    " ",
+                    leveraged,
+                    " held through the rebalance"
+                ),
                 _signedWrapped(flows[3], b)
             )
         );
@@ -1313,24 +1529,36 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         ];
         return
             string.concat(
-                string.concat(vm.toString(parties[party].account), ",\"", parties[party].role, "\",", positions[position]),
+                string.concat(
+                    vm.toString(parties[party].account),
+                    ',"',
+                    parties[party].role,
+                    '",',
+                    positions[position]
+                ),
                 string.concat(",", _symbol(_positionToken(position)), ",", vm.toString(amountBefore), ","),
-                string.concat(vm.toString(amountAfter), ",", vm.toString(int256(amountAfter) - int256(amountBefore)), ",")
+                string.concat(
+                    vm.toString(amountAfter),
+                    ",",
+                    vm.toString(int256(amountAfter) - int256(amountBefore)),
+                    ","
+                )
             );
     }
 
     /// @dev A holding's eight amounts, in the order `_positionToken` and `_accountFields` name them.
     function _amounts(Holding memory holding) internal pure returns (uint256[8] memory) {
-        return [
-            holding.wrapped,
-            holding.pegged,
-            holding.leveraged,
-            holding.leveragedPoolDeposit,
-            holding.leveragedPoolWrapped,
-            holding.leveragedPoolLeveraged,
-            holding.collateralPoolDeposit,
-            holding.collateralPoolWrapped
-        ];
+        return
+            [
+                holding.wrapped,
+                holding.pegged,
+                holding.leveraged,
+                holding.leveragedPoolDeposit,
+                holding.leveragedPoolWrapped,
+                holding.leveragedPoolLeveraged,
+                holding.collateralPoolDeposit,
+                holding.collateralPoolWrapped
+            ];
     }
 
     function _positionToken(uint256 position) internal view returns (address) {
@@ -1433,7 +1661,11 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         return
             string.concat(
                 "## The upgrade\n\n| | Leveraged pool | Collateral pool |\n|---|---|---|\n",
-                _row3("Holders migrated, from the capture", vm.toString(leveragedHolders), vm.toString(collateralHolders)),
+                _row3(
+                    "Holders migrated, from the capture",
+                    vm.toString(leveragedHolders),
+                    vm.toString(collateralHolders)
+                ),
                 _row3(string.concat("Supply, wei of ", pegged), vm.toString(supplies[0]), vm.toString(supplies[1])),
                 _row3(string.concat("Ledger gap seeded, wei of ", pegged), vm.toString(gaps[0]), vm.toString(gaps[1]))
             );
@@ -1497,7 +1729,10 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     /// @dev The market's figures under Minter_v2 just before the upgrade, and under Minter_v3 just after it.
-    function _upgradedMarketTable(Reading memory before, Reading memory upgraded) internal view returns (string memory) {
+    function _upgradedMarketTable(
+        Reading memory before,
+        Reading memory upgraded
+    ) internal view returns (string memory) {
         string memory leveraged = _symbol(market.leveraged);
         return
             string.concat(
@@ -1566,7 +1801,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             wrapped,
             ". The tables after this one are the exploit's tables, for this attack; the attacker is the party \"",
             OWN_CAPITAL_ATTACKER,
-            "\".\n\n| | |\n|---|---|\n"
+            '".\n\n| | |\n|---|---|\n'
         );
         intro = string.concat(
             intro,
@@ -1636,7 +1871,11 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         }
         vm.revertToState(beforeExploit);
         assertGt(gains[uint256(Mitigation.AsDeployed)], 0, "the attack pays on the market as deployed");
-        assertLt(gains[uint256(Mitigation.WithdrawalFee)], gains[uint256(Mitigation.AsDeployed)], "the larger fee costs");
+        assertLt(
+            gains[uint256(Mitigation.WithdrawalFee)],
+            gains[uint256(Mitigation.AsDeployed)],
+            "the larger fee costs"
+        );
         // The fee is a share of what is withdrawn, so the attacker's gain falls in a straight line with it: the line
         // through the deployed fee and the larger one crosses zero at the break-even.
         uint256 breakEven = deployedFee +
@@ -1710,14 +1949,29 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         vm.revertToState(beforeExploit);
         table = string.concat(
             "## Every market at the exploit's block\n\nA rebalance at a collateral ratio of 20/19 or below pays the ",
-            "leveraged pool ", vm.toString(LEVERAGE_RATIO_CAP), " leveraged tokens per pegged token. That overpays by ",
-            vm.toString(LEVERAGE_RATIO_CAP), " times the leveraged price, wherever the price is above 1/",
-            vm.toString(LEVERAGE_RATIO_CAP), ". A band refused \"below\" a ratio refuses that action there.\n\n",
+            "leveraged pool ",
+            vm.toString(LEVERAGE_RATIO_CAP),
+            " leveraged tokens per pegged token. That overpays by ",
+            vm.toString(LEVERAGE_RATIO_CAP),
+            " times the leveraged price, wherever the price is above 1/",
+            vm.toString(LEVERAGE_RATIO_CAP),
+            '. A band refused "below" a ratio refuses that action there.\n\n',
             "| Market | Rebalance threshold | Pegged mint refused below | Leveraged redemption refused below | Next leveraged redemption bound | Leveraged price, in pegged units | Leveraged holders' value, in pegged units | Overpayment at 20/19 |\n",
             "|---|---|---|---|---|---|---|---|\n"
         );
-        table = string.concat(table, _pegRows(btcMintersConfig), _pegRows(ethMintersConfig), _pegRows(eurMintersConfig));
-        table = string.concat(table, _pegRows(goldMintersConfig), _pegRows(mcapMintersConfig), _pegRows(silverMintersConfig), "\n");
+        table = string.concat(
+            table,
+            _pegRows(btcMintersConfig),
+            _pegRows(ethMintersConfig),
+            _pegRows(eurMintersConfig)
+        );
+        table = string.concat(
+            table,
+            _pegRows(goldMintersConfig),
+            _pegRows(mcapMintersConfig),
+            _pegRows(silverMintersConfig),
+            "\n"
+        );
     }
 
     function _pegRows(
@@ -1735,7 +1989,11 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         uint256 price = IMinter(addresses.minter).leveragedTokenPrice();
         uint256 supply = IMinter(addresses.minter).leveragedTokenBalance();
         string[] memory cells = new string[](8);
-        cells[0] = string.concat(IMarketConfig(address(config)).peg(), "::", IMarketConfig(address(config)).collateral());
+        cells[0] = string.concat(
+            IMarketConfig(address(config)).peg(),
+            "::",
+            IMarketConfig(address(config)).collateral()
+        );
         cells[1] = _fixed(IStabilityPoolManager(addresses.manager).rebalanceThreshold(), 4);
         cells[2] = _refusedBelow(bands.mintPeggedIncentiveConfig);
         cells[3] = _refusedBelow(bands.redeemLeveragedIncentiveConfig);
@@ -1751,7 +2009,8 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     function _refusedBelow(IMinter.IncentiveConfig memory incentive) internal pure returns (string memory) {
-        return incentive.incentiveRatios[0] == 1 ether ? _fixed(incentive.collateralRatioBandUpperBounds[0], 4) : "never";
+        return
+            incentive.incentiveRatios[0] == 1 ether ? _fixed(incentive.collateralRatioBandUpperBounds[0], 4) : "never";
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -1807,7 +2066,12 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         return string.concat("| ", a, " | ", b, " | ", c, " |\n");
     }
 
-    function _row4(string memory a, string memory b, string memory c, string memory d) internal pure returns (string memory) {
+    function _row4(
+        string memory a,
+        string memory b,
+        string memory c,
+        string memory d
+    ) internal pure returns (string memory) {
         return string.concat("| ", a, " | ", b, " | ", c, " | ", d, " |\n");
     }
 

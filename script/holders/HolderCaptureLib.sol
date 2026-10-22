@@ -17,19 +17,21 @@ library HolderCaptureLib {
     /// @dev Where `capture-holders` writes when not told otherwise.
     string internal constant DEFAULT_DIRECTORY = "tmp/holders/";
 
-    /// @dev A positive ledger gap at or above this fraction of the pool's supply, in parts per billion, is not
-    ///      rounding: the captured holders do not account for the supply, so the list misses depositors. Legitimate gaps
-    ///      measure about 0 parts per billion and an incomplete list about 9e8, so this cleanly separates them.
+    /// @dev A ledger gap at or beyond this fraction of the pool's supply, in parts per billion, either side of zero, is
+    ///      not rounding. Rounding gaps measure about 0 parts per billion - a pool's loss arithmetic moves its supply and
+    ///      its holders' balances apart by wei - and an incomplete list about 9e8, so this cleanly separates them.
     uint256 internal constant MAX_GAP_PARTS_PER_BILLION = 1_000_000; // 0.1% of supply
 
     /// @notice What a stability pool's ledger gap - its recorded supply less what its captured holders hold - says.
+    ///         The StabilityPool_v3 upgrade seeds the gap with its sign, so only its size matters: within rounding it is
+    ///         the pool's own, and beyond it the holders found do not match the pool's books.
     enum Gap {
-        /// @dev Zero or more, and below `MAX_GAP_PARTS_PER_BILLION` of the supply: rounding.
+        /// @dev Within `MAX_GAP_PARTS_PER_BILLION` of the supply, either side of zero.
         Rounding,
-        /// @dev Below zero: the holders hold more than the pool records. A missing holder only shrinks their total, so
-        ///      it can never drive the gap negative - this is never an incomplete list.
-        Negative,
-        /// @dev At or above `MAX_GAP_PARTS_PER_BILLION` of the supply: the holder list misses depositors.
+        /// @dev At or beyond `MAX_GAP_PARTS_PER_BILLION` of the supply below zero: the holders found hold more than the
+        ///      pool records. A missing holder only shrinks their total, so this is never an incomplete list.
+        Excess,
+        /// @dev At or beyond `MAX_GAP_PARTS_PER_BILLION` of the supply above zero: the holder list misses depositors.
         Incomplete
     }
 
@@ -68,13 +70,11 @@ library HolderCaptureLib {
 
     /// @notice What a pool's ledger `gap` says, against its recorded `supply`.
     function classify(int256 gap, uint256 supply) internal pure returns (Gap) {
-        if (gap < 0) {
-            return Gap.Negative;
+        uint256 size = gap < 0 ? uint256(-gap) : uint256(gap);
+        if (size == 0 || (supply != 0 && (size * 1e9) / supply < MAX_GAP_PARTS_PER_BILLION)) {
+            return Gap.Rounding;
         }
-        if (supply != 0 && (uint256(gap) * 1e9) / supply >= MAX_GAP_PARTS_PER_BILLION) {
-            return Gap.Incomplete;
-        }
-        return Gap.Rounding;
+        return gap > 0 ? Gap.Incomplete : Gap.Excess;
     }
 
     function _withSlash(string memory directory) private pure returns (string memory) {

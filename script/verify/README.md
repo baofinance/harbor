@@ -43,10 +43,11 @@ upgrade script's own function, from the holder capture at that block (`holders-2
 
 ### [sp-v3-reward-divisor-migration/](sp-v3-reward-divisor-migration/)
 
-StabilityPool v2→v3 pre-flight: whether every deployed pool can take a plain upgrade.
+StabilityPool v2→v3 pre-flight: whether every deployed pool can migrate through `StabilityPool_v3_Upgrader` with a
+holder capture.
 
-- `StabilityPoolMigrationPreflight.t.sol` — measures each pool's ledger gap against a holder capture and its supply
-  against the ceiling v3 enforces
+- `StabilityPoolMigrationPreflight.t.sol` — measures each pool's ledger gap against a holder capture, which must be
+  within rounding either side of zero (the rule the upgrade applies), and its supply against the ceiling v3 enforces
 - `run-migration-preflight --holders-dir <capture>` — runs it (needs `MAINNET_RPC_URL`, archival at the capture's block)
 
 ### [sp-v3-migration/](sp-v3-migration/)

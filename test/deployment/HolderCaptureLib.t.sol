@@ -30,7 +30,9 @@ contract HolderCaptureLibTest is Test {
     /// @notice A directory without a manifest is not a capture, and the read fails naming the manifest it looked for.
     function test_captureBlock_revertsWithoutAManifest() public {
         vm.expectRevert(
-            bytes("no capture manifest at doc/incidents/2026-10-16-rebalance-dilution/manifest.txt - run capture-holders")
+            bytes(
+                "no capture manifest at doc/incidents/2026-10-16-rebalance-dilution/manifest.txt - run capture-holders"
+            )
         );
         this.captureBlock("doc/incidents/2026-10-16-rebalance-dilution");
     }
@@ -56,20 +58,27 @@ contract HolderCaptureLibTest is Test {
         this.holders(CAPTURE, "BTC::stETH::minter");
     }
 
-    /// @notice A negative gap is never an incomplete list; a gap at or above `MAX_GAP_PARTS_PER_BILLION` of the supply
-    ///         is; anything from zero up to it is rounding.
+    /// @notice A gap within `MAX_GAP_PARTS_PER_BILLION` of the supply, either side of zero, is rounding. At or beyond
+    ///         it, a positive gap is an incomplete list and a negative one an excess: the holders hold more than the
+    ///         pool records.
     function test_classify() public pure {
         uint256 supply = 1 ether;
-        // The smallest gap the rule calls incomplete: exactly the bound's share of this supply.
-        uint256 smallestIncomplete = (supply * HolderCaptureLib.MAX_GAP_PARTS_PER_BILLION) / 1e9;
+        // The smallest gap the rule calls more than rounding: exactly the bound's share of this supply.
+        int256 bound = int256((supply * HolderCaptureLib.MAX_GAP_PARTS_PER_BILLION) / 1e9);
+        uint256 rounding = uint256(HolderCaptureLib.Gap.Rounding);
+        uint256 incomplete = uint256(HolderCaptureLib.Gap.Incomplete);
+        uint256 excess = uint256(HolderCaptureLib.Gap.Excess);
 
-        assertEq(_class(-1, supply), uint256(HolderCaptureLib.Gap.Negative), "one wei below zero");
-        assertEq(_class(-2 * int256(supply), supply), uint256(HolderCaptureLib.Gap.Negative), "twice the supply below zero");
-        assertEq(_class(0, supply), uint256(HolderCaptureLib.Gap.Rounding), "zero");
-        assertEq(_class(int256(smallestIncomplete) - 1, supply), uint256(HolderCaptureLib.Gap.Rounding), "a wei below the bound");
-        assertEq(_class(int256(smallestIncomplete), supply), uint256(HolderCaptureLib.Gap.Incomplete), "at the bound");
-        assertEq(_class(int256(supply), supply), uint256(HolderCaptureLib.Gap.Incomplete), "the whole supply");
-        assertEq(_class(0, 0), uint256(HolderCaptureLib.Gap.Rounding), "an empty pool");
+        assertEq(_class(0, supply), rounding, "zero");
+        assertEq(_class(-1, supply), rounding, "one wei below zero");
+        assertEq(_class(bound - 1, supply), rounding, "a wei inside the bound above zero");
+        assertEq(_class(1 - bound, supply), rounding, "a wei inside the bound below zero");
+        assertEq(_class(bound, supply), incomplete, "at the bound above zero");
+        assertEq(_class(-bound, supply), excess, "at the bound below zero");
+        assertEq(_class(int256(supply), supply), incomplete, "the whole supply unheld");
+        assertEq(_class(-2 * int256(supply), supply), excess, "twice the supply held beyond it");
+        assertEq(_class(0, 0), rounding, "an empty pool");
+        assertEq(_class(-1, 0), excess, "a wei held in a pool that records none");
     }
 
     function _class(int256 gap, uint256 supply) internal pure returns (uint256) {

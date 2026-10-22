@@ -99,7 +99,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
 
     /// @dev Queue the `poolType` pool's migration through `upgrader` to a new StabilityPool_v3 implementation, with
     ///      every holder the capture lists and the ledger gap they leave: the pool's supply less what they hold, read
-    ///      now. Refuses a capture whose holders leave a gap the capture's rule calls incomplete.
+    ///      now, either sign. Refuses a capture whose holders leave a gap beyond rounding either way.
     function _queuePoolMigration(
         DeploymentTypes.State memory state,
         Config_MinterMarket config,
@@ -119,14 +119,14 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         uint256 supply = IStabilityPool(pool).totalAssetSupply();
         int256 gap = int256(supply) - int256(held);
         require(
-            HolderCaptureLib.classify(gap, supply) != HolderCaptureLib.Gap.Incomplete,
+            HolderCaptureLib.classify(gap, supply) == HolderCaptureLib.Gap.Rounding,
             string.concat(
                 key,
                 ": the captured holders hold ",
                 LibString.toString(held),
                 " of a supply of ",
                 LibString.toString(supply),
-                ", leaving more unheld than rounding allows"
+                ", a gap beyond rounding"
             )
         );
 

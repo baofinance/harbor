@@ -17,16 +17,18 @@ import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 
-/// @title StabilityPoolMigrationPreflight — is every deployed pool safe to upgrade v2->v3 with a plain upgrade?
-/// @notice The v2->v3 reward-divisor migration relies on the delta encoding: a plain `upgradeToAndCall(v3)` leaves
-///         `rewardDivisorGap` zero-initialised, so the reward divisor reads `totalAssetSupply.amount`, which is
-///         `>= Sum(balanceOf)` only when the pool's ledger gap `supply - Sum(balanceOf)` is >= 0. This pre-flight
-///         measures that gap for every deployed StabilityPool on a mainnet fork and classifies each:
-///           - `plain`     : gap >= 0  -> a plain upgrade is safe (divisor = supply >= Sum(balanceOf));
-///           - `seed`      : gap  < 0  -> a plain upgrade would over-credit; seed the divisor via the SeedUpgrader
-///                                        (`seedAndUpgrade(holders, v3)`) instead;
+/// @title StabilityPoolMigrationPreflight — can every deployed pool migrate v2->v3 through StabilityPool_v3_Upgrader?
+/// @notice The upgrade (`UpgradeMarketToV3.upgradeMarketsToV3`) migrates each pool through `StabilityPool_v3_Upgrader`,
+///         which seeds the pool's reward divisor with its ledger gap - `supply - Sum(balanceOf)` over the captured
+///         holders, either sign - and copies each captured holder's reward snapshot. This pre-flight measures that gap
+///         for every deployed StabilityPool on a mainnet fork at the capture's block, and classifies each by
+///         `HolderCaptureLib.classify`, the rule the upgrade applies:
+///           - `migrate`   : within rounding, either side of zero -> the upgrader seeds it exactly;
 ///           - `empty`     : no captured holders and totalSupply == 0 -> nothing to migrate;
-///           - `recapture` : the captured holders do not account for the supply -> the list is stale, re-capture.
+///           - `recapture` : the captured holders hold less than the supply, beyond rounding -> the list misses
+///                           depositors, re-capture;
+///           - `excess`    : the captured holders hold more than the supply, beyond rounding -> the holders found do
+///                           not match the pool's books.
 ///
 ///         It also gates - orthogonally to the gap - on the SUPPLY CEILING v3 will enforce
 ///         (`MIN_TOTAL_ASSET_SUPPLY * FACTOR_PRECISION`, saturated at the supply field width). The migration does not
@@ -34,17 +36,16 @@ import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 ///         state where a floor-capped liquidation zeroes the product factor; such a pool needs its floor re-based
 ///         before it can migrate at all, whatever its gap says.
 ///
-///         PASSES iff every deployed pool is `plain` or `empty` (a plain all-pools upgrade is safe), sits within the
-///         supply ceiling, AND the measurement is reliable. FAILS - naming the pool - if any needs a `seed`, exceeds
-///         the ceiling, has an incomplete/stale holder list, or the harness did not run. Per-pool detail is logged;
-///         nothing is written to disk, because a run against a provisional capture has nothing worth keeping until the
-///         upgrade it gates has been verified end to end.
+///         PASSES iff every deployed pool is `migrate` or `empty`, sits within the supply ceiling, AND the measurement
+///         is reliable. FAILS - naming the pool - if a gap is beyond rounding either way, a pool exceeds the ceiling, or
+///         the harness did not run. Per-pool detail is logged; nothing is written to disk, because a run against a
+///         provisional capture has nothing worth keeping until the upgrade it gates has been verified end to end.
 ///
 ///         RUN AT MIGRATION TIME:
-///           1. Pause the pools (freeze state) and re-capture the holder .txt files up to the migration block.
-///           2. Point SP_HOLDERS_DIR at that capture (the block comes from its manifest).
-///           3. `forge test --mc StabilityPoolMigrationPreflight -vv`  (needs MAINNET_RPC_URL, archival at the block).
-///           4. Green -> plain-upgrade every pool. Red -> the message names the pool(s) to seed or re-capture.
+///           1. Pause the pools (freeze state) and capture the holders up to the migration block with
+///              `script/holders/capture-holders --to-block <block>`.
+///           2. `run-migration-preflight --holders-dir <capture>` (needs MAINNET_RPC_URL, archival at the block).
+///           3. Green -> upgrade with that capture. Red -> the message names the pool(s) to re-capture or investigate.
 ///
 ///         Read-only. Pools are enumerated through the deploy scripts' own salt derivation, so this can never check a
 ///         different set than the deploy touches; holders come from the capture named by SP_HOLDERS_DIR.
@@ -70,9 +71,8 @@ contract StabilityPoolMigrationPreflight is
     uint256 internal captureBlock;
 
     uint256 internal deployedCount;
-    uint256 internal negativeGapCount; // pools that need a seed (Sum(balanceOf) > supply)
-    uint256 internal emptyNonZeroCount; // no-holder pools with supply > 0 (holder list missed depositors)
-    uint256 internal looseGapCount; // holder pools whose gap exceeds rounding level (holder list stale)
+    uint256 internal incompleteCount; // pools whose captured holders hold less than the supply, beyond rounding
+    uint256 internal excessCount; // pools whose captured holders hold more than the supply, beyond rounding
     uint256 internal overCeilingCount; // pools whose supply exceeds the ceiling v3 will enforce (need a MIN re-base)
     uint256 internal historicalTokenCount; // reward tokens ever unregistered, across all pools (expected: 0)
     uint256 internal claimDataPairsToCopy; // (holder, token) pairs whose V2 ClaimData must be copied to V3
@@ -268,12 +268,16 @@ contract StabilityPoolMigrationPreflight is
         (, markets) = createSILVERMintersConfig();
         _scan(markets);
 
-        console.log("Pre-flight: %d pools deployed, %d need a seed (negative gap)", deployedCount, negativeGapCount);
+        console.log(
+            "Pre-flight: %d pools deployed, %d holder lists incomplete, %d with holders beyond the supply",
+            deployedCount,
+            incompleteCount,
+            excessCount
+        );
 
         assertGt(deployedCount, 0, "no pools scanned - fork / enumeration broken");
-        assertEq(emptyNonZeroCount, 0, "a no-holder pool has totalSupply > 0 - holder list incomplete, re-capture");
-        assertEq(looseGapCount, 0, "a pool's gap exceeds rounding level - holder list stale, re-capture");
-        assertEq(negativeGapCount, 0, "a pool has a negative gap - seed it via the SeedUpgrader before plain upgrade");
+        assertEq(incompleteCount, 0, "a pool's captured holders hold less than its supply, beyond rounding - see INCOMPLETE");
+        assertEq(excessCount, 0, "a pool's captured holders hold more than its supply, beyond rounding - see EXCESS");
         assertEq(
             overCeilingCount,
             0,
@@ -370,27 +374,21 @@ contract StabilityPoolMigrationPreflight is
         int256 gap = int256(totalSupply) - int256(sumBalance);
         HolderCaptureLib.Gap measured = HolderCaptureLib.classify(gap, totalSupply);
 
-        // Classify the pool for the migration and flag any condition that blocks an all-pools plain upgrade.
+        // Classify the pool for the migration and flag a gap the upgrader cannot seed as the pool's own. A pool with no
+        // captured holders and a supply is a gap of its whole supply, so it is classified incomplete like any other.
         string memory action;
-        if (holders.length == 0) {
-            // No captured holders: the pool must be empty. A non-zero supply means depositors were missed.
-            action = "empty";
-            if (totalSupply != 0) {
-                emptyNonZeroCount++;
-                console.log(string.concat("INCOMPLETE: ", saltKey, " has no captured holders but totalSupply > 0"));
-            }
-        } else if (measured == HolderCaptureLib.Gap.Negative) {
-            // Sum(balanceOf) > supply: a plain upgrade (divisor = supply) would over-credit. Seed this pool.
-            action = "seed";
-            negativeGapCount++;
-            console.log(string.concat("SEED REQUIRED: ", saltKey, " has a negative gap"));
-        } else if (measured == HolderCaptureLib.Gap.Incomplete) {
-            // The captured holders do not account for the supply: the list is stale, re-capture before migrating.
+        if (measured == HolderCaptureLib.Gap.Incomplete) {
             action = "recapture";
-            looseGapCount++;
-            console.log(string.concat("INCOMPLETE: ", saltKey, " gap exceeds rounding level - holder list stale"));
+            incompleteCount++;
+            console.log(string.concat("INCOMPLETE: ", saltKey, " captured holders hold less than the supply"));
+        } else if (measured == HolderCaptureLib.Gap.Excess) {
+            action = "excess";
+            excessCount++;
+            console.log(string.concat("EXCESS: ", saltKey, " captured holders hold more than the supply"));
+        } else if (holders.length == 0) {
+            action = "empty";
         } else {
-            action = "plain";
+            action = "migrate";
         }
 
         console.log(

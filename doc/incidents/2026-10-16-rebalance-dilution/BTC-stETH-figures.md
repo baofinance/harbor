@@ -20,7 +20,7 @@ Every amount, price and value is printed in full, to all 18 decimals; only ratio
 | Leveraged pool supply no depositor holds (ledger gap), wei of haBTC | 0 | 6 |
 | Collateral pool supply no depositor holds (ledger gap), wei of haBTC | 0 | 3 |
 
-A pool's ledger gap is its `totalAssetSupply()` less the sum of its depositors' `assetBalanceOf`, negative when they hold more. A pool spreads each loss with its per-unit share rounded up and carries the over-charge to its next loss, so the two drift apart by design, by up to about the supply in 1e-18 units a liquidation; the StabilityPool_v3 upgrade measures the gap and seeds it so rewards divide by what depositors hold. This report requires each gap to be negative or below 1000000 parts per billion of the pool's supply, the rule the upgrade's pre-flight applies to a holder capture.
+A pool's ledger gap is its `totalAssetSupply()` less the sum of its depositors' `assetBalanceOf`, negative when they hold more. A pool spreads each loss with its per-unit share rounded up and carries the over-charge to its next loss, so the two drift apart by design, by up to about the supply in 1e-18 units a liquidation; the StabilityPool_v3 upgrade measures the gap and seeds it so rewards divide by what depositors hold. This report requires each gap to be within 1000000 parts per billion of the pool's supply, either side of zero, the rule the upgrade applies to a holder capture.
 
 ## What the transaction did
 
