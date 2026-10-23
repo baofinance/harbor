@@ -20,6 +20,19 @@ import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 
+/// @notice A run told the salt prefix the price oracles were deployed under, as `Deploy_<PEG>_mainnet.run` tells one
+///         given an oracle salt.
+contract OracleSaltDeployRun is HarborDeployRun {
+    constructor(
+        address owner_,
+        address treasury_,
+        string memory saltPrefix_,
+        string memory oracleSalt
+    ) HarborDeployRun(owner_, treasury_, saltPrefix_, "mainnet", HarborDeployRun.Cut.Whole) {
+        _setOracleSaltPrefix(oracleSalt);
+    }
+}
+
 /// @notice A deploy run carries its identity — actors, salt namespace, network — from construction, so several
 ///         independent runs can exist at once.
 /// @dev This is what a test needing two deployments composes: two instances rather than one contract asked to
@@ -94,6 +107,49 @@ contract HarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
         assertNotEq(first.minterAddress(market), second.minterAddress(market), "minter");
         assertNotEq(first.peggedTokenAddress(market), second.peggedTokenAddress(market), "pegged token");
         assertNotEq(first.reservePoolAddress(market), second.reservePoolAddress(market), "reserve pool");
+    }
+
+    /// Unless told otherwise, a run looks for the price oracles under its own salt prefix, so runs under different
+    /// prefixes look for different oracles.
+    function test_aRunFindsTheOraclesUnderItsOwnPrefix() public {
+        HarborDeployRun first = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_first",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        HarborDeployRun second = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "run_second",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+
+        assertEq(first.oracleSaltPrefix(), "run_first", "the run's own prefix");
+        assertNotEq(
+            first.wrappedPriceOracleAddress(market),
+            second.wrappedPriceOracleAddress(market),
+            "each run's own oracle"
+        );
+    }
+
+    /// A run told the oracles' salt prefix - a trial deploy beside the live one - finds each oracle exactly where a run
+    /// under that prefix does, while its own contracts stay under its own prefix.
+    function test_aRunGivenAnOracleSaltFindsTheOraclesThere() public {
+        HarborDeployRun live = new HarborDeployRun(
+            RUN_OWNER,
+            RUN_TREASURY,
+            "harbor_v1",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        HarborDeployRun trial = new OracleSaltDeployRun(RUN_OWNER, RUN_TREASURY, "test_1.3", "harbor_v1");
+
+        assertEq(trial.oracleSaltPrefix(), "harbor_v1", "the oracles' prefix");
+        assertEq(trial.wrappedPriceOracleAddress(market), live.wrappedPriceOracleAddress(market), "the live oracle");
+        assertNotEq(trial.minterAddress(market), live.minterAddress(market), "its own minter");
     }
 
     /// The mirror, and the one that matters for a shared peg: two runs SHARING a namespace resolve to the same

@@ -4,10 +4,10 @@ set -euo pipefail
 # Deploy a minter peg to a network.
 #
 # Thin wrapper around run-script that adds minter-specific arguments (--peg,
-# --deploy-peg, --collateral) and delegates to the Deploy_<PEG>_<network>
-# Solidity script via run-script's -- pass-through.
+# --deploy-peg, --collateral, --oracle-salt) and delegates to the
+# Deploy_<PEG>_<network> Solidity script via run-script's -- pass-through.
 #
-# The Deploy_*_<network> scripts still use the legacy run(string,string,bool,string)
+# The Deploy_*_<network> scripts still use the legacy run(string,string,bool,string,string)
 # signature. When those are migrated to SafeBatch's run(string), the --
 # pass-through can be dropped.
 
@@ -26,6 +26,8 @@ Required:
 Options:
   --deploy-peg         Deploy the pegged token (default: false)
   --collateral <name>  Collateral to deploy (e.g., stETH, fxUSD). Default: "*" (all markets)
+  --oracle-salt <salt> Salt prefix the price oracles were deployed under, when not --salt
+                       (e.g., harbor_v1 for a trial deploy under --salt test_1.3). Default: --salt
   --account <name>     Foundry keystore account name (required for non-local)
   --local              Use local anvil (auto-impersonate, local state directory)
   --timestamp          Add timestamp to local state directory (requires --local)
@@ -41,6 +43,7 @@ SALT=""
 PEG=""
 DEPLOY_PEG=false
 COLLATERAL="*"
+ORACLE_SALT=""
 PASSTHROUGH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -55,6 +58,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --collateral)
       COLLATERAL=$2
+      shift 2
+      ;;
+    --oracle-salt)
+      ORACLE_SALT=$2
       shift 2
       ;;
     --network)
@@ -87,8 +94,10 @@ PEG_UPPER=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')
 echo "  Peg:        $PEG_UPPER" >&2
 echo "  Deploy peg: $DEPLOY_PEG" >&2
 echo "  Collateral: $COLLATERAL" >&2
+echo "  Oracle salt: ${ORACLE_SALT:-$SALT}" >&2
 
+# An empty oracle salt tells the script to find the oracles under --salt.
 exec "$SCRIPT_DIR/run-script" "Deploy_${PEG_UPPER}_${NETWORK}" \
   --broadcast \
   "${PASSTHROUGH_ARGS[@]}" \
-  -- --sig 'run(string,string,bool,string)' "$SALT" "$NETWORK" "$DEPLOY_PEG" "$COLLATERAL"
+  -- --sig 'run(string,string,bool,string,string)' "$SALT" "$NETWORK" "$DEPLOY_PEG" "$COLLATERAL" "$ORACLE_SALT"

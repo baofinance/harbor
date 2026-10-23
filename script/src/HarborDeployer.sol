@@ -31,6 +31,20 @@ abstract contract HarborDeployer is HarborReporting {
         return TREASURY_OWNER;
     }
 
+    /// @dev The salt prefix the wrapped price oracles were deployed under, when it is not this run's own. They are a
+    ///      separate deployment (harbor-price-aggregators), so a run under a new prefix - a trial deploy beside the live
+    ///      one - still wires its minters to the live oracles. Identity: set once, before any oracle is predicted.
+    string private _oracleSaltPrefixValue;
+
+    /// @notice The salt prefix the wrapped price oracles are predicted under: the one this run was given, or its own.
+    function oracleSaltPrefix() public view returns (string memory) {
+        return bytes(_oracleSaltPrefixValue).length == 0 ? saltPrefix() : _oracleSaltPrefixValue;
+    }
+
+    function _setOracleSaltPrefix(string memory prefix) internal {
+        _oracleSaltPrefixValue = prefix;
+    }
+
     function getWellKnownAddresses() public view virtual override returns (WellKnownAddress[] memory addrs) {
         addrs = new WellKnownAddress[](3);
         addrs[0] = WellKnownAddress({addr: TREASURY_OWNER, label: "harbor_multisig"});
@@ -216,12 +230,16 @@ abstract contract HarborDeployer is HarborReporting {
         return wrappedPriceOracleKey(MinterMarketConfigLib.market(config));
     }
 
-    /// @notice The predicted address of a market's wrapped price oracle.
+    /// @notice The predicted address of a market's wrapped price oracle, under `oracleSaltPrefix()`.
     /// @dev A separate deployment (harbor-price-aggregators), referenced by the deploy while the address is
     ///      still codeless — exactly as production does. To substitute a mock, `vm.etch` it here AFTER the
     ///      deploy has run; do not override this function, or the deploy stops exercising that path.
     function wrappedPriceOracleAddress(Market memory market) public returns (address) {
-        return _predictAddress(wrappedPriceOracleKey(market));
+        string memory prefix = oracleSaltPrefix();
+        if (bytes(prefix).length == 0) {
+            revert SaltPrefixNotSet();
+        }
+        return _predictAddressFromFullSalt(SaltString.key(prefix, wrappedPriceOracleKey(market)));
     }
 
     function wrappedPriceOracleAddress(Config_MinterMarket config) public returns (address) {

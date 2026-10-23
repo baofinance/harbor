@@ -13,7 +13,18 @@ contract Deploy_ETH_mainnet is Deploy_ETH_Minter, Script {
     /// @param network Network name (e.g., "mainnet", "arbitrum").
     /// @param deployPeg Whether to deploy the pegged token.
     /// @param collateral Collateral name to deploy (e.g., "stETH"), "*" for all, or "" for none.
-    function run(string memory saltPrefix, string memory network, bool deployPeg, string memory collateral) external {
+    /// @param oracleSalt The salt prefix the price oracles were deployed under (e.g., "harbor_v1" for a trial deploy
+    ///        under another prefix), or "" for `saltPrefix`.
+    function run(
+        string memory saltPrefix,
+        string memory network,
+        bool deployPeg,
+        string memory collateral,
+        string memory oracleSalt
+    ) external {
+        if (bytes(oracleSalt).length != 0) {
+            _setOracleSaltPrefix(oracleSalt);
+        }
         // Create config BEFORE broadcast - config contracts NOT deployed on-chain
         (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createETHMintersConfig();
         Config_MinterMarket[] memory marketsToDeploy = parseCollateralFilter(allMarkets, collateral);
