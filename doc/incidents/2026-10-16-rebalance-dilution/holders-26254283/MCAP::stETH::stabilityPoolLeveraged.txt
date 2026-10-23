@@ -1,0 +1,4 @@
+# Holders: MCAP::stETH::stabilityPoolLeveraged
+# address: 0x505bfC99D2FB1A1424b2A4AA81303346df4f27E9
+# to-block: 26254283
+# source: UserDepositChange owners (Etherscan), blocks 24049000-26254283

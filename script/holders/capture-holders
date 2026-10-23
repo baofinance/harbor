@@ -11,9 +11,7 @@
 #     account can hold the token only after some was sent to it.
 # The zero address is never listed: it is where a burn sends tokens, not a holder.
 #
-# Why Etherscan (not cast logs): some RPC providers cap eth_getLogs at 10 blocks per call, which makes scanning
-# millions of blocks impossible, and a scan that size uses up an RPC allowance. Etherscan's getLogs is not
-# block-range limited (1000 records a page, paginated by block).
+# Why Etherscan (not cast logs): see etherscan-logs.sh beside this script, which reads the logs.
 #
 # Output, under --out-dir (default tmp/holders/): one file per target, `<salt>.txt` - comment lines carrying its
 # address, the event read and the block scanned to, then one checksummed address per line - and `manifest.txt`, whose
@@ -44,14 +42,14 @@ cd "$(git rev-parse --show-toplevel)"
 # Load env for ETHERSCAN_KEY.
 # shellcheck source=/dev/null
 [[ -f .env ]] && source .env
+# shellcheck source=etherscan-logs.sh
+source script/holders/etherscan-logs.sh
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-CHAIN_ID=1
 FROM_BLOCK=24049000   # first harbor mainnet deployment
 TO_BLOCK="latest"     # default: resolved to a concrete block NOW (recorded in the output files)
 RERUN=false           # --rerun: repeat the capture in --out-dir at ITS block, from its manifest
-OFFSET=1000           # Etherscan max records per page
 STATE_FILE="deployments/mainnet/harbor_v1.state.json"
 OUT_DIR="tmp/holders"
 DRY_RUN=false
@@ -91,76 +89,22 @@ targets() {
     | sort
 }
 
-# Parse one Etherscan getLogs response on stdin, taking each log's address from topic $1.
-# Prints "COUNT LASTBLOCK" on line 1, then one address per subsequent line (never the zero address).
-# Exits non-zero on a genuine API error (not "No records found").
-parse_page() {
-  python3 -c '
+# Every address in topic $3 of the $2 events of contract $1 across [FROM_BLOCK, TO_BLOCK], one a line, never the
+# zero address. Returns non-zero when the logs cannot be read.
+fetch_accounts() {
+  local address="$1" topic0="$2" topic="$3"
+  etherscan_logs "$address" "$FROM_BLOCK" "$TO_BLOCK" "$topic0" | python3 -c '
 import json, sys
 topic = int(sys.argv[1])
-raw = sys.stdin.read()
-try:
-    d = json.loads(raw)
-except Exception:
-    print("API returned non-JSON: " + raw[:200], file=sys.stderr)
-    sys.exit(2)
-status = str(d.get("status", "0"))
-result = d.get("result")
-if status != "1":
-    msg = str(d.get("message", ""))
-    if "No records" in msg or result == []:
-        print("0 0")
-        sys.exit(0)
-    print("Etherscan error: %s %r" % (msg, result), file=sys.stderr)
-    sys.exit(2)
-accounts = []
-last = 0
-for log in result:
-    topics = log.get("topics", [])
+for line in sys.stdin:
+    topics = json.loads(line).get("topics", [])
     if len(topics) > topic:
         account = "0x" + topics[topic][-40:]
         if int(account, 16) != 0:
-            accounts.append(account)
-    bn = int(log.get("blockNumber", "0x0"), 16)
-    if bn > last:
-        last = bn
-print("%d %d" % (len(result), last))
-for a in accounts:
-    print(a)
-' "$1"
-}
-
-# Fetch every address in topic $3 of the $2 events of contract $1 across [FROM_BLOCK, TO_BLOCK],
-# paginating by advancing fromBlock when a page is full.
-fetch_accounts() {
-  local address="$1" topic0="$2" topic="$3"
-  local from="$FROM_BLOCK" resp parsed meta count last
-  while true; do
-    if ! resp=$(curl -s "https://api.etherscan.io/v2/api?chainid=${CHAIN_ID}&module=logs&action=getLogs&address=${address}&topic0=${topic0}&fromBlock=${from}&toBlock=${TO_BLOCK}&offset=${OFFSET}&page=1&apikey=${ETHERSCAN_KEY}"); then
-      echo "ERROR: curl failed for $address from $from" >&2
-      exit 1
-    fi
-    # pipefail makes this assignment's status the pipeline's; parse_page exits non-zero on a real API error.
-    if ! parsed=$(printf '%s' "$resp" | parse_page "$topic"); then
-      echo "ERROR: parsing Etherscan response for $address from $from" >&2
-      exit 1
-    fi
-    meta=$(printf '%s\n' "$parsed" | head -1)
-    count=${meta%% *}
-    last=${meta##* }
-    printf '%s\n' "$parsed" | tail -n +2
-
-    # Stop when the page was not full.
-    if (( count < OFFSET )); then
-      break
-    fi
-    # Full page: continue from the last block (dedup handles overlap). A full page all in one block cannot advance.
-    if (( last <= from )); then
-      echo "ERROR: $address: a full page ($count logs) all in block $last - the scan cannot advance" >&2
-      exit 1
-    fi
-    from=$last
-  done
+            print(account)
+' "$topic"
+  local statuses=("${PIPESTATUS[@]}")
+  ((statuses[0] == 0 && statuses[1] == 0))
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -248,7 +192,7 @@ for target in "${TARGETS[@]}"; do
   out_file="${OUT_DIR}/${salt}.txt"
   echo "  scanning ${salt} (${address})..." >&2
 
-  # fetch_accounts exits non-zero on an API/curl failure, but in a process substitution that exit
+  # fetch_accounts returns non-zero on an API/curl failure, but in a process substitution that status
   # cannot stop this script - mapfile would just record an empty list and the header-only file
   # below would look like a target with no holders. Capture the output and check the status first
   # (pipefail makes the pipeline carry fetch_accounts' failure past the successful sort), so a

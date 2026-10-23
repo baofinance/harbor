@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# capture-logs — every log emitted by the named Harbor contracts over a block range, via the Etherscan `logs/getLogs`
+# API, so that what happened to each holder over that range can be read without scanning logs on the RPC.
+#
+# Each contract is named by its salt in the deployment state file (`BTC::stETH::minter`, `BTC::pegged`), which also
+# records its address.
+#
+# Output, under --out-dir (default tmp/logs/): one file per contract, `<salt>.txt` - comment lines carrying its
+# address and the blocks scanned, then one log per line, in block and log order:
+#   <block> <log index> <timestamp> <transaction hash> <data> <topic 0> [<topic 1> [<topic 2> [<topic 3>]]]
+# with the block, log index and timestamp in decimal, the hash, data and topics in hex (`0x` for no data) - and
+# `manifest.txt`, whose `from-block:` and `to-block:` lines are the range scanned. `LogCaptureLib.sol` beside this
+# script reads a capture. A rerun over the same range writes the same files.
+#
+# A capture over a past range never goes stale; one that ends at `latest` records the block it resolved to.
+#
+# Why Etherscan (not cast logs): see etherscan-logs.sh beside this script, which reads the logs.
+#
+# Requires ETHERSCAN_KEY in .env or the environment (sourced, never printed).
+# Usage:
+#   capture-logs --from-block <number> [--to-block <number>] [--out-dir <dir>] <salt>...
+#                                     # without --to-block, scans to latest (the resolved block is recorded)
+#   capture-logs --dry-run <salt>...  # print each salt's address, no API calls
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Load env for ETHERSCAN_KEY.
+# shellcheck source=/dev/null
+[[ -f .env ]] && source .env
+# shellcheck source=etherscan-logs.sh
+source script/holders/etherscan-logs.sh
+
+# ── Configuration ────────────────────────────────────────────────────────────
+
+FROM_BLOCK=""
+TO_BLOCK="latest" # default: resolved to a concrete block NOW (recorded in the output files)
+STATE_FILE="deployments/mainnet/harbor_v1.state.json"
+OUT_DIR="tmp/logs"
+DRY_RUN=false
+RPC="mainnet" # foundry alias, used to resolve `latest` when --to-block is not given
+SALTS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from-block) FROM_BLOCK="$2"; shift 2 ;;
+    --to-block)   TO_BLOCK="$2"; shift 2 ;;
+    --out-dir)    OUT_DIR="$2"; shift 2 ;;
+    --dry-run)    DRY_RUN=true; shift ;;
+    -h|--help)    sed -n '2,/^$/p' "$0"; exit 0 ;;
+    -*) echo "Unknown option: $1" >&2; exit 1 ;;
+    *)  SALTS+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#SALTS[@]} -eq 0 ]]; then
+  echo "ERROR: name at least one contract by its salt, e.g. BTC::stETH::minter" >&2
+  exit 1
+fi
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+# The logs of the contract at $1, as etherscan_logs prints them, as the lines of a capture file, in block and log
+# order. Exits non-zero on a log from another address.
+format_logs() {
+  python3 -c '
+import json, sys
+address = sys.argv[1].lower()
+logs = []
+for line in sys.stdin:
+    log = json.loads(line)
+    if log["address"].lower() != address:
+        print("a log emitted by %s in the logs of %s" % (log["address"], address), file=sys.stderr)
+        sys.exit(2)
+    logs.append(log)
+logs.sort(key=lambda log: (int(log["blockNumber"], 16), int(log["logIndex"], 16)))
+for log in logs:
+    fields = [
+        str(int(log["blockNumber"], 16)),
+        str(int(log["logIndex"], 16)),
+        str(int(log["timeStamp"], 16)),
+        log["transactionHash"],
+        log.get("data") or "0x",
+    ] + log["topics"]
+    print(" ".join(fields))
+' "$1"
+}
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+ADDRESSES=()
+for salt in "${SALTS[@]}"; do
+  if ! address=$(jq -r --arg k "$salt" '.proxies[$k].address // empty' "$STATE_FILE"); then
+    echo "ERROR: failed reading $STATE_FILE" >&2
+    exit 1
+  fi
+  if [[ -z "$address" ]]; then
+    echo "ERROR: $STATE_FILE records no contract with the salt $salt" >&2
+    exit 1
+  fi
+  ADDRESSES+=("$address")
+done
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "# DRY RUN — salt -> address (no API calls)" >&2
+  for i in "${!SALTS[@]}"; do
+    printf '%-44s %s\n' "${SALTS[$i]}" "${ADDRESSES[$i]}"
+  done
+  exit 0
+fi
+
+: "${ETHERSCAN_KEY:?Set ETHERSCAN_KEY in .env or environment}"
+
+if [[ ! "$FROM_BLOCK" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: --from-block must be a number (got: '${FROM_BLOCK}')" >&2
+  exit 1
+fi
+# Resolve "latest" to a concrete block NOW, so the scan and the file headers all use the SAME block. (set -e does not
+# catch failures in command-substitution assignments, so check the result explicitly.)
+if [[ "$TO_BLOCK" == "latest" ]]; then
+  TO_BLOCK=$(cast block-number --rpc-url "$RPC") || { echo "ERROR: cast block-number failed (rpc: $RPC)" >&2; exit 1; }
+  echo "# resolved latest -> block ${TO_BLOCK}" >&2
+fi
+if [[ ! "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: --to-block must be a number (got: ${TO_BLOCK})" >&2
+  exit 1
+fi
+if ((FROM_BLOCK > TO_BLOCK)); then
+  echo "ERROR: --from-block ${FROM_BLOCK} is after --to-block ${TO_BLOCK}" >&2
+  exit 1
+fi
+
+echo "# scanning blocks ${FROM_BLOCK} -> ${TO_BLOCK} (Etherscan)" >&2
+mkdir -p "$OUT_DIR"
+
+for i in "${!SALTS[@]}"; do
+  salt="${SALTS[$i]}"
+  address="${ADDRESSES[$i]}"
+  out_file="${OUT_DIR}/${salt}.txt"
+  echo "  scanning ${salt} (${address})..." >&2
+
+  # In a command substitution a failure cannot stop this script, so check the status of every stage before writing,
+  # rather than leave a header-only file that would read as a contract with no logs.
+  logs_found=$(etherscan_logs "$address" "$FROM_BLOCK" "$TO_BLOCK" | format_logs "$address") && status=0 || status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "ERROR: reading the logs of ${salt} (${address}) failed - ${out_file} not written" >&2
+    exit 1
+  fi
+  count=0
+  if [[ -n "$logs_found" ]]; then
+    count=$(printf '%s\n' "$logs_found" | wc -l)
+  fi
+
+  {
+    echo "# Logs: ${salt}"
+    echo "# address: $(cast to-check-sum-address "$address")"
+    echo "# from-block: ${FROM_BLOCK}"
+    echo "# to-block: ${TO_BLOCK}"
+    echo "# source: every log (Etherscan getLogs), blocks ${FROM_BLOCK}-${TO_BLOCK}"
+    echo "# format: block, log index, timestamp, transaction hash, data, topics"
+    if [[ -n "$logs_found" ]]; then
+      printf '%s\n' "$logs_found"
+    fi
+  } > "$out_file"
+  echo "    ${salt}: ${count} logs -> ${out_file}" >&2
+done
+
+# Manifest: the one file a consumer must read to use this capture. It carries the range scanned, so a reader checks
+# the range it relies on rather than being told it separately.
+{
+  echo "# Harbor log capture"
+  echo "from-block: ${FROM_BLOCK}"
+  echo "to-block: ${TO_BLOCK}"
+  echo "contracts: ${#SALTS[@]}"
+} > "${OUT_DIR}/manifest.txt"
+
+echo "# done -> ${OUT_DIR}/ (manifest.txt carries blocks ${FROM_BLOCK}-${TO_BLOCK})" >&2

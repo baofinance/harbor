@@ -1,0 +1,4 @@
+# Holders: MCAP::stETH::leveraged
+# address: 0x4dc51cAa3551a9D01eebaA801c63b59A64028745
+# to-block: 26254283
+# source: Transfer recipients (Etherscan), blocks 24049000-26254283
