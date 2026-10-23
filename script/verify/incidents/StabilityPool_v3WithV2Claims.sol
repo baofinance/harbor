@@ -13,6 +13,7 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 ///         had chosen, or to the `receiver` argument; paying anyone other than the account is not implemented here,
 ///         and reverts.
 contract StabilityPool_v3WithV2Claims is StabilityPool_v3 {
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address minter_,
         uint256 withdrawalStartDelay_,
