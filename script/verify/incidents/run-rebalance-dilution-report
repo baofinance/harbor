@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Regenerate the figures of the 2026-10-16 rebalance dilution exploits: for each exploited market (BTC::stETH and
-# EUR::stETH), doc/incidents/2026-10-16-rebalance-dilution/<PEG>-<collateral>-figures.md and -accounts.csv. Each on a
-# mainnet fork at its exploit's transaction; read-only on chain. A market's files are written only when every one of its
-# checks passes. The two run one after the other, so their log queries do not share the RPC's rate limit.
+# Regenerate the figures of the 2026-10-16 rebalance dilution exploits. For each exploited market (BTC::stETH and
+# EUR::stETH), in doc/incidents/2026-10-16-rebalance-dilution/:
+#   - <PEG>-<collateral>-figures.md and -accounts.csv, on a mainnet fork at its exploit's transaction;
+#   - -new-contracts.md and -new-contracts-accounts.csv, with the market upgraded just before it;
+#   - -holders.md, every holder followed from the exploit to the pause, the fork moved block by block.
+# Read-only on chain. No log query goes to the RPC: the holders and the logs come from the captures in that directory. A
+# market's files are written only when every one of its checks passes. The tests run one after the other, so their reads
+# do not share the RPC's rate limit.
 #
 # Fails unless the generator actually ran - see script/verify/run-campaign-test.
 #
 # Usage:
 #   script/verify/incidents/run-rebalance-dilution-report
 #
-# Needs MAINNET_RPC_URL on an archival node. Each market makes about 750 log and code queries, paced under the RPC's
-# rate limit, so the whole run takes about twenty minutes. The full output is kept in tmp/rebalance-dilution-report.log.
+# Needs MAINNET_RPC_URL on an archival node. The full output is kept in tmp/rebalance-dilution-report.log.
 
 set -euo pipefail
 

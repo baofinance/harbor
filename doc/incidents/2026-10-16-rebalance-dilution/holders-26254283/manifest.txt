@@ -1,5 +1,0 @@
-# Harbor holder capture
-to-block: 26254283
-from-block: 24049000
-pools: 22
-tokens: 17

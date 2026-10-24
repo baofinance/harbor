@@ -1,6 +1,0 @@
-# Holders: GOLD::stETH::leveraged
-# address: 0x94460C6477cdA339DA0e7E39f6Aa66EF047e2F6a
-# to-block: 26254283
-# source: Transfer recipients (Etherscan), blocks 24049000-26254283
-0x8Ad6b177137A6c33070c27d98355717849Ce526c
-0xb9ab9578a34a05c86124c399735fdE44dEc80E7F

@@ -1,4 +1,0 @@
-# Harbor log capture
-from-block: 24049000
-to-block: 26254283
-contracts: 2

@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {console2} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
+import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
+import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {JsonParser} from "@bao-script/deployment/JsonParser.sol";
 import {BaoTestLib} from "@bao-test/BaoTestLib.sol";
+import {IGenesis} from "@harbor/interfaces/IGenesis.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
@@ -27,6 +33,7 @@ import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {silverMintersConfig} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
+import {LogCaptureLib} from "@harbor-script/holders/LogCaptureLib.sol";
 
 import {IncidentMarketUpgrade} from "@harbor-script/verify/incidents/IncidentMarketUpgrade.sol";
 import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
@@ -55,15 +62,29 @@ import {
 /// each pool's ledger gap within rounding either way, before and after; every party's change sums to zero, to within
 /// the rounding of the valuation; and the caller's flows sum to what it paid out, to within the rounding of its trades.
 /// A failed check leaves the files as they were.
+///
+/// It also follows every holder from just before the exploit to the pause, into `<market>-holders.md`: see
+/// `test_writeHolders`.
 abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     /// @dev The header of an accounts file: each row is one account's position in one token, from one reading to the
     ///      next.
     string internal constant ACCOUNTS_HEADER =
         "account,role,position,token,before,after,change,value_change_pegged,value_change_wrapped\n";
-    /// @dev The header of a corrections file: each row takes one account's position in one token from what the exploit
-    ///      left back to what it held before the exploit.
-    string internal constant CORRECTIONS_HEADER =
-        "account,role,position,token,after_exploit,corrected,correction,correction_value_pegged,correction_value_wrapped\n";
+    /// @dev The block the minters and the stability pools were paused in, where every holder's history ends: the holder
+    ///      capture and the log captures end there, and the last reading is the end of the block before it.
+    uint256 internal constant PAUSE_BLOCK = 26_248_724;
+    /// @dev The log capture of the exploited markets' minters, pools, managers and tokens, from the first exploit's block
+    ///      to the pause, written by `script/holders/capture-logs`.
+    string internal constant MARKET_LOG_CAPTURE = "logs-26204584-26248724/";
+    /// @dev The log capture of the exploited markets' genesis contracts, from the first harbor deployment to the pause.
+    string internal constant GENESIS_LOG_CAPTURE = "logs-24049000-26248724/";
+    /// @dev The deployment state file, which records every contract's address under its salt: the names the holders file
+    ///      gives the contracts a holder dealt with.
+    string internal constant STATE_FILE = "deployments/mainnet/harbor_v1.state.json";
+    /// @dev What every call to a contract behind the pauser reverts with: `HarborPauser_v1`'s fallback states it inline.
+    string internal constant PAUSED_MESSAGE = "Contract is paused and all functions are disabled";
+    /// @dev A party's index when an account is not a party.
+    uint256 internal constant NOT_A_PARTY = type(uint256).max;
     /// @dev The rebuilt attacker's role in the new-contracts figures: it keeps what the attack pays it.
     string internal constant OWN_CAPITAL_ATTACKER = "attacker with its own capital, paid by the exploit";
 
@@ -111,6 +132,10 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     struct Party {
         address account;
         string role;
+        /// @dev Whether a holder capture shows the account never deposited in the pool, so that its position there is
+        ///      zero and is not read.
+        bool outsideLeveragedPool;
+        bool outsideCollateralPool;
     }
 
     /// @notice A kind of minter action in the transaction: how many, and the tokens in and out.
@@ -158,6 +183,70 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         RebalanceDilutionAttacker.Mint[] mints;
     }
 
+    /// @notice One reading of every party in the holders' history, taken after every captured log up to `logKey`
+    ///         (`_logKey`), with each party's unclaimed genesis claim.
+    struct Point {
+        string label;
+        uint256 blockNumber;
+        uint256 timestamp;
+        uint256 logKey;
+        Reading reading;
+        uint256[] genesisPegged;
+        uint256[] genesisLeveraged;
+    }
+
+    /// @notice What one party did in one transaction, from the transaction's captured logs.
+    struct HolderAction {
+        uint256 party;
+        /// @dev The reading at the end of the transaction's block.
+        uint256 point;
+        bytes32 transactionHash;
+        string what;
+        /// @dev The changes in its wallet's pegged and leveraged tokens.
+        int256 pegged;
+        int256 leveraged;
+        /// @dev The wrapped collateral it paid (negative) or received in its own minter actions and pool claims.
+        int256 wrapped;
+        /// @dev The leveraged tokens it minted or redeemed, and the wrapped collateral paid or received for them: the
+        ///      price it dealt at.
+        uint256 minterLeveraged;
+        uint256 minterWrapped;
+    }
+
+    /// @notice A mint or a redemption, from a minter log: the tokens, the wrapped collateral paid or received for them,
+    ///         who acted and who received.
+    struct MinterAction {
+        bool mint;
+        bool leveraged;
+        uint256 tokens;
+        uint256 wrapped;
+        address sender;
+        address receiver;
+    }
+
+    /// @notice Every holder's history from just before the exploit to the pause, and what it is read with.
+    struct History {
+        /// @dev The market, `<peg>::<collateral>`, and its file names' form, `<peg>-<collateral>`.
+        string name;
+        string label;
+        string peggedSymbol;
+        string leveragedSymbol;
+        string wrappedSymbol;
+        /// @dev The parties found at the exploit's block; any added after them are new since.
+        uint256 atTheExploit;
+        address genesis;
+        /// @dev Every account ever given a genesis share.
+        uint256 genesisParticipants;
+        /// @dev The pause block's time.
+        uint256 pausedAt;
+        /// @dev The market's captured logs from the exploit's block on, in block and log order.
+        LogCaptureLib.CapturedLog[] logs;
+        Point[] points;
+        HolderAction[] actions;
+        /// @dev Every contract the state file records, to name the contracts a holder dealt with.
+        DeploymentTypes.ProxyRecord[] contracts;
+    }
+
     /// @notice A mitigation to measure.
     enum Mitigation {
         AsDeployed,
@@ -188,7 +277,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             _partiesSections(before, afterwards),
             _callerSection(exploit, before, afterwards)
         );
-        string memory accounts = _accountsCsv(ACCOUNTS_HEADER, before, afterwards);
+        string memory accounts = _accountsCsv(before, afterwards);
         figures = string.concat(figures, _mitigationSection(beforeExploit, exploit), _marketsSection(beforeExploit));
         string memory market_ = _marketLabel();
         vm.createDir(DIRECTORY, true);
@@ -199,22 +288,14 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     /// @notice The exploit against the new contracts. Just before it, the market is upgraded by the upgrade script's
     ///         own function; the exploit's transaction is replayed on it; and the rebuilt attacker runs the same attack
     ///         without a flash loan, with the exploit's mints and the loan as its own capital. Writes
-    ///         `<market>-new-contracts.md`; every account's change in the attack without a flash loan, in wei, to
-    ///         `<market>-new-contracts-accounts.csv`; and - since on the new contracts the exploit's transaction changes
-    ///         nothing - each account's correction back to what it held before the exploit, in wei, to
-    ///         `<market>-corrections.csv`.
+    ///         `<market>-new-contracts.md`, and every account's change in the attack without a flash loan, in wei, to
+    ///         `<market>-new-contracts-accounts.csv`.
     function test_writeNewContractsFigures() public {
         Transaction memory exploit = _decodeExploit();
         _findParties(exploit.recipients);
-        // Deployed before the snapshot, so it survives going back to it and every reading follows the same parties.
         address attacker = address(new RebalanceDilutionAttacker(market, exploit.mints));
         _addRole(attacker, OWN_CAPITAL_ATTACKER);
-
-        uint256 start = vm.snapshotState();
         Reading memory before = _read();
-        vm.transact(exploitTransaction());
-        string memory corrections = _accountsCsv(CORRECTIONS_HEADER, _read(), before);
-        vm.revertToState(start);
 
         Config_MinterMarket[] memory toUpgrade = new Config_MinterMarket[](1);
         toUpgrade[0] = exploitedMarket;
@@ -236,7 +317,6 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             string.concat(_newContractsHeader(), ownCapital, _replaySection(), upgrade)
         );
         vm.writeFile(string.concat(DIRECTORY, market_, "-new-contracts-accounts.csv"), accounts);
-        vm.writeFile(string.concat(DIRECTORY, market_, "-corrections.csv"), corrections);
     }
 
     /// @dev The rebuilt attacker's run on the market as it stands, with the exploit's loan as its own capital: the
@@ -250,7 +330,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         Outcome memory outcome = _runAttack(attacker, attacker, exploit.borrowed);
         Reading memory attacked = _read();
         section = string.concat(_ownCapitalSection(exploit, outcome), _partiesSections(armed, attacked));
-        accounts = _accountsCsv(ACCOUNTS_HEADER, armed, attacked);
+        accounts = _accountsCsv(armed, attacked);
     }
 
     /// @dev What the exploit did - who acted, who it paid, its mints - learned from one replay, then undone.
@@ -282,6 +362,20 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     function _findParties(address[] memory paidByTheExploit) internal {
         string memory capture = _captureDirectory();
         assertEq(HolderCaptureLib.captureBlock(capture), block.number, "the holder capture is at the exploit's block");
+        _addCapturedHolders(capture);
+        _addRole(IMinter(market.minter).feeReceiver(), "minter fee receiver");
+        _addRole(IStabilityPool(market.leveragedPool).getFeeAddress(), "leveraged pool fee address");
+        _addRole(IStabilityPool(market.collateralPool).getFeeAddress(), "collateral pool fee address");
+        _addRole(IStabilityPoolManager(market.manager).feeReceiver(), "manager fee receiver (harvest cut)");
+        _addRole(IMinter(market.minter).reservePool(), "reserve pool");
+        for (uint256 i = 0; i < paidByTheExploit.length; ++i) {
+            _addRole(paidByTheExploit[i], "paid by the exploit");
+        }
+    }
+
+    /// @dev Adds every account `capture` lists for either pool or for the pegged or the leveraged token as a party, less
+    ///      the market's own contracts.
+    function _addCapturedHolders(string memory capture) internal {
         string[4] memory salts = [
             productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Leveraged),
             productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Collateral),
@@ -307,21 +401,13 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                 _addRole(found[i], found[i] == genesis ? "genesis contract" : "");
             }
         }
-        _addRole(IMinter(market.minter).feeReceiver(), "minter fee receiver");
-        _addRole(IStabilityPool(market.leveragedPool).getFeeAddress(), "leveraged pool fee address");
-        _addRole(IStabilityPool(market.collateralPool).getFeeAddress(), "collateral pool fee address");
-        _addRole(IStabilityPoolManager(market.manager).feeReceiver(), "manager fee receiver (harvest cut)");
-        _addRole(IMinter(market.minter).reservePool(), "reserve pool");
-        for (uint256 i = 0; i < paidByTheExploit.length; ++i) {
-            _addRole(paidByTheExploit[i], "paid by the exploit");
-        }
     }
 
-    /// @dev Adds `account` to the parties, or adds `role` to its roles if it is there already.
+    /// @dev Adds `account` to the parties, or adds `role` to its roles if it is there without it.
     function _addRole(address account, string memory role) internal {
         for (uint256 i = 0; i < parties.length; ++i) {
             if (parties[i].account == account) {
-                if (bytes(role).length > 0) {
+                if (bytes(role).length > 0 && !LibString.contains(parties[i].role, role)) {
                     parties[i].role = bytes(parties[i].role).length > 0
                         ? string.concat(parties[i].role, ", ", role)
                         : role;
@@ -329,21 +415,28 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                 return;
             }
         }
-        parties.push(Party(account, role));
+        parties.push(Party(account, role, false, false));
     }
 
     /// @dev `found` with `account` appended, unless it is there already.
     function _include(address[] memory found, address account) internal pure returns (address[] memory grown) {
-        for (uint256 i = 0; i < found.length; ++i) {
-            if (found[i] == account) {
-                return found;
-            }
+        if (_contains(found, account)) {
+            return found;
         }
         grown = new address[](found.length + 1);
         for (uint256 i = 0; i < found.length; ++i) {
             grown[i] = found[i];
         }
         grown[found.length] = account;
+    }
+
+    function _contains(address[] memory accounts, address account) internal pure returns (bool) {
+        for (uint256 i = 0; i < accounts.length; ++i) {
+            if (accounts[i] == account) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -368,12 +461,16 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
 
         reading.parties = new Holding[](parties.length);
         for (uint256 i = 0; i < parties.length; ++i) {
-            reading.parties[i] = _holding(parties[i].account);
+            reading.parties[i] = _holding(
+                parties[i].account,
+                !parties[i].outsideLeveragedPool,
+                !parties[i].outsideCollateralPool
+            );
         }
         reading.contracts = new Holding[](3);
-        reading.contracts[0] = _holding(market.leveragedPool);
-        reading.contracts[1] = _holding(market.collateralPool);
-        reading.contracts[2] = _holding(market.manager);
+        reading.contracts[0] = _holding(market.leveragedPool, true, true);
+        reading.contracts[1] = _holding(market.collateralPool, true, true);
+        reading.contracts[2] = _holding(market.manager, true, true);
         reading.minterSurplus =
             int256(
                 Math.mulDiv(IERC20(market.wrappedCollateral).balanceOf(market.minter), reading.prices.wrapped, 1 ether)
@@ -382,24 +479,34 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         _assertComplete(reading);
     }
 
-    function _holding(address account) internal view returns (Holding memory holding) {
+    /// @dev What `account` holds; its positions in a pool only when `readLeveragedPool` or `readCollateralPool` says so,
+    ///      and zero otherwise.
+    function _holding(
+        address account,
+        bool readLeveragedPool,
+        bool readCollateralPool
+    ) internal view returns (Holding memory holding) {
         holding.wrapped = IERC20(market.wrappedCollateral).balanceOf(account);
         holding.pegged = IERC20(market.pegged).balanceOf(account);
         holding.leveraged = IERC20(market.leveraged).balanceOf(account);
-        holding.leveragedPoolDeposit = IStabilityPool(market.leveragedPool).assetBalanceOf(account);
-        holding.leveragedPoolWrapped = IMultipleRewardAccumulator(market.leveragedPool).claimable(
-            account,
-            market.wrappedCollateral
-        );
-        holding.leveragedPoolLeveraged = IMultipleRewardAccumulator(market.leveragedPool).claimable(
-            account,
-            market.leveraged
-        );
-        holding.collateralPoolDeposit = IStabilityPool(market.collateralPool).assetBalanceOf(account);
-        holding.collateralPoolWrapped = IMultipleRewardAccumulator(market.collateralPool).claimable(
-            account,
-            market.wrappedCollateral
-        );
+        if (readLeveragedPool) {
+            holding.leveragedPoolDeposit = IStabilityPool(market.leveragedPool).assetBalanceOf(account);
+            holding.leveragedPoolWrapped = IMultipleRewardAccumulator(market.leveragedPool).claimable(
+                account,
+                market.wrappedCollateral
+            );
+            holding.leveragedPoolLeveraged = IMultipleRewardAccumulator(market.leveragedPool).claimable(
+                account,
+                market.leveraged
+            );
+        }
+        if (readCollateralPool) {
+            holding.collateralPoolDeposit = IStabilityPool(market.collateralPool).assetBalanceOf(account);
+            holding.collateralPoolWrapped = IMultipleRewardAccumulator(market.collateralPool).claimable(
+                account,
+                market.wrappedCollateral
+            );
+        }
     }
 
     /// @dev The parties found and the market's contracts hold the whole pegged and leveraged supplies - token balances,
@@ -1470,12 +1577,8 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     /// @dev One row per account, position and token whose amount or value changed: the amounts the contracts report
     ///      before and after the transaction and the change, in wei; and the change in value, in pegged-unit wei and in
     ///      wrapped-collateral wei, valued as `_header` states.
-    function _accountsCsv(
-        string memory header,
-        Reading memory before,
-        Reading memory afterwards
-    ) internal view returns (string memory csv) {
-        csv = header;
+    function _accountsCsv(Reading memory before, Reading memory afterwards) internal view returns (string memory csv) {
+        csv = ACCOUNTS_HEADER;
         for (uint256 i = 0; i < parties.length; ++i) {
             for (uint256 position = 0; position < 8; ++position) {
                 csv = string.concat(csv, _accountRow(before, afterwards, i, position));
@@ -1759,24 +1862,17 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
 
     function _replaySection() internal view returns (string memory) {
         string memory market_ = _marketLabel();
-        string memory text = string.concat(
-            "## The exploit's transaction on the upgraded market\n\n",
-            "Replayed on the upgraded market, the transaction leaves every holding, price and supply exactly as it ",
-            "found them. On the new contracts the exploit changes nothing, so each ",
-            "account's correction takes it back to what it held just before the exploit - the reverse of its change ",
-            "in [",
-            market_,
-            "-accounts.csv](",
-            market_
-        );
         return
             string.concat(
-                text,
-                "-accounts.csv) - and is written, in wei, to [",
+                "## The exploit's transaction on the upgraded market\n\n",
+                "Replayed on the upgraded market, the transaction leaves every holding, price and supply exactly as it ",
+                "found them. On the new contracts the exploit changes nothing, so each ",
+                "account's correction takes it back to what it held just before the exploit: the reverse of its change ",
+                "in [",
                 market_,
-                "-corrections.csv](",
+                "-accounts.csv](",
                 market_,
-                "-corrections.csv).\n\n"
+                "-accounts.csv).\n\n"
             );
     }
 
@@ -2011,6 +2107,1200 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     function _refusedBelow(IMinter.IncentiveConfig memory incentive) internal pure returns (string memory) {
         return
             incentive.incentiveRatios[0] == 1 ether ? _fixed(incentive.collateralRatioBandUpperBounds[0], 4) : "never";
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Every holder, from the exploit to the pause
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// @notice Follows every holder from just before the exploit to the pause, into `<market>-holders.md`. Each party is
+    ///         read just before the exploit's transaction, just after it, at the end of every later block before the
+    ///         pause in which the market's minter, pools, manager, pegged or leveraged token or genesis contract logged
+    ///         anything, and at the end of the block before the pause. What each did in between is decoded from those
+    ///         logs, captured from Etherscan. The parties are everyone the holder capture at the pause lists, the fee
+    ///         receivers, the reserve pool, the accounts the exploit paid, and each genesis participant with an
+    ///         unclaimed share: the genesis contract holds their tokens, so each is followed for its own claim.
+    ///
+    ///         It checks before writing: at every reading, `_read`'s checks (the parties hold the pegged and leveraged
+    ///         supplies, and each pool's deposits to within the capture rule); between readings, every party's pegged
+    ///         and leveraged wallet change is the net of its captured transfers, and a party's pool deposit changes only
+    ///         where that pool logged something; at every reading, the unclaimed genesis claims are what the genesis
+    ///         contract holds, less its rounding; and at the pause block, the minter and both pools are behind the
+    ///         pauser, and the only logs are the pause's own.
+    function test_writeHolders() public {
+        // Everything the deploy run and the market's configuration answer is asked here: both live on the fork, which
+        // moves to later blocks below.
+        History memory history;
+        history.name = string.concat(
+            IMarketConfig(address(exploitedMarket)).peg(),
+            "::",
+            IMarketConfig(address(exploitedMarket)).collateral()
+        );
+        history.label = _marketLabel();
+        history.peggedSymbol = _symbol(market.pegged);
+        history.leveragedSymbol = _symbol(market.leveraged);
+        history.wrappedSymbol = _symbol(market.wrappedCollateral);
+        history.genesis = productionRun.genesisAddress(exploitedMarket);
+        history.contracts = JsonParser.parseProxies(vm.readFile(STATE_FILE));
+
+        Transaction memory exploit = _decodeExploit();
+        _findParties(exploit.recipients);
+        history.atTheExploit = parties.length;
+        string memory endCapture = string.concat(DIRECTORY, "holders-", vm.toString(PAUSE_BLOCK), "/");
+        assertEq(HolderCaptureLib.captureBlock(endCapture), PAUSE_BLOCK, "the holder capture is at the pause");
+        _addCapturedHolders(endCapture);
+
+        string memory genesisCapture = string.concat(DIRECTORY, GENESIS_LOG_CAPTURE);
+        (, uint256 genesisCaptureEnd) = LogCaptureLib.captureRange(genesisCapture);
+        assertEq(genesisCaptureEnd, PAUSE_BLOCK, "the genesis log capture ends at the pause");
+        LogCaptureLib.CapturedLog[] memory genesisLogs = LogCaptureLib.logs(
+            genesisCapture,
+            productionRun.genesisKey(exploitedMarket)
+        );
+        history.genesisParticipants = _addGenesisParticipants(history.genesis, genesisLogs);
+        for (uint256 i = 0; i < parties.length; ++i) {
+            for (uint256 c = 0; c < history.contracts.length; ++c) {
+                if (history.contracts[c].proxy == parties[i].account) {
+                    _addRole(parties[i].account, history.contracts[c].id);
+                }
+            }
+        }
+        history.logs = _marketLogs(genesisLogs);
+
+        // A pool's capture lists every account whose deposit there ever changed, up to the pause: only those can hold a
+        // deposit or a reward in it, so the others' positions there are zero and are not read.
+        address[] memory leveragedPoolDepositors = HolderCaptureLib.holders(
+            endCapture,
+            productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Leveraged)
+        );
+        address[] memory collateralPoolDepositors = HolderCaptureLib.holders(
+            endCapture,
+            productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Collateral)
+        );
+        for (uint256 i = 0; i < parties.length; ++i) {
+            parties[i].outsideLeveragedPool = !_contains(leveragedPoolDepositors, parties[i].account);
+            parties[i].outsideCollateralPool = !_contains(collateralPoolDepositors, parties[i].account);
+        }
+
+        _readHistory(history);
+        _checkHistory(history);
+        history.actions = _holderActions(history);
+        vm.writeFile(
+            string.concat(DIRECTORY, history.label, "-holders.md"),
+            string.concat(
+                _holdersHeader(history),
+                _holdersMarketSection(history),
+                _holdersSummarySection(history),
+                _holdersRewardsSection(history),
+                _holderSections(history)
+            )
+        );
+    }
+
+    /// @dev Adds each genesis participant with an unclaimed share as a party, and returns how many accounts were ever
+    ///      given a share: every receiver of a genesis deposit.
+    function _addGenesisParticipants(
+        address genesis,
+        LogCaptureLib.CapturedLog[] memory logs
+    ) internal returns (uint256) {
+        address[] memory participants = new address[](0);
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics[0] == IGenesis.Deposit.selector) {
+                participants = _include(participants, address(uint160(uint256(logs[i].topics[2]))));
+            }
+        }
+        for (uint256 i = 0; i < participants.length; ++i) {
+            (uint256 pegged, uint256 leveraged) = IGenesis(genesis).claimable(participants[i]);
+            if (pegged > 0 || leveraged > 0) {
+                _addRole(participants[i], "genesis participant, unclaimed");
+            }
+        }
+        return participants.length;
+    }
+
+    /// @dev Every captured log of the market's minter, pools, manager, pegged and leveraged tokens and of `genesisLogs`
+    ///      from the exploit's block on, in block and log order.
+    function _marketLogs(
+        LogCaptureLib.CapturedLog[] memory genesisLogs
+    ) internal view returns (LogCaptureLib.CapturedLog[] memory merged) {
+        string memory capture = string.concat(DIRECTORY, MARKET_LOG_CAPTURE);
+        (uint256 fromBlock, uint256 toBlock) = LogCaptureLib.captureRange(capture);
+        assertLe(fromBlock, block.number, "the log capture starts by the exploit's block");
+        assertEq(toBlock, PAUSE_BLOCK, "the log capture ends at the pause");
+        LogCaptureLib.CapturedLog[][] memory sources = new LogCaptureLib.CapturedLog[][](7);
+        sources[0] = LogCaptureLib.logs(capture, productionRun.minterKey(exploitedMarket));
+        sources[1] = LogCaptureLib.logs(
+            capture,
+            productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Leveraged)
+        );
+        sources[2] = LogCaptureLib.logs(
+            capture,
+            productionRun.stabilityPoolKey(exploitedMarket, HarborDeployer.StabilityPoolType.Collateral)
+        );
+        sources[3] = LogCaptureLib.logs(capture, productionRun.stabilityPoolManagerKey(exploitedMarket));
+        sources[4] = LogCaptureLib.logs(capture, productionRun.peggedTokenKey(exploitedMarket));
+        sources[5] = LogCaptureLib.logs(capture, productionRun.leveragedTokenKey(exploitedMarket));
+        sources[6] = genesisLogs;
+
+        uint256 count;
+        for (uint256 s = 0; s < sources.length; ++s) {
+            for (uint256 i = 0; i < sources[s].length; ++i) {
+                if (sources[s][i].blockNumber >= block.number) {
+                    ++count;
+                }
+            }
+        }
+        merged = new LogCaptureLib.CapturedLog[](count);
+        count = 0;
+        for (uint256 s = 0; s < sources.length; ++s) {
+            for (uint256 i = 0; i < sources[s].length; ++i) {
+                LogCaptureLib.CapturedLog memory log = sources[s][i];
+                if (log.blockNumber < block.number) {
+                    continue;
+                }
+                // Insertion into the logs placed so far, which are in order.
+                uint256 j = count++;
+                while (j > 0 && _logKey(merged[j - 1]) > _logKey(log)) {
+                    merged[j] = merged[j - 1];
+                    --j;
+                }
+                merged[j] = log;
+            }
+        }
+    }
+
+    /// @dev A log's place in the chain: its block, then its index in the block.
+    function _logKey(LogCaptureLib.CapturedLog memory log) internal pure returns (uint256) {
+        return (log.blockNumber << 32) | log.logIndex;
+    }
+
+    /// @dev Reads every party at each point of the history: just before the exploit's transaction, just after it, at the
+    ///      end of every later block with a captured log before the pause, and at the end of the block before the
+    ///      pause. Then the pause block: the minter and both pools are behind the pauser.
+    function _readHistory(History memory history) internal {
+        uint256 first = type(uint256).max;
+        uint256 last;
+        uint256[] memory blocks = new uint256[](history.logs.length + 1);
+        uint256 count;
+        for (uint256 i = 0; i < history.logs.length; ++i) {
+            LogCaptureLib.CapturedLog memory log = history.logs[i];
+            if (log.transactionHash == exploitTransaction()) {
+                first = Math.min(first, _logKey(log));
+                last = Math.max(last, _logKey(log));
+            } else if (log.blockNumber == PAUSE_BLOCK) {
+                assertEq(log.topics[0], IERC1967.Upgraded.selector, "the pause block's only logs are the pause's");
+            } else if (log.blockNumber > block.number && (count == 0 || blocks[count - 1] != log.blockNumber)) {
+                blocks[count++] = log.blockNumber;
+            }
+        }
+        assertGt(last, 0, "the exploit's transaction is in the log capture");
+        if (count == 0 || blocks[count - 1] != PAUSE_BLOCK - 1) {
+            blocks[count++] = PAUSE_BLOCK - 1;
+        }
+
+        history.points = new Point[](count + 2);
+        history.points[0] = _point(history, "before the exploit", first - 1);
+        _logReading(history, 0);
+        vm.transact(exploitTransaction());
+        history.points[1] = _point(history, "after the exploit", last);
+        _logReading(history, 1);
+        for (uint256 i = 0; i < count; ++i) {
+            vm.rollFork(blocks[i]);
+            history.points[i + 2] = _point(
+                history,
+                string.concat("block ", vm.toString(blocks[i])),
+                (blocks[i] << 32) | type(uint32).max
+            );
+            _logReading(history, i + 2);
+        }
+
+        vm.rollFork(PAUSE_BLOCK);
+        history.pausedAt = block.timestamp;
+        bytes memory paused = abi.encodeWithSelector(HarborPauser_v1.Paused.selector, PAUSED_MESSAGE);
+        vm.expectRevert(paused);
+        IMinter(market.minter).collateralRatio();
+        vm.expectRevert(paused);
+        IStabilityPool(market.leveragedPool).totalAssetSupply();
+        vm.expectRevert(paused);
+        IStabilityPool(market.collateralPool).totalAssetSupply();
+    }
+
+    /// @dev One line per reading taken, with the time it finished: a run reads every party at every point over the RPC,
+    ///      so this is its progress.
+    function _logReading(History memory history, uint256 k) internal view {
+        console2.log(
+            string.concat(
+                history.name,
+                ": read ",
+                history.points[k].label,
+                ", ",
+                vm.toString(k + 1),
+                " of ",
+                vm.toString(history.points.length),
+                ", at ",
+                BaoTestLib.toUtcString(vm.unixTime() / 1000)
+            )
+        );
+    }
+
+    function _point(
+        History memory history,
+        string memory label,
+        uint256 logKey
+    ) internal view returns (Point memory point) {
+        point.label = label;
+        point.blockNumber = block.number;
+        point.timestamp = block.timestamp;
+        point.logKey = logKey;
+        point.reading = _read();
+        point.genesisPegged = new uint256[](parties.length);
+        point.genesisLeveraged = new uint256[](parties.length);
+        for (uint256 i = 0; i < parties.length; ++i) {
+            if (LibString.contains(parties[i].role, "genesis participant")) {
+                (point.genesisPegged[i], point.genesisLeveraged[i]) = IGenesis(history.genesis).claimable(
+                    parties[i].account
+                );
+            }
+        }
+    }
+
+    /// @dev At every point, the unclaimed genesis claims are at most what the genesis contract holds, and short of it by
+    ///      at most a wei per account ever given a share: each claim is floored, the claimed ones too. Between points,
+    ///      `_checkWindow`.
+    function _checkHistory(History memory history) internal view {
+        uint256 genesisParty = _partyIndex(history.genesis);
+        assertTrue(genesisParty != NOT_A_PARTY, "the genesis contract is a party");
+        for (uint256 k = 0; k < history.points.length; ++k) {
+            Point memory point = history.points[k];
+            uint256 claimedPegged;
+            uint256 claimedLeveraged;
+            for (uint256 i = 0; i < parties.length; ++i) {
+                claimedPegged += point.genesisPegged[i];
+                claimedLeveraged += point.genesisLeveraged[i];
+            }
+            Holding memory held = point.reading.parties[genesisParty];
+            assertLe(claimedPegged, held.pegged, string.concat(point.label, ": the genesis claims to pegged tokens"));
+            assertLe(
+                held.pegged - claimedPegged,
+                history.genesisParticipants,
+                string.concat(point.label, ": the genesis pegged tokens no claim accounts for")
+            );
+            assertLe(
+                claimedLeveraged,
+                held.leveraged,
+                string.concat(point.label, ": the genesis claims to leveraged tokens")
+            );
+            assertLe(
+                held.leveraged - claimedLeveraged,
+                history.genesisParticipants,
+                string.concat(point.label, ": the genesis leveraged tokens no claim accounts for")
+            );
+            if (k > 0) {
+                _checkWindow(history, k);
+            }
+        }
+    }
+
+    /// @dev Between point `k - 1` and point `k`: every party's pegged and leveraged wallet change is the net of the
+    ///      captured transfers of those tokens to and from it, and a party's deposit in a pool changes only if that pool
+    ///      logged something.
+    function _checkWindow(History memory history, uint256 k) internal view {
+        Point memory previous = history.points[k - 1];
+        Point memory point = history.points[k];
+        int256[] memory pegged = new int256[](parties.length);
+        int256[] memory leveraged = new int256[](parties.length);
+        bool leveragedPoolLogged;
+        bool collateralPoolLogged;
+        for (uint256 i = 0; i < history.logs.length; ++i) {
+            LogCaptureLib.CapturedLog memory log = history.logs[i];
+            if (_logKey(log) <= previous.logKey || _logKey(log) > point.logKey) {
+                continue;
+            }
+            leveragedPoolLogged = leveragedPoolLogged || log.emitter == market.leveragedPool;
+            collateralPoolLogged = collateralPoolLogged || log.emitter == market.collateralPool;
+            if (
+                log.topics[0] != IERC20.Transfer.selector ||
+                (log.emitter != market.pegged && log.emitter != market.leveraged)
+            ) {
+                continue;
+            }
+            int256[] memory changes = log.emitter == market.pegged ? pegged : leveraged;
+            int256 amount = int256(abi.decode(log.data, (uint256)));
+            uint256 from = _partyIndex(address(uint160(uint256(log.topics[1]))));
+            uint256 to = _partyIndex(address(uint160(uint256(log.topics[2]))));
+            if (from != NOT_A_PARTY) {
+                changes[from] -= amount;
+            }
+            if (to != NOT_A_PARTY) {
+                changes[to] += amount;
+            }
+        }
+        for (uint256 i = 0; i < parties.length; ++i) {
+            Holding memory b = previous.reading.parties[i];
+            Holding memory a = point.reading.parties[i];
+            string memory who = string.concat(vm.toString(parties[i].account), " up to ", point.label);
+            assertEq(int256(a.pegged) - int256(b.pegged), pegged[i], string.concat(who, ": pegged, its transfers"));
+            assertEq(
+                int256(a.leveraged) - int256(b.leveraged),
+                leveraged[i],
+                string.concat(who, ": leveraged, its transfers")
+            );
+            assertTrue(
+                a.leveragedPoolDeposit == b.leveragedPoolDeposit || leveragedPoolLogged,
+                string.concat(who, ": its leveraged pool deposit changed where the pool logged nothing")
+            );
+            assertTrue(
+                a.collateralPoolDeposit == b.collateralPoolDeposit || collateralPoolLogged,
+                string.concat(who, ": its collateral pool deposit changed where the pool logged nothing")
+            );
+        }
+    }
+
+    function _partyIndex(address account) internal view returns (uint256) {
+        for (uint256 i = 0; i < parties.length; ++i) {
+            if (parties[i].account == account) {
+                return i;
+            }
+        }
+        return NOT_A_PARTY;
+    }
+
+    /// @dev What each party did in each transaction after the exploit's, from the transaction's captured logs.
+    function _holderActions(History memory history) internal view returns (HolderAction[] memory actions) {
+        HolderAction[] memory found = new HolderAction[](2 * history.logs.length);
+        uint256 count;
+        uint256 point = 1;
+        for (uint256 i = 0; i < history.logs.length; ++i) {
+            if (_logKey(history.logs[i]) <= history.points[1].logKey || history.logs[i].blockNumber >= PAUSE_BLOCK) {
+                continue;
+            }
+            while (history.points[point].logKey < _logKey(history.logs[i])) {
+                ++point;
+            }
+            count = _decodeHolderLog(history, i, found, count, point);
+        }
+        actions = new HolderAction[](count);
+        for (uint256 i = 0; i < count; ++i) {
+            actions[i] = found[i];
+        }
+    }
+
+    /// @dev Records what log `index` says each party did in `found`, which holds `count` actions; returns the new count.
+    function _decodeHolderLog(
+        History memory history,
+        uint256 index,
+        HolderAction[] memory found,
+        uint256 count,
+        uint256 point
+    ) internal view returns (uint256) {
+        LogCaptureLib.CapturedLog memory log = history.logs[index];
+        address first = log.topics.length > 1 ? address(uint160(uint256(log.topics[1]))) : address(0);
+        address second = log.topics.length > 2 ? address(uint160(uint256(log.topics[2]))) : address(0);
+        if (
+            (log.emitter == market.pegged || log.emitter == market.leveraged) &&
+            log.topics[0] == IERC20.Transfer.selector
+        ) {
+            // A transfer to the sender itself changes nothing.
+            if (first == second) {
+                return count;
+            }
+            count = _transferSide(history, index, found, count, point, first, second);
+            return _transferSide(history, index, found, count, point, second, first);
+        }
+        if (log.emitter == market.minter) {
+            return _decodeMinterLog(history, log, found, count, point);
+        }
+        if (log.emitter == market.leveragedPool || log.emitter == market.collateralPool) {
+            return _decodePoolLog(history, log, found, count, point);
+        }
+        if (log.emitter == history.genesis && log.topics[0] == IGenesis.Claim.selector) {
+            return _decodeGenesisClaim(history, log, found, count, point, first, second);
+        }
+        return count;
+    }
+
+    /// @dev A genesis claim: the caller takes its share, to the receiver.
+    function _decodeGenesisClaim(
+        History memory history,
+        LogCaptureLib.CapturedLog memory log,
+        HolderAction[] memory found,
+        uint256 count,
+        uint256 point,
+        address caller,
+        address receiver
+    ) internal view returns (uint256) {
+        (uint256 pegged, uint256 leveraged) = abi.decode(log.data, (uint256, uint256));
+        string memory phrase = string.concat(
+            "claimed its genesis share, ",
+            _amount(pegged, history.peggedSymbol),
+            " and ",
+            _amount(leveraged, history.leveragedSymbol),
+            _toOther(history, caller, receiver)
+        );
+        uint256 at;
+        (at, count) = _actionOf(found, count, caller, point, log.transactionHash);
+        if (at != NOT_A_PARTY) {
+            _addPhrase(found[at], phrase);
+        }
+        return count;
+    }
+
+    /// @dev One side of a pegged or leveraged transfer, log `index`: `account`'s wallet change, and what the transfer
+    ///      says it did (`_transferPhrase`).
+    function _transferSide(
+        History memory history,
+        uint256 index,
+        HolderAction[] memory found,
+        uint256 count,
+        uint256 point,
+        address account,
+        address other
+    ) internal view returns (uint256) {
+        uint256 at;
+        (at, count) = _actionOf(found, count, account, point, history.logs[index].transactionHash);
+        if (at == NOT_A_PARTY) {
+            return count;
+        }
+        LogCaptureLib.CapturedLog memory log = history.logs[index];
+        bool sent = account == address(uint160(uint256(log.topics[1])));
+        int256 change = int256(abi.decode(log.data, (uint256)));
+        if (sent) {
+            change = -change;
+        }
+        if (log.emitter == market.pegged) {
+            found[at].pegged += change;
+        } else {
+            found[at].leveraged += change;
+        }
+        string memory phrase = _transferPhrase(history, index, sent, other);
+        if (bytes(phrase).length > 0) {
+            _addPhrase(found[at], phrase);
+        }
+        return count;
+    }
+
+    /// @dev What a party's side of transfer `index` says it did: nothing when the other side is the zero address, the
+    ///      minter, a pool or the genesis contract, whose own logs say it. A transfer from the manager is the bounty of
+    ///      the rebalance or the harvest in the same transaction.
+    function _transferPhrase(
+        History memory history,
+        uint256 index,
+        bool sent,
+        address other
+    ) internal view returns (string memory) {
+        if (
+            other == address(0) ||
+            other == market.minter ||
+            other == market.leveragedPool ||
+            other == market.collateralPool ||
+            other == history.genesis
+        ) {
+            return "";
+        }
+        LogCaptureLib.CapturedLog memory log = history.logs[index];
+        string memory amount = _amount(
+            abi.decode(log.data, (uint256)),
+            log.emitter == market.pegged ? history.peggedSymbol : history.leveragedSymbol
+        );
+        if (other == market.manager && !sent) {
+            if (_inTransaction(history, index, IStabilityPoolManager.Rebalanced.selector)) {
+                return string.concat("received ", amount, " from the manager, the bounty for its rebalance");
+            }
+            if (_inTransaction(history, index, IStabilityPoolManager.Harvested.selector)) {
+                return string.concat("received ", amount, " from the manager, the bounty for its harvest");
+            }
+            return string.concat("received ", amount, " from the manager");
+        }
+        return
+            sent
+                ? string.concat("sent ", amount, " to ", _label(history, other))
+                : string.concat("received ", amount, " from ", _label(history, other));
+    }
+
+    /// @dev Whether the transaction of log `index` also has a log of `kind` from the manager.
+    function _inTransaction(History memory history, uint256 index, bytes32 kind) internal view returns (bool) {
+        bytes32 transactionHash = history.logs[index].transactionHash;
+        for (uint256 i = 0; i < history.logs.length; ++i) {
+            if (
+                history.logs[i].transactionHash == transactionHash &&
+                history.logs[i].emitter == market.manager &&
+                history.logs[i].topics[0] == kind
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// @dev A minter log: a party's mint or redemption, with the wrapped collateral it paid or received. A redemption
+    ///      of pegged tokens by the manager is a rebalance, which `_marketEvents` shows.
+    function _decodeMinterLog(
+        History memory history,
+        LogCaptureLib.CapturedLog memory log,
+        HolderAction[] memory found,
+        uint256 count,
+        uint256 point
+    ) internal view returns (uint256) {
+        bytes32 kind = log.topics[0];
+        MinterAction memory minted;
+        minted.mint = kind == IMinter.MintPeggedToken.selector || kind == IMinter.MintLeveragedToken.selector;
+        minted.leveraged =
+            kind == IMinter.MintLeveragedToken.selector ||
+            kind == IMinter.RedeemLeveragedToken.selector;
+        if (!(minted.mint || minted.leveraged || kind == IMinter.RedeemPeggedToken.selector)) {
+            return count;
+        }
+        minted.sender = address(uint160(uint256(log.topics[1])));
+        minted.receiver = address(uint160(uint256(log.topics[2])));
+        if (kind == IMinter.RedeemPeggedToken.selector && minted.sender == market.manager) {
+            return count;
+        }
+        // Redeeming: the tokens in, then the collateral out. Minting: the collateral in, then the tokens out.
+        (minted.tokens, minted.wrapped) = abi.decode(log.data, (uint256, uint256));
+        if (minted.mint) {
+            (minted.tokens, minted.wrapped) = (minted.wrapped, minted.tokens);
+        }
+        uint256 at;
+        (at, count) = _actionOf(found, count, minted.sender, point, log.transactionHash);
+        if (at != NOT_A_PARTY) {
+            _addPhrase(
+                found[at],
+                string.concat(
+                    minted.mint ? "minted " : "redeemed ",
+                    _amount(minted.tokens, minted.leveraged ? history.leveragedSymbol : history.peggedSymbol),
+                    " for ",
+                    _amount(minted.wrapped, history.wrappedSymbol),
+                    _toOther(history, minted.sender, minted.receiver)
+                )
+            );
+            if (minted.mint) {
+                found[at].wrapped -= int256(minted.wrapped);
+            }
+            if (minted.leveraged) {
+                found[at].minterLeveraged += minted.tokens;
+                found[at].minterWrapped += minted.wrapped;
+            }
+        }
+        if (!minted.mint) {
+            (at, count) = _actionOf(found, count, minted.receiver, point, log.transactionHash);
+            if (at != NOT_A_PARTY) {
+                found[at].wrapped += int256(minted.wrapped);
+            }
+        }
+        return count;
+    }
+
+    /// @dev A pool log: a party's deposit, withdrawal, claim, early-withdrawal fee, withdrawal request or reward
+    ///      receiver. A claim of wrapped collateral pays it to the claim's receiver.
+    function _decodePoolLog(
+        History memory history,
+        LogCaptureLib.CapturedLog memory log,
+        HolderAction[] memory found,
+        uint256 count,
+        uint256 point
+    ) internal view returns (uint256) {
+        (address account, string memory phrase) = _poolPhrase(history, log);
+        if (bytes(phrase).length == 0) {
+            return count;
+        }
+        uint256 at;
+        (at, count) = _actionOf(found, count, account, point, log.transactionHash);
+        if (at != NOT_A_PARTY) {
+            _addPhrase(found[at], phrase);
+        }
+        if (
+            log.topics[0] == IClaimReward.Claim.selector &&
+            address(uint160(uint256(log.topics[2]))) == market.wrappedCollateral
+        ) {
+            (at, count) = _actionOf(found, count, address(uint160(uint256(log.topics[3]))), point, log.transactionHash);
+            if (at != NOT_A_PARTY) {
+                found[at].wrapped += int256(abi.decode(log.data, (uint256)));
+            }
+        }
+        return count;
+    }
+
+    /// @dev The party a pool log is about, and what the log says it did; no phrase for any other log.
+    function _poolPhrase(
+        History memory history,
+        LogCaptureLib.CapturedLog memory log
+    ) internal view returns (address account, string memory phrase) {
+        bytes32 kind = log.topics[0];
+        // Every log about a party's own act names it in its first topic after the event's.
+        if (log.topics.length < 2) {
+            return (address(0), "");
+        }
+        string memory pool = log.emitter == market.leveragedPool ? "the leveraged pool" : "the collateral pool";
+        address first = address(uint160(uint256(log.topics[1])));
+        // The party a deposit credits is its receiver; for every other log, its first indexed account.
+        account = first;
+        if (kind == IStabilityPool.Deposit.selector) {
+            address second = address(uint160(uint256(log.topics[2])));
+            account = second;
+            phrase = string.concat(
+                "deposited ",
+                _amount(abi.decode(log.data, (uint256)), history.peggedSymbol),
+                " in ",
+                pool,
+                first == second ? "" : string.concat(", paid by ", _label(history, first))
+            );
+        } else if (kind == IStabilityPool.Withdraw.selector) {
+            phrase = string.concat(
+                "withdrew ",
+                _amount(abi.decode(log.data, (uint256)), history.peggedSymbol),
+                " from ",
+                pool,
+                _toOther(history, first, address(uint160(uint256(log.topics[2]))))
+            );
+        } else if (kind == IClaimReward.Claim.selector) {
+            phrase = string.concat(
+                "claimed ",
+                _amount(abi.decode(log.data, (uint256)), _symbolOf(history, address(uint160(uint256(log.topics[2]))))),
+                " from ",
+                pool,
+                _toOther(history, first, address(uint160(uint256(log.topics[3]))))
+            );
+        } else if (kind == IStabilityPool.EarlyWithdrawalFee.selector) {
+            phrase = string.concat(
+                "paid ",
+                pool,
+                " an early-withdrawal fee of ",
+                _amount(abi.decode(log.data, (uint256)), history.peggedSymbol)
+            );
+        } else if (kind == IStabilityPool.WithdrawalRequested.selector) {
+            phrase = string.concat("requested a withdrawal from ", pool);
+        } else if (kind == IStabilityPool.WithdrawalRequestUpdated.selector) {
+            phrase = string.concat("renewed its withdrawal request to ", pool);
+        } else if (kind == IStabilityPool.WithdrawalRequestCancelled.selector) {
+            phrase = string.concat("had its withdrawal request to ", pool, " cancelled");
+        } else if (kind == IMultipleRewardAccumulator.UpdateRewardReceiver.selector) {
+            phrase = string.concat(
+                "set its reward receiver in ",
+                pool,
+                " to ",
+                _label(history, address(uint160(uint256(log.topics[3]))))
+            );
+        }
+    }
+
+    /// @dev The index in `found`, which holds `count` actions, of `account`'s action in `transactionHash`, added if there
+    ///      is none yet; `NOT_A_PARTY` if `account` is not a party. Returns the new count.
+    function _actionOf(
+        HolderAction[] memory found,
+        uint256 count,
+        address account,
+        uint256 point,
+        bytes32 transactionHash
+    ) internal view returns (uint256, uint256) {
+        uint256 party = _partyIndex(account);
+        if (party == NOT_A_PARTY) {
+            return (NOT_A_PARTY, count);
+        }
+        // A transaction's logs are consecutive, so its actions are the last ones added.
+        for (uint256 j = count; j > 0 && found[j - 1].transactionHash == transactionHash; --j) {
+            if (found[j - 1].party == party) {
+                return (j - 1, count);
+            }
+        }
+        found[count].party = party;
+        found[count].point = point;
+        found[count].transactionHash = transactionHash;
+        return (count, count + 1);
+    }
+
+    /// @dev Adds `phrase` to what `action` did, once.
+    function _addPhrase(HolderAction memory action, string memory phrase) internal pure {
+        if (bytes(action.what).length == 0) {
+            action.what = phrase;
+        } else if (!LibString.contains(action.what, phrase)) {
+            action.what = string.concat(action.what, "; ", phrase);
+        }
+    }
+
+    /// @dev ", to <receiver>" when the receiver of an action is not the account that acted.
+    function _toOther(History memory history, address account, address receiver) internal pure returns (string memory) {
+        return account == receiver ? "" : string.concat(", to ", _label(history, receiver));
+    }
+
+    /// @dev An account by its name in the state file, if it has one, otherwise by its address.
+    function _label(History memory history, address account) internal pure returns (string memory) {
+        if (account == address(0)) {
+            return "the zero address";
+        }
+        for (uint256 c = 0; c < history.contracts.length; ++c) {
+            if (history.contracts[c].proxy == account) {
+                return history.contracts[c].id;
+            }
+        }
+        return string.concat("`", LibString.toHexStringChecksummed(account), "`");
+    }
+
+    function _symbolOf(History memory history, address token) internal view returns (string memory) {
+        if (token == market.wrappedCollateral) {
+            return history.wrappedSymbol;
+        }
+        if (token == market.leveraged) {
+            return history.leveragedSymbol;
+        }
+        if (token == market.pegged) {
+            return history.peggedSymbol;
+        }
+        return _symbol(token);
+    }
+
+    function _amount(uint256 amount, string memory symbol) internal pure returns (string memory) {
+        return string.concat(_exact(amount), " ", symbol);
+    }
+
+    function _holdersHeader(History memory history) internal view returns (string memory text) {
+        Point memory before = history.points[0];
+        Point memory last = history.points[history.points.length - 1];
+        string memory exploitCapture = string.concat("holders-", vm.toString(before.blockNumber), "/");
+        string memory endCapture = string.concat("holders-", vm.toString(PAUSE_BLOCK), "/");
+        text = string.concat(
+            "# Holders of ",
+            history.name,
+            ", from the rebalance dilution exploit of 2026-10-16 to the pause\n\n",
+            "Generated by `script/verify/incidents/RebalanceDilutionReport.t.sol`; run ",
+            "`script/verify/incidents/run-rebalance-dilution-report` to regenerate. Do not edit by hand. ",
+            "The explanation is in [README.md](README.md).\n\n"
+        );
+        text = string.concat(
+            text,
+            string.concat(
+                "Every party is read on a fork: just before the exploit's transaction `",
+                vm.toString(exploitTransaction()),
+                "` (block ",
+                vm.toString(before.blockNumber),
+                ", ",
+                BaoTestLib.toUtcString(before.timestamp),
+                "), just after it, at the end of every later block in which the market's minter, pools, manager, ",
+                "pegged or leveraged token or genesis contract logged anything, and at the end of block "
+            ),
+            string.concat(
+                vm.toString(last.blockNumber),
+                ", the last before the minters and the pools were paused in block ",
+                vm.toString(PAUSE_BLOCK),
+                " (",
+                BaoTestLib.toUtcString(history.pausedAt),
+                "). What each party did in between comes from those logs, captured from Etherscan in [",
+                MARKET_LOG_CAPTURE,
+                "](",
+                MARKET_LOG_CAPTURE,
+                ") and, for the genesis contract, ["
+            ),
+            string.concat(GENESIS_LOG_CAPTURE, "](", GENESIS_LOG_CAPTURE, ").\n\n")
+        );
+        text = string.concat(
+            text,
+            string.concat(
+                "The parties are every account in the holder capture at the pause, [",
+                endCapture,
+                "](",
+                endCapture,
+                "), with the fee receivers, the reserve pool and the accounts the exploit paid. A party absent from the ",
+                "capture at the exploit's block, [",
+                exploitCapture,
+                "](",
+                exploitCapture,
+                "), is new since the exploit. "
+            ),
+            "The genesis contract holds the tokens of the genesis participants who have not claimed them: each such ",
+            "participant is a party with its own claim, and the genesis contract's own holdings are those claims ",
+            "together.\n\n"
+        );
+        text = string.concat(
+            text,
+            string.concat(
+                "Every amount and price is printed in full, to all 18 decimals; only the collateral ratio is rounded. ",
+                "Values are in ",
+                history.wrappedSymbol,
+                ", each at its own reading's prices, as in the figures file: an amount of a token times the minter's ",
+                "price for it, over the oracle's price for ",
+                history.wrappedSymbol,
+                ", floored to the wei. A party's holdings count the pegged and leveraged tokens in its wallet, its "
+            ),
+            string.concat(
+                "deposits and rewards in both pools and its genesis claim. They leave out the ",
+                history.wrappedSymbol,
+                " in its wallet, which also moves for reasons outside the market. The exploit's change counts it, as ",
+                "the figures file does. After the exploit, the ",
+                history.wrappedSymbol,
+                " a party paid or received in its own minting, redemptions and pool claims is shown with each of its ",
+                "actions.\n\n"
+            )
+        );
+    }
+
+    function _holdersMarketSection(History memory history) internal view returns (string memory table) {
+        string memory pegged = history.peggedSymbol;
+        string memory leveraged = history.leveragedSymbol;
+        string memory wrapped = history.wrappedSymbol;
+        table = string.concat(
+            "## The market, reading by reading\n\n| Reading | Time | 1 ",
+            string.concat(leveraged, " in ", wrapped, " | 1 ", leveraged, " in pegged units | 1 ", pegged, " in "),
+            string.concat(wrapped, " | ", pegged, " outstanding | ", leveraged, " outstanding | "),
+            "Collateral ratio | What the market's contracts logged, apart from holders' actions |\n",
+            "|---|---|---|---|---|---|---|---|---|\n"
+        );
+        for (uint256 k = 0; k < history.points.length; ++k) {
+            Point memory point = history.points[k];
+            string[] memory cells = new string[](9);
+            cells[0] = point.label;
+            cells[1] = BaoTestLib.toUtcString(point.timestamp);
+            cells[2] = _wrappedPer(point.reading.prices.leveraged, point.reading.prices);
+            cells[3] = _exact(point.reading.prices.leveraged);
+            cells[4] = _wrappedPer(point.reading.prices.pegged, point.reading.prices);
+            cells[5] = _exact(point.reading.peggedSupply);
+            cells[6] = _exact(point.reading.leveragedSupply);
+            cells[7] = _fixed(point.reading.collateralRatio, 4);
+            cells[8] = k == 1 ? "the exploit's transaction: see the figures file" : _marketEvents(history, k);
+            table = string.concat(table, _row(cells));
+        }
+        table = string.concat(table, "\n");
+    }
+
+    /// @dev What the manager logged between point `k - 1` and point `k` - its rebalances and harvests - and every
+    ///      upgrade of the market's contracts.
+    function _marketEvents(History memory history, uint256 k) internal pure returns (string memory events) {
+        if (k == 0) {
+            return "";
+        }
+        for (uint256 i = 0; i < history.logs.length; ++i) {
+            LogCaptureLib.CapturedLog memory log = history.logs[i];
+            if (_logKey(log) <= history.points[k - 1].logKey || _logKey(log) > history.points[k].logKey) {
+                continue;
+            }
+            string memory event_;
+            if (log.topics[0] == IStabilityPoolManager.Rebalanced.selector) {
+                (uint256 liquidated, uint256 wrapped, uint256 leveraged) = abi.decode(
+                    log.data,
+                    (uint256, uint256, uint256)
+                );
+                event_ = string.concat(
+                    string.concat("a rebalance took ", _amount(liquidated, history.peggedSymbol), " from the pools: "),
+                    _amount(wrapped, history.wrappedSymbol),
+                    " to the collateral pool and ",
+                    _amount(leveraged, history.leveragedSymbol),
+                    " to the leveraged pool, after the bounty"
+                );
+            } else if (log.topics[0] == IStabilityPoolManager.Harvested.selector) {
+                event_ = string.concat("a harvest of ", _amount(abi.decode(log.data, (uint256)), history.wrappedSymbol));
+            } else if (log.topics[0] == IERC1967.Upgraded.selector) {
+                event_ = string.concat(
+                    _label(history, log.emitter),
+                    " upgraded to `",
+                    LibString.toHexStringChecksummed(address(uint160(uint256(log.topics[1])))),
+                    "`"
+                );
+            } else {
+                continue;
+            }
+            events = bytes(events).length == 0 ? event_ : string.concat(events, "; ", event_);
+        }
+    }
+
+    /// @dev Party `party`'s holdings at point `k`, in wrapped collateral: every position but the wrapped collateral in
+    ///      its wallet, and its genesis claim.
+    function _holdingValue(History memory history, uint256 k, uint256 party) internal view returns (int256 value) {
+        Point memory point = history.points[k];
+        Prices memory prices = point.reading.prices;
+        uint256[8] memory amounts = _amounts(point.reading.parties[party]);
+        for (uint256 position = 1; position < 8; ++position) {
+            value += _positionWrappedValue(position, amounts[position], prices);
+        }
+        value += int256(Math.mulDiv(point.genesisPegged[party], prices.pegged, prices.wrapped));
+        value += int256(Math.mulDiv(point.genesisLeveraged[party], prices.leveraged, prices.wrapped));
+    }
+
+    /// @dev The exploit's change in party `party`'s holdings and in the wrapped collateral in its wallet.
+    function _exploitChange(History memory history, uint256 party) internal view returns (int256) {
+        return
+            _holdingValue(history, 1, party) -
+            _holdingValue(history, 0, party) +
+            int256(history.points[1].reading.parties[party].wrapped) -
+            int256(history.points[0].reading.parties[party].wrapped);
+    }
+
+    /// @dev Whether any of party `party`'s amounts, but the wrapped collateral in its wallet, differs between point
+    ///      `k - 1` and point `k`.
+    function _holdingChanged(History memory history, uint256 k, uint256 party) internal view returns (bool) {
+        uint256[8] memory before = _amounts(history.points[k - 1].reading.parties[party]);
+        uint256[8] memory afterwards = _amounts(history.points[k].reading.parties[party]);
+        for (uint256 position = 1; position < 8; ++position) {
+            if (before[position] != afterwards[position]) {
+                return true;
+            }
+        }
+        return
+            history.points[k - 1].genesisPegged[party] != history.points[k].genesisPegged[party] ||
+            history.points[k - 1].genesisLeveraged[party] != history.points[k].genesisLeveraged[party];
+    }
+
+    /// @dev Whether party `party` holds anything at any point, but the wrapped collateral in its wallet, or did
+    ///      anything after the exploit, or the exploit changed it.
+    function _followed(History memory history, uint256 party) internal view returns (bool) {
+        if (_exploitChange(history, party) != 0 || _actionCount(history, party) > 0) {
+            return true;
+        }
+        for (uint256 k = 0; k < history.points.length; ++k) {
+            if (_holdingValue(history, k, party) != 0 || (k > 0 && _holdingChanged(history, k, party))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function _actionCount(History memory history, uint256 party) internal pure returns (uint256 count) {
+        for (uint256 a = 0; a < history.actions.length; ++a) {
+            if (history.actions[a].party == party) {
+                ++count;
+            }
+        }
+    }
+
+    function _holdersSummarySection(History memory history) internal view returns (string memory table) {
+        string memory wrapped = history.wrappedSymbol;
+        table = string.concat(
+            "## Every holder\n\nIn ",
+            wrapped,
+            ". Holdings leave out the ",
+            wrapped,
+            " in a party's wallet; the exploit's change counts it. The last column is the ",
+            wrapped,
+            " a party paid (negative) or received in its own minting, redemptions and pool claims after the exploit.",
+            "\n\n| Holder | Role | New since the exploit | Holdings before the exploit | The exploit's change | ",
+            "Actions since | Holdings at the pause | Paid or received since |\n|---|---|---|---|---|---|---|---|\n"
+        );
+        uint256 last = history.points.length - 1;
+        uint256 leftOut;
+        for (uint256 i = 0; i < parties.length; ++i) {
+            if (!_followed(history, i)) {
+                ++leftOut;
+                continue;
+            }
+            int256 since;
+            for (uint256 a = 0; a < history.actions.length; ++a) {
+                if (history.actions[a].party == i) {
+                    since += history.actions[a].wrapped;
+                }
+            }
+            string[] memory cells = new string[](8);
+            cells[0] = string.concat("`", vm.toString(parties[i].account), "`");
+            cells[1] = parties[i].role;
+            cells[2] = i >= history.atTheExploit ? "new" : "";
+            cells[3] = _exact(uint256(_holdingValue(history, 0, i)));
+            cells[4] = _exactSigned(_exploitChange(history, i));
+            cells[5] = vm.toString(_actionCount(history, i));
+            cells[6] = _exact(uint256(_holdingValue(history, last, i)));
+            cells[7] = _exactSigned(since);
+            table = string.concat(table, _row(cells));
+        }
+        table = string.concat(
+            table,
+            "\n",
+            vm.toString(leftOut),
+            " other parties held nothing in this market at any reading, were not changed by the exploit and did ",
+            "nothing after it.\n\n"
+        );
+    }
+
+    function _holdersRewardsSection(History memory history) internal view returns (string memory table) {
+        string memory leveraged = history.leveragedSymbol;
+        table = string.concat(
+            "## The leveraged pool's ",
+            leveraged,
+            " rewards\n\nEach leveraged pool depositor's claimable ",
+            leveraged,
+            ": what the exploit's rebalance added; what it claimed after the exploit; what it could claim at the pause; ",
+            "and what the rebalances after the exploit added, which is the rest. A claim does not say which reward it ",
+            "takes.\n\n| Depositor | Added by the exploit | Claimed since | Claimable at the pause | Added since |\n",
+            "|---|---|---|---|---|\n"
+        );
+        Point memory before = history.points[0];
+        Point memory afterwards = history.points[1];
+        Point memory last = history.points[history.points.length - 1];
+        for (uint256 i = 0; i < parties.length; ++i) {
+            uint256 claimed = _claimedLeveraged(history, parties[i].account);
+            uint256 atThePause = last.reading.parties[i].leveragedPoolLeveraged;
+            uint256 afterTheExploit = afterwards.reading.parties[i].leveragedPoolLeveraged;
+            uint256 beforeTheExploit = before.reading.parties[i].leveragedPoolLeveraged;
+            if (claimed == 0 && atThePause == 0 && afterTheExploit == 0 && beforeTheExploit == 0) {
+                continue;
+            }
+            table = string.concat(
+                table,
+                _row5(
+                    _name(i),
+                    _exactSigned(int256(afterTheExploit) - int256(beforeTheExploit)),
+                    _exact(claimed),
+                    _exact(atThePause),
+                    _exactSigned(int256(atThePause) - int256(afterTheExploit) + int256(claimed))
+                )
+            );
+        }
+        table = string.concat(table, "\n");
+    }
+
+    /// @dev The leveraged tokens `account` claimed from the leveraged pool after the exploit.
+    function _claimedLeveraged(History memory history, address account) internal view returns (uint256 claimed) {
+        for (uint256 i = 0; i < history.logs.length; ++i) {
+            LogCaptureLib.CapturedLog memory log = history.logs[i];
+            if (
+                _logKey(log) > history.points[1].logKey &&
+                log.emitter == market.leveragedPool &&
+                log.topics[0] == IClaimReward.Claim.selector &&
+                address(uint160(uint256(log.topics[1]))) == account &&
+                address(uint160(uint256(log.topics[2]))) == market.leveraged
+            ) {
+                claimed += abi.decode(log.data, (uint256));
+            }
+        }
+    }
+
+    function _holderSections(History memory history) internal view returns (string memory text) {
+        text = string.concat(
+            "## Holder by holder\n\nEvery party the exploit changed, or that did anything after it, or whose holdings ",
+            "changed after it. Its holdings at each reading where they changed or it acted; then what it did, ",
+            "transaction by transaction, with the change in its wallet's tokens. A price is the ",
+            history.wrappedSymbol,
+            " paid or received per leveraged token in its own minting or redemption, the minter's fee taken.\n\n"
+        );
+        for (uint256 i = 0; i < parties.length; ++i) {
+            bool changedSince;
+            for (uint256 k = 2; k < history.points.length; ++k) {
+                changedSince = changedSince || _holdingChanged(history, k, i);
+            }
+            if (_exploitChange(history, i) != 0 || _actionCount(history, i) > 0 || changedSince) {
+                text = string.concat(text, _holdingsTable(history, i), _actionsTable(history, i));
+            }
+        }
+    }
+
+    /// @dev Party `party`'s holdings at the readings before and after the exploit, at each later one where they changed
+    ///      or it acted, and at the pause - in the columns it ever held anything in.
+    function _holdingsTable(History memory history, uint256 party) internal view returns (string memory table) {
+        string[10] memory titles = [
+            string.concat(history.wrappedSymbol, " in its wallet"),
+            string.concat(history.peggedSymbol, " in its wallet"),
+            string.concat(history.leveragedSymbol, " in its wallet"),
+            string.concat(history.peggedSymbol, " in the leveraged pool"),
+            string.concat(history.wrappedSymbol, " reward, leveraged pool"),
+            string.concat(history.leveragedSymbol, " reward, leveraged pool"),
+            string.concat(history.peggedSymbol, " in the collateral pool"),
+            string.concat(history.wrappedSymbol, " reward, collateral pool"),
+            string.concat(history.peggedSymbol, " genesis claim"),
+            string.concat(history.leveragedSymbol, " genesis claim")
+        ];
+        bool[10] memory shown;
+        uint256 columns = 4;
+        for (uint256 k = 0; k < history.points.length; ++k) {
+            uint256[10] memory amounts = _holdingAmounts(history, k, party);
+            for (uint256 c = 0; c < 10; ++c) {
+                if (!shown[c] && amounts[c] != 0 && (c != 0 || k < 2)) {
+                    shown[c] = true;
+                    ++columns;
+                }
+            }
+        }
+        string[] memory cells = new string[](columns);
+        cells[0] = "Reading";
+        cells[1] = "Time";
+        uint256 at = 2;
+        for (uint256 c = 0; c < 10; ++c) {
+            if (shown[c]) {
+                cells[at++] = titles[c];
+            }
+        }
+        cells[at++] = string.concat("Holdings, ", history.wrappedSymbol);
+        cells[at] = string.concat("1 ", history.leveragedSymbol, " in ", history.wrappedSymbol);
+        table = string.concat(
+            "### ",
+            _name(party),
+            party >= history.atTheExploit ? ", new since the exploit\n\n" : "\n\n",
+            _row(cells),
+            "|",
+            LibString.repeat("---|", columns),
+            "\n"
+        );
+        for (uint256 k = 0; k < history.points.length; ++k) {
+            if (k >= 2 && k < history.points.length - 1 && !_holdingChanged(history, k, party) && !_actedAt(history, party, k)) {
+                continue;
+            }
+            uint256[10] memory amounts = _holdingAmounts(history, k, party);
+            cells[0] = history.points[k].label;
+            cells[1] = BaoTestLib.toUtcString(history.points[k].timestamp);
+            at = 2;
+            for (uint256 c = 0; c < 10; ++c) {
+                if (shown[c]) {
+                    cells[at++] = c == 0 && k >= 2 ? "-" : _exact(amounts[c]);
+                }
+            }
+            cells[at++] = _exact(uint256(_holdingValue(history, k, party)));
+            cells[at] = _wrappedPer(history.points[k].reading.prices.leveraged, history.points[k].reading.prices);
+            table = string.concat(table, _row(cells));
+        }
+        table = string.concat(table, "\n");
+    }
+
+    /// @dev Party `party`'s amounts at point `k`: its eight positions, then its genesis claims.
+    function _holdingAmounts(
+        History memory history,
+        uint256 k,
+        uint256 party
+    ) internal pure returns (uint256[10] memory amounts) {
+        uint256[8] memory positions = _amounts(history.points[k].reading.parties[party]);
+        for (uint256 position = 0; position < 8; ++position) {
+            amounts[position] = positions[position];
+        }
+        amounts[8] = history.points[k].genesisPegged[party];
+        amounts[9] = history.points[k].genesisLeveraged[party];
+    }
+
+    function _actedAt(History memory history, uint256 party, uint256 k) internal pure returns (bool) {
+        for (uint256 a = 0; a < history.actions.length; ++a) {
+            if (history.actions[a].party == party && history.actions[a].point == k) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// @dev What party `party` did after the exploit, transaction by transaction.
+    function _actionsTable(History memory history, uint256 party) internal view returns (string memory table) {
+        if (_actionCount(history, party) == 0) {
+            return "Nothing after the exploit.\n\n";
+        }
+        string memory leveraged = history.leveragedSymbol;
+        string memory wrapped = history.wrappedSymbol;
+        table = string.concat(
+            string.concat("| Block | Time | Transaction | What it did | ", history.peggedSymbol, " | "),
+            string.concat(leveraged, " | ", wrapped, " | Price of 1 ", leveraged, ", ", wrapped, " | Price of 1 "),
+            string.concat(leveraged, ", pegged units | The minter's price of 1 ", leveraged, ", pegged units |\n"),
+            "|---|---|---|---|---|---|---|---|---|---|\n"
+        );
+        for (uint256 a = 0; a < history.actions.length; ++a) {
+            HolderAction memory action = history.actions[a];
+            if (action.party != party) {
+                continue;
+            }
+            Point memory point = history.points[action.point];
+            string[] memory cells = new string[](10);
+            cells[0] = vm.toString(point.blockNumber);
+            cells[1] = BaoTestLib.toUtcString(point.timestamp);
+            cells[2] = string.concat("`", vm.toString(action.transactionHash), "`");
+            cells[3] = action.what;
+            cells[4] = action.pegged == 0 ? "" : _exactSigned(action.pegged);
+            cells[5] = action.leveraged == 0 ? "" : _exactSigned(action.leveraged);
+            cells[6] = action.wrapped == 0 ? "" : _exactSigned(action.wrapped);
+            if (action.minterLeveraged > 0) {
+                cells[7] = _exact(Math.mulDiv(action.minterWrapped, 1 ether, action.minterLeveraged));
+                cells[8] = _exact(Math.mulDiv(action.minterWrapped, point.reading.prices.wrapped, action.minterLeveraged));
+                cells[9] = _exact(point.reading.prices.leveraged);
+            }
+            table = string.concat(table, _row(cells));
+        }
+        table = string.concat(table, "\n");
     }
 
     // ---------------------------------------------------------------------------------------------------------------

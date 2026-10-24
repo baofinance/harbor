@@ -1,4 +1,0 @@
-# Holders: MCAP::fxUSD::leveraged
-# address: 0x410cA79c92665E7f502Cbc59e4f6edfCb97F5ddd
-# to-block: 26254283
-# source: Transfer recipients (Etherscan), blocks 24049000-26254283

@@ -2,15 +2,17 @@
 
 Two markets were exploited the same way on 2026-10-16, 124 blocks apart, by different senders:
 
-| Market | Figures | Every account's change, in wei | With the new contracts | Each account's correction, in wei |
+| Market | Figures | Every account's change, in wei | With the new contracts | Every holder, from the exploit to the pause |
 |---|---|---|---|---|
-| BTC::stETH | [BTC-stETH-figures.md](BTC-stETH-figures.md) | [BTC-stETH-accounts.csv](BTC-stETH-accounts.csv) | [BTC-stETH-new-contracts.md](BTC-stETH-new-contracts.md) | [BTC-stETH-corrections.csv](BTC-stETH-corrections.csv) |
-| EUR::stETH | [EUR-stETH-figures.md](EUR-stETH-figures.md) | [EUR-stETH-accounts.csv](EUR-stETH-accounts.csv) | [EUR-stETH-new-contracts.md](EUR-stETH-new-contracts.md) | [EUR-stETH-corrections.csv](EUR-stETH-corrections.csv) |
+| BTC::stETH | [BTC-stETH-figures.md](BTC-stETH-figures.md) | [BTC-stETH-accounts.csv](BTC-stETH-accounts.csv) | [BTC-stETH-new-contracts.md](BTC-stETH-new-contracts.md) | [BTC-stETH-holders.md](BTC-stETH-holders.md) |
+| EUR::stETH | [EUR-stETH-figures.md](EUR-stETH-figures.md) | [EUR-stETH-accounts.csv](EUR-stETH-accounts.csv) | [EUR-stETH-new-contracts.md](EUR-stETH-new-contracts.md) | [EUR-stETH-holders.md](EUR-stETH-holders.md) |
 
 Every figure is in those files. They are generated from the chain by
-`script/verify/incidents/run-rebalance-dilution-report`, which checks a market's files before writing them, from the
-holder captures at each exploit's block (`holders-<block>/`, written by `script/holders/capture-holders`). This page
-explains the figures and carries none of its own.
+`script/verify/incidents/run-rebalance-dilution-report`, which checks a market's files before writing them. It reads
+the holder captures at each exploit's block and at the pause (`holders-<block>/`, written by
+`script/holders/capture-holders`), and the logs of each market's contracts from the exploits to the pause
+(`logs-<from block>-<to block>/`, written by `script/holders/capture-logs`). This page explains the figures and carries
+none of its own.
 
 ## Summary
 
@@ -105,7 +107,7 @@ How the values are worked out:
   end of the previous block shows them slightly lower, by what streamed in the 12 seconds between, which the
   transaction did not cause. Undoing the whole transaction, rather than only its overpayment, is what the new
   contracts would have done: replayed on the market upgraded to them, the transaction changes nothing (each
-  new-contracts file). Each corrections file is that undoing, row by row: the reverse of the accounts file.
+  new-contracts file). That undoing is, row by row, the reverse of the accounts file.
 - **Each position is valued in wrapped collateral at its own end's prices.**
   - A wrapped-collateral position counts its own amount, so its value change equals its token change exactly.
   - Any other position counts its amount times the minter's price for its token, over the oracle's price for the
@@ -121,6 +123,22 @@ Each figures file also reconciles its caller's gain flow by flow, against what t
 - the rebalance bounty;
 - the dilution of the leveraged tokens it still held at the rebalance;
 - the fees it paid.
+
+### From the exploit to the pause
+
+Each holders file follows every holder of its market from just before the exploit to the block in which the minters
+and the pools were paused:
+- **Readings.** Every party is read just before the exploit's transaction, just after it, at the end of every later
+  block in which the market's contracts logged anything, and at the end of the block before the pause.
+- **Actions.** What each party did in between is decoded from the captured logs: minting, redemptions, deposits,
+  withdrawals, claims, transfers and rebalance bounties, with the price of each minting or redemption of leveraged
+  tokens.
+- **Genesis participants.** The genesis contract holds the tokens of the participants who have not claimed them. Each
+  such participant is followed for its own claim.
+- **Values.** As in the figures files, except that after the exploit the wrapped collateral in a wallet is left out:
+  it also moves for reasons outside the market.
+- **Checks.** At every reading the parties hold the pegged and leveraged supplies. Between readings, every wallet's
+  token change is the net of its captured transfers. At the pause block, the minter and both pools are paused.
 
 ## Mitigations
 
@@ -205,7 +223,8 @@ at its exploit's block:
 3. **Bring the Minter_v3 deployment forward.** Upgrade the minter, the manager and both pools together, with
    `script/Upgrade_MarketsToV3_mainnet.s.sol`. This is the fix for the cause.
 4. **Do not rely on a larger early-withdrawal fee.** An attacker who prepares one withdrawal delay ahead avoids it.
-5. **Decide on compensation** for the accounts listed in the two accounts files.
+5. **Decide on compensation** for the accounts listed in the two accounts files, each followed to the pause in its
+   holders file.
 
 ## Reproducing
 

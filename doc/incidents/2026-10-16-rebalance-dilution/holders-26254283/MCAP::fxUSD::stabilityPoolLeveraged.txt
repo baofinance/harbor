@@ -1,4 +1,0 @@
-# Holders: MCAP::fxUSD::stabilityPoolLeveraged
-# address: 0x8CF0C5F1394E137389D6dbfE91c56D00dEcdDAD8
-# to-block: 26254283
-# source: UserDepositChange owners (Etherscan), blocks 24049000-26254283

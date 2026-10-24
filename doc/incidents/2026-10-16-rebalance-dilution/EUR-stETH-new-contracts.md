@@ -72,7 +72,7 @@ In wstETH. Parties whose holdings did not change are left out.
 
 ## The exploit's transaction on the upgraded market
 
-Replayed on the upgraded market, the transaction leaves every holding, price and supply exactly as it found them. On the new contracts the exploit changes nothing, so each account's correction takes it back to what it held just before the exploit - the reverse of its change in [EUR-stETH-accounts.csv](EUR-stETH-accounts.csv) - and is written, in wei, to [EUR-stETH-corrections.csv](EUR-stETH-corrections.csv).
+Replayed on the upgraded market, the transaction leaves every holding, price and supply exactly as it found them. On the new contracts the exploit changes nothing, so each account's correction takes it back to what it held just before the exploit: the reverse of its change in [EUR-stETH-accounts.csv](EUR-stETH-accounts.csv).
 
 ## The upgrade
 
