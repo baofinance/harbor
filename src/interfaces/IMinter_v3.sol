@@ -585,7 +585,7 @@ interface IMinter_v3 is IToken {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Give wrapped collateral to the protocol as backing, raising the collateral ratio.
-    /// @dev For the owner, the zero-fee role and the donor role. The caller supplies the collateral in the same call
+    /// @dev For the owner and the donor role. The caller supplies the collateral in the same call
     /// and receives nothing, but giving is still a power: it moves the collateral ratio, and with it every rule
     /// judged on that ratio - a market with no collateral and no pegged reads a ratio of one, where it is closed to
     /// retail mints, and a single wei given would lift that to infinity. A donation cannot reach collateral already

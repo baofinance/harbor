@@ -11,7 +11,6 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
@@ -23,18 +22,10 @@ contract MinterSlashTest is TestMinterSetUp {
         setUp_config_likely();
     }
 
-    /// An address holding the donor role, and no other.
-    function _donor() private returns (address donor) {
-        donor = makeAddr("donor");
-        vm.startPrank(owner());
-        IBaoRoles(minter).grantRoles(donor, IMinter_v3(minter).DONOR_ROLE());
-        vm.stopPrank();
-    }
-
-    /// `donor` donates `wrappedAmount`, funded and approved for exactly that.
-    function _donate(address donor, uint256 wrappedAmount) private {
-        deal(wrappedCollateralToken, donor, wrappedAmount);
-        vm.startPrank(donor);
+    /// `account` donates `wrappedAmount`, funded and approved for exactly that.
+    function _donate(address account, uint256 wrappedAmount) private {
+        deal(wrappedCollateralToken, account, wrappedAmount);
+        vm.startPrank(account);
         IERC20(wrappedCollateralToken).approve(minter, wrappedAmount);
         IMinter_v3(minter).donateWrappedCollateral(wrappedAmount);
         vm.stopPrank();
@@ -106,7 +97,7 @@ contract MinterSlashTest is TestMinterSetUp {
 
         // the shortfall is 14 collateral tokens; at the reduced rate that is 14/0.9 wrapped
         uint256 makeGood = (14 ether * 1 ether) / fallenRate;
-        _donate(_donor(), makeGood);
+        _donate(donor, makeGood);
 
         // 14/0.9 wrapped is floored, to 15.555...555, and its value at 0.9 floored again, to 14 less a wei: the record
         // ends a wei short of 140, which puts the ratio, 1.4 at a record of 140, a wei short of 1.4.
@@ -125,7 +116,6 @@ contract MinterSlashTest is TestMinterSetUp {
         uint256 minRate = (rate * 105) / 100;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, price, minRate, (rate * 115) / 100);
 
-        address donor = _donor();
         // at 1.05 the 7 wei are worth 7.35 collateral wei, so a credit rounded up would be a wei more
         uint256 donation = 10 ether + 7;
         deal(wrappedCollateralToken, donor, donation);
@@ -192,7 +182,7 @@ contract MinterSlashTest is TestMinterSetUp {
         uint256 surplus = IMinter_v3(minter).harvestable();
         assertGt(surplus, 0, "a surplus must exist for this to test anything");
 
-        _donate(_donor(), 1 ether);
+        _donate(donor, 1 ether);
 
         uint256 harvestableAfter = IMinter_v3(minter).harvestable();
         assertGe(harvestableAfter, surplus, "the pools' surplus survives a donation untouched");
@@ -217,32 +207,35 @@ contract MinterSlashTest is TestMinterSetUp {
         uint256 shortfall = recordedBefore - heldBefore;
         assertGt(shortfall, 0, "the market must be halted for this to test anything");
 
-        _donate(_donor(), bound(donation, 1, 1e9 ether));
+        _donate(donor, bound(donation, 1, 1e9 ether));
 
         (uint256 recordedAfter, uint256 heldAfter) = IMinter_v3(minter).impairment();
         assertLe(recordedAfter, heldAfter + shortfall, "a donation never widens the shortfall");
         assertGe(recordedAfter + 1, heldAfter + shortfall, "and narrows it by at most a wei");
     }
 
-    /// Donating is for the owner, the zero-fee role and the donor role. Anyone else reverts, so no stranger can move a
-    /// market's collateral ratio - or lift an empty minter's from one, where it is closed to retail, to infinity.
-    function test_donateWrappedCollateral_withoutARole_reverts() public {
+    /// Donating is for the owner and the donor role. Anyone else reverts - a holder of the zero-fee role among them,
+    /// since fee-free minting and redeeming is a different power - so nobody else can move a market's collateral
+    /// ratio, or lift an empty minter's from one, where it is closed to retail, to infinity.
+    function test_donateWrappedCollateral_withoutTheDonorRole_reverts() public {
         setUp_collateral(100 ether, 40 ether);
 
-        address anyone = makeAddr("anyone");
-        deal(wrappedCollateralToken, anyone, 1 ether);
-        vm.startPrank(anyone);
-        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
-        IMinter_v3(minter).donateWrappedCollateral(1 ether);
-        vm.stopPrank();
+        address[2] memory refused = [makeAddr("anyone"), zeroFee];
+        for (uint256 i = 0; i < refused.length; i++) {
+            deal(wrappedCollateralToken, refused[i], 1 ether);
+            vm.startPrank(refused[i]);
+            IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+            vm.expectRevert(IHarborOwnable.Unauthorized.selector);
+            IMinter_v3(minter).donateWrappedCollateral(1 ether);
+            vm.stopPrank();
+        }
     }
 
-    /// The owner, the zero-fee role and the donor role each donate, and each donation is taken as backing.
-    function test_donateWrappedCollateral_asOwnerZeroFeeOrDonor_isServed() public {
+    /// The owner and the donor role each donate, and each donation is taken as backing.
+    function test_donateWrappedCollateral_asOwnerOrDonor_isServed() public {
         setUp_collateral(100 ether, 40 ether);
 
-        address[3] memory donors = [owner(), zeroFee, _donor()];
+        address[2] memory donors = [owner(), donor];
         for (uint256 i = 0; i < donors.length; i++) {
             uint256 backingBefore = IMinter(minter).collateralTokenBalance();
             _donate(donors[i], 1 ether);
@@ -254,7 +247,7 @@ contract MinterSlashTest is TestMinterSetUp {
     function test_donateWrappedCollateral_revertsOnZero() public {
         setUp_collateral(100 ether, 40 ether);
 
-        vm.startPrank(zeroFee);
+        vm.startPrank(donor);
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, wrappedCollateralToken));
         IMinter_v3(minter).donateWrappedCollateral(0);
         vm.stopPrank();

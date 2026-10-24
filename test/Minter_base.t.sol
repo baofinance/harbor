@@ -92,6 +92,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
 
     address feeReceiver;
     address zeroFee;
+    address donor;
 
     /// @dev The market this suite deploys: a production configuration with only the incentive config made
     ///      settable, so each test's choice reaches the minter by the deploy's own path.
@@ -390,8 +391,10 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
         zeroFee = makeAddr("zeroFee");
+        donor = makeAddr("donor");
         vm.startPrank(owner());
         IBaoRoles(minter).grantRoles(zeroFee, zeroFeeRole);
+        IBaoRoles(minter).grantRoles(donor, IMinter_v3(minter).DONOR_ROLE());
         // The suite mints pegged tokens directly to set up positions. The deploy grants MINTER only to the
         // minter, which is correct for production, so the test's own minting rights are granted here.
         IBaoRoles(peggedToken).grantRoles(owner(), IMintableRole(peggedToken).MINTER_ROLE());
@@ -477,8 +480,9 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
 
     /// @dev Every entry point that reads the price oracle - the market's measures and incentive ratios, the mints,
     ///      redemptions and their dry runs, the zero-fee routes, and the reads of the backing and the harvest - called
-    ///      by `retail` on the retail routes, by the zero-fee holder on the zero-fee ones and by the owner to recognise
-    ///      an impairment, with `mintAmount` of wrapped and `redeemAmount` of pegged or leveraged, sized to a suite's
+    ///      by `retail` on the retail routes, by the zero-fee holder on the zero-fee ones, by the donor to donate and
+    ///      by the owner to recognise an impairment, with `mintAmount` of wrapped and `redeemAmount` of pegged or
+    ///      leveraged, sized to a suite's
     ///      market. The dry runs appear with an amount and with zero, because a dry run that uses nothing falls back to
     ///      the incentive-ratio lookup; the zero-fee pegged redemption and its dry run with each leg alone and both.
     function _oracleReadingEntryPoints(
@@ -645,7 +649,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
         );
         points[35] = EntryPoint(
             "donateWrappedCollateral",
-            zeroFee,
+            donor,
             abi.encodeCall(IMinter_v3.donateWrappedCollateral, (mintAmount))
         );
         points[36] = EntryPoint("recogniseImpairment", owner(), abi.encodeCall(IMinter_v3.recogniseImpairment, ()));

@@ -117,7 +117,7 @@ contract Minter_v3 is
     /// @notice The role that allows access to the sweep function.
     uint256 public constant HARVESTER_ROLE = _ROLE_1;
 
-    /// @notice The role that, with the owner and the zero-fee role, may donate wrapped collateral as backing.
+    /// @notice The role that, with the owner, may donate wrapped collateral as backing.
     uint256 public constant DONOR_ROLE = _ROLE_2;
 
     ////////////////
@@ -746,7 +746,7 @@ contract Minter_v3 is
     /// @inheritdoc IMinter_v3
     function donateWrappedCollateral(
         uint256 wrappedAmount
-    ) external onlyOwnerOrRoles(ZERO_FEE_ROLE | DONOR_ROLE) nonReentrant {
+    ) external onlyOwnerOrRoles(DONOR_ROLE) nonReentrant {
         if (wrappedAmount == 0) {
             revert ZeroInputBalance(WRAPPED_COLLATERAL_TOKEN);
         }

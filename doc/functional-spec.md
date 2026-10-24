@@ -564,8 +564,8 @@ There are three routes, and the choice decides who benefits:
 - wrapped collateral **sent to the Minter** by plain transfer becomes harvestable yield for
   stability-pool depositors — anyone can send it;
 - wrapped collateral **donated** through the Minter's donation call is credited to the backing, which
-  raises the collateral ratio and the sail price — only the owner and holders of the donor or
-  zero-fee role can make it.
+  raises the collateral ratio and the sail price — only the owner and holders of the donor role can
+  make it.
 
 None is an investment and none is recoverable (§4.8).
 
@@ -1017,10 +1017,10 @@ Acceptance criteria:
 > the collateral ratio and the sail price recover.*
 
 Acceptance criteria:
-1. A call by the owner, the zero-fee role or the donor role takes a **stated amount** of wrapped
-   collateral and credits it to the recorded backing, atomically with the transfer. Anyone else
-   reverts: a contribution moves the collateral ratio — an empty market's from one, where it is
-   closed to retail, to infinity — so it is not open to strangers.
+1. A call by the owner or the donor role takes a **stated amount** of wrapped collateral and
+   credits it to the recorded backing, atomically with the transfer. Anyone else reverts, the
+   zero-fee role included: a contribution moves the collateral ratio — an empty market's from one,
+   where it is closed to retail, to infinity — so it is a power of its own.
 2. The collateral ratio rises and the sail price rises with it; anchor coverage improves.
 3. `harvestable` is **unchanged**. Only the amount supplied in the same call is credited, so a
    contribution can never absorb surplus that was already there and owed to depositors.
@@ -1044,9 +1044,9 @@ Each flow states its trigger, its preconditions, the sequence, and its outcome.
 **Trigger:** market launch. **Precondition:** the market has no collateral and no tokens minted.
 
 A new market cannot mint on demand. With no collateral and no anchor its collateral ratio reads
-exactly one, below the leverage floor, where every retail mint reverts (§5.4), and only the owner,
-the zero-fee role and the donor role can add collateral to it. Genesis opens it by pooling collateral
-first and minting once, through the zero-fee mints.
+exactly one, below the leverage floor, where every retail mint reverts (§5.4), and only the owner
+and the donor role can give collateral to it. Genesis, which holds the zero-fee role, opens it by
+pooling collateral first and minting once, through the zero-fee mints.
 
 ```mermaid
 sequenceDiagram

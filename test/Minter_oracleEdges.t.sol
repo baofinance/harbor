@@ -61,7 +61,8 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
     }
 
     /// @dev A market at a collateral ratio of 1.4 - 100 wrapped behind the pegged and 40 behind the leveraged, at the
-    ///      mock's price of 2000 and rate of 1 - with `zeroFee` holding every token and the Minter approved for all.
+    ///      mock's price of 2000 and rate of 1 - with `zeroFee` holding every token and the Minter approved for all, and
+    ///      the donor holding wrapped collateral, approved.
     function setUp() public override {
         super.setUp();
         setUp_collateral(100 ether, 40 ether);
@@ -70,6 +71,10 @@ contract MinterOracleEdgesTest is TestMinterSetUp {
         IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+        deal(wrappedCollateralToken, donor, 1_000 ether);
+        vm.startPrank(donor);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         vm.stopPrank();
     }
 

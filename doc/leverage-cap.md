@@ -102,8 +102,8 @@ one that would cross the floor is cut where the ratio reaches it, the rest of th
 The fee-capped mint reports nothing taken instead of reverting. The zero-fee anchor mint is not judged.
 
 A market with no collateral and no anchor reads a ratio of exactly one, so no retail mint can open it: that is a
-genesis's job. `donateWrappedCollateral` is for the owner, the zero-fee role and the donor role only, because a
-donation moves the ratio - an empty market's from one to infinity.
+genesis's job. `donateWrappedCollateral` is for the owner and the donor role only, because a donation moves the
+ratio - an empty market's from one to infinity.
 
 Minting reopens by itself once the ratio is back above the floor: through a price rise, through anchor
 redemptions, or through a rebalance, whose first step stops exactly at the floor.

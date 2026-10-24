@@ -921,8 +921,8 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
         uint256 ratioBefore = IMinter(minter).collateralRatio();
 
-        deal(wrappedCollateralToken, zeroFee, 50 ether);
-        vm.startPrank(zeroFee);
+        deal(wrappedCollateralToken, donor, 50 ether);
+        vm.startPrank(donor);
         IERC20(wrappedCollateralToken).approve(minter, 50 ether);
         IMinter_v3(minter).donateWrappedCollateral(50 ether);
         vm.stopPrank();

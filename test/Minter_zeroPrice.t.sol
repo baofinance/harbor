@@ -26,7 +26,8 @@ contract TestMinterZeroPrice is TestMinterSetUp {
     }
 
     /// @dev A market holding 13 collateral against 10 pegged, at a rate of one, then priced at zero: each pegged token
-    ///      is a claim on 1.3 collateral. Both the user and the zero-fee holder hold pegged and leveraged tokens.
+    ///      is a claim on 1.3 collateral. Both the user and the zero-fee holder hold pegged and leveraged tokens; the
+    ///      donor holds wrapped collateral.
     function setUp() public virtual override {
         super.setUp();
         user = makeAddr("user");
@@ -34,8 +35,9 @@ contract TestMinterZeroPrice is TestMinterSetUp {
         setUp_collateral(5 ether, 1.5 ether, user);
         setUp_collateral(5 ether, 1.5 ether, zeroFee);
         deal(wrappedCollateralToken, user, 10 ether);
+        deal(wrappedCollateralToken, donor, 10 ether);
         deal(wrappedCollateralToken, reservePool, 10 ether);
-        address[2] memory actors = [user, zeroFee];
+        address[3] memory actors = [user, zeroFee, donor];
         for (uint256 i = 0; i < actors.length; i++) {
             vm.startPrank(actors[i]);
             IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);

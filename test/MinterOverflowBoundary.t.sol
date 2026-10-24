@@ -100,7 +100,7 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         vm.startPrank(owner());
-        IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
+        IHarborRoles(minter).grantRoles(address(this), zeroFeeRole | IMinter_v3(minter).DONOR_ROLE());
         vm.stopPrank();
     }
 
@@ -175,8 +175,8 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
         }
     }
 
-    /// @dev Give the market backing until it reports `targetRatio`, taking nothing in return. Permissionless
-    ///      and, unlike a leveraged mint, possible at any collateral ratio: leveraged is a claim on the residual, so
+    /// @dev Give the market backing until it reports `targetRatio`, taking nothing in return, as the donor role. Unlike
+    ///      a leveraged mint it is possible at any collateral ratio: leveraged is a claim on the residual, so
     ///      a market with none to sell cannot mint any, which is exactly the market that needs raising.
     ///
     ///      The wrapped-to-underlying rate is held at one throughout, so the wrapped collateral this gives
