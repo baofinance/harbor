@@ -12,7 +12,8 @@ Every figure is in those files. They are generated from the chain by
 the holder captures at each exploit's block and at the pause (`holders-<block>/`, written by
 `script/holders/capture-holders`), and the logs of each market's contracts from the exploits to the pause
 (`logs-<from block>-<to block>/`, written by `script/holders/capture-logs`). This page explains the figures and carries
-none of its own.
+none of its own. [holder-stories.md](holder-stories.md), written by hand from the holders files, tells each holder's
+story, with rounded figures and a proposed treatment for each.
 
 ## Summary
 

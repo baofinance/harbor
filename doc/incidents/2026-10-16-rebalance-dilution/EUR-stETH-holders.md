@@ -48,7 +48,7 @@ In wstETH. Holdings leave out the wstETH in a party's wallet; the exploit's chan
 | `0x00E2E97EbD3d7A67910C7F487EE7532b274FF8FE` |  | new | 0.000000000000000000 | +0.000000000000000000 | 1 | 0.000373947817817022 | +0.000000000000000000 |
 | `0x682eA8AA9B23250e0e240580E8Ae55205f612979` |  | new | 0.000000000000000000 | +0.000000000000000000 | 2 | 0.000221766846696834 | +0.000000000000000000 |
 | `0xBb13d96f722a2328420663eA845E0ef1eb3295A0` |  | new | 0.000000000000000000 | +0.000000000000000000 | 1 | 0.000149473174803367 | +0.000000000000000000 |
-| `0x2f75E925C38f83785A7D0630f65Aed8C65C1454f` | genesis participant, unclaimed | new | 0.000675958178450333 | -0.000285482519594090 | 0 | 0.000393805651125794 | +0.000000000000000000 |
+| `0x2f75E925C38f83785A7D0630f65Aed8C65C1454f` | genesis participant, unclaimed |  | 0.000675958178450333 | -0.000285482519594090 | 0 | 0.000393805651125794 | +0.000000000000000000 |
 
 14 other parties held nothing in this market at any reading, were not changed by the exploit and did nothing after it.
 
@@ -219,7 +219,7 @@ Nothing after the exploit.
 |---|---|---|---|---|---|---|---|---|---|
 | 26205996 | 2026-10-16 15:28:35 UTC | `0xf4f0a25b66281c67dfd394a61fe65ec331238c04d5c356014d79c37016ec12a2` | received 6.919397976077321482 hsSTETH-EUR from the manager, the bounty for its rebalance |  | +6.919397976077321482 |  |  |  |  |
 
-### `0x2f75E925C38f83785A7D0630f65Aed8C65C1454f` (genesis participant, unclaimed), new since the exploit
+### `0x2f75E925C38f83785A7D0630f65Aed8C65C1454f` (genesis participant, unclaimed)
 
 | Reading | Time | wstETH in its wallet | haEUR genesis claim | hsSTETH-EUR genesis claim | Holdings, wstETH | 1 hsSTETH-EUR in wstETH |
 |---|---|---|---|---|---|---|

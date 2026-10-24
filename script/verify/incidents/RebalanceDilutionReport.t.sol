@@ -232,8 +232,10 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         string peggedSymbol;
         string leveragedSymbol;
         string wrappedSymbol;
-        /// @dev The parties found at the exploit's block; any added after them are new since.
+        /// @dev The parties found at the exploit's block, and those found by then and in the capture at the pause: the
+        ///      ones in between are new since the exploit. The genesis participants come after both.
         uint256 atTheExploit;
+        uint256 atThePause;
         address genesis;
         /// @dev Every account ever given a genesis share.
         uint256 genesisParticipants;
@@ -2149,6 +2151,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         string memory endCapture = string.concat(DIRECTORY, "holders-", vm.toString(PAUSE_BLOCK), "/");
         assertEq(HolderCaptureLib.captureBlock(endCapture), PAUSE_BLOCK, "the holder capture is at the pause");
         _addCapturedHolders(endCapture);
+        history.atThePause = parties.length;
 
         string memory genesisCapture = string.concat(DIRECTORY, GENESIS_LOG_CAPTURE);
         (, uint256 genesisCaptureEnd) = LogCaptureLib.captureRange(genesisCapture);
@@ -3051,6 +3054,12 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         return false;
     }
 
+    /// @dev Whether party `party` is a holder the capture at the pause lists and the capture at the exploit's block does
+    ///      not.
+    function _isNew(History memory history, uint256 party) internal pure returns (bool) {
+        return party >= history.atTheExploit && party < history.atThePause;
+    }
+
     function _actionCount(History memory history, uint256 party) internal pure returns (uint256 count) {
         for (uint256 a = 0; a < history.actions.length; ++a) {
             if (history.actions[a].party == party) {
@@ -3088,7 +3097,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             string[] memory cells = new string[](8);
             cells[0] = string.concat("`", vm.toString(parties[i].account), "`");
             cells[1] = parties[i].role;
-            cells[2] = i >= history.atTheExploit ? "new" : "";
+            cells[2] = _isNew(history, i) ? "new" : "";
             cells[3] = _exact(uint256(_holdingValue(history, 0, i)));
             cells[4] = _exactSigned(_exploitChange(history, i));
             cells[5] = vm.toString(_actionCount(history, i));
@@ -3217,7 +3226,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         table = string.concat(
             "### ",
             _name(party),
-            party >= history.atTheExploit ? ", new since the exploit\n\n" : "\n\n",
+            _isNew(history, party) ? ", new since the exploit\n\n" : "\n\n",
             _row(cells),
             "|",
             LibString.repeat("---|", columns),
