@@ -165,12 +165,14 @@ contract HarborDeployRun is HarborDeployStack {
     ///      nothing to persist does.
     function deployRepayment(
         address token,
+        string memory name_,
+        string memory symbol_,
         address[] memory accounts,
         uint256[] memory debts
     ) public returns (address repayment) {
         DeploymentTypes.State memory state = DeploymentState.fresh(saltPrefix(), network());
         state.baoFactory = baoFactory();
-        repayment = deployRepayment(state, rebalanceDilutionRepaymentKey(), token, accounts, debts);
+        repayment = deployRepayment(state, rebalanceDilutionRepaymentKey(), token, name_, symbol_, accounts, debts);
         _transferAllOwnerships();
     }
 

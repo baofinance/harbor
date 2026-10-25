@@ -34,10 +34,13 @@ contract RepaymentDeployTest is BaoTest {
         debts[1] = 3 ether;
 
         address predicted = run.rebalanceDilutionRepaymentAddress();
-        address repayment = run.deployRepayment(token, accounts, debts);
+        address repayment = run.deployRepayment(token, "Harbor Repayment wstETH", "hrwstETH", accounts, debts);
 
         assertEq(repayment, predicted, "deployed where predicted");
         assertEq(IRepayment_v1(repayment).TOKEN(), token, "the debt token");
+        assertEq(IRepayment_v1(repayment).name(), "Harbor Repayment wstETH", "the token's name");
+        assertEq(IRepayment_v1(repayment).symbol(), "hrwstETH", "the token's symbol");
+        assertEq(IRepayment_v1(repayment).balanceOf(accounts[0]), 10 ether, "alice's wallet shows her debt");
         assertEq(IRepayment_v1(repayment).debt(accounts[0]), 10 ether, "alice's debt");
         assertEq(IRepayment_v1(repayment).debt(accounts[1]), 3 ether, "bob's debt");
         assertEq(IRepayment_v1(repayment).totalDebt(), 13 ether, "the total");

@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -13,10 +14,12 @@ import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 
 import {IRepayment_v1} from "@harbor/interfaces/IRepayment_v1.sol";
 
-/// @notice Repays a fixed list of debts in one token from whatever is paid in, the same fraction to everyone: see
-///         `IRepayment_v1`. Set as the fee receiver of the markets' contracts, it collects their fees until the debts are
-///         covered; a fee paid in another token is swept by the owner, converted, and paid back in.
-/// @dev UUPS, ERC-7201 storage. The debts are recorded once, in `initialize`, and have no setter.
+/// @notice Repays a fixed list of debts in one token from whatever is paid in, the same fraction to everyone, and shows
+///         each debt in its owner's wallet as a token that cannot be transferred: see `IRepayment_v1`. Set as the fee
+///         receiver of the markets' contracts, it collects their fees until the debts are covered; a fee paid in another
+///         token is swept by the owner, converted, and paid back in.
+/// @dev UUPS, ERC-7201 storage. The debts are recorded once, in `initialize`, and have no setter. The token surface is
+///      written here rather than inherited: a balance is a debt less its claims, and nothing moves it but a claim.
 // solhint-disable-next-line contract-name-capwords
 contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHolder_v2, HarborOwnable {
     using SafeERC20 for IERC20;
@@ -31,6 +34,8 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
         uint256 totalClaimed;
         mapping(address account => uint256) debt;
         mapping(address account => uint256) claimed;
+        string name;
+        string symbol;
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.Repayment")) - 1)) & ~bytes32(uint256(0xff))
@@ -51,14 +56,18 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
         _disableInitializers();
     }
 
-    /// @notice Records the debts. The de-facto constructor of the proxy.
+    /// @notice Records the debts and mints each to its account. The de-facto constructor of the proxy.
     /// @param deployerOwner The owner during deployment.
     /// @param pendingOwner The owner the deployer hands over to.
+    /// @param name_ The token's name.
+    /// @param symbol_ The token's symbol.
     /// @param accounts The accounts owed, each once.
     /// @param debts What each is owed, in `TOKEN`, none zero.
     function initialize(
         address deployerOwner,
         address pendingOwner,
+        string calldata name_,
+        string calldata symbol_,
         address[] calldata accounts,
         uint256[] calldata debts
     ) external initializer {
@@ -67,6 +76,8 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
             revert AccountsAndDebtsDifferentSizes(accounts.length, debts.length);
         }
         RepaymentStorage storage $ = _getRepaymentStorage();
+        $.name = name_;
+        $.symbol = symbol_;
         uint256 total;
         for (uint256 i = 0; i < accounts.length; ++i) {
             Token.ensureNonZeroAddress(accounts[i]);
@@ -79,6 +90,7 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
             $.debt[accounts[i]] = debts[i];
             total += debts[i];
             emit DebtRecorded(accounts[i], debts[i]);
+            emit Transfer(address(0), accounts[i], debts[i]);
         }
         $.totalDebt = total;
     }
@@ -118,6 +130,62 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
     /// @inheritdoc IRepayment_v1
     function totalClaimed() external view returns (uint256) {
         return _getRepaymentStorage().totalClaimed;
+    }
+
+    // The token: a balance is what an account is still owed.
+    // -----------------------------------------------------
+
+    /// @inheritdoc IERC20Metadata
+    function name() external view returns (string memory) {
+        return _getRepaymentStorage().name;
+    }
+
+    /// @inheritdoc IERC20Metadata
+    function symbol() external view returns (string memory) {
+        return _getRepaymentStorage().symbol;
+    }
+
+    /// @inheritdoc IERC20Metadata
+    function decimals() external pure returns (uint8) {
+        return 18;
+    }
+
+    /// @inheritdoc IERC20
+    /// @notice The debt still outstanding, in all.
+    function totalSupply() external view returns (uint256) {
+        RepaymentStorage storage $ = _getRepaymentStorage();
+        return $.totalDebt - $.totalClaimed;
+    }
+
+    /// @inheritdoc IERC20
+    /// @notice What `account` is still owed.
+    function balanceOf(address account) external view returns (uint256) {
+        RepaymentStorage storage $ = _getRepaymentStorage();
+        return $.debt[account] - $.claimed[account];
+    }
+
+    /// @inheritdoc IERC20
+    /// @notice Always 0: the token is not approved.
+    function allowance(address, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    /// @inheritdoc IERC20
+    /// @notice Reverts `NotTransferable`.
+    function transfer(address, uint256) external pure returns (bool) {
+        revert NotTransferable();
+    }
+
+    /// @inheritdoc IERC20
+    /// @notice Reverts `NotTransferable`.
+    function approve(address, uint256) external pure returns (bool) {
+        revert NotTransferable();
+    }
+
+    /// @inheritdoc IERC20
+    /// @notice Reverts `NotTransferable`.
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        revert NotTransferable();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -178,7 +246,7 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
         return Math.mulDiv(debt_, paidIn, $.totalDebt) - $.claimed[account];
     }
 
-    /// @dev Pays `receiver` what the caller can claim, recorded against the caller.
+    /// @dev Pays `receiver` what the caller can claim, recorded against the caller, whose balance burns by as much.
     function _claim(address receiver) private returns (uint256 amount) {
         RepaymentStorage storage $ = _getRepaymentStorage();
         address account = msg.sender;
@@ -192,6 +260,7 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
         $.claimed[account] += amount;
         $.totalClaimed += amount;
         emit Claimed(account, receiver, amount);
+        emit Transfer(account, address(0), amount);
         IERC20(TOKEN).safeTransfer(receiver, amount);
     }
 }

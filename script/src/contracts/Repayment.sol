@@ -37,18 +37,25 @@ abstract contract Repayment is HarborDeployer {
     /// @notice Deploy a Repayment_v1 proxy under `key`, recorded in state, with its debts recorded and owned by the
     ///         run's owner once it accepts.
     /// @param token The token the debts are in.
+    /// @param name_ The debt token's name, as wallets show it.
+    /// @param symbol_ The debt token's symbol.
     /// @param accounts The accounts owed, each once.
     /// @param debts What each is owed, in `token`.
     function deployRepayment(
         DeploymentTypes.State memory stateData,
         string memory key,
         address token,
+        string memory name_,
+        string memory symbol_,
         address[] memory accounts,
         uint256[] memory debts
     ) internal returns (address proxy) {
         _reportContract(key);
         address impl = deployRepaymentImplementation(stateData, key, token);
-        bytes memory initData = abi.encodeCall(Repayment_v1.initialize, (address(this), owner(), accounts, debts));
+        bytes memory initData = abi.encodeCall(
+            Repayment_v1.initialize,
+            (address(this), owner(), name_, symbol_, accounts, debts)
+        );
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
     }
 }

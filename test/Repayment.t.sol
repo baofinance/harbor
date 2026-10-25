@@ -31,6 +31,8 @@ contract RepaymentTest is BaoTest {
     uint256 internal constant BOB_DEBT = 3 ether;
     uint256 internal constant CAROL_DEBT = 1 ether;
     uint256 internal constant TOTAL_DEBT = ALICE_DEBT + BOB_DEBT + CAROL_DEBT;
+    string internal constant NAME = "Harbor Repayment wstETH";
+    string internal constant SYMBOL = "hrwstETH";
 
     function setUp() public {
         token = address(new MockERC20("wrapped staked ether", "wstETH", 18));
@@ -63,8 +65,58 @@ contract RepaymentTest is BaoTest {
     function _deployProxy(address[] memory accounts, uint256[] memory debts) internal returns (address proxy) {
         proxy = UnsafeUpgrades.deployUUPSProxy(
             implementation,
-            abi.encodeCall(Repayment_v1.initialize, (address(this), owner, accounts, debts))
+            abi.encodeCall(Repayment_v1.initialize, (address(this), owner, NAME, SYMBOL, accounts, debts))
         );
+    }
+
+    /// @notice The debt shows as a token in its owner's wallet: minted at deployment, each balance is what its account is
+    ///         still owed and the supply what is outstanding, and a claim burns what it pays.
+    function test_token_balanceIsWhatIsStillOwed() public {
+        assertEq(IRepayment_v1(repayment).name(), NAME, "name");
+        assertEq(IRepayment_v1(repayment).symbol(), SYMBOL, "symbol");
+        assertEq(IRepayment_v1(repayment).decimals(), 18, "one token is one wstETH owed");
+        assertEq(IRepayment_v1(repayment).totalSupply(), TOTAL_DEBT, "the supply is the whole debt at first");
+        assertEq(IRepayment_v1(repayment).balanceOf(alice), ALICE_DEBT, "alice's balance is her debt");
+        assertEq(IRepayment_v1(repayment).balanceOf(nobody), 0, "nobody holds nothing");
+
+        address[] memory one = new address[](1);
+        one[0] = alice;
+        uint256[] memory debts = new uint256[](1);
+        debts[0] = 7;
+        vm.expectEmit();
+        emit IERC20.Transfer(address(0), alice, 7);
+        _deploy(one, debts);
+
+        _payIn(7 ether);
+        uint256 expected = (ALICE_DEBT * 7 ether) / TOTAL_DEBT;
+        vm.startPrank(alice);
+        vm.expectEmit(repayment);
+        emit IERC20.Transfer(alice, address(0), expected);
+        IRepayment_v1(repayment).claim();
+        vm.stopPrank();
+        assertEq(IRepayment_v1(repayment).balanceOf(alice), ALICE_DEBT - expected, "the claim burnt what it paid");
+        assertEq(IRepayment_v1(repayment).totalSupply(), TOTAL_DEBT - expected, "the supply fell by as much");
+
+        _payIn(TOTAL_DEBT - 7 ether);
+        vm.startPrank(alice);
+        IRepayment_v1(repayment).claim();
+        vm.stopPrank();
+        assertEq(IRepayment_v1(repayment).balanceOf(alice), 0, "repaid in full, nothing left in her wallet");
+        assertEq(IRepayment_v1(repayment).totalSupply(), BOB_DEBT + CAROL_DEBT, "the others' debts remain");
+    }
+
+    /// @notice The debt stays with the account that is owed: transfers and approvals are refused, and no allowance exists.
+    function test_token_isNotTransferable() public {
+        vm.startPrank(alice);
+        vm.expectRevert(IRepayment_v1.NotTransferable.selector);
+        IRepayment_v1(repayment).transfer(bob, 1);
+        vm.expectRevert(IRepayment_v1.NotTransferable.selector);
+        IRepayment_v1(repayment).approve(bob, 1);
+        vm.expectRevert(IRepayment_v1.NotTransferable.selector);
+        IRepayment_v1(repayment).transferFrom(alice, bob, 1);
+        vm.stopPrank();
+        assertEq(IRepayment_v1(repayment).allowance(alice, bob), 0, "no allowance");
+        assertEq(IRepayment_v1(repayment).balanceOf(alice), ALICE_DEBT, "alice's balance is untouched");
     }
 
     /// @dev Pays `amount` of the debt token in, as a fee receiver is paid: a plain transfer.
@@ -170,7 +222,11 @@ contract RepaymentTest is BaoTest {
         vm.stopPrank();
         _payIn(7 ether);
         // 14 of 14 received: every debt is claimable in full.
-        assertEq(IRepayment_v1(repayment).claimable(alice), ALICE_DEBT - (ALICE_DEBT * 7 ether) / TOTAL_DEBT, "the rest");
+        assertEq(
+            IRepayment_v1(repayment).claimable(alice),
+            ALICE_DEBT - (ALICE_DEBT * 7 ether) / TOTAL_DEBT,
+            "the rest"
+        );
         vm.startPrank(alice);
         IRepayment_v1(repayment).claim();
         vm.stopPrank();
@@ -231,7 +287,11 @@ contract RepaymentTest is BaoTest {
         assertEq(IERC20(token).balanceOf(owner), 5 ether, "the owner has the surplus");
         assertEq(IRepayment_v1(repayment).claimable(alice), ALICE_DEBT, "alice can still claim her whole debt");
         assertEq(IRepayment_v1(repayment).claimable(carol), CAROL_DEBT, "carol too");
-        assertEq(IRepayment_v1(repayment).received(), TOTAL_DEBT, "a sweep takes what was received down to the debts, never below");
+        assertEq(
+            IRepayment_v1(repayment).received(),
+            TOTAL_DEBT,
+            "a sweep takes what was received down to the debts, never below"
+        );
 
         MockERC20(other).mint(repayment, 3 ether);
         vm.startPrank(owner);
