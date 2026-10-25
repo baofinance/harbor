@@ -3,18 +3,19 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
-import {MarketVerification} from "@harbor-script/src/MarketVerification.sol";
 import {Minter} from "@harbor-script/src/contracts/Minter.sol";
 import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
@@ -36,7 +37,7 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 ///      each holder's reward snapshot in widened storage, which the upgrader copies across, and divides rewards by what
 ///      the holders hold, which needs the pool's ledger gap. Both come from a holder capture, read where the pools can
 ///      no longer change. The read uses the old versions' own functions, so nothing here restates how they compute.
-abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManager, MarketVerification {
+abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManager {
     Vm private constant _vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     /// @dev What this run does, named once so its opening and closing lines cannot drift apart.
@@ -53,25 +54,32 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         uint64 withdrawalEndWindow;
     }
 
-    /// @notice What one market's upgrade needs from it: its minter's stored config and each pool's input.
+    /// @notice What one market's upgrade needs from it: its minter's stored config, the backing it records and the
+    ///         wrapped collateral it holds, and each pool's input.
     struct MarketUpgradeInput {
         Config_MinterMarket market;
         IMinter.Config minterConfig;
+        uint256 recordedBacking;
+        uint256 wrappedCollateralHeld;
         PoolUpgradeInput collateralPool;
         PoolUpgradeInput leveragedPool;
     }
 
-    /// @notice Read what upgrading each of `markets` needs, on the fork selected now: each minter's stored config, and
-    ///         for each pool the holders the capture in `capture` lists, the ledger gap they leave, and its floor and
-    ///         withdrawal window. Refuses a capture whose holders leave a gap beyond rounding either way.
+    /// @notice Read what upgrading each of `markets` needs, on the fork selected now: each minter's stored config, the
+    ///         backing it records and the wrapped collateral it holds, and for each pool the holders the capture in
+    ///         `capture` lists, the ledger gap they leave, and its floor and withdrawal window. Refuses a capture whose
+    ///         holders leave a gap beyond rounding either way.
     function readMarketUpgradeInputs(
         Config_MinterMarket[] memory markets,
         string memory capture
     ) internal returns (MarketUpgradeInput[] memory inputs) {
         inputs = new MarketUpgradeInput[](markets.length);
         for (uint256 i = 0; i < markets.length; ++i) {
+            address minter = minterAddress(markets[i]);
             inputs[i].market = markets[i];
-            inputs[i].minterConfig = IMinter(minterAddress(markets[i])).config();
+            inputs[i].minterConfig = IMinter(minter).config();
+            inputs[i].recordedBacking = IMinter(minter).collateralTokenBalance();
+            inputs[i].wrappedCollateralHeld = IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(minter);
             inputs[i].collateralPool = _readPoolUpgradeInput(markets[i], StabilityPoolType.Collateral, capture);
             inputs[i].leveragedPool = _readPoolUpgradeInput(markets[i], StabilityPoolType.Leveraged, capture);
         }
@@ -114,11 +122,12 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         _vm.selectFork(head);
     }
 
-    /// @notice Upgrade each market `inputs` names: deploy its new implementations, check they name its tokens and each
-    ///         other (`verifyMarket`), and save, as one batch for the multisig, the upgrade of its minter, loading the
-    ///         config read; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders
-    ///         and gap read; and of its manager, in that order. Refuses a pool whose new implementation would not keep
-    ///         the floor or withdrawal window read.
+    /// @notice Upgrade each market `inputs` names: deploy its new implementations, from its `marketAddresses`, and save,
+    ///         as one batch for the multisig, the upgrade of its minter, loading the config read - followed, where the
+    ///         minter records backing but holds no wrapped collateral, by the recognition of that impairment; of its two
+    ///         pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders and gap read; and of its
+    ///         manager, in that order. Refuses a pool whose new implementation would not keep the floor or withdrawal
+    ///         window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
     function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
@@ -154,14 +163,6 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 stabilityPoolManagerKey(config),
                 addresses
             );
-            verifyMarket(
-                config,
-                addresses,
-                minterImplementation,
-                collateralPoolImplementation,
-                leveragedPoolImplementation,
-                managerImplementation
-            );
 
             // The stored config is loaded again, through Minter_v3's own loader, in the call that upgrades: the plain
             // swap would carry the stored encoding across unchecked, and v3 refuses configs v2 accepted.
@@ -173,6 +174,16 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 ),
                 "upgrade to Minter_v3, loading its config through v3's loader"
             );
+            // A minter recording backing it holds none of - a retired market's dust - is impaired under Minter_v3, which
+            // halts the market until the record is written down. Nothing held is worth nothing at any rate, so v3's own
+            // recognition, called once the minter runs v3, takes the record to zero.
+            if (inputs[i].recordedBacking > 0 && inputs[i].wrappedCollateralHeld == 0) {
+                queue(
+                    minterKey(config),
+                    abi.encodeCall(IMinter_v3.recogniseImpairment, ()),
+                    "recognise the backing it records but does not hold"
+                );
+            }
             _queuePoolMigration(
                 config,
                 StabilityPoolType.Collateral,

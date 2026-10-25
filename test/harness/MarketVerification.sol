@@ -10,20 +10,20 @@ import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
 /// @notice The check that a market's minter, pools and manager name its tokens and each other as its
-///         `MarketAddresses` do, and that the tokens answer as ERC-20s.
-/// @dev The contracts' constructors call no other contract, so each deploys whatever state the others are in. This
-///      check stands in for theirs, once everything it reads exists: after a fresh deploy builds a market, and after
-///      the upgrade deploys a market's new implementations, before its batch is saved. It also checks what no
-///      constructor could without calling the minter: that each token is this market's.
-abstract contract MarketVerification is HarborDeployer {
+///         `MarketAddresses` do, and that the tokens answer as ERC-20s - held by the tests that deploy or upgrade a
+///         market.
+/// @dev The contracts' constructors call no other contract, so each deploys whatever state the others are in; this is
+///      what their constructors would have checked, and also what none could without calling the minter: that each
+///      token is the market's. It reads the market's contract names from the deploy's own key functions.
+contract MarketVerification is HarborDeployer {
     /// @notice A contract of the market names an address other than the one the market's addresses hold.
     /// @param what The contract's salt key and the address it names, e.g. "BTC::stETH::stabilityPoolCollateral asset".
     error MarketAddressMismatch(string what, address expected, address found);
 
     /// @notice Refuse unless `minter`, `collateralPool`, `leveragedPool` and `manager` each name what `addresses`
     ///         hold for `config`'s market, and each of its tokens answers as an ERC-20.
-    /// @dev The four are the market's proxies after a fresh deploy, or its new implementations in an upgrade: each
-    ///      reads its addresses from its code, so an implementation answers alone.
+    /// @dev The four are the market's proxies, or its implementations: each reads its addresses from its code, so an
+    ///      implementation answers alone.
     function verifyMarket(
         Config_MinterMarket config,
         MarketAddresses memory addresses,
@@ -31,7 +31,7 @@ abstract contract MarketVerification is HarborDeployer {
         address collateralPool,
         address leveragedPool,
         address manager
-    ) internal view {
+    ) external view {
         string memory minterName = minterKey(config);
         _requireAddress(
             minterName,

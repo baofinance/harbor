@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
@@ -16,11 +17,12 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
-import {MarketVerification} from "@harbor-script/src/MarketVerification.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {Upgrade_MarketsToV3_mainnet} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
+import {MarketVerification} from "@harbor-test/harness/MarketVerification.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
 /// @dev The production read of frozen markets, `readFrozenMarketUpgradeInputs`, held so a test can call it.
@@ -42,7 +44,17 @@ contract FrozenMarketsRead is UpgradeMarketToV3 {
 ///         Afterwards every market holds what it held at the capture's block, as Minter_v3 and StabilityPool_v3 report
 ///         it, and each pool divides rewards by what its holders hold.
 /// @dev The capture is HOLDERS_DIR, set by `run-upgrade-rehearsal --holders-dir`; the upgrade script reads it there too.
-contract MarketsUpgradeRehearsal is Test, MarketVerification {
+contract MarketsUpgradeRehearsal is Test, HarborDeployer {
+    /// @dev What a minter holds: its config, the backing it records, its pegged and leveraged balances, and the wrapped
+    ///      collateral it holds.
+    struct MinterHoldings {
+        bytes config;
+        uint256 recordedBacking;
+        uint256 peggedBalance;
+        uint256 leveragedBalance;
+        uint256 wrappedCollateralHeld;
+    }
+
     /// @dev What a pool holds, as its version reports it: its supply, reward tokens and streams, and each captured
     ///      holder's balance and claimed rewards.
     struct PoolHoldings {
@@ -68,13 +80,14 @@ contract MarketsUpgradeRehearsal is Test, MarketVerification {
     }
 
     /// The upgrade script, given the frozen capture, builds every market's batch and each executes as the multisig.
-    /// Afterwards every minter keeps its config and balances and is not impaired, every manager reports
-    /// StabilityPoolManager_v2, every pool keeps its supply, reward tokens and streams, and each captured holder's
-    /// balance and claimed rewards, and divides rewards by exactly what its holders hold - and each market's contracts
-    /// name its tokens and each other.
+    /// Afterwards every minter keeps its config and its pegged and leveraged balances, keeps the backing it records -
+    /// but for backing it records and holds none of, which is recognised as gone - and is not impaired; every manager
+    /// reports StabilityPoolManager_v2; every pool keeps its supply, reward tokens and streams, and each captured
+    /// holder's balance and claimed rewards, and divides rewards by exactly what its holders hold; and each market's
+    /// contracts name its tokens and each other.
     function test_theUpgradeBuildsAndExecutesEveryMarket() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
-        bytes[] memory mintersBefore = new bytes[](markets.length);
+        MinterHoldings[] memory mintersBefore = new MinterHoldings[](markets.length);
         PoolHoldings[] memory poolsBefore = new PoolHoldings[](2 * markets.length);
         for (uint256 i = 0; i < markets.length; ++i) {
             mintersBefore[i] = _minterHoldings(markets[i]);
@@ -85,12 +98,22 @@ contract MarketsUpgradeRehearsal is Test, MarketVerification {
         vm.createSelectFork(vm.rpcUrl("mainnet"));
         new Upgrade_MarketsToV3_mainnet().run("harbor_v1");
 
+        MarketVerification check = new MarketVerification();
         for (uint256 i = 0; i < markets.length; ++i) {
             string memory market = MinterMarketConfigLib.salt(markets[i]);
+            MinterHoldings memory before = mintersBefore[i];
+            MinterHoldings memory upgraded = _minterHoldings(markets[i]);
+            assertEq(upgraded.config, before.config, string.concat(market, ": the minter keeps its config"));
+            assertEq(upgraded.peggedBalance, before.peggedBalance, string.concat(market, ": and its pegged balance"));
             assertEq(
-                _minterHoldings(markets[i]),
-                mintersBefore[i],
-                string.concat(market, ": the minter keeps its config and balances")
+                upgraded.leveragedBalance,
+                before.leveragedBalance,
+                string.concat(market, ": and its leveraged balance")
+            );
+            assertEq(
+                upgraded.recordedBacking,
+                before.wrappedCollateralHeld == 0 ? 0 : before.recordedBacking,
+                string.concat(market, ": and the backing it records, but for backing it held none of")
             );
             (uint256 recorded, uint256 held) = IMinter_v3(minterAddress(markets[i])).impairment();
             assertLe(recorded, held, string.concat(market, ": the minter's recorded backing is held"));
@@ -103,7 +126,7 @@ contract MarketsUpgradeRehearsal is Test, MarketVerification {
             _assertPoolKept(markets[i], StabilityPoolType.Collateral, poolsBefore[2 * i]);
             _assertPoolKept(markets[i], StabilityPoolType.Leveraged, poolsBefore[2 * i + 1]);
             MarketAddresses memory addresses = marketAddresses(markets[i]);
-            verifyMarket(
+            check.verifyMarket(
                 markets[i],
                 addresses,
                 addresses.minter,
@@ -131,16 +154,14 @@ contract MarketsUpgradeRehearsal is Test, MarketVerification {
         frozenRead.read(markets, earlier);
     }
 
-    /// @dev The minter's config and balances, encoded: Minter_v2 and Minter_v3 report them alike.
-    function _minterHoldings(Config_MinterMarket market) private returns (bytes memory) {
+    /// @dev What the minter holds: Minter_v2 and Minter_v3 report it alike.
+    function _minterHoldings(Config_MinterMarket market) private returns (MinterHoldings memory holdings) {
         address minter = minterAddress(market);
-        return
-            abi.encode(
-                IMinter(minter).config(),
-                IMinter(minter).collateralTokenBalance(),
-                IMinter(minter).peggedTokenBalance(),
-                IMinter(minter).leveragedTokenBalance()
-            );
+        holdings.config = abi.encode(IMinter(minter).config());
+        holdings.recordedBacking = IMinter(minter).collateralTokenBalance();
+        holdings.peggedBalance = IMinter(minter).peggedTokenBalance();
+        holdings.leveragedBalance = IMinter(minter).leveragedTokenBalance();
+        holdings.wrappedCollateralHeld = IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(minter);
     }
 
     /// @dev What the pool holds, as StabilityPool_v2 reports it.

@@ -25,15 +25,18 @@ market at the last block before it, with the holder capture taken to that block
 (`script/UpgradeStabilityPool_v2_v3/holders-26248723/`), and deploys and saves one batch per market at the chain's
 head. It refuses a capture not taken at that block, a capture whose holders leave a ledger gap beyond rounding, a
 minter config Minter_v3's loader refuses, and a pool implementation that would not keep the live pool's floor or
-withdrawal window.
+withdrawal window. A minter that records backing but holds no wrapped collateral - a retired market's dust (GOLD::fxUSD
+and SILVER::fxUSD record 1 wei) - would be halted by Minter_v3 as impaired; its batch recognises the impairment once
+the minter runs v3, taking the record to zero.
 
 - `FrozenMarketsReadPoint.t.sol` — the state read is the state the upgrade runs on: replayed, the pause changed only
   which implementation each minter and pool runs; and at the same moment every minter and pool answers the views the
   upgrade reads the same at the end of the capture's block as just before the pause
 - `MarketsUpgradeRehearsal.t.sol` — the upgrade script itself on a fork of the chain's head: every market's batch
-  executes as the multisig, and afterwards each minter keeps its config and balances and is not impaired, each manager
-  reports StabilityPoolManager_v2, and each pool keeps its supply, reward tokens and streams, every captured holder's
-  balance and claimed rewards, and divides rewards by exactly what its holders hold; a capture taken earlier is refused
+  executes as the multisig, and afterwards each minter keeps its config and balances - its record of backing it held
+  none of gone to zero - and is not impaired, each manager reports StabilityPoolManager_v2, each pool keeps its supply,
+  reward tokens and streams, every captured holder's balance and claimed rewards, and divides rewards by exactly what
+  its holders hold, and each market's contracts name its tokens and each other; a capture taken earlier is refused
 - `run-upgrade-rehearsal --holders-dir <capture>` — runs both (needs `MAINNET_RPC_URL`, archival at the capture's
   block); run before signing the batches, with the capture the script will be given
 

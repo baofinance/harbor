@@ -3,10 +3,10 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -18,14 +18,15 @@ import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {ConfigMarket_MCAP_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_MCAP_fxUSD_mainnet.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
+import {goldMintersConfig} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
-import {MarketVerification} from "@harbor-script/src/MarketVerification.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
+import {MarketVerification} from "@harbor-test/harness/MarketVerification.sol";
 
 /// @dev The production upgrade of markets a pause has frozen, as the upgrade script runs it - read at the capture's
 ///      block, upgraded on the fork selected - for the markets and capture it is constructed with.
@@ -40,24 +41,6 @@ contract FrozenMarketUpgradeRun is UpgradeMarketToV3 {
 
     function build() internal override {
         upgradeMarketsToV3(readFrozenMarketUpgradeInputs(_markets, _capture, "mainnet"), "mainnet");
-    }
-}
-
-/// @dev The production upgrade, its new pools built - by the deploy's own function - naming the leveraged token as
-///      their asset.
-contract PoolOfLeveragedUpgradeRun is MarketUpgradeRun {
-    constructor(Config_MinterMarket[] memory markets_, string memory capture_) MarketUpgradeRun(markets_, capture_) {}
-
-    function deployStabilityPoolImplementation(
-        DeploymentTypes.State memory stateData,
-        string memory key,
-        StabilityPoolType poolType,
-        Config_MinterMarket marketConfig,
-        MarketAddresses memory addresses
-    ) internal override returns (address impl) {
-        MarketAddresses memory misnamed = abi.decode(abi.encode(addresses), (MarketAddresses));
-        misnamed.pegged = addresses.leveraged;
-        impl = super.deployStabilityPoolImplementation(stateData, key, poolType, marketConfig, misnamed);
     }
 }
 
@@ -141,32 +124,6 @@ contract UpgradeMarketToV3Test is Test {
         assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
     }
 
-    /// The upgrade checks its new implementations name the market's tokens and each other before it saves the batch:
-    /// pool implementations built naming the leveraged token as their asset are refused, naming the pool, the market's
-    /// pegged token and the token named - and the minter stays on Minter_v2.
-    function test_upgradeRefusesAPoolImplementationNamingAnotherToken() public {
-        (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
-        Config_MinterMarket[] memory upgraded = new Config_MinterMarket[](1);
-        upgraded[0] = markets[0];
-        string memory pool = deployRun.stabilityPoolKey(upgraded[0], HarborDeployer.StabilityPoolType.Collateral);
-        address pegged = deployRun.peggedTokenAddress(upgraded[0]);
-        address leveraged = deployRun.leveragedTokenAddress(upgraded[0]);
-        PoolOfLeveragedUpgradeRun refused = new PoolOfLeveragedUpgradeRun(upgraded, CAPTURE);
-        bytes32 implementationBefore = vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MarketVerification.MarketAddressMismatch.selector,
-                string.concat(pool, " asset"),
-                pegged,
-                leveraged
-            )
-        );
-        refused.run("harbor_v1");
-
-        assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
-    }
-
     /// A new pool implementation that would not keep the live pool's floor is refused when the upgrade is built,
     /// naming the pool and both floors: nothing is saved for the multisig, and the minter stays on Minter_v2.
     function test_upgradeRefusesAPoolWhoseFloorDiffersFromItsNewImplementation() public {
@@ -234,7 +191,8 @@ contract UpgradeMarketToV3Test is Test {
 
     /// With every minter and pool paused, a live market's upgrade as the upgrade script runs it - read at the capture's
     /// block, the last before the pause - builds and executes as the multisig: afterwards the minter answers with the
-    /// config read before the pause, each pool with the supply read, and the manager reports StabilityPoolManager_v2.
+    /// config read before the pause, each pool with the supply read, the manager reports StabilityPoolManager_v2, and
+    /// the market's contracts name its tokens and each other.
     function test_theFrozenUpgradeBuildsAtThePauseBlock() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_CAPTURE);
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
@@ -276,6 +234,57 @@ contract UpgradeMarketToV3Test is Test {
             ),
             "the manager reports StabilityPoolManager_v2"
         );
+        MarketAddresses memory upgraded = addresses.deployedMarketAddresses(markets[0]);
+        new MarketVerification().verifyMarket(
+            markets[0],
+            upgraded,
+            upgraded.minter,
+            upgraded.collateralPool,
+            upgraded.leveragedPool,
+            upgraded.manager
+        );
+    }
+
+    /// A minter that records backing but holds no wrapped collateral - GOLD::fxUSD, retired, recording a wei - would be
+    /// halted by Minter_v3 as impaired. Its upgrade recognises the impairment: afterwards its record is what it holds,
+    /// nothing, and it reports no shortfall. A market that holds its backing - BTC::stETH, upgraded beside it - keeps
+    /// its record.
+    function test_theUpgradeRecognisesBackingNothingHolds() public {
+        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_CAPTURE);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
+        (, Config_MinterMarket[] memory goldMarkets) = goldMintersConfig();
+        (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](2);
+        markets[0] = goldMarkets[0]; // GOLD::fxUSD
+        markets[1] = btcMarkets[1]; // BTC::stETH
+        vm.makePersistent(address(markets[0]));
+        vm.makePersistent(address(markets[1]));
+        HarborDeployRun addresses = new HarborDeployRun(
+            address(0),
+            address(0),
+            "harbor_v1",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        vm.makePersistent(address(addresses));
+        address retiredMinter = addresses.minterAddress(markets[0]);
+        address liveMinter = addresses.minterAddress(markets[1]);
+        address retiredCollateral = IMinter(retiredMinter).WRAPPED_COLLATERAL_TOKEN();
+        assertGt(
+            IMinter(retiredMinter).collateralTokenBalance(),
+            0,
+            "precondition: the retired market records backing"
+        );
+        assertEq(IERC20(retiredCollateral).balanceOf(retiredMinter), 0, "precondition: and holds none");
+        uint256 liveBacking = IMinter(liveMinter).collateralTokenBalance();
+
+        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE).run("harbor_v1");
+
+        (uint256 recorded, uint256 held) = IMinter_v3(retiredMinter).impairment();
+        assertEq(recorded, 0, "the retired market records what it holds: nothing");
+        assertEq(held, 0, "and holds nothing");
+        assertEq(IMinter(liveMinter).collateralTokenBalance(), liveBacking, "the live market keeps its record");
     }
 
     /// A capture taken before a depositor joined misses what they hold. Read where they have joined, the captured

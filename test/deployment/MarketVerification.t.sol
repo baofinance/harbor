@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Token} from "@bao/Token.sol";
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
@@ -13,57 +12,17 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {ConfigMarket_BTC_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
-import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {allPegsConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
-import {MarketVerification} from "@harbor-script/src/MarketVerification.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {MarketVerification} from "@harbor-test/harness/MarketVerification.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-/// @dev The deploy's market check, held so a test can call it.
-contract MarketVerificationRun is MarketVerification {
-    constructor() {
-        _setSaltPrefix("verification");
-    }
-
-    function verify(
-        Config_MinterMarket config,
-        MarketAddresses memory addresses,
-        address minter,
-        address collateralPool,
-        address leveragedPool,
-        address manager
-    ) external view {
-        verifyMarket(config, addresses, minter, collateralPool, leveragedPool, manager);
-    }
-}
-
-/// @dev A run whose stability pools are built, by the deploy's own function, naming the leveraged token as their asset.
-contract PoolOfLeveragedDeployRun is HarborDeployRun {
-    constructor(
-        address owner_,
-        address treasury_,
-        string memory saltPrefix_,
-        string memory network_
-    ) HarborDeployRun(owner_, treasury_, saltPrefix_, network_, HarborDeployRun.Cut.Whole) {}
-
-    function deployStabilityPoolImplementation(
-        DeploymentTypes.State memory stateData,
-        string memory key,
-        StabilityPoolType poolType,
-        Config_MinterMarket marketConfig,
-        MarketAddresses memory addresses
-    ) internal override returns (address impl) {
-        MarketAddresses memory misnamed = abi.decode(abi.encode(addresses), (MarketAddresses));
-        misnamed.pegged = addresses.leveraged;
-        impl = super.deployStabilityPoolImplementation(stateData, key, poolType, marketConfig, misnamed);
-    }
-}
-
-/// @notice The deploy's check that a market's minter, pools and manager name its tokens and each other as its
-///         addresses do, and that its tokens answer as ERC-20s - standing in for the checks their constructors no
-///         longer make, and checking what those could not: that each token is the market's.
+/// @notice The check that a market's minter, pools and manager name its tokens and each other as its addresses do, and
+///         that its tokens answer as ERC-20s - what their constructors no longer check, and what those could not:
+///         that each token is the market's.
 contract MarketVerificationTest is Test {
     /// @dev The index of each field of `MarketAddresses` that a contract names, for `_with` and `_field`.
     uint8 private constant _MINTER = 0;
@@ -73,12 +32,12 @@ contract MarketVerificationTest is Test {
     uint8 private constant _LEVERAGED = 5;
     uint8 private constant _WRAPPED_COLLATERAL = 6;
 
-    MarketVerificationRun private run;
+    MarketVerification private check;
     Config_MinterMarket private config;
     MarketAddresses private market;
 
     function setUp() public {
-        run = new MarketVerificationRun();
+        check = new MarketVerification();
         config = new ConfigMarket_BTC_stETH_mainnet();
         market = MarketAddresses({
             minter: makeAddr("minter"),
@@ -101,7 +60,7 @@ contract MarketVerificationTest is Test {
         address leveragedPool = _pool(addresses);
         address manager = _manager(addresses);
 
-        run.verify(config, addresses, minter, collateralPool, leveragedPool, manager);
+        check.verifyMarket(config, addresses, minter, collateralPool, leveragedPool, manager);
     }
 
     /// Every address a contract of the market names is checked: a minter, pool or manager built with any one of them
@@ -109,10 +68,10 @@ contract MarketVerificationTest is Test {
     function test_verifyMarket_refusesEachAddressNamedWrongly() public {
         address wrong = address(new MockERC20("wrong", "X", 18));
         string[4] memory names = [
-            run.minterKey(config),
-            run.stabilityPoolKey(config, HarborDeployer.StabilityPoolType.Collateral),
-            run.stabilityPoolKey(config, HarborDeployer.StabilityPoolType.Leveraged),
-            run.stabilityPoolManagerKey(config)
+            check.minterKey(config),
+            check.stabilityPoolKey(config, HarborDeployer.StabilityPoolType.Collateral),
+            check.stabilityPoolKey(config, HarborDeployer.StabilityPoolType.Leveraged),
+            check.stabilityPoolManagerKey(config)
         ];
         // which contract is built with the wrong address (0 minter, 1 collateral pool, 2 leveraged pool, 3 manager),
         // which of its addresses, and how the refusal names it
@@ -214,7 +173,7 @@ contract MarketVerificationTest is Test {
         address leveragedPool = _pool(forLeveragedPool);
         address manager = _manager(forManager);
         vm.expectRevert(refusal);
-        run.verify(config, addresses, minter, collateralPool, leveragedPool, manager);
+        check.verifyMarket(config, addresses, minter, collateralPool, leveragedPool, manager);
     }
 
     function _minter(MarketAddresses memory addresses) private returns (address) {
@@ -287,35 +246,70 @@ contract MarketVerificationTest is Test {
     }
 }
 
-/// @notice A fresh deploy runs the market check once the market's contracts exist: a market whose pools were built
-///         naming another token as their asset is refused, naming the pool, the market's pegged token and the token
-///         the pool names.
-/// @dev Forked, because the run deploys through the mainnet BaoFactory.
-contract MarketVerificationDeployTest is BaoTest {
-    function test_aDeployWhosePoolNamesAnotherTokenIsRefused() public {
+/// @notice Every market production configures deploys with its minter, pools and manager naming its tokens and each
+///         other, and with tokens that answer as ERC-20s: each peg, with its markets, deployed whole by the production
+///         deploy under a salt of its own, then checked. A config whose wrapped collateral is not an ERC-20, or a deploy
+///         change that wires a contract to another's address, fails here rather than in a production deploy.
+/// @dev Forked, because the run deploys through the mainnet BaoFactory and the markets take mainnet's collateral. One
+///      test per peg, so each stays within a test's gas.
+contract MarketVerificationOfEveryMarketTest is BaoTest {
+    /// The BTC markets deploy wired as their addresses resolve.
+    function test_theBTCMarkets_deployWired() public {
+        _deployAndCheck(0);
+    }
+
+    /// The ETH market deploys wired as its addresses resolve.
+    function test_theETHMarkets_deployWired() public {
+        _deployAndCheck(1);
+    }
+
+    /// The EUR markets deploy wired as their addresses resolve.
+    function test_theEURMarkets_deployWired() public {
+        _deployAndCheck(2);
+    }
+
+    /// The GOLD markets deploy wired as their addresses resolve.
+    function test_theGOLDMarkets_deployWired() public {
+        _deployAndCheck(3);
+    }
+
+    /// The MCAP markets deploy wired as their addresses resolve.
+    function test_theMCAPMarkets_deployWired() public {
+        _deployAndCheck(4);
+    }
+
+    /// The SILVER markets deploy wired as their addresses resolve.
+    function test_theSILVERMarkets_deployWired() public {
+        _deployAndCheck(5);
+    }
+
+    /// @dev Deploy the peg at `pegIndex` of `allPegsConfig`, with every market of it, then check each market.
+    function _deployAndCheck(uint256 pegIndex) private {
         forkMainnetWithBaoFactory();
-        PoolOfLeveragedDeployRun deployRun = new PoolOfLeveragedDeployRun(
-            makeAddr("verificationRunOwner"),
-            makeAddr("verificationRunTreasury"),
-            "verification",
-            "mainnet"
+        (ConfigPeg[6] memory pegs, Config_MinterMarket[][6] memory marketsByPeg) = allPegsConfig();
+        Config_MinterMarket[] memory markets = marketsByPeg[pegIndex];
+        HarborDeployRun deployRun = new HarborDeployRun(
+            makeAddr("everyMarketOwner"),
+            makeAddr("everyMarketTreasury"),
+            "every_market",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
         );
         deployRun.ensureFactory();
-        (ConfigPeg peg, Config_MinterMarket[] memory configs) = ethMintersConfig();
-        Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
-        toDeploy[0] = configs[0];
-        string memory pool = deployRun.stabilityPoolKey(toDeploy[0], HarborDeployer.StabilityPoolType.Collateral);
-        address pegged = deployRun.peggedTokenAddress(toDeploy[0]);
-        address leveraged = deployRun.leveragedTokenAddress(toDeploy[0]);
+        deployRun.deploy(pegs[pegIndex], markets, true, markets);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MarketVerification.MarketAddressMismatch.selector,
-                string.concat(pool, " asset"),
-                pegged,
-                leveraged
-            )
-        );
-        deployRun.deploy(peg, configs, true, toDeploy);
+        MarketVerification check = new MarketVerification();
+        assertGt(markets.length, 0, "precondition: the peg has markets");
+        for (uint256 i = 0; i < markets.length; ++i) {
+            MarketAddresses memory addresses = deployRun.deployedMarketAddresses(markets[i]);
+            check.verifyMarket(
+                markets[i],
+                addresses,
+                addresses.minter,
+                addresses.collateralPool,
+                addresses.leveragedPool,
+                addresses.manager
+            );
+        }
     }
 }

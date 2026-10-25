@@ -9,8 +9,6 @@ import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
 import {Genesis} from "@harbor-script/src/contracts/Genesis.sol";
 import {Repayment} from "@harbor-script/src/contracts/Repayment.sol";
-import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
-import {MarketVerification} from "@harbor-script/src/MarketVerification.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -29,8 +27,7 @@ abstract contract HarborDeployStack is
     StabilityPool,
     StabilityPoolManager,
     Genesis,
-    Repayment,
-    MarketVerification
+    Repayment
 {
     using LibString for string;
 
@@ -172,11 +169,11 @@ abstract contract HarborDeployStack is
     //
     // Nothing here forces an order between the market's contracts. Every role grantee is a PREDICTED CREATE3
     // address and granting to an address with no code is valid, and the minter's, the pools' and the manager's
-    // constructors take every address they keep from `marketAddresses` and call none of them. What they would
-    // have checked - that each names this market's tokens and each other, and that the tokens answer as ERC-20s -
-    // is checked once all of them exist (`verifyMarket`).
+    // constructors take every address they keep from `marketAddresses` and call none of them. That each names this
+    // market's tokens and each other, and that the tokens answer as ERC-20s, the tests check: every market production
+    // configures is deployed and checked there (`test/harness/MarketVerification.sol`).
 
-    /// @notice Deploy a market's full infrastructure, and check its contracts name its tokens and each other.
+    /// @notice Deploy a market's full infrastructure, in dependency order.
     /// @param state Deployment state (modified in place).
     /// @param market Market configuration.
     function deployMinterInfrastructure(DeploymentTypes.State memory state, Config_MinterMarket market) internal {
@@ -189,15 +186,6 @@ abstract contract HarborDeployStack is
         deployStabilityPool(StabilityPoolType.Collateral, state, market);
         deployStabilityPool(StabilityPoolType.Leveraged, state, market);
         deployStabilityPoolManager(state, market);
-        MarketAddresses memory addresses = marketAddresses(market);
-        verifyMarket(
-            market,
-            addresses,
-            addresses.minter,
-            addresses.collateralPool,
-            addresses.leveragedPool,
-            addresses.manager
-        );
         deployGenesis(state, market);
 
         _reportMarketComplete(marketKey);
