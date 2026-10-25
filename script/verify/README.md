@@ -17,19 +17,34 @@ remediation - are kept, no longer compiled, under `deprecated/script/verify/`.
 
 ## Campaigns
 
-### [minter-v3-upgrade/](minter-v3-upgrade/)
+### [v3-upgrade/](v3-upgrade/)
 
-Minter v2→v3 upgrade verification. An upgrade carries each minter's stored incentive config across unchecked, and v3's
-loader reverts on schedules v2's accepted (a subsidy in the highest band, a bound too wide for its field) - v3's band
-walks rely on that. It carries the recorded backing across too, and v3 halts a market whose record exceeds its holding
-at the low edge of the rate band, which v2 never checked.
+The upgrade of every live market to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2, by
+`script/Upgrade_MarketsToV3_mainnet.s.sol`. A pause froze every minter and pool on 2026-10-22; the script reads each
+market at the last block before it, with the holder capture taken to that block
+(`script/UpgradeStabilityPool_v2_v3/holders-26248723/`), and deploys and saves one batch per market at the chain's
+head. It refuses a capture not taken at that block, a capture whose holders leave a ledger gap beyond rounding, a
+minter config Minter_v3's loader refuses, and a pool implementation that would not keep the live pool's floor or
+withdrawal window.
 
-- `MinterUpgradePreflight.t.sol` — on a mainnet fork at a holder capture's block, upgrades every deployed market by
-  `UpgradeMarketToV3.upgradeMarketsToV3`, the function the upgrade script runs, which loads each minter's stored config
-  through Minter_v3's loader; fails naming any market whose config the loader refuses or reads back differently, or
-  that v3's `impairment()` reports would halt
-- `run-preflight --holders-dir <capture>` — runs it (needs `MAINNET_RPC_URL`, archival at the capture's block); run
-  before upgrading, with the capture the upgrade will use
+- `FrozenMarketsReadPoint.t.sol` — the state read is the state the upgrade runs on: replayed, the pause changed only
+  which implementation each minter and pool runs; and at the same moment every minter and pool answers the views the
+  upgrade reads the same at the end of the capture's block as just before the pause
+- `MarketsUpgradeRehearsal.t.sol` — the upgrade script itself on a fork of the chain's head: every market's batch
+  executes as the multisig, and afterwards each minter keeps its config and balances and is not impaired, each manager
+  reports StabilityPoolManager_v2, and each pool keeps its supply, reward tokens and streams, every captured holder's
+  balance and claimed rewards, and divides rewards by exactly what its holders hold; a capture taken earlier is refused
+- `run-upgrade-rehearsal --holders-dir <capture>` — runs both (needs `MAINNET_RPC_URL`, archival at the capture's
+  block); run before signing the batches, with the capture the script will be given
+
+To upgrade:
+
+```bash
+script/verify/v3-upgrade/run-upgrade-rehearsal --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
+script/verify/sp-v3-reward-divisor-migration/run-migration-preflight --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
+HOLDERS_DIR=script/UpgradeStabilityPool_v2_v3/holders-26248723 \
+  script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast
+```
 
 ### [spm-v2-upgrade/](spm-v2-upgrade/)
 

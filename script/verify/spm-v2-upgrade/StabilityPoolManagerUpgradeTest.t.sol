@@ -8,12 +8,8 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
-import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
+import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
-import {eurMintersConfig} from "@harbor-script/src/Deploy_EUR_Minter.sol";
-import {goldMintersConfig} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
-import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
-import {silverMintersConfig} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
@@ -46,26 +42,7 @@ contract StabilityPoolManagerUpgradeTest is BaoTest, HarborDeployer {
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         _setSaltPrefix("harbor_v1");
-
-        Config_MinterMarket[] memory markets;
-        (, markets) = btcMintersConfig();
-        _addMarkets(markets);
-        (, markets) = ethMintersConfig();
-        _addMarkets(markets);
-        (, markets) = eurMintersConfig();
-        _addMarkets(markets);
-        (, markets) = goldMintersConfig();
-        _addMarkets(markets);
-        (, markets) = mcapMintersConfig();
-        _addMarkets(markets);
-        (, markets) = silverMintersConfig();
-        _addMarkets(markets);
-    }
-
-    function _addMarkets(Config_MinterMarket[] memory markets) private {
-        for (uint256 i = 0; i < markets.length; i++) {
-            _markets.push(markets[i]);
-        }
+        _markets = allMintersConfig();
     }
 
     function _label(Config_MinterMarket market, string memory what) private view returns (string memory) {

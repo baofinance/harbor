@@ -4,8 +4,9 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 
-/// @notice The production upgrade of live markets, held by a test: `upgradeMarketsToV3`, the function the upgrade
-///         script runs, for the markets and the holder capture it is constructed with.
+/// @notice The production upgrade of live markets, held by a test: the two steps the upgrade script runs - read what
+///         each market's upgrade needs, then `upgradeMarketsToV3` - for the markets and the holder capture it is
+///         constructed with, both on the fork the test has selected.
 /// @dev Driven from outside through the deploy base's own entry point, `run(saltPrefix)`, which under forge test
 ///      executes each market's batch as the owner - the Harbor multisig, which owns the live proxies. A subclass
 ///      changes what the upgrade installs only at the deploy's override points.
@@ -19,6 +20,6 @@ contract MarketUpgradeRun is UpgradeMarketToV3 {
     }
 
     function build() internal override {
-        upgradeMarketsToV3(_markets, _capture, "mainnet");
+        upgradeMarketsToV3(readMarketUpgradeInputs(_markets, _capture), "mainnet");
     }
 }

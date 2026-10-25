@@ -3,23 +3,49 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {ConfigMarket_MCAP_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_MCAP_fxUSD_mainnet.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
+import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
 
-/// @notice The shared market upgrade, `UpgradeMarketToV3.upgradeMarketsToV3`, on the live MCAP::fxUSD market at the
-///         block of a committed holder capture: deployed and never used, so its pools are empty and the capture lists
-///         no holders. What it checks is the minter's config, which the upgrade loads again through Minter_v3's loader.
+/// @dev MCAP::fxUSD as production configures it, with a floor a wei above its live pools'.
+contract ConfigMarket_MCAP_fxUSD_floorAWeiHigher is ConfigMarket_MCAP_fxUSD_mainnet {
+    function aboutADollar() public pure override returns (uint256) {
+        return super.aboutADollar() + 1;
+    }
+}
+
+/// @dev MCAP::fxUSD as production configures it, with a withdrawal delay a second longer than its live pools'.
+contract ConfigMarket_MCAP_fxUSD_delayASecondLonger is ConfigMarket_MCAP_fxUSD_mainnet {
+    function stabilityPoolWithdrawalDelay() public pure override returns (uint256) {
+        return super.stabilityPoolWithdrawalDelay() + 1;
+    }
+}
+
+/// @notice The shared market upgrade - read each market's inputs, then `UpgradeMarketToV3.upgradeMarketsToV3` - on the
+///         live MCAP::fxUSD market at the block of a committed holder capture: deployed and never used, so its pools
+///         are empty and the capture lists no holders. It checks the minter's config, which the upgrade loads again
+///         through Minter_v3's loader, and what the upgrade refuses: a pool implementation that would not keep the live
+///         pool's floor or withdrawal window, and a capture that misses a holder.
 contract UpgradeMarketToV3Test is Test {
     string internal constant CAPTURE = "test/fixtures/holders-25272609/";
 
+    /// @dev A later block, at which BTC::stETH's collateral pool holds a depositor who joined after `CAPTURE`.
+    uint256 internal constant AFTER_A_DEPOSITOR_JOINED = 25691117;
+
+    HarborDeployRun internal deployRun;
     MarketUpgradeRun internal upgrade;
     address internal minter;
 
@@ -29,8 +55,8 @@ contract UpgradeMarketToV3Test is Test {
         Config_MinterMarket[] memory upgraded = new Config_MinterMarket[](1);
         upgraded[0] = markets[0]; // MCAP::fxUSD
         upgrade = new MarketUpgradeRun(upgraded, CAPTURE);
-        minter = new HarborDeployRun(address(0), address(0), "harbor_v1", "mainnet", HarborDeployRun.Cut.Whole)
-            .minterAddress(markets[0]);
+        deployRun = new HarborDeployRun(address(0), address(0), "harbor_v1", "mainnet", HarborDeployRun.Cut.Whole);
+        minter = deployRun.minterAddress(markets[0]);
     }
 
     /// The upgrade moves the minter to a new implementation and keeps its stored config: loaded again through
@@ -68,5 +94,110 @@ contract UpgradeMarketToV3Test is Test {
         upgrade.run("harbor_v1");
 
         assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
+    }
+
+    /// A new pool implementation that would not keep the live pool's floor is refused when the upgrade is built,
+    /// naming the pool and both floors: nothing is saved for the multisig, and the minter stays on Minter_v2.
+    function test_upgradeRefusesAPoolWhoseFloorDiffersFromItsNewImplementation() public {
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_MCAP_fxUSD_floorAWeiHigher();
+        string memory key = deployRun.stabilityPoolKey(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        address pool = deployRun.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        uint256 liveFloor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 newFloor = IHarborConfig(address(markets[0])).aboutADollar();
+        assertEq(newFloor, liveFloor + 1, "precondition: the live floor is the production config's");
+        MarketUpgradeRun refused = new MarketUpgradeRun(markets, CAPTURE);
+        bytes32 implementationBefore = vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT);
+
+        vm.expectRevert(
+            bytes(
+                string.concat(
+                    key,
+                    ": the pool's floor is ",
+                    LibString.toString(liveFloor),
+                    ", its new implementation's ",
+                    LibString.toString(newFloor)
+                )
+            )
+        );
+        refused.run("harbor_v1");
+
+        assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
+    }
+
+    /// A new pool implementation that would not keep the live pool's withdrawal window is refused when the upgrade is
+    /// built, naming the pool and both windows: nothing is saved for the multisig, and the minter stays on Minter_v2.
+    function test_upgradeRefusesAPoolWhoseWindowDiffersFromItsNewImplementation() public {
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_MCAP_fxUSD_delayASecondLonger();
+        string memory key = deployRun.stabilityPoolKey(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        address pool = deployRun.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        (uint64 liveDelay, uint64 liveWindow) = IStabilityPool(pool).getWithdrawalWindow();
+        uint256 newDelay = IHarborConfig(address(markets[0])).stabilityPoolWithdrawalDelay();
+        uint256 newWindow = IHarborConfig(address(markets[0])).stabilityPoolWithdrawalPeriod();
+        assertEq(newDelay, liveDelay + 1, "precondition: the live delay is the production config's");
+        assertEq(newWindow, liveWindow, "precondition: the live window is the production config's");
+        MarketUpgradeRun refused = new MarketUpgradeRun(markets, CAPTURE);
+        bytes32 implementationBefore = vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT);
+
+        vm.expectRevert(
+            bytes(
+                string.concat(
+                    key,
+                    ": the pool's withdrawal window is ",
+                    LibString.toString(liveDelay),
+                    " s then ",
+                    LibString.toString(liveWindow),
+                    " s, its new implementation's ",
+                    LibString.toString(newDelay),
+                    " s then ",
+                    LibString.toString(newWindow),
+                    " s"
+                )
+            )
+        );
+        refused.run("harbor_v1");
+
+        assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
+    }
+
+    /// A capture taken before a depositor joined misses what they hold. Read where they have joined, the captured
+    /// holders leave a gap far beyond rounding, and the read refuses it, naming the pool, what the captured holders hold
+    /// and the supply - before any upgrade is built.
+    function test_readRefusesACaptureMissingAHolder() public {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), AFTER_A_DEPOSITOR_JOINED);
+        (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = btcMarkets[1]; // BTC::stETH
+        HarborDeployRun addresses = new HarborDeployRun(
+            address(0),
+            address(0),
+            "harbor_v1",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        string memory key = addresses.stabilityPoolKey(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        address pool = addresses.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        address[] memory holders = HolderCaptureLib.holders(CAPTURE, key);
+        uint256 held;
+        for (uint256 i = 0; i < holders.length; ++i) {
+            held += IStabilityPool(pool).assetBalanceOf(holders[i]);
+        }
+        uint256 supply = IStabilityPool(pool).totalAssetSupply();
+        MarketUpgradeRun refused = new MarketUpgradeRun(markets, CAPTURE);
+
+        vm.expectRevert(
+            bytes(
+                string.concat(
+                    key,
+                    ": the captured holders hold ",
+                    LibString.toString(held),
+                    " of a supply of ",
+                    LibString.toString(supply),
+                    ", a gap beyond rounding"
+                )
+            )
+        );
+        refused.run("harbor_v1");
     }
 }
