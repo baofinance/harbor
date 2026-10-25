@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
@@ -618,5 +619,52 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
             clampedOutflow - expectedFee,
             "user1 receives the clamped outflow less the proper fee"
         );
+    }
+
+    /// @notice The owner can change where the early-withdrawal fees go: the getter reports the new address, the change is
+    ///         announced, and the next fee is paid there, not to the old address.
+    function test_updateFeeAddress_ownerSetsIt() public {
+        address newFeeAddress = makeAddr("newFeeAddress");
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+        vm.stopPrank();
+
+        vm.startPrank(owner());
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.FeeAddressUpdated(newFeeAddress);
+        IStabilityPool_v3(stabilityPoolCollateral).updateFeeAddress(newFeeAddress);
+        vm.stopPrank();
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), newFeeAddress, "the new fee address");
+
+        // A withdrawal with no request pays the fee, to the new address alone.
+        uint256 oldAddressBefore = IERC20(peggedToken).balanceOf(treasury());
+        uint256 amount = 1 * price;
+        uint256 expectedFee = (amount * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount, user1, 0);
+        vm.stopPrank();
+        assertEq(IERC20(peggedToken).balanceOf(newFeeAddress), expectedFee, "the fee is paid to the new address");
+        assertEq(IERC20(peggedToken).balanceOf(treasury()), oldAddressBefore, "nothing more to the old one");
+    }
+
+    /// @notice Only the owner changes the fee address; anyone else is refused and the address stays.
+    function test_updateFeeAddress_notOwner_reverts() public {
+        address before = IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress();
+        vm.startPrank(user1);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IStabilityPool_v3(stabilityPoolCollateral).updateFeeAddress(user1);
+        vm.stopPrank();
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), before, "unchanged");
+    }
+
+    /// @notice The zero address is refused, by the same error `initialize` gives it.
+    function test_updateFeeAddress_zero_reverts() public {
+        vm.startPrank(owner());
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFeeAddress.selector, address(0)));
+        IStabilityPool_v3(stabilityPoolCollateral).updateFeeAddress(address(0));
+        vm.stopPrank();
     }
 }

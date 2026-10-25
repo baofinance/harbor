@@ -544,3 +544,27 @@ Nothing after the exploit.
 
 Nothing after the exploit.
 
+## Compensation inputs
+
+In wstETH, from the two readings around the exploit and the one at the pause; also in [BTC-stETH-compensation.json](BTC-stETH-compensation.json), in wei. A party's debt is its loss across the exploit's transaction. Where the capped rebalance paid its leveraged pool position more than it took, that gain is taken back from the party's leveraged reward where the reward is still unclaimed at the pause (the cut), and deducted from its debt where it is not. The cut is in value here; the tokens it takes depend on the price when it is made.
+
+| Party | The exploit's change | Leveraged pool gain | Unclaimed hsSTETH-BTC at the pause | Its value | Cut | Debt |
+|---|---|---|---|---|---|---|
+| `0x0e4d5032c0B076cB132a10347d940BfBB8354869` | +0.073920778919683581 | 0.073920778919683581 | 0.056135175912542335 | 0.092714319397198985 | 0.073920778919683581 | 0.000000000000000000 |
+| `0x13F210c8bAf5f5DBAFf3E917E2e5A49E73BBAF12` | +0.029417644294991086 | 0.030769726058583512 | 0.142690333130136740 | 0.235671072650265913 | 0.030769726058583512 | 0.001352081763592426 |
+| `0x619e71ec0d528520961571Dcea6f13f8B63410E3` | -10.516928845026281796 | 0.267132208895577182 |  |  |  | 10.516928845026281796 |
+| `0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e` | -0.001239168127385640 |  |  |  |  | 0.001239168127385640 |
+| `0xb9ab9578a34a05c86124c399735fdE44dEc80E7F` | -0.279147594353849999 | 0.022451291907131528 | 0.104114749521368204 | 0.171958633497873106 | 0.022451291907131528 | 0.301598886260981527 |
+| `0xA0DD64775018b624978cCf55fE11c50dA621534E` | -0.000231734648099475 |  |  |  |  | 0.000231734648099475 |
+| `0xE81003515B5c537Cd4EE57A41dbEcF01FF429135` | -0.075033249607090375 |  |  |  |  | 0.075033249607090375 |
+| `0xecfFe7b0E11935CdB4f2107ff22140b67d36dCED` | -0.060026599685672307 |  |  |  |  | 0.060026599685672307 |
+| `0xEE517179cef2e52aF9D52667C7C9a43a5093F775` | -0.300132998428361526 |  |  |  |  | 0.300132998428361526 |
+| `0x061B84FDe0aa74ecbF8eCDB0481576feE9Ae35aa` | -0.023948197564707566 |  |  |  |  | 0.023948197564707566 |
+| `0x1a9152528AEFbcD9E5df4E0770f4F510e7056913` | -0.194413071610044131 |  |  |  |  | 0.194413071610044131 |
+| `0xDD0CDF8D98d9Ad3ADfaa49AaECD444Bfa01d9C9a` | -0.000598663132041949 |  |  |  |  | 0.000598663132041949 |
+| `0x787A7dA17544bCc3a0FebCd2c24C831ea55ae83f` (genesis participant, unclaimed) | -0.020357377780402045 |  |  |  |  | 0.020357377780402045 |
+| `0xBA188C418d95145D73f3706b6d436249FA5cbEB7` (genesis participant, unclaimed) | -0.050858004876360820 |  |  |  |  | 0.050858004876360820 |
+| `0x33abAf6F3D324c68140932903FCf108cfb0548B0` (genesis participant, unclaimed) | -0.002392815545716910 |  |  |  |  | 0.002392815545716910 |
+| **Total** | | | | | **0.127141796885398621** | **11.549111694056738493** |
+
+The multisig's fees from the exploit: 3.002792846575236128 wstETH and 0.074048026841324418 haBTC. The exploit paid out 6.425312520857398299 wstETH.

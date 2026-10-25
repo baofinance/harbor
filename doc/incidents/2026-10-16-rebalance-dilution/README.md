@@ -141,6 +141,10 @@ and the pools were paused:
   it also moves for reasons outside the market.
 - **Checks.** At every reading the parties hold the pegged and leveraged supplies. Between readings, every wallet's
   token change is the net of its captured transfers. At the pause block, the minter and both pools are paused.
+- **Compensation inputs.** The same run writes `<market>-compensation.json`: per wallet, the exploit's change, the gain
+  the capped rebalance paid its leveraged pool position, its unclaimed leveraged reward at the pause, the cut taken
+  from that reward, and its debt; with the market's fees and the exploit's payout. The holders file ends with the same
+  table.
 
 ## Mitigations
 

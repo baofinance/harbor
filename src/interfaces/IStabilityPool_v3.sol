@@ -53,6 +53,10 @@ interface IStabilityPool_v3 {
         uint256 liquidatedToAmount
     );
 
+    /// @notice Emitted when the owner changes the address the early-withdrawal fees are paid to.
+    /// @param newFeeAddress The address that receives them from now on.
+    event FeeAddressUpdated(address newFeeAddress);
+
     /// @notice Emitted when an account requests a withdrawal window.
     /// @param owner The account.
     /// @param start The timestamp from which a withdrawal pays no fee.
@@ -249,4 +253,9 @@ interface IStabilityPool_v3 {
     /// @param liquidated The asset removed from the pool by the liquidation.
     /// @param returned The amount of `rewardToken` distributed to the holders.
     function notifyLiquidation(address rewardToken, uint256 liquidated, uint256 returned) external;
+
+    /// @notice Change the address the early-withdrawal fees are paid to. Owner only.
+    /// @dev Reverts `InvalidFeeAddress` for the zero address. Emits `FeeAddressUpdated`.
+    /// @param feeAddress_ The address that receives the fees from now on.
+    function updateFeeAddress(address feeAddress_) external;
 }

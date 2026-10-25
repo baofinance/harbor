@@ -62,7 +62,9 @@ Each column sums to zero, to rounding.
 
 ## The proposed rule
 
-This is a proposal for decision.
+This is a proposal for decision. The exact figures it produces per wallet are generated into
+[BTC-stETH-compensation.json](BTC-stETH-compensation.json) and [EUR-stETH-compensation.json](EUR-stETH-compensation.json),
+and shown in each holders file's "Compensation inputs" section.
 
 - **A wallet is owed, or owes, the exploit's change.** That is the change in value of all its positions across the
   exploit's transaction, netted, at that block's prices.

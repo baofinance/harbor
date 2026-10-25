@@ -2198,6 +2198,184 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                 _holderSections(history)
             )
         );
+        _writeCompensation(history);
+    }
+
+    /// @notice The inputs of the compensation, per party: see `_compensation`.
+    struct Compensation {
+        address[] accounts;
+        /// @dev The exploit's change in the party's value, wrapped collateral, as the accounts file has it.
+        int256[] changes;
+        /// @dev The value the capped rebalance paid the party's leveraged pool position beyond what it took, where positive.
+        uint256[] poolGains;
+        /// @dev The party's leveraged reward still unclaimed at the pause, in tokens, and its value at the pause's prices.
+        uint256[] unclaimedLeveraged;
+        uint256[] unclaimedValue;
+        /// @dev The pool gain, where the unclaimed reward covers it: taken from the reward.
+        uint256[] cuts;
+        /// @dev What the party is owed: its change negated, plus the cut, floored at zero.
+        uint256[] debts;
+        uint256 totalDebt;
+        uint256 totalCut;
+        /// @dev The multisig's fees from the exploit, in wrapped collateral and in pegged tokens.
+        uint256 feesWrapped;
+        uint256 feesPegged;
+        /// @dev What the exploit paid its payees, in wrapped collateral.
+        uint256 payout;
+    }
+
+    /// @dev Writes `<market>-compensation.json` and appends the "Compensation inputs" section to the holders file. The
+    ///      figures follow the decided treatment: a party's debt is its loss across the exploit's transaction, with the
+    ///      gain the capped rebalance paid its leveraged pool position taken back from that reward where it is still
+    ///      unclaimed, and deducted from the debt where it is not. Checks: the exploit's books balance between the two
+    ///      readings (every party's change sums to zero within the valuation's rounding, as the figures file requires),
+    ///      and no cut exceeds the unclaimed reward it is taken from.
+    function _writeCompensation(History memory history) internal {
+        Reading memory before = history.points[0].reading;
+        Reading memory afterwards = history.points[1].reading;
+        _summarySection(before, afterwards); // for its books check
+        Compensation memory c = _compensation(history);
+
+        string memory json = "compensation";
+        vm.serializeString(json, "market", history.name);
+        vm.serializeString(json, "token", history.wrappedSymbol);
+        vm.serializeUint(json, "exploitBlock", history.points[0].blockNumber);
+        vm.serializeUint(json, "pauseBlock", PAUSE_BLOCK);
+        vm.serializeAddress(json, "accounts", c.accounts);
+        vm.serializeInt(json, "changes", c.changes);
+        vm.serializeUint(json, "poolGains", c.poolGains);
+        vm.serializeUint(json, "unclaimedLeveraged", c.unclaimedLeveraged);
+        vm.serializeUint(json, "unclaimedLeveragedValue", c.unclaimedValue);
+        vm.serializeUint(json, "cuts", c.cuts);
+        vm.serializeUint(json, "debts", c.debts);
+        vm.serializeUint(json, "totalDebt", c.totalDebt);
+        vm.serializeUint(json, "totalCut", c.totalCut);
+        vm.serializeUint(json, "feesWrapped", c.feesWrapped);
+        vm.serializeUint(json, "feesPegged", c.feesPegged);
+        json = vm.serializeUint(json, "exploitPayout", c.payout);
+        vm.writeJson(json, string.concat(DIRECTORY, history.label, "-compensation.json"));
+
+        string memory file = string.concat(DIRECTORY, history.label, "-holders.md");
+        vm.writeLine(file, "## Compensation inputs");
+        vm.writeLine(file, "");
+        vm.writeLine(
+            file,
+            string.concat(
+                "In ",
+                history.wrappedSymbol,
+                ", from the two readings around the exploit and the one at the pause; also in [",
+                history.label,
+                "-compensation.json](",
+                history.label,
+                "-compensation.json), in wei. A party's debt is its loss across the exploit's transaction. Where the ",
+                "capped rebalance paid its leveraged pool position more than it took, that gain is taken back from the ",
+                "party's leveraged reward where the reward is still unclaimed at the pause (the cut), and deducted from ",
+                "its debt where it is not. The cut is in value here; the tokens it takes depend on the price when it is ",
+                "made."
+            )
+        );
+        vm.writeLine(file, "");
+        vm.writeLine(
+            file,
+            string.concat(
+                "| Party | The exploit's change | Leveraged pool gain | Unclaimed ",
+                history.leveragedSymbol,
+                " at the pause | Its value | Cut | Debt |\n|---|---|---|---|---|---|---|"
+            )
+        );
+        for (uint256 i = 0; i < c.accounts.length; ++i) {
+            string[] memory cells = new string[](7);
+            cells[0] = _name(_partyIndex(c.accounts[i]));
+            cells[1] = _exactSigned(c.changes[i]);
+            cells[2] = c.poolGains[i] == 0 ? "" : _exact(c.poolGains[i]);
+            cells[3] = c.unclaimedLeveraged[i] == 0 ? "" : _exact(c.unclaimedLeveraged[i]);
+            cells[4] = c.unclaimedValue[i] == 0 ? "" : _exact(c.unclaimedValue[i]);
+            cells[5] = c.cuts[i] == 0 ? "" : _exact(c.cuts[i]);
+            cells[6] = _exact(c.debts[i]);
+            vm.writeLine(file, LibString.slice(_row(cells), 0, bytes(_row(cells)).length - 1));
+        }
+        vm.writeLine(
+            file,
+            string.concat(
+                "| **Total** | | | | | **",
+                _exact(c.totalCut),
+                "** | **",
+                _exact(c.totalDebt),
+                "** |"
+            )
+        );
+        vm.writeLine(file, "");
+        vm.writeLine(
+            file,
+            string.concat(
+                "The multisig's fees from the exploit: ",
+                _amount(c.feesWrapped, history.wrappedSymbol),
+                " and ",
+                _amount(c.feesPegged, history.peggedSymbol),
+                ". The exploit paid out ",
+                _amount(c.payout, history.wrappedSymbol),
+                "."
+            )
+        );
+    }
+
+    /// @dev The compensation inputs of every holder the exploit changed or that holds a leveraged pool reward: see
+    ///      `Compensation`. The fee receivers, the reserve pool and the accounts the exploit paid are not holders; their
+    ///      changes are the fees and the payout.
+    function _compensation(History memory history) internal view returns (Compensation memory c) {
+        Reading memory before = history.points[0].reading;
+        Reading memory afterwards = history.points[1].reading;
+        Point memory pause = history.points[history.points.length - 1];
+        uint256 count;
+        for (uint256 i = 0; i < parties.length; ++i) {
+            uint256 kind = _kind(parties[i].role);
+            if (kind == 1) {
+                c.feesWrapped += afterwards.parties[i].wrapped - before.parties[i].wrapped;
+                c.feesPegged += afterwards.parties[i].pegged - before.parties[i].pegged;
+            } else if (kind == 3) {
+                c.payout += afterwards.parties[i].wrapped - before.parties[i].wrapped;
+            } else if (
+                kind == 0 &&
+                (_exploitChange(history, i) != 0 || pause.reading.parties[i].leveragedPoolLeveraged != 0) &&
+                !LibString.contains(parties[i].role, "genesis contract")
+            ) {
+                ++count;
+            }
+        }
+        c.accounts = new address[](count);
+        c.changes = new int256[](count);
+        c.poolGains = new uint256[](count);
+        c.unclaimedLeveraged = new uint256[](count);
+        c.unclaimedValue = new uint256[](count);
+        c.cuts = new uint256[](count);
+        c.debts = new uint256[](count);
+        count = 0;
+        for (uint256 i = 0; i < parties.length; ++i) {
+            if (
+                _kind(parties[i].role) != 0 ||
+                (_exploitChange(history, i) == 0 && pause.reading.parties[i].leveragedPoolLeveraged == 0) ||
+                LibString.contains(parties[i].role, "genesis contract")
+            ) {
+                continue;
+            }
+            c.accounts[count] = parties[i].account;
+            c.changes[count] = _exploitChange(history, i);
+            int256 poolChange = _wrappedChange(before, afterwards, i, 3, 6);
+            c.poolGains[count] = poolChange > 0 ? uint256(poolChange) : 0;
+            c.unclaimedLeveraged[count] = pause.reading.parties[i].leveragedPoolLeveraged;
+            c.unclaimedValue[count] = Math.mulDiv(
+                c.unclaimedLeveraged[count],
+                pause.reading.prices.leveraged,
+                pause.reading.prices.wrapped
+            );
+            c.cuts[count] = Math.min(c.poolGains[count], c.unclaimedValue[count]);
+            assertLe(c.cuts[count], c.unclaimedValue[count], "a cut is within the unclaimed reward");
+            int256 debt = int256(c.cuts[count]) - c.changes[count];
+            c.debts[count] = debt > 0 ? uint256(debt) : 0;
+            c.totalDebt += c.debts[count];
+            c.totalCut += c.cuts[count];
+            ++count;
+        }
     }
 
     /// @dev Adds each genesis participant with an unclaimed share as a party, and returns how many accounts were ever

@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Vm} from "forge-std/Vm.sol";
 
 import {BaoFactoryTestLib} from "@bao-test/BaoFactoryTestLib.sol";
+import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {HarborDeployStack} from "@harbor-script/src/HarborDeployStack.sol";
@@ -155,6 +156,22 @@ contract HarborDeployRun is HarborDeployStack {
         Config_MinterMarket[] memory marketsToDeploy
     ) public {
         deployHarborForPeg(saltPrefix(), peg, allMarkets, network(), deployPeg, marketsToDeploy);
+    }
+
+    /// @notice Deploy the repayment contract for the rebalance dilution exploits, with `debts` owed to `accounts` in
+    ///         `token`, and hand it to the run's owner.
+    /// @dev The public face of the `Repayment` mixin's `deployRepayment`, for the same reason `deploy` exists: a run is
+    ///      driven from outside. It is not part of a peg's deployment, so it builds its own fresh state, as a run with
+    ///      nothing to persist does.
+    function deployRepayment(
+        address token,
+        address[] memory accounts,
+        uint256[] memory debts
+    ) public returns (address repayment) {
+        DeploymentTypes.State memory state = DeploymentState.fresh(saltPrefix(), network());
+        state.baoFactory = baoFactory();
+        repayment = deployRepayment(state, rebalanceDilutionRepaymentKey(), token, accounts, debts);
+        _transferAllOwnerships();
     }
 
     /// @notice Deploy the singleton BaoFactory if needed and register THIS run as a factory operator.

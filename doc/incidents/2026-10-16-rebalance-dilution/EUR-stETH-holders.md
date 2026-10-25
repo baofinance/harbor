@@ -229,3 +229,19 @@ Nothing after the exploit.
 
 Nothing after the exploit.
 
+## Compensation inputs
+
+In wstETH, from the two readings around the exploit and the one at the pause; also in [EUR-stETH-compensation.json](EUR-stETH-compensation.json), in wei. A party's debt is its loss across the exploit's transaction. Where the capped rebalance paid its leveraged pool position more than it took, that gain is taken back from the party's leveraged reward where the reward is still unclaimed at the pause (the cut), and deducted from its debt where it is not. The cut is in value here; the tokens it takes depend on the price when it is made.
+
+| Party | The exploit's change | Leveraged pool gain | Unclaimed hsSTETH-EUR at the pause | Its value | Cut | Debt |
+|---|---|---|---|---|---|---|
+| `0x619e71ec0d528520961571Dcea6f13f8B63410E3` | -2.795927643896313260 |  |  |  |  | 2.795927643896313260 |
+| `0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e` | -0.000096172217259725 |  |  |  |  | 0.000096172217259725 |
+| `0xb9ab9578a34a05c86124c399735fdE44dEc80E7F` | -0.131952091588204775 |  |  |  |  | 0.131952091588204775 |
+| `0xf7e9CAaaEEb6cC9657E1Dd490F044114AecC31B2` | -0.091057331382756592 |  |  |  |  | 0.091057331382756592 |
+| `0x000000000000dEaaCBb476761B12B99B22B583EB` | -0.004287110728270562 |  |  |  |  | 0.004287110728270562 |
+| `0x3dE6aAACf6b557BBbcAa7d21587021F3514aDdE8` | -0.003542112901444694 |  |  |  |  | 0.003542112901444694 |
+| `0x2f75E925C38f83785A7D0630f65Aed8C65C1454f` (genesis participant, unclaimed) | -0.000285482519594090 |  |  |  |  | 0.000285482519594090 |
+| **Total** | | | | | **0.000000000000000000** | **3.027147945233843698** |
+
+The multisig's fees from the exploit: 0.989921357011392341 wstETH and 1584.045666291765088685 haEUR. The exploit paid out 1.454577009113072991 wstETH.

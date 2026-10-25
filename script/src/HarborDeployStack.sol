@@ -8,6 +8,7 @@ import {Minter} from "@harbor-script/src/contracts/Minter.sol";
 import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
 import {Genesis} from "@harbor-script/src/contracts/Genesis.sol";
+import {Repayment} from "@harbor-script/src/contracts/Repayment.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -25,7 +26,8 @@ abstract contract HarborDeployStack is
     Minter,
     StabilityPool,
     StabilityPoolManager,
-    Genesis
+    Genesis,
+    Repayment
 {
     using LibString for string;
 

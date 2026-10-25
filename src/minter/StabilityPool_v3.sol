@@ -316,6 +316,15 @@ contract StabilityPool_v3 is
     /// In UUPS proxies the implementation is responsible for upgrading itself and only owners can upgrade this contract.
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
+    /// @inheritdoc IStabilityPool_v3
+    function updateFeeAddress(address feeAddress_) external onlyOwner {
+        if (feeAddress_ == address(0)) {
+            revert InvalidFeeAddress(feeAddress_);
+        }
+        _getStabilityPoolStorage().feePayment.feeAddress = feeAddress_;
+        emit FeeAddressUpdated(feeAddress_);
+    }
+
     /*************************
      * Public View Functions *
      *************************/
