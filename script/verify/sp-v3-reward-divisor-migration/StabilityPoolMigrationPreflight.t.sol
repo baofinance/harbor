@@ -276,7 +276,11 @@ contract StabilityPoolMigrationPreflight is
         );
 
         assertGt(deployedCount, 0, "no pools scanned - fork / enumeration broken");
-        assertEq(incompleteCount, 0, "a pool's captured holders hold less than its supply, beyond rounding - see INCOMPLETE");
+        assertEq(
+            incompleteCount,
+            0,
+            "a pool's captured holders hold less than its supply, beyond rounding - see INCOMPLETE"
+        );
         assertEq(excessCount, 0, "a pool's captured holders hold more than its supply, beyond rounding - see EXCESS");
         assertEq(
             overCeilingCount,

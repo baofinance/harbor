@@ -32,9 +32,7 @@ contract LogCaptureLibTest is Test {
         (uint256 fromBlock, uint256 toBlock) = this.captureRange(CAPTURE);
         assertEq(fromBlock, 26_204_584, "from, without a slash");
         assertEq(toBlock, 26_204_584, "to, without a slash");
-        (fromBlock, toBlock) = this.captureRange(
-            "doc/incidents/2026-10-16-rebalance-dilution/logs-26204584-26248724/"
-        );
+        (fromBlock, toBlock) = this.captureRange("doc/incidents/2026-10-16-rebalance-dilution/logs-26204584-26248724/");
         assertEq(fromBlock, 26_204_584, "from, with a slash");
         assertEq(toBlock, 26_248_724, "to, with a slash");
     }

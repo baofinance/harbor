@@ -141,7 +141,10 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
 
     /// @dev The pool's supply, floor, withdrawal window, fee, reward tokens and streams, and each captured holder's
     ///      balance and claimable and claimed rewards, as StabilityPool_v2 reports them, encoded.
-    function _poolAnswers(Config_MinterMarket market, StabilityPoolType poolType) private returns (bytes memory answers) {
+    function _poolAnswers(
+        Config_MinterMarket market,
+        StabilityPoolType poolType
+    ) private returns (bytes memory answers) {
         address pool = stabilityPoolAddress(market, poolType);
         address[] memory tokens = IMultipleRewardDistributor(pool).activeRewardTokens();
         (uint64 startDelay, uint64 endWindow) = IStabilityPool(pool).getWithdrawalWindow();
