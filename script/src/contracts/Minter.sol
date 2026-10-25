@@ -5,6 +5,7 @@ import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
@@ -27,18 +28,17 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 abstract contract Minter is HarborDeployer {
     // ========== MINTER DEPLOYMENT ==========
 
-    /// @dev Receives the resolved key and fully-resolved addresses only — never a config object — so a test
-    ///      override can substitute an implementation without reproducing any address resolution.
+    /// @dev Receives the resolved key and the market's resolved addresses only — never a config object — so a test
+    ///      override can substitute an implementation without reproducing any address resolution. It takes the
+    ///      tokens from `addresses` by name, as every implementation of the market does.
     function deployMinterImplementation(
         DeploymentTypes.State memory stateData,
         string memory key,
-        address wrappedCollateral,
-        address peggedToken,
-        address leveragedToken
+        MarketAddresses memory addresses
     ) internal virtual returns (address impl) {
         _reportContract(key);
 
-        impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken));
+        impl = address(new Minter_v3(addresses.wrappedCollateral, addresses.pegged, addresses.leveraged));
         _reportImplementation(impl);
 
         _recordImplementation(stateData, key, "@harbor/minter/Minter_v3.sol", "Minter_v3", impl);
@@ -56,14 +56,9 @@ abstract contract Minter is HarborDeployer {
     ) internal returns (address proxy) {
         IHarborConfig cfg = IHarborConfig(address(marketConfig));
         string memory key = minterKey(marketConfig);
+        MarketAddresses memory addresses = marketAddresses(marketConfig);
 
-        address impl = deployMinterImplementation(
-            stateData,
-            key,
-            cfg.wrappedCollateralToken(),
-            peggedTokenAddress(marketConfig),
-            leveragedTokenAddress(marketConfig)
-        );
+        address impl = deployMinterImplementation(stateData, key, addresses);
 
         bytes memory initData = abi.encodeCall(Minter_v3.initialize, (address(this), owner()));
 
@@ -72,7 +67,7 @@ abstract contract Minter is HarborDeployer {
         IMinter(proxy).updateConfig(cfg.minterConfig());
         IMinter(proxy).updateReservePool(reservePoolAddress(marketConfig));
         IMinter(proxy).updateFeeReceiver(treasury());
-        IMinter(proxy).updatePriceOracle(wrappedPriceOracleAddress(marketConfig));
+        IMinter(proxy).updatePriceOracle(addresses.oracle);
 
         // The manager harvests and mints fee-free; genesis only mints fee-free. Neither is deployed at
         // this point — both are predicted addresses, which is what lets a minter deploy on its own.

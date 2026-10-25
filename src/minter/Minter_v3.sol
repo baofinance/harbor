@@ -212,18 +212,20 @@ contract Minter_v3 is
     }
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
+    /// @dev Calls no other contract, so the implementation deploys whatever state the tokens are in - not yet
+    ///      deployed, or paused. The deploy checks the tokens answer as ERC-20s, and are this market's, once they
+    ///      and this contract both exist.
     /// @custom:oz-upgrades-unsafe-allow constructor
-    // slither-disable-next-line missing-zero-check // sanityCheckERC20Token is called
     constructor(address collateralToken_, address peggedToken_, address leveragedToken_) {
         _disableInitializers();
 
-        Token.sanityCheckERC20Token(collateralToken_);
+        Token.ensureNonZeroAddress(collateralToken_);
         // slither-disable-next-line missing-zero-check
         WRAPPED_COLLATERAL_TOKEN = collateralToken_;
-        Token.sanityCheckERC20Token(leveragedToken_);
+        Token.ensureNonZeroAddress(leveragedToken_);
         // slither-disable-next-line missing-zero-check
         LEVERAGED_TOKEN = leveragedToken_;
-        Token.sanityCheckERC20Token(peggedToken_);
+        Token.ensureNonZeroAddress(peggedToken_);
         // slither-disable-next-line missing-zero-check
         PEGGED_TOKEN = peggedToken_;
     }
@@ -744,9 +746,7 @@ contract Minter_v3 is
     //////////////////////////////
 
     /// @inheritdoc IMinter_v3
-    function donateWrappedCollateral(
-        uint256 wrappedAmount
-    ) external onlyOwnerOrRoles(DONOR_ROLE) nonReentrant {
+    function donateWrappedCollateral(uint256 wrappedAmount) external onlyOwnerOrRoles(DONOR_ROLE) nonReentrant {
         if (wrappedAmount == 0) {
             revert ZeroInputBalance(WRAPPED_COLLATERAL_TOKEN);
         }

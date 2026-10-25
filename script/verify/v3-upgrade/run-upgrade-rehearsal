@@ -45,5 +45,8 @@ fi
 
 echo "# rehearsing with capture ${HOLDERS_DIR} ($(grep '^to-block:' "${HOLDERS_DIR}/manifest.txt"))" >&2
 
+# The rehearsal runs every market's deploys and batches in one test call - about 410M gas for the 11 live markets -
+# where production sends each as a transaction of its own. Without --disable-block-gas-limit the call runs out of gas
+# part way through the second market.
 HOLDERS_DIR="$HOLDERS_DIR" exec script/verify/run-campaign-test script/verify/v3-upgrade \
-  tmp/v3-upgrade-rehearsal.log "${FORGE_VERBOSITY:--vv}"
+  tmp/v3-upgrade-rehearsal.log "${FORGE_VERBOSITY:--vv}" --disable-block-gas-limit

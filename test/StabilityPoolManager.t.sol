@@ -13,6 +13,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {Token} from "@bao/Token.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -107,7 +108,14 @@ contract TestStabilityPoolManagerInit is TestStabilityPoolManagerSetUp {
 
     function setUp_impl() internal virtual {
         stabilityPoolManagerImpl = address(
-            new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)
+            new StabilityPoolManager_v2(
+                minter,
+                wrappedCollateralToken,
+                peggedToken,
+                leveragedToken,
+                stabilityPoolCollateral,
+                stabilityPoolLeveraged
+            )
         );
     }
 
@@ -116,6 +124,55 @@ contract TestStabilityPoolManagerInit is TestStabilityPoolManagerSetUp {
             stabilityPoolManagerImpl,
             abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
+    }
+
+    /// A manager cannot be built with a zero address for its minter, any of its three tokens or either pool: the
+    /// constructor refuses each.
+    function test_constructor_aZeroAddress_reverts() public {
+        address[6] memory given = [
+            minter,
+            wrappedCollateralToken,
+            peggedToken,
+            leveragedToken,
+            stabilityPoolCollateral,
+            stabilityPoolLeveraged
+        ];
+        for (uint256 i = 0; i < given.length; ++i) {
+            address[6] memory oneZero = given;
+            oneZero[i] = address(0);
+            vm.expectRevert(Token.ZeroAddress.selector);
+            new StabilityPoolManager_v2(oneZero[0], oneZero[1], oneZero[2], oneZero[3], oneZero[4], oneZero[5]);
+        }
+    }
+
+    /// A manager calls none of the contracts it names when it is built, so it builds before they exist - or while they
+    /// are paused - and keeps each as given.
+    function test_constructor_beforeTheContractsItNamesExist_keepsThem() public {
+        address futureMinter = makeAddr("futureMinter");
+        address futureWrappedCollateral = makeAddr("futureWrappedCollateral");
+        address futurePegged = makeAddr("futurePegged");
+        address futureLeveraged = makeAddr("futureLeveraged");
+        address futureCollateralPool = makeAddr("futureCollateralPool");
+        address futureLeveragedPool = makeAddr("futureLeveragedPool");
+
+        address built = address(
+            new StabilityPoolManager_v2(
+                futureMinter,
+                futureWrappedCollateral,
+                futurePegged,
+                futureLeveraged,
+                futureCollateralPool,
+                futureLeveragedPool
+            )
+        );
+
+        assertEq(IStabilityPoolManager_v2(built).MINTER(), futureMinter, "the minter");
+        assertEq(IStabilityPoolManager_v2(built).WRAPPED_COLLATERAL_TOKEN(), futureWrappedCollateral, "the collateral");
+        assertEq(IStabilityPoolManager_v2(built).PEGGED_TOKEN(), futurePegged, "the pegged token");
+        assertEq(IStabilityPoolManager_v2(built).LEVERAGED_TOKEN(), futureLeveraged, "the leveraged token");
+        address[] memory pools = IStabilityPoolManager_v2(built).stabilityPools();
+        assertEq(pools[0], futureCollateralPool, "the collateral pool");
+        assertEq(pools[1], futureLeveragedPool, "the leveraged pool");
     }
 
     function test_initEvents() public {
@@ -1909,7 +1966,14 @@ contract TestStabilityPoolManagerUpgradeable is TestStabilityPoolManagerSetUp {
         super.setUp();
         // Deploy the new implementation contract
         newImplementation = address(
-            new MockStabilityPoolManagerUpgraded(minter, stabilityPoolCollateral, stabilityPoolLeveraged)
+            new MockStabilityPoolManagerUpgraded(
+                minter,
+                wrappedCollateralToken,
+                peggedToken,
+                leveragedToken,
+                stabilityPoolCollateral,
+                stabilityPoolLeveraged
+            )
         );
     }
 

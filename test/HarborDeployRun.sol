@@ -10,7 +10,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {HarborDeployStack} from "@harbor-script/src/HarborDeployStack.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @notice One Harbor deployment run: who owns it, where its fees go, its salt namespace, its network and which cut of
@@ -192,19 +192,11 @@ contract HarborDeployRun is HarborDeployStack {
     ///         oracle.
     error MinterReadsAnotherOracle(address minter, address wired, address predicted);
 
-    /// @notice The addresses of `config`'s market as this run deployed it.
-    /// @dev The minter, the two pools, the manager and the oracle are found by this run's own resolvers - where the
-    ///      deploy put them, and where it wired the minter to find its price. The three tokens are read from the
-    ///      deployed minter, since those are the ones the market uses. Reverts on a market this run has not deployed.
-    function marketAddresses(Config_MinterMarket config) public returns (MarketAddresses memory addresses) {
-        addresses.minter = _deployedMinter(config);
-        addresses.collateralPool = stabilityPoolAddress(config, StabilityPoolType.Collateral);
-        addresses.leveragedPool = stabilityPoolAddress(config, StabilityPoolType.Leveraged);
-        addresses.manager = stabilityPoolManagerAddress(config);
-        addresses.pegged = IMinter(addresses.minter).PEGGED_TOKEN();
-        addresses.leveraged = IMinter(addresses.minter).LEVERAGED_TOKEN();
-        addresses.wrappedCollateral = IMinter(addresses.minter).WRAPPED_COLLATERAL_TOKEN();
-        addresses.oracle = wrappedPriceOracleAddress(config);
+    /// @notice The addresses of `config`'s market, which this run has deployed: the deploy's own (`marketAddresses`),
+    ///         from which it built the market. Reverts on a market this run has not deployed.
+    function deployedMarketAddresses(Config_MinterMarket config) public returns (MarketAddresses memory addresses) {
+        _deployedMinter(config);
+        addresses = marketAddresses(config);
     }
 
     /// @notice Put a settable mock price oracle where this run wired `config`'s minter to read its price, and return

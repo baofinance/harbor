@@ -3,12 +3,16 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {ConfigMarket_MCAP_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_MCAP_fxUSD_mainnet.sol";
@@ -16,9 +20,46 @@ import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
+import {MarketVerification} from "@harbor-script/src/MarketVerification.sol";
+import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
+
+/// @dev The production upgrade of markets a pause has frozen, as the upgrade script runs it - read at the capture's
+///      block, upgraded on the fork selected - for the markets and capture it is constructed with.
+contract FrozenMarketUpgradeRun is UpgradeMarketToV3 {
+    Config_MinterMarket[] private _markets;
+    string private _capture;
+
+    constructor(Config_MinterMarket[] memory markets_, string memory capture_) {
+        _markets = markets_;
+        _capture = capture_;
+    }
+
+    function build() internal override {
+        upgradeMarketsToV3(readFrozenMarketUpgradeInputs(_markets, _capture, "mainnet"), "mainnet");
+    }
+}
+
+/// @dev The production upgrade, its new pools built - by the deploy's own function - naming the leveraged token as
+///      their asset.
+contract PoolOfLeveragedUpgradeRun is MarketUpgradeRun {
+    constructor(Config_MinterMarket[] memory markets_, string memory capture_) MarketUpgradeRun(markets_, capture_) {}
+
+    function deployStabilityPoolImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory key,
+        StabilityPoolType poolType,
+        Config_MinterMarket marketConfig,
+        MarketAddresses memory addresses
+    ) internal override returns (address impl) {
+        MarketAddresses memory misnamed = abi.decode(abi.encode(addresses), (MarketAddresses));
+        misnamed.pegged = addresses.leveraged;
+        impl = super.deployStabilityPoolImplementation(stateData, key, poolType, marketConfig, misnamed);
+    }
+}
 
 /// @dev MCAP::fxUSD as production configures it, with a floor a wei above its live pools'.
 contract ConfigMarket_MCAP_fxUSD_floorAWeiHigher is ConfigMarket_MCAP_fxUSD_mainnet {
@@ -44,6 +85,10 @@ contract UpgradeMarketToV3Test is Test {
 
     /// @dev A later block, at which BTC::stETH's collateral pool holds a depositor who joined after `CAPTURE`.
     uint256 internal constant AFTER_A_DEPOSITOR_JOINED = 25691117;
+
+    /// @dev The capture the live upgrade runs on, taken to the last block before the pause that froze every minter and
+    ///      pool.
+    string internal constant FROZEN_CAPTURE = "script/UpgradeStabilityPool_v2_v3/holders-26248723/";
 
     HarborDeployRun internal deployRun;
     MarketUpgradeRun internal upgrade;
@@ -92,6 +137,32 @@ contract UpgradeMarketToV3Test is Test {
             )
         );
         upgrade.run("harbor_v1");
+
+        assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
+    }
+
+    /// The upgrade checks its new implementations name the market's tokens and each other before it saves the batch:
+    /// pool implementations built naming the leveraged token as their asset are refused, naming the pool, the market's
+    /// pegged token and the token named - and the minter stays on Minter_v2.
+    function test_upgradeRefusesAPoolImplementationNamingAnotherToken() public {
+        (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
+        Config_MinterMarket[] memory upgraded = new Config_MinterMarket[](1);
+        upgraded[0] = markets[0];
+        string memory pool = deployRun.stabilityPoolKey(upgraded[0], HarborDeployer.StabilityPoolType.Collateral);
+        address pegged = deployRun.peggedTokenAddress(upgraded[0]);
+        address leveraged = deployRun.leveragedTokenAddress(upgraded[0]);
+        PoolOfLeveragedUpgradeRun refused = new PoolOfLeveragedUpgradeRun(upgraded, CAPTURE);
+        bytes32 implementationBefore = vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketVerification.MarketAddressMismatch.selector,
+                string.concat(pool, " asset"),
+                pegged,
+                leveraged
+            )
+        );
+        refused.run("harbor_v1");
 
         assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
     }
@@ -159,6 +230,52 @@ contract UpgradeMarketToV3Test is Test {
         refused.run("harbor_v1");
 
         assertEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter stays on v2");
+    }
+
+    /// With every minter and pool paused, a live market's upgrade as the upgrade script runs it - read at the capture's
+    /// block, the last before the pause - builds and executes as the multisig: afterwards the minter answers with the
+    /// config read before the pause, each pool with the supply read, and the manager reports StabilityPoolManager_v2.
+    function test_theFrozenUpgradeBuildsAtThePauseBlock() public {
+        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_CAPTURE);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
+        (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = btcMarkets[1]; // BTC::stETH
+        vm.makePersistent(address(markets[0]));
+        HarborDeployRun addresses = new HarborDeployRun(
+            address(0),
+            address(0),
+            "harbor_v1",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        vm.makePersistent(address(addresses));
+        address frozenMinter = addresses.minterAddress(markets[0]);
+        address collateralPool = addresses.stabilityPoolAddress(
+            markets[0],
+            HarborDeployer.StabilityPoolType.Collateral
+        );
+        address leveragedPool = addresses.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Leveraged);
+        IMinter.Config memory config = IMinter(frozenMinter).config();
+        uint256 collateralSupply = IStabilityPool(collateralPool).totalAssetSupply();
+        uint256 leveragedSupply = IStabilityPool(leveragedPool).totalAssetSupply();
+
+        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE).run("harbor_v1");
+
+        assertEq(
+            keccak256(abi.encode(IMinter(frozenMinter).config())),
+            keccak256(abi.encode(config)),
+            "the minter answers with the config read"
+        );
+        assertEq(IStabilityPool_v3(collateralPool).totalAssetSupply(), collateralSupply, "the collateral pool answers");
+        assertEq(IStabilityPool_v3(leveragedPool).totalAssetSupply(), leveragedSupply, "the leveraged pool answers");
+        assertTrue(
+            IERC165(addresses.stabilityPoolManagerAddress(markets[0])).supportsInterface(
+                type(IStabilityPoolManager_v2).interfaceId
+            ),
+            "the manager reports StabilityPoolManager_v2"
+        );
     }
 
     /// A capture taken before a depositor joined misses what they hold. Read where they have joined, the captured

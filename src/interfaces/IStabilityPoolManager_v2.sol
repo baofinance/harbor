@@ -66,6 +66,12 @@ interface IStabilityPoolManager_v2 {
     //////////////////////////////////////////////////////////////*/
     // solhint-disable-next-line func-name-mixedcase
     function MINTER() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
+    function WRAPPED_COLLATERAL_TOKEN() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
+    function PEGGED_TOKEN() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
+    function LEVERAGED_TOKEN() external view returns (address);
     function stabilityPools() external view returns (address[] memory);
     function hasStabilityPool(address stabilityPool) external view returns (bool);
     function harvestable() external view returns (uint256);

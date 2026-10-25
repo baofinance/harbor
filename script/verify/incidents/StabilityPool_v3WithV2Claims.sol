@@ -16,12 +16,23 @@ contract StabilityPool_v3WithV2Claims is StabilityPool_v3 {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address minter_,
+        address peggedToken_,
         uint256 withdrawalStartDelay_,
         uint256 withdrawalEndWindow_,
         uint256 minTotalAssetSupply,
         string memory name_,
         string memory symbol_
-    ) StabilityPool_v3(minter_, withdrawalStartDelay_, withdrawalEndWindow_, minTotalAssetSupply, name_, symbol_) {}
+    )
+        StabilityPool_v3(
+            minter_,
+            peggedToken_,
+            withdrawalStartDelay_,
+            withdrawalEndWindow_,
+            minTotalAssetSupply,
+            name_,
+            symbol_
+        )
+    {}
 
     /// @notice v2's `claimable(account, token)`: what `account` could claim of `token` now.
     function claimable(address account, address token) external view returns (uint256) {

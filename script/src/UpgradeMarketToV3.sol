@@ -12,8 +12,9 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
-import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
+import {MarketVerification} from "@harbor-script/src/MarketVerification.sol";
 import {Minter} from "@harbor-script/src/contracts/Minter.sol";
 import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
@@ -35,7 +36,7 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 ///      each holder's reward snapshot in widened storage, which the upgrader copies across, and divides rewards by what
 ///      the holders hold, which needs the pool's ledger gap. Both come from a holder capture, read where the pools can
 ///      no longer change. The read uses the old versions' own functions, so nothing here restates how they compute.
-abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManager {
+abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManager, MarketVerification {
     Vm private constant _vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     /// @dev What this run does, named once so its opening and closing lines cannot drift apart.
@@ -113,10 +114,11 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         _vm.selectFork(head);
     }
 
-    /// @notice Upgrade each market `inputs` names: deploy its new implementations, and save, as one batch for the
-    ///         multisig, the upgrade of its minter, loading the config read; of its two pools, through one
-    ///         `StabilityPool_v3_Upgrader` for every pool, with the holders and gap read; and of its manager, in that
-    ///         order. Refuses a pool whose new implementation would not keep the floor or withdrawal window read.
+    /// @notice Upgrade each market `inputs` names: deploy its new implementations, check they name its tokens and each
+    ///         other (`verifyMarket`), and save, as one batch for the multisig, the upgrade of its minter, loading the
+    ///         config read; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders
+    ///         and gap read; and of its manager, in that order. Refuses a pool whose new implementation would not keep
+    ///         the floor or withdrawal window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
     function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
@@ -131,20 +133,34 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
 
         for (uint256 i = 0; i < inputs.length; ++i) {
             Config_MinterMarket config = inputs[i].market;
-            address minter = minterAddress(config);
-            address minterImplementation = deployMinterImplementation(
+            MarketAddresses memory addresses = marketAddresses(config);
+            address minterImplementation = deployMinterImplementation(state, minterKey(config), addresses);
+            address collateralPoolImplementation = deployStabilityPoolImplementation(
                 state,
-                minterKey(config),
-                IHarborConfig(address(config)).wrappedCollateralToken(),
-                peggedTokenAddress(config),
-                leveragedTokenAddress(config)
+                stabilityPoolKey(config, StabilityPoolType.Collateral),
+                StabilityPoolType.Collateral,
+                config,
+                addresses
+            );
+            address leveragedPoolImplementation = deployStabilityPoolImplementation(
+                state,
+                stabilityPoolKey(config, StabilityPoolType.Leveraged),
+                StabilityPoolType.Leveraged,
+                config,
+                addresses
             );
             address managerImplementation = deployStabilityPoolManagerImplementation(
                 state,
                 stabilityPoolManagerKey(config),
-                minter,
-                stabilityPoolAddress(config, StabilityPoolType.Collateral),
-                stabilityPoolAddress(config, StabilityPoolType.Leveraged)
+                addresses
+            );
+            verifyMarket(
+                config,
+                addresses,
+                minterImplementation,
+                collateralPoolImplementation,
+                leveragedPoolImplementation,
+                managerImplementation
             );
 
             // The stored config is loaded again, through Minter_v3's own loader, in the call that upgrades: the plain
@@ -157,8 +173,20 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 ),
                 "upgrade to Minter_v3, loading its config through v3's loader"
             );
-            _queuePoolMigration(state, config, StabilityPoolType.Collateral, inputs[i].collateralPool, upgrader);
-            _queuePoolMigration(state, config, StabilityPoolType.Leveraged, inputs[i].leveragedPool, upgrader);
+            _queuePoolMigration(
+                config,
+                StabilityPoolType.Collateral,
+                inputs[i].collateralPool,
+                collateralPoolImplementation,
+                upgrader
+            );
+            _queuePoolMigration(
+                config,
+                StabilityPoolType.Leveraged,
+                inputs[i].leveragedPool,
+                leveragedPoolImplementation,
+                upgrader
+            );
             queue(
                 stabilityPoolManagerKey(config),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (managerImplementation, "")),
@@ -206,18 +234,17 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         (input.withdrawalStartDelay, input.withdrawalEndWindow) = IStabilityPool(pool).getWithdrawalWindow();
     }
 
-    /// @dev Queue the `poolType` pool's migration through `upgrader` to a new StabilityPool_v3 implementation, with the
-    ///      holders and gap `input` holds. Refuses an implementation whose floor or withdrawal window differs from the
-    ///      pool's.
+    /// @dev Queue the `poolType` pool's migration through `upgrader` to `implementation`, its new StabilityPool_v3, with
+    ///      the holders and gap `input` holds. Refuses an implementation whose floor or withdrawal window differs from
+    ///      the pool's.
     function _queuePoolMigration(
-        DeploymentTypes.State memory state,
         Config_MinterMarket config,
         StabilityPoolType poolType,
         PoolUpgradeInput memory input,
+        address implementation,
         address upgrader
     ) private {
         string memory key = stabilityPoolKey(config, poolType);
-        address implementation = deployStabilityPoolImplementation(state, key, poolType, config, minterAddress(config));
 
         uint256 floor = IStabilityPool_v3(implementation).MIN_TOTAL_ASSET_SUPPLY();
         require(
@@ -253,7 +280,10 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 UUPSUpgradeable.upgradeToAndCall,
                 (
                     upgrader,
-                    abi.encodeCall(StabilityPool_v3_Upgrader.migrateAndUpgrade, (input.gap, input.holders, implementation))
+                    abi.encodeCall(
+                        StabilityPool_v3_Upgrader.migrateAndUpgrade,
+                        (input.gap, input.holders, implementation)
+                    )
                 )
             ),
             "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3"

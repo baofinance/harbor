@@ -11,7 +11,7 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 
 import {TestMinterMarketConfig_rebalanceThreshold130} from "@harbor-test/config/TestMinterMarketConfig_rebalanceThreshold130.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
@@ -77,7 +77,7 @@ abstract contract LocalMarket is TestStabilityPool2SetUp, MarketUnderTest {
         _requireHoldersOutsidePools(collateralPoolShare, leveragedPoolShare);
         // Everything here comes from THIS tree's deploy chain, so every question is asked the v3 way.
         reader = new MarketReaderV3Lineage();
-        market = deployRun.marketAddresses(marketConfig);
+        market = deployRun.deployedMarketAddresses(marketConfig);
         // The object the unit-test base made for this minter when it deployed it.
         actions = marketActions;
 

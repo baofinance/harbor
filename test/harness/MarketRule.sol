@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
 /// @notice A rule under test, as ONE object: what goes behind the minter, which manager the market gets, and the
 ///         label the run's files carry.
@@ -21,24 +22,25 @@ abstract contract MarketRule {
     /// @notice The suffix the run's files carry, after the market's own. Empty for the tree.
     function label() public view virtual returns (string memory);
 
-    /// @notice The minter implementation to put behind the market's minter proxy, built FROM the immutables the
-    ///         market already carries - the addresses are handed over, so a rule cannot re-point a market at other
-    ///         tokens. Zero leaves the market on the minter it has.
-    function buildMinter(
-        address wrappedCollateralToken,
-        address peggedToken,
-        address leveragedToken
-    ) public virtual returns (address);
+    /// @notice The minter implementation to put behind the market's minter proxy, built FROM the market's addresses -
+    ///         they are handed over, so a rule cannot re-point a market at other tokens. Zero leaves the market on the
+    ///         minter it has.
+    function buildMinter(MarketAddresses memory addresses) public virtual returns (address);
 
-    /// @notice The manager implementation for the market, built from the minter and pools it already has - the
-    ///         same handing-over, for the same reason. This tree's manager unless the rule sizes a rebalance
-    ///         differently.
-    function buildManager(
-        address minter,
-        address collateralPool,
-        address leveragedPool
-    ) public virtual returns (address) {
-        return address(new StabilityPoolManager_v2(minter, collateralPool, leveragedPool));
+    /// @notice The manager implementation for the market, built from the market's addresses - the same
+    ///         handing-over, for the same reason. This tree's manager unless the rule sizes a rebalance differently.
+    function buildManager(MarketAddresses memory addresses) public virtual returns (address) {
+        return
+            address(
+                new StabilityPoolManager_v2(
+                    addresses.minter,
+                    addresses.wrappedCollateral,
+                    addresses.pegged,
+                    addresses.leveraged,
+                    addresses.collateralPool,
+                    addresses.leveragedPool
+                )
+            );
     }
 }
 
@@ -48,7 +50,7 @@ contract TreeRule is MarketRule {
         return "";
     }
 
-    function buildMinter(address, address, address) public pure override returns (address) {
+    function buildMinter(MarketAddresses memory) public pure override returns (address) {
         return address(0);
     }
 }
@@ -63,11 +65,7 @@ contract V3Rule is MarketRule {
         return "_v3";
     }
 
-    function buildMinter(
-        address wrappedCollateralToken,
-        address peggedToken,
-        address leveragedToken
-    ) public override returns (address) {
-        return address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken));
+    function buildMinter(MarketAddresses memory addresses) public override returns (address) {
+        return address(new Minter_v3(addresses.wrappedCollateral, addresses.pegged, addresses.leveraged));
     }
 }

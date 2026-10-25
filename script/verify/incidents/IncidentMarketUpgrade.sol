@@ -5,6 +5,7 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
 import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
 import {StabilityPool_v3WithV2Claims} from "@harbor-script/verify/incidents/StabilityPool_v3WithV2Claims.sol";
@@ -21,7 +22,7 @@ contract IncidentMarketUpgrade is MarketUpgradeRun {
         string memory key,
         StabilityPoolType poolType,
         Config_MinterMarket marketConfig,
-        address minter
+        MarketAddresses memory addresses
     ) internal override returns (address impl) {
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
         bool isCollateral = poolType == StabilityPoolType.Collateral;
@@ -36,7 +37,8 @@ contract IncidentMarketUpgrade is MarketUpgradeRun {
 
         impl = address(
             new StabilityPool_v3WithV2Claims(
-                minter,
+                addresses.minter,
+                addresses.pegged,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
                 cfg.aboutADollar(),

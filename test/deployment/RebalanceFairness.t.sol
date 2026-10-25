@@ -15,7 +15,7 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ConfigMarket_ETH_fxUSD_zeroFeesAndBounties} from "@harbor-test/config/ConfigMarket_ETH_fxUSD_zeroFeesAndBounties.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import {console2} from "forge-std/console2.sol";
@@ -77,7 +77,7 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         toDeploy[0] = mktConfigs[0];
         deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        MarketAddresses memory addresses = deployRun.marketAddresses(mktConfigs[0]);
+        MarketAddresses memory addresses = deployRun.deployedMarketAddresses(mktConfigs[0]);
         minter = addresses.minter;
         stabilityPoolCollateral = addresses.collateralPool;
         stabilityPoolLeveraged = addresses.leveragedPool;

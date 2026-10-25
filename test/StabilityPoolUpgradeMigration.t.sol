@@ -144,6 +144,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         address v3Impl = address(
             new StabilityPool_v3(
                 minter,
+                peggedToken,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
                 IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
@@ -259,6 +260,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         address v3Impl = address(
             new StabilityPool_v3(
                 minter,
+                peggedToken,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
                 IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),

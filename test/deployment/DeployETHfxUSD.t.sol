@@ -12,7 +12,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title Common deployment setup for ETH::fxUSD market tests.
@@ -48,7 +48,7 @@ abstract contract DeployETHfxUSDSetUp is BaoTest {
         toDeploy[0] = mktConfigs[0];
         deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        MarketAddresses memory addresses = deployRun.marketAddresses(mktConfigs[0]);
+        MarketAddresses memory addresses = deployRun.deployedMarketAddresses(mktConfigs[0]);
         minter = addresses.minter;
         stabilityPoolCollateral = addresses.collateralPool;
         stabilityPoolLeveraged = addresses.leveragedPool;

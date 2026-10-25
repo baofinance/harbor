@@ -9,9 +9,21 @@ contract MockStabilityPoolManagerUpgraded is StabilityPoolManager_v2 {
     // Keep the same constructor signature
     constructor(
         address minter_,
+        address wrappedCollateralToken_,
+        address peggedToken_,
+        address leveragedToken_,
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
-    ) StabilityPoolManager_v2(minter_, stabilityPoolCollateral, stabilityPoolLeveraged) {}
+    )
+        StabilityPoolManager_v2(
+            minter_,
+            wrappedCollateralToken_,
+            peggedToken_,
+            leveragedToken_,
+            stabilityPoolCollateral,
+            stabilityPoolLeveraged
+        )
+    {}
 
     // Add a new function that would only be available in the upgraded version
     function newFunctionOnlyInUpgrade() external pure returns (bool) {

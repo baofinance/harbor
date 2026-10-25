@@ -19,7 +19,7 @@ import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {DeployedMarket} from "@harbor-test/harness/DeployedMarket.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MarketReaderV2Lineage} from "@harbor-test/harness/MarketReader.sol";
 
 /// @dev The exploit of BTC::stETH on 2026-10-16.
@@ -227,7 +227,7 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
         productionRun = new HarborDeployRun(address(0), address(0), SALT_PREFIX, "mainnet", HarborDeployRun.Cut.Whole);
         exploitedMarket = exploitMarket();
         reader = new MarketReaderV2Lineage(ConfigTokenNames(address(exploitedMarket)));
-        market = productionRun.marketAddresses(exploitedMarket);
+        market = productionRun.deployedMarketAddresses(exploitedMarket);
         deployedOwner = IBaoOwnable(market.minter).owner();
     }
 

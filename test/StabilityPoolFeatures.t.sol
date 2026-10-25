@@ -445,6 +445,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         address implementation = address(
             new StabilityPool_v3(
                 minter,
+                peggedToken,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
                 marketConfig.aboutADollar(),
@@ -478,12 +479,12 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
     function test_constructor_zeroWithdrawalDelay_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidWithdrawalWindow.selector, 0, 90000));
-        new StabilityPool_v3(minter, 0, 90000, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter, peggedToken, 0, 90000, 1 ether, "Test", "T");
     }
 
     function test_constructor_zeroWithdrawalWindow_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidWithdrawalWindow.selector, 3600, 0));
-        new StabilityPool_v3(minter, 3600, 0, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter, peggedToken, 3600, 0, 1 ether, "Test", "T");
     }
 
     // A delay or window beyond a year is rejected. The start delay is ADDED to the current time before being packed
@@ -491,17 +492,17 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // almost certainly a units error - which must fail loudly at deployment rather than lock depositors out for years.
     function test_constructor_withdrawalDelayOverAYear_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidWithdrawalWindow.selector, 366 days, 90000));
-        new StabilityPool_v3(minter, 366 days, 90000, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter, peggedToken, 366 days, 90000, 1 ether, "Test", "T");
     }
 
     function test_constructor_withdrawalWindowOverAYear_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidWithdrawalWindow.selector, 3600, 366 days));
-        new StabilityPool_v3(minter, 3600, 366 days, 1 ether, "Test", "T");
+        new StabilityPool_v3(minter, peggedToken, 3600, 366 days, 1 ether, "Test", "T");
     }
 
     // A year is the cap, not past it: a start delay and a window of exactly 365 days are accepted and kept.
     function test_constructor_withdrawalDelayAndWindowOfAYear_areAccepted() public {
-        address sp = address(new StabilityPool_v3(minter, 365 days, 365 days, 1 ether, "Test", "T"));
+        address sp = address(new StabilityPool_v3(minter, peggedToken, 365 days, 365 days, 1 ether, "Test", "T"));
         (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(sp).getWithdrawalWindow();
         assertEq(startDelay, 365 days, "a start delay of a year is kept");
         assertEq(endWindow, 365 days, "a window of a year is kept");
@@ -511,13 +512,13 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // per-share reward integral grow unbounded (division by a vanishing pool share).
     function test_constructor_zeroMinTotalAssetSupply_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidMinTotalAssetSupply.selector, 0));
-        new StabilityPool_v3(minter, 3600, 90000, 0, "Test", "T");
+        new StabilityPool_v3(minter, peggedToken, 3600, 90000, 0, "Test", "T");
     }
 
     // Below the field width, the supply ceiling is exactly MIN * FACTOR_PRECISION.
     function test_constructor_maxTotalAssetSupply_isMinTimesFactorPrecision() public {
         uint256 smallMin = 1 ether;
-        address sp = address(new StabilityPool_v3(minter, 3600, 90000, smallMin, "Test", "T"));
+        address sp = address(new StabilityPool_v3(minter, peggedToken, 3600, 90000, smallMin, "Test", "T"));
         assertEq(
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
             smallMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
@@ -529,7 +530,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // MIN * FACTOR_PRECISION, which falls short of the field width by the division's remainder.
     function test_constructor_maxTotalAssetSupply_atTheLargestUnsaturatedFloor_isMinTimesFactorPrecision() public {
         uint256 largestMin = uint256(type(uint128).max) / DecrementalFloatingPoint_v2.FACTOR_PRECISION;
-        address sp = address(new StabilityPool_v3(minter, 3600, 90000, largestMin, "Test", "T"));
+        address sp = address(new StabilityPool_v3(minter, peggedToken, 3600, 90000, largestMin, "Test", "T"));
         assertLt(
             largestMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
             type(uint128).max,
@@ -547,7 +548,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // cannot overflow. The cap is then a permanent no-op - deposits are bounded by the field's SafeCast instead.
     function test_constructor_maxTotalAssetSupply_saturatesAtFieldWidthForLargeFloor() public {
         uint256 hugeMin = uint256(type(uint128).max) / DecrementalFloatingPoint_v2.FACTOR_PRECISION + 1;
-        address sp = address(new StabilityPool_v3(minter, 3600, 90000, hugeMin, "Test", "T"));
+        address sp = address(new StabilityPool_v3(minter, peggedToken, 3600, 90000, hugeMin, "Test", "T"));
         assertEq(
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
             type(uint128).max,

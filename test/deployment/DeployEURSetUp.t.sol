@@ -11,7 +11,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title Common deployment setup for EUR market tests.
@@ -46,8 +46,8 @@ abstract contract DeployEURSetUp is BaoTest {
 
         deployRun.deploy(peg_, mktConfigs, true, mktConfigs);
 
-        fxUSD = deployRun.marketAddresses(mktConfigs[0]);
-        stETH = deployRun.marketAddresses(mktConfigs[1]);
+        fxUSD = deployRun.deployedMarketAddresses(mktConfigs[0]);
+        stETH = deployRun.deployedMarketAddresses(mktConfigs[1]);
         pegged = fxUSD.pegged;
 
         // Mock oracles (price=1, rate=1 for simple accounting), where the deploy wired each minter

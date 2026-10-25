@@ -13,7 +13,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {Array} from "@bao-test/utils/Array.sol";
 
@@ -48,7 +48,7 @@ contract RewardSystemSetUp is BaoTest, Array {
         toDeploy[0] = mktConfigs[0];
         deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        MarketAddresses memory addresses = deployRun.marketAddresses(mktConfigs[0]);
+        MarketAddresses memory addresses = deployRun.deployedMarketAddresses(mktConfigs[0]);
         minter = addresses.minter;
         stabilityPoolCollateral = addresses.collateralPool;
         stabilityPoolLeveraged = addresses.leveragedPool;

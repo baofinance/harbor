@@ -5,6 +5,7 @@ import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
@@ -17,14 +18,22 @@ abstract contract StabilityPoolManager is HarborDeployer {
     // ========== STABILITY POOL MANAGER DEPLOYMENT ==========
 
     /// @notice Deploy StabilityPoolManager_v2 impl only, record in state.
+    /// @dev Receives the resolved key and the market's resolved addresses only, and takes each by name.
     function deployStabilityPoolManagerImplementation(
         DeploymentTypes.State memory stateData,
         string memory key,
-        address minter,
-        address stabilityPoolCollateral,
-        address stabilityPoolLeveraged
+        MarketAddresses memory addresses
     ) internal virtual returns (address impl) {
-        impl = address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged));
+        impl = address(
+            new StabilityPoolManager_v2(
+                addresses.minter,
+                addresses.wrappedCollateral,
+                addresses.pegged,
+                addresses.leveraged,
+                addresses.collateralPool,
+                addresses.leveragedPool
+            )
+        );
         _reportImplementation(impl);
 
         _recordImplementation(
@@ -52,13 +61,7 @@ abstract contract StabilityPoolManager is HarborDeployer {
         string memory key = stabilityPoolManagerKey(marketConfig);
         _reportContract(key);
 
-        address impl = deployStabilityPoolManagerImplementation(
-            stateData,
-            key,
-            minterAddress(marketConfig),
-            stabilityPoolAddress(marketConfig, StabilityPoolType.Collateral),
-            stabilityPoolAddress(marketConfig, StabilityPoolType.Leveraged)
-        );
+        address impl = deployStabilityPoolManagerImplementation(stateData, key, marketAddresses(marketConfig));
 
         bytes memory initData = abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()));
 

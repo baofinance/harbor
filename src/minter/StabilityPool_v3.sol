@@ -16,7 +16,6 @@ import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 // solhint-disable not-rely-on-time
@@ -259,9 +258,15 @@ contract StabilityPool_v3 is
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
+    /// @dev Calls no other contract, so the implementation deploys whatever state the minter and the pegged token are
+    ///      in - not yet deployed, or paused. The deploy checks they are this market's, and the token answers as an
+    ///      ERC-20, once they and this contract all exist.
+    /// @param minter_ The market's minter.
+    /// @param peggedToken_ The minter's pegged token: the asset the pool holds.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address minter_,
+        address peggedToken_,
         uint256 withdrawalStartDelay_,
         uint256 withdrawalEndWindow_,
         uint256 minTotalAssetSupply,
@@ -271,13 +276,12 @@ contract StabilityPool_v3 is
         _disableInitializers();
         (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
         _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
-        Token.ensureContract(minter_);
+        Token.ensureNonZeroAddress(minter_);
         // slither-disable-next-line missing-zero-check
         MINTER = minter_;
-        address asset = IMinter(minter_).PEGGED_TOKEN();
-        Token.sanityCheckERC20Token(asset);
+        Token.ensureNonZeroAddress(peggedToken_);
         // slither-disable-next-line missing-zero-check
-        ASSET_TOKEN = asset;
+        ASSET_TOKEN = peggedToken_;
 
         if (
             withdrawalEndWindow_ == 0 ||

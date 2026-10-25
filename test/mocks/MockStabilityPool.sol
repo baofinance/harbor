@@ -10,12 +10,23 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 contract MockStabilityPool is StabilityPool_v3 {
     constructor(
         address minter_,
+        address peggedToken_,
         uint256 withdrawalStartDelay_,
         uint256 withdrawalEndWindow_,
         uint256 minTotalAssetSupply_,
         string memory name_,
         string memory symbol_
-    ) StabilityPool_v3(minter_, withdrawalStartDelay_, withdrawalEndWindow_, minTotalAssetSupply_, name_, symbol_) {}
+    )
+        StabilityPool_v3(
+            minter_,
+            peggedToken_,
+            withdrawalStartDelay_,
+            withdrawalEndWindow_,
+            minTotalAssetSupply_,
+            name_,
+            symbol_
+        )
+    {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {

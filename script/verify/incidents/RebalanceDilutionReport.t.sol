@@ -36,7 +36,7 @@ import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {LogCaptureLib} from "@harbor-script/holders/LogCaptureLib.sol";
 
 import {IncidentMarketUpgrade} from "@harbor-script/verify/incidents/IncidentMarketUpgrade.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
 import {
     BTC_STETH_EXPLOIT,
@@ -544,8 +544,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             "the depositors found hold the leveraged pool's supply, to within rounding"
         );
         assertTrue(
-            HolderCaptureLib.classify(reading.collateralPoolGap, collateralPoolSupply) ==
-                HolderCaptureLib.Gap.Rounding,
+            HolderCaptureLib.classify(reading.collateralPoolGap, collateralPoolSupply) == HolderCaptureLib.Gap.Rounding,
             "the depositors found hold the collateral pool's supply, to within rounding"
         );
     }
@@ -2082,7 +2081,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     function _marketRow(Config_MinterMarket config) internal returns (string memory) {
-        MarketAddresses memory addresses = productionRun.marketAddresses(config);
+        MarketAddresses memory addresses = productionRun.deployedMarketAddresses(config);
         IMinter.Config memory bands = IMinter(addresses.minter).config();
         uint256 price = IMinter(addresses.minter).leveragedTokenPrice();
         uint256 supply = IMinter(addresses.minter).leveragedTokenBalance();
@@ -2296,13 +2295,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         }
         vm.writeLine(
             file,
-            string.concat(
-                "| **Total** | | | | | **",
-                _exact(c.totalCut),
-                "** | **",
-                _exact(c.totalDebt),
-                "** |"
-            )
+            string.concat("| **Total** | | | | | **", _exact(c.totalCut), "** | **", _exact(c.totalDebt), "** |")
         );
         vm.writeLine(file, "");
         vm.writeLine(
@@ -2825,9 +2818,7 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
         bytes32 kind = log.topics[0];
         MinterAction memory minted;
         minted.mint = kind == IMinter.MintPeggedToken.selector || kind == IMinter.MintLeveragedToken.selector;
-        minted.leveraged =
-            kind == IMinter.MintLeveragedToken.selector ||
-            kind == IMinter.RedeemLeveragedToken.selector;
+        minted.leveraged = kind == IMinter.MintLeveragedToken.selector || kind == IMinter.RedeemLeveragedToken.selector;
         if (!(minted.mint || minted.leveraged || kind == IMinter.RedeemPeggedToken.selector)) {
             return count;
         }
@@ -3166,7 +3157,10 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                     " to the leveraged pool, after the bounty"
                 );
             } else if (log.topics[0] == IStabilityPoolManager.Harvested.selector) {
-                event_ = string.concat("a harvest of ", _amount(abi.decode(log.data, (uint256)), history.wrappedSymbol));
+                event_ = string.concat(
+                    "a harvest of ",
+                    _amount(abi.decode(log.data, (uint256)), history.wrappedSymbol)
+                );
             } else if (log.topics[0] == IERC1967.Upgraded.selector) {
                 event_ = string.concat(
                     _label(history, log.emitter),
@@ -3411,7 +3405,12 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             "\n"
         );
         for (uint256 k = 0; k < history.points.length; ++k) {
-            if (k >= 2 && k < history.points.length - 1 && !_holdingChanged(history, k, party) && !_actedAt(history, party, k)) {
+            if (
+                k >= 2 &&
+                k < history.points.length - 1 &&
+                !_holdingChanged(history, k, party) &&
+                !_actedAt(history, party, k)
+            ) {
                 continue;
             }
             uint256[10] memory amounts = _holdingAmounts(history, k, party);
@@ -3482,7 +3481,9 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
             cells[6] = action.wrapped == 0 ? "" : _exactSigned(action.wrapped);
             if (action.minterLeveraged > 0) {
                 cells[7] = _exact(Math.mulDiv(action.minterWrapped, 1 ether, action.minterLeveraged));
-                cells[8] = _exact(Math.mulDiv(action.minterWrapped, point.reading.prices.wrapped, action.minterLeveraged));
+                cells[8] = _exact(
+                    Math.mulDiv(action.minterWrapped, point.reading.prices.wrapped, action.minterLeveraged)
+                );
                 cells[9] = _exact(point.reading.prices.leveraged);
             }
             table = string.concat(table, _row(cells));

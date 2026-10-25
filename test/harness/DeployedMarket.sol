@@ -20,7 +20,7 @@ import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {RuleMarketUpgradeRun} from "@harbor-test/harness/RuleMarketUpgradeRun.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -94,7 +94,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         // What is behind these proxies TODAY, until and unless the upgrade below moves them.
         reader = new MarketReaderV2Lineage(ConfigTokenNames(address(config)));
 
-        market = productionRun.marketAddresses(config);
+        market = productionRun.deployedMarketAddresses(config);
         actions = new MarketActions(market.minter);
         deployedOwner = IBaoOwnable(market.minter).owner();
 

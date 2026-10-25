@@ -103,31 +103,42 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @notice In UUPS proxies the constructor sets immutables
+    /// @dev Calls no other contract, so the implementation deploys whatever state the minter, its tokens and the pools
+    ///      are in - not yet deployed, or paused. The deploy checks they are this market's, and the tokens answer as
+    ///      ERC-20s, once they and this contract all exist.
+    /// @param minter_ The market's minter.
+    /// @param wrappedCollateralToken_ The minter's wrapped collateral token.
+    /// @param peggedToken_ The minter's pegged token.
+    /// @param leveragedToken_ The minter's leveraged token.
+    /// @param stabilityPoolCollateral The market's collateral stability pool.
+    /// @param stabilityPoolLeveraged The market's leveraged stability pool.
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address minter_, address stabilityPoolCollateral, address stabilityPoolLeveraged) {
+    constructor(
+        address minter_,
+        address wrappedCollateralToken_,
+        address peggedToken_,
+        address leveragedToken_,
+        address stabilityPoolCollateral,
+        address stabilityPoolLeveraged
+    ) {
         _disableInitializers();
 
-        Token.ensureContract(minter_);
+        Token.ensureNonZeroAddress(minter_);
         // slither-disable-next-line missing-zero-check
         MINTER = minter_;
-
+        Token.ensureNonZeroAddress(wrappedCollateralToken_);
         // slither-disable-next-line missing-zero-check
-        PEGGED_TOKEN = IMinter_v3(minter_).PEGGED_TOKEN();
-        Token.sanityCheckERC20Token(PEGGED_TOKEN);
-
+        WRAPPED_COLLATERAL_TOKEN = wrappedCollateralToken_;
+        Token.ensureNonZeroAddress(peggedToken_);
         // slither-disable-next-line missing-zero-check
-        WRAPPED_COLLATERAL_TOKEN = IMinter_v3(minter_).WRAPPED_COLLATERAL_TOKEN();
-        Token.sanityCheckERC20Token(WRAPPED_COLLATERAL_TOKEN);
-
+        PEGGED_TOKEN = peggedToken_;
+        Token.ensureNonZeroAddress(leveragedToken_);
         // slither-disable-next-line missing-zero-check
-        LEVERAGED_TOKEN = IMinter_v3(minter_).LEVERAGED_TOKEN();
-        Token.sanityCheckERC20Token(LEVERAGED_TOKEN);
-
-        // Validate and store the stability pools
-        Token.ensureContract(stabilityPoolCollateral);
+        LEVERAGED_TOKEN = leveragedToken_;
+        Token.ensureNonZeroAddress(stabilityPoolCollateral);
         // slither-disable-next-line missing-zero-check
         _STABILITY_POOL_COLLATERAL = stabilityPoolCollateral;
-        Token.ensureContract(stabilityPoolLeveraged);
+        Token.ensureNonZeroAddress(stabilityPoolLeveraged);
         // slither-disable-next-line missing-zero-check
         _STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
     }

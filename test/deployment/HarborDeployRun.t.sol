@@ -13,7 +13,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -250,8 +250,8 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
     /// Each address the run reports belongs to the market it deployed, wired as the market uses it: the minter is the
     /// one deployed, the tokens and the oracle are that minter's own, each pool serves this minter, holds the pegged
     /// token and carries its own kind's name, and the manager serves this minter and these two pools.
-    function test_marketAddresses_describesTheMarketTheRunDeployed() public {
-        MarketAddresses memory addresses = deployRun.marketAddresses(config);
+    function test_deployedMarketAddresses_describesTheMarketTheRunDeployed() public {
+        MarketAddresses memory addresses = deployRun.deployedMarketAddresses(config);
 
         assertEq(addresses.minter, deployRun.minterAddress(config), "the minter the run deployed");
         assertGt(addresses.minter.code.length, 0, "which is deployed");
@@ -291,12 +291,12 @@ contract HarborDeployRunReportsTest is BaoTest, Deploy_ETH_Minter {
     }
 
     /// Asked about a market it has not deployed, a run reverts, naming the minter it would have deployed.
-    function test_marketAddresses_revertsOnAMarketNotYetDeployed() public {
+    function test_deployedMarketAddresses_revertsOnAMarketNotYetDeployed() public {
         HarborDeployRun undeployed = _undeployedRun();
         address minter = undeployed.minterAddress(config);
 
         vm.expectRevert(abi.encodeWithSelector(HarborDeployRun.MinterNotDeployed.selector, minter));
-        undeployed.marketAddresses(config);
+        undeployed.deployedMarketAddresses(config);
     }
 
     /// The mock goes where the deployed minter reads its price and answers as a freshly constructed mock does - the

@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
 import {MarketRule} from "@harbor-test/harness/MarketRule.sol";
 import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
@@ -24,11 +25,9 @@ contract RuleMarketUpgradeRun is MarketUpgradeRun {
     function deployMinterImplementation(
         DeploymentTypes.State memory stateData,
         string memory key,
-        address wrappedCollateral,
-        address peggedToken,
-        address leveragedToken
+        MarketAddresses memory addresses
     ) internal override returns (address impl) {
-        impl = _rule.buildMinter(wrappedCollateral, peggedToken, leveragedToken);
+        impl = _rule.buildMinter(addresses);
         _recordImplementation(
             stateData,
             key,
@@ -41,11 +40,9 @@ contract RuleMarketUpgradeRun is MarketUpgradeRun {
     function deployStabilityPoolManagerImplementation(
         DeploymentTypes.State memory stateData,
         string memory key,
-        address minter,
-        address stabilityPoolCollateral,
-        address stabilityPoolLeveraged
+        MarketAddresses memory addresses
     ) internal override returns (address impl) {
-        impl = _rule.buildManager(minter, stabilityPoolCollateral, stabilityPoolLeveraged);
+        impl = _rule.buildManager(addresses);
         _recordImplementation(
             stateData,
             key,

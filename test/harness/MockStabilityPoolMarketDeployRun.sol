@@ -5,6 +5,7 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
 import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
 import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
@@ -28,7 +29,7 @@ contract MockStabilityPoolMarketDeployRun is MarketDeployRun {
         string memory key,
         StabilityPoolType poolType,
         Config_MinterMarket marketConfig_,
-        address minter_
+        MarketAddresses memory addresses
     ) internal virtual override returns (address impl) {
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig_));
         bool isCollateral = poolType == StabilityPoolType.Collateral;
@@ -43,7 +44,8 @@ contract MockStabilityPoolMarketDeployRun is MarketDeployRun {
 
         impl = address(
             new MockStabilityPool(
-                minter_,
+                addresses.minter,
+                addresses.pegged,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
                 cfg.aboutADollar(),

@@ -11,7 +11,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title MinterCappedMintTest
@@ -43,7 +43,7 @@ contract MinterCappedMintSetUp is BaoTest {
         marketsToDeploy[0] = allMarkets[0];
         deployRun.deploy(peg, allMarkets, true, marketsToDeploy);
 
-        MarketAddresses memory addresses = deployRun.marketAddresses(allMarkets[0]);
+        MarketAddresses memory addresses = deployRun.deployedMarketAddresses(allMarkets[0]);
         minter = addresses.minter;
         pegged = addresses.pegged;
         wrappedCollateral = addresses.wrappedCollateral;

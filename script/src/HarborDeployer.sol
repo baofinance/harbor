@@ -4,6 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {HarborReporting} from "@harbor-script/src/HarborReporting.sol";
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {Config_MinterMarket, Market, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
@@ -244,6 +246,21 @@ abstract contract HarborDeployer is HarborReporting {
 
     function wrappedPriceOracleAddress(Config_MinterMarket config) public returns (address) {
         return wrappedPriceOracleAddress(MinterMarketConfigLib.market(config));
+    }
+
+    /// @notice Every address of `config`'s market: each contract the deploy puts at a predicted address, the wrapped
+    ///         collateral the config names, and the oracle. Resolved here, once, so every contract of the market is
+    ///         built from the same addresses; it reads nothing on chain, so it answers whatever the market's state - the
+    ///         deploy resolves a market's addresses here before any of its contracts exists.
+    function marketAddresses(Config_MinterMarket config) public returns (MarketAddresses memory addresses) {
+        addresses.minter = minterAddress(config);
+        addresses.collateralPool = stabilityPoolAddress(config, StabilityPoolType.Collateral);
+        addresses.leveragedPool = stabilityPoolAddress(config, StabilityPoolType.Leveraged);
+        addresses.manager = stabilityPoolManagerAddress(config);
+        addresses.pegged = peggedTokenAddress(config);
+        addresses.leveraged = leveragedTokenAddress(config);
+        addresses.wrappedCollateral = IHarborConfig(address(config)).wrappedCollateralToken();
+        addresses.oracle = wrappedPriceOracleAddress(config);
     }
 
     /// @dev The "peg::collateral" market key every per-market key above is built on. Private: callers name a

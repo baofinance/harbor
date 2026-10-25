@@ -148,7 +148,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
         vm.stopPrank();
 
-        address newImplementation = address(new StabilityPool_vN(minter));
+        address newImplementation = address(new StabilityPool_vN(minter, peggedToken));
 
         // Perform the upgrade as the owner
         vm.startPrank(owner());
@@ -170,7 +170,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(roleHolder, type(uint256).max);
         vm.stopPrank();
-        address newImplementation = address(new StabilityPool_vN(minter));
+        address newImplementation = address(new StabilityPool_vN(minter, peggedToken));
         address implementationBefore = UnsafeUpgrades.getImplementationAddress(stabilityPoolCollateral);
 
         vm.startPrank(roleHolder);
@@ -193,6 +193,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         implementation = address(
             new StabilityPool_v3(
                 minter,
+                peggedToken,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
                 marketConfig.aboutADollar(),
@@ -212,10 +213,20 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v3(minter, withdrawalDelay, withdrawalPeriod, minTotalAssetSupply, "Test SP", "tSP"));
+        address(
+            new StabilityPool_v3(
+                minter,
+                peggedToken,
+                withdrawalDelay,
+                withdrawalPeriod,
+                minTotalAssetSupply,
+                "Test SP",
+                "tSP"
+            )
+        );
     }
 
-    /// A pool cannot be built for a zero minter: the constructor refuses it before reading anything from it.
+    /// A pool cannot be built for a zero minter: the constructor refuses it.
     function test_constructor_aZeroMinter_reverts() public {
         // Hoisted: the config reads are external calls, and the `expectRevert` below binds to the NEXT call - which
         // must be the construction, not these reads.
@@ -224,20 +235,49 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         uint256 minTotalAssetSupply = marketConfig.aboutADollar();
 
         vm.expectRevert(Token.ZeroAddress.selector);
-        new StabilityPool_v3(address(0), withdrawalDelay, withdrawalPeriod, minTotalAssetSupply, "Test SP", "tSP");
+        new StabilityPool_v3(
+            address(0),
+            peggedToken,
+            withdrawalDelay,
+            withdrawalPeriod,
+            minTotalAssetSupply,
+            "Test SP",
+            "tSP"
+        );
     }
 
-    /// A pool cannot be built for a minter address with no code behind it: the constructor refuses it, naming it.
-    function test_constructor_aMinterWithNoCode_reverts() public {
-        address notAContract = makeAddr("notAContract");
+    /// A pool cannot be built for a zero pegged token: the constructor refuses it.
+    function test_constructor_aZeroPeggedToken_reverts() public {
         // Hoisted: the config reads are external calls, and the `expectRevert` below binds to the NEXT call - which
         // must be the construction, not these reads.
         uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
         uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
         uint256 minTotalAssetSupply = marketConfig.aboutADollar();
 
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
-        new StabilityPool_v3(notAContract, withdrawalDelay, withdrawalPeriod, minTotalAssetSupply, "Test SP", "tSP");
+        vm.expectRevert(Token.ZeroAddress.selector);
+        new StabilityPool_v3(
+            minter,
+            address(0),
+            withdrawalDelay,
+            withdrawalPeriod,
+            minTotalAssetSupply,
+            "Test SP",
+            "tSP"
+        );
+    }
+
+    /// A pool calls neither its minter nor its pegged token when it is built, so it builds before either exists - or
+    /// while either is paused - and keeps both as given.
+    function test_constructor_beforeItsMinterAndPeggedTokenExist_keepsBoth() public {
+        address futureMinter = makeAddr("futureMinter");
+        address futurePeggedToken = makeAddr("futurePeggedToken");
+
+        address pool = address(
+            new StabilityPool_v3(futureMinter, futurePeggedToken, 3600, 90000, 1 ether, "Test SP", "tSP")
+        );
+
+        assertEq(IStabilityPool_v3(pool).MINTER(), futureMinter, "the minter as given");
+        assertEq(IStabilityPool_v3(pool).ASSET_TOKEN(), futurePeggedToken, "the pegged token as given");
     }
 
     /// The implementation's initializers are disabled when it is constructed, so initialising it directly reverts.

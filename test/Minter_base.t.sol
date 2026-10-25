@@ -753,10 +753,8 @@ contract TestMinterInit is TestMinterSetUp {
         assertFalse(IERC165(minter).supportsInterface(0xffffffff), "the invalid id");
     }
 
-    function test_notERC20() public {
-        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken);
-
-        // zero address
+    /// A minter cannot be built with a zero address for any of its three tokens: the constructor refuses each.
+    function test_constructor_aZeroToken_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
         new Minter_v3(address(0), peggedToken, leveragedToken);
 
@@ -765,32 +763,21 @@ contract TestMinterInit is TestMinterSetUp {
 
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
         new Minter_v3(Deployed.wstETH, peggedToken, address(0));
+    }
 
-        // not a contract - an address chosen for having no code, rather than an actor that happens to lack
-        // it. Asserted, because on a fork "has no code" is a fact about the chain at that block: this used
-        // to be `owner()`, whose address carries an EIP-7702 delegation on mainnet at recent blocks, so the
-        // constructor reached its NotERC20Token branch instead and the failure said nothing about why.
-        address notAContract = makeAddr("notAContract");
-        assertEq(notAContract.code.length, 0, "the address must have no code for this to test what it says");
+    /// A minter calls none of its tokens when it is built, so it builds before they exist - or while they are paused -
+    /// and keeps each as given. Whether they answer as ERC-20s, and are the market's, the deploy checks once they do
+    /// exist.
+    function test_constructor_beforeItsTokensExist_keepsThem() public {
+        address futureWrappedCollateral = makeAddr("futureWrappedCollateral");
+        address futurePegged = makeAddr("futurePegged");
+        address futureLeveraged = makeAddr("futureLeveraged");
 
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
-        new Minter_v3(notAContract, peggedToken, leveragedToken);
+        address built = address(new Minter_v3(futureWrappedCollateral, futurePegged, futureLeveraged));
 
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
-        new Minter_v3(Deployed.wstETH, notAContract, leveragedToken);
-
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
-        new Minter_v3(Deployed.wstETH, peggedToken, notAContract);
-
-        // contract but not ERC20
-        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(priceOracle, peggedToken, leveragedToken);
-
-        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(Deployed.wstETH, priceOracle, leveragedToken);
-
-        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(Deployed.wstETH, peggedToken, priceOracle);
+        assertEq(IMinter_v3(built).WRAPPED_COLLATERAL_TOKEN(), futureWrappedCollateral, "the wrapped collateral");
+        assertEq(IMinter_v3(built).PEGGED_TOKEN(), futurePegged, "the pegged token");
+        assertEq(IMinter_v3(built).LEVERAGED_TOKEN(), futureLeveraged, "the leveraged token");
     }
 
     function test_initEventsImplementation() public {

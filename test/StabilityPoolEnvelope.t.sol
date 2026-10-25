@@ -24,7 +24,7 @@ import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardD
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {MarketActions} from "@harbor-test/harness/MarketActions.sol";
 import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
-import {MarketAddresses} from "@harbor-test/harness/MarketAddresses.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
 import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
@@ -192,7 +192,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         toDeploy[0] = mktConfigs[0]; // the fxUSD market
         deployRun.deploy(peg, mktConfigs, true, toDeploy);
 
-        MarketAddresses memory addresses = deployRun.marketAddresses(mktConfigs[0]);
+        MarketAddresses memory addresses = deployRun.deployedMarketAddresses(mktConfigs[0]);
         minter = addresses.minter;
         stabilityPool = addresses.collateralPool;
         stabilityPoolLeveraged = addresses.leveragedPool;
