@@ -96,7 +96,9 @@ contract MarketsUpgradeRehearsal is Test, HarborDeployer {
         }
 
         vm.createSelectFork(vm.rpcUrl("mainnet"));
-        new Upgrade_MarketsToV3_mainnet().run("harbor_v1");
+        Upgrade_MarketsToV3_mainnet upgrade = new Upgrade_MarketsToV3_mainnet();
+        vm.makePersistent(address(upgrade));
+        upgrade.run("harbor_v1");
 
         MarketVerification check = new MarketVerification();
         for (uint256 i = 0; i < markets.length; ++i) {
@@ -143,6 +145,7 @@ contract MarketsUpgradeRehearsal is Test, HarborDeployer {
         string memory earlier = "test/fixtures/holders-25272609/";
         vm.createSelectFork(vm.rpcUrl("mainnet"));
         FrozenMarketsRead frozenRead = new FrozenMarketsRead();
+        vm.makePersistent(address(frozenRead));
         string memory refusal = string.concat(
             minterKey(markets[0]),
             " answers at block ",

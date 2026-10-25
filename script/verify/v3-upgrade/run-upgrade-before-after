@@ -1,63 +1,49 @@
 #!/usr/bin/env bash
-# run-migrate-StabilityPool_v2-data — local verification of the accumulator V1->V2
-# force-migration (prep for v3).
+# Verify the upgrade of every live market to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2 by running the
+# upgrade script itself on anvil, and comparing what every market contract reads before and after it.
 #
-# Two-pronged verification against a single local mainnet-fork anvil session:
+#   Prong A (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
+#     behaviour under the same interactions. The before is a fork of mainnet at the capture's block, the last before
+#     the pause; the after is a fork of anvil once the upgrade script has run there. MarketsExpectedAfter then writes
+#     the record each contract must have after: its before record, changed only where an expectation says, with the
+#     reason. The expected and the actual after records must not differ.
+#   Prong B (white-box): MarketsStorageCopy checks the storage the upgrade copied - each holder's reward records,
+#     each reward stream, each pool's ledger gap - against the frozen pools.
 #
-#   Prong A (black-box): capture all pool/holder state + interactions BEFORE, run the
-#     ACTUAL migrate script (--broadcast --local persists to anvil), capture AFTER, diff.
-#     The migration only reshapes internal storage, so the diff MUST be empty.
+# forge test forks anvil in memory and writes nothing back to it. run-script --broadcast --local sends the upgrade to
+# anvil and executes each market's batch as the multisig would. So one anvil session serves the whole run.
 #
-#   Prong B (white-box): MigrateBalancesTest upgrades each proxy to ForceMigrateAccumulator_v1,
-#     reads raw (V1, V2) integrals via balances(), remediates, and asserts the copy is correct.
-#     Runs in-memory on the un-migrated node, so it does not disturb anvil.
-#
-# Two validation gates via before/after capture diffs:
-#   Validation 1 (v2 transparency): after the migrate (pool ends on v2), diff vs before — proves
-#     nothing observable changed. The v2 fallback means this ALONE can't detect a missed holder.
-#   Validation 2 (v3 completeness): then upgrade all pools to StabilityPool_v3 (no fallback) and
-#     diff vs before — a holder the migrate missed now reads claimable=0, so the diff exposes it.
-#
-# forge test forks anvil IN-MEMORY (no writeback); run-script --broadcast --local PERSISTS.
-# So a single anvil session works: in-memory captures/checks see the un-migrated node, the
-# migrate script mutates it, then the after-capture forks the migrated node. START_TIMESTAMP
-# normalizes the timestamp drift the migrate txs introduce.
-#
-# The fork block is resolved to a CONCRETE number once, then used identically for holder
-# discovery (capture-sp-holders --to-block), the anvil fork, and START_TIMESTAMP — so the
-# discovered set and the forked state always match.
+# The capture is a REQUIRED argument, the one the upgrade script is given: taken to the last block before the pause.
+# Its block comes from its manifest.
 #
 # Usage:
-#   run-migrate-StabilityPool_v2-data                      # full run at latest
-#   run-migrate-StabilityPool_v2-data --block <number>     # full run at a specific block
+#   script/verify/v3-upgrade/run-upgrade-before-after --holders-dir <capture>
 #
+# The live markets' capture is script/UpgradeStabilityPool_v2_v3/holders-26248723. Produce another with:
+#   script/holders/capture-holders --to-block <block>
+#
+# Needs MAINNET_RPC_URL, archival at the capture's block. The records are written to tmp/v3-upgrade/, and each step's
+# output is kept there in a .log file.
 
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
 
-# ── Configuration ────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/../../.."
+
 SALT="harbor_v1"
 NETWORK="mainnet"
-POOL_FILTER=""
+OUT="tmp/v3-upgrade"
 FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
-HERE="$(dirname "$0")"
-CAPTURE_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateCaptureTest.t.sol"
-BALANCES_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateBalancesTest.t.sol"
 
-BLOCK="" # <number> | latest ; default = latest
-
+HOLDERS_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --include)
-      POOL_FILTER="$2"
-      shift 2
-      ;;
-    --block)
-      BLOCK="$2"
+    --holders-dir)
+      HOLDERS_DIR="$2"
       shift 2
       ;;
     -h | --help)
-      sed -n '/^# Usage:/,/^#$/p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,/^$/p' "$0"
       exit 0
       ;;
     *)
@@ -67,12 +53,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Default block.
-[[ -z "$BLOCK" ]] && BLOCK="latest"
+if [[ -z "$HOLDERS_DIR" ]]; then
+  echo "ERROR: --holders-dir is required (the capture the upgrade reads)" >&2
+  echo "       produce one with: script/holders/capture-holders --to-block <block>" >&2
+  exit 1
+fi
+if [[ ! -f "${HOLDERS_DIR}/manifest.txt" ]]; then
+  echo "ERROR: ${HOLDERS_DIR} is not a capture (no manifest.txt)" >&2
+  exit 1
+fi
+CAPTURE_BLOCK="$(sed -n 's/^to-block: *//p' "${HOLDERS_DIR}/manifest.txt")"
+if [[ ! "$CAPTURE_BLOCK" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: the manifest of ${HOLDERS_DIR} gives no numeric to-block: '${CAPTURE_BLOCK}'" >&2
+  exit 1
+fi
 
 echotty() {
   echo "$*"
-
   if [[ ! -t 1 ]]; then
     echo "$*" >/dev/tty
   fi
@@ -85,137 +82,97 @@ prompt() {
   echotty "──────────────────────────────────────────────────────────────"
   read -rn1 -p "Ready? [Y/n] " response
   echotty "" >/dev/tty
-
   if [[ "$response" =~ ^[Nn]$ ]]; then
     echotty "Aborted."
     exit 1
   fi
 }
 
-capture_state() {
-  local version="$1"
-  local env_args=(START_TIMESTAMP="$START_TIMESTAMP" VERSION="$version")
-  [[ -n "$POOL_FILTER" ]] && env_args+=(POOL_FILTER="$POOL_FILTER")
-  echo ""
-  echo "Capturing '$version' state..."
-  env "${env_args[@]}" forge test --match-path "$CAPTURE_TEST" --fork-url local $FORGE_VERBOSITY
+# Run the campaign's tests matching <contract> with the given forge arguments, logging to $OUT/<log>. The capture runs
+# every market's interactions in one test call, so the block gas limit is lifted, as for the rehearsal.
+campaign_test() {
+  local log="$1" contract="$2"
+  shift 2
+  script/verify/run-campaign-test script/verify/v3-upgrade "$OUT/$log" --mc "$contract" "$@" \
+    "$FORGE_VERBOSITY" --disable-block-gas-limit
 }
 
-# Diff tmp/before against tmp/<other>; returns non-zero on differences.
-compare_state() {
-  local other="$1" title="$2"
-  echo ""
-  echo "──────────────────────────────────────────────────────────────"
-  echo "  $title — expect NO differences"
-  echo "──────────────────────────────────────────────────────────────"
-  if command -v meld >/dev/null 2>&1; then
-    meld tmp/before "tmp/$other" &
-  fi
-  if diff -ru tmp/before "tmp/$other"; then
-    echo "  ✅ PASS: tmp/before == tmp/$other"
-    return 0
-  fi
-  echo "  ❌ FAIL: differences above ($title)"
-  return 1
-}
-
-# ── Resolve the fork block to a concrete number (used everywhere) ─────────────
-case "$BLOCK" in
-  latest)
-    RESOLVED=$(cast block-number --rpc-url "$NETWORK") || {
-      echo "ERROR: cast block-number failed (rpc: $NETWORK)" >&2
-      exit 1
-    }
-    ;;
-  *)
-    RESOLVED="$BLOCK"
-    ;;
-esac
-
-# Guard: a non-numeric block (cast failure, corrupt capture file, or a typo'd
-# --block) must fail clearly rather than silently forking at an empty/garbage block.
-if [[ ! "$RESOLVED" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: resolved fork block is not numeric: '${RESOLVED}' (requested: $BLOCK)" >&2
-  exit 1
-fi
-
 echo "======================================================================"
-echo "  StabilityPool_v2 accumulator V1->V2 force-migration verification"
+echo "  Upgrade of every live market to v3: before and after"
 echo "======================================================================"
-echo "  Fork block:   $RESOLVED  (requested: $BLOCK)"
-echo "  Salt:         $SALT"
-[[ -n "$POOL_FILTER" ]] && echo "  Pool filter:  $POOL_FILTER"
+echo "  Capture:        $HOLDERS_DIR (to block $CAPTURE_BLOCK)"
+echo "  Salt:           $SALT"
 
-# START_TIMESTAMP from the resolved block (shared by before/after captures).
-TS=$(cast block --rpc-url "$NETWORK" "$RESOLVED" -f timestamp)
-START_TIMESTAMP=$((TS + 12000))
-echo "  START_TIMESTAMP: $START_TIMESTAMP  (block ts $TS + 12000s)"
+# The records of an earlier run would hide one this run fails to write.
+rm -rf "$OUT/before" "$OUT/after" "$OUT/expected-after" "$OUT/compare"
+mkdir -p "$OUT"
 
-# Ensure local state is a fresh copy of mainnet before every run so the broadcast
-# step reads the same deployed addresses as the mainnet reference.
+prompt "Start a fresh anvil fork of the chain's head:  script/anvil --block latest"
+
+# The upgrade script reads the deployed addresses from the local state file, so it starts as mainnet's.
 mkdir -p "deployments/local/$NETWORK"
-echo "cp" "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
 cp "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
+echo "  Local state:    copied from deployments/$NETWORK/$SALT.state.json"
 
-# (Re)generate raw holder files AND the filtered (git-tracked) files at the fork
-# block. capture-sp-holders does both: Etherscan discovery (needs ETHERSCAN_KEY)
-# then FilterSpHolders (on-chain V1/V2 check at --to-block).
-echo ""
-echo "Discovering + filtering holders (Etherscan + on-chain, to-block $RESOLVED)..."
-script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders --to-block "$RESOLVED"
-
-prompt "Start a fresh anvil fork:  script/anvil --block $RESOLVED"
-
-# once anvil is started, set the owner balance - this is dubious: it should already have balance
-# but fixing that is not part of the verification, so we donate a ton of eth to the owner
-echo "giving the multisig some ETH..."
-cast rpc --rpc-url local anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0x21e19e0c9bab2400000
-cast balance --rpc-url local 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
-
-# ── Prong B: white-box balances() check (in-memory; un-migrated node) ─────────
-echo ""
-echo "Prong B: balances() white-box check..."
-forge test --match-path "$BALANCES_TEST" --fork-url local $FORGE_VERBOSITY
-
-# ── Prong A: capture BEFORE ──
-capture_state before
-
-# ── Run the ACTUAL migrate script (persists to anvil) ─────────────────────────
-echo ""
-echo "Running Migrate_StabilityPool_v2_Data_mainnet (--broadcast --local)..."
-MIGRATE_LOG=$(mktemp)
-trap 'rm -f "$MIGRATE_LOG"' EXIT
-# POOL_INCLUDE is read by Migrate_StabilityPool_v2_Data_mainnet via vm.envOr to
-# filter pools by market-key segment (e.g. ETH -> only ::ETH:: pools). Empty = all.
-POOL_INCLUDE="$POOL_FILTER" \
-  ./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local \
-  2>&1 | tee "$MIGRATE_LOG"
-
-# ── Validation 1 (v2 transparency): capture AFTER the migrate, diff vs before ──
-# Pool ends on v2 (fallback still present), so this proves the migration changed
-# nothing observable. NOTE: with the fallback present this diff cannot, on its own,
-# detect an INCOMPLETE migration (a missed holder still reads correctly via V1).
-capture_state after
-fail=0
-compare_state after "Validation 1: v2 transparency (migrate, ends on v2)" || fail=1
-
-# ── Validation 2 (v3 completeness): upgrade to v3 (no fallback), diff vs before ──
-# StabilityPool_v3 removes the V1 fallback, so any holder the migrate script MISSED
-# now reads claimable=0 under v3 → the diff exposes it. This is the completeness gate.
-# POOL_INCLUDE scopes the v3 upgrade to the same pools as the migrate (so --include ETH
-# does not upgrade unmigrated non-ETH pools to v3, which would break them on the fork).
-echo ""
-echo "Upgrading StabilityPool_v3 (completeness detector)${POOL_FILTER:+ — only ::$POOL_FILTER:: pools}..."
-POOL_INCLUDE="$POOL_FILTER" \
-  ./script/run-script Deploy_StabilityPool_v3_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local
-capture_state after-v3
-compare_state after-v3 "Validation 2: v3 completeness (no fallback — exposes any unmigrated holder)" || fail=1
-
-echo ""
-echo "======================================================================"
-if ((fail)); then
-  echo "  ❌ FAIL — see differences above."
+HEAD_BLOCK="$(cast block-number --rpc-url local)"
+if [[ ! "$HEAD_BLOCK" =~ ^[0-9]+$ || "$HEAD_BLOCK" -le "$CAPTURE_BLOCK" ]]; then
+  echo "ERROR: anvil's head is block '${HEAD_BLOCK}', not after the capture's block ${CAPTURE_BLOCK}" >&2
   exit 1
 fi
-echo "  ✅ PASS — v2 transparent AND v3-complete: safe to remove the fallback."
+# Both captures are warped to the same time, well after anvil's head, so the blocks the upgrade adds stay before it.
+HEAD_TIMESTAMP="$(cast block latest -f timestamp --rpc-url local)"
+START_TIMESTAMP=$((HEAD_TIMESTAMP + 12000))
+echo "  anvil head:     block $HEAD_BLOCK"
+echo "  START_TIMESTAMP: $START_TIMESTAMP (anvil head's time + 12000s)"
+
+echo ""
+echo "Prong A: capturing the before, on mainnet at block $CAPTURE_BLOCK..."
+VERSION=before HOLDERS_DIR="$HOLDERS_DIR" START_TIMESTAMP="$START_TIMESTAMP" \
+  campaign_test before.log MarketsCapture --fork-url "$NETWORK" --fork-block-number "$CAPTURE_BLOCK"
+
+echo ""
+echo "Running Upgrade_MarketsToV3_mainnet on anvil (--broadcast --local)..."
+set +e
+HOLDERS_DIR="$HOLDERS_DIR" script/run-script Upgrade_MarketsToV3_mainnet --salt "$SALT" --network "$NETWORK" \
+  --broadcast --local 2>&1 | tee "$OUT/upgrade.log"
+status=${PIPESTATUS[0]}
+set -e
+if [[ "$status" -ne 0 ]]; then
+  echo "ERROR: the upgrade script failed (exit $status) - see $OUT/upgrade.log" >&2
+  exit "$status"
+fi
+
+echo ""
+echo "Prong A: capturing the after, on anvil..."
+VERSION=after HOLDERS_DIR="$HOLDERS_DIR" START_TIMESTAMP="$START_TIMESTAMP" \
+  campaign_test after.log MarketsCapture --fork-url local
+
+echo ""
+echo "Prong B: checking the storage the upgrade copied..."
+HOLDERS_DIR="$HOLDERS_DIR" campaign_test storage-copy.log MarketsStorageCopy --fork-url local
+
+echo ""
+echo "Prong A: writing the expected after..."
+campaign_test expected-after.log MarketsExpectedAfter
+
+# Each record with its keys sorted, so the diff compares values, not the order they were written in.
+for side in expected-after after; do
+  while IFS= read -r -d '' file; do
+    mkdir -p "$OUT/compare/$side/$(dirname "$file")"
+    jq -S . "$OUT/$side/$file" >"$OUT/compare/$side/$file"
+  done < <(cd "$OUT/$side" && find . -name '*.json' -print0)
+done
+
+echo ""
 echo "======================================================================"
+echo "  Prong A: the expected after against the after - expect NO differences"
+echo "======================================================================"
+if diff -ru "$OUT/compare/expected-after" "$OUT/compare/after"; then
+  echo "  ✅ PASS: every contract reads after the upgrade as it did before, or as expected"
+  exit 0
+fi
+if command -v meld >/dev/null 2>&1; then
+  meld "$OUT/compare/expected-after" "$OUT/compare/after" &
+fi
+echo "  ❌ FAIL: the differences above are neither unchanged nor expected"
+exit 1

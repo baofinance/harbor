@@ -38,6 +38,7 @@ import {LogCaptureLib} from "@harbor-script/holders/LogCaptureLib.sol";
 import {IncidentMarketUpgrade} from "@harbor-script/verify/incidents/IncidentMarketUpgrade.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {V3Rule} from "@harbor-test/harness/MarketRule.sol";
+import {RewardDivisorGapLib} from "@harbor-test/harness/RewardDivisorGapLib.sol";
 import {
     BTC_STETH_EXPLOIT,
     EUR_STETH_EXPLOIT,
@@ -1776,8 +1777,10 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
     }
 
     /// @dev Asserts the upgrade moved no token: every party's and every contract's wallet balances and pool deposits
-    ///      read the same after it as before, and each pool reward the same to within `_rewardBound`. Returns how many
-    ///      rewards read differently, and the largest difference.
+    ///      read the same after it as before, and each pool reward the same to within `RewardDivisorGapLib.rewardBound`
+    ///      - the upgrader copies each holder's settled reward exactly, and v3 divides a stream not yet settled by what
+    ///      the holders hold where v2 divided by the supply. Returns how many rewards read differently, and the largest
+    ///      difference.
     function _assertUpgradeKept(
         Reading memory before,
         Reading memory upgraded,
@@ -1798,8 +1801,8 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                     assertLe(
                         difference,
                         position == 7
-                            ? _rewardBound(is_[position], gaps[1], supplies[1])
-                            : _rewardBound(is_[position], gaps[0], supplies[0]),
+                            ? RewardDivisorGapLib.rewardBound(is_[position], gaps[1], supplies[1])
+                            : RewardDivisorGapLib.rewardBound(is_[position], gaps[0], supplies[0]),
                         _positionLabel(i, position)
                     );
                     if (difference > 0) {
@@ -1811,14 +1814,6 @@ abstract contract RebalanceDilutionReport is RebalanceDilutionFork {
                 }
             }
         }
-    }
-
-    /// @dev How far the upgrade can move a pool reward reading `reward` after it. The upgrader copies each holder's
-    ///      settled reward exactly. v3 divides a stream not yet settled by what the holders hold - the supply less the
-    ///      ledger gap - where v2 divided by the supply, which moves a holder's share of it by at most the gap over
-    ///      that divisor, rounded up; and each version floors the share once, which adds a wei.
-    function _rewardBound(uint256 reward, int256 gap, uint256 supply) internal pure returns (uint256) {
-        return Math.mulDiv(reward, _abs(gap), uint256(int256(supply) - gap), Math.Rounding.Ceil) + 1;
     }
 
     /// @dev The upgrade check's message for party `party`'s position `position`.

@@ -89,14 +89,15 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///         block must be the last before the pause: at the next block every minter and pool reverts `Paused`. The
     ///         pause changes only which implementation each proxy runs, so what is read there is what the upgrade runs
     ///         on. The fork selected before is selected again after.
+    /// @dev This deployer must be persistent across forks. A script is; a test that holds a deployer makes it so. It
+    ///      cannot make itself so: forge refuses a script that uses its own address.
     function readFrozenMarketUpgradeInputs(
         Config_MinterMarket[] memory markets,
         string memory capture,
         string memory network
     ) internal returns (MarketUpgradeInput[] memory inputs) {
         uint256 head = _vm.activeFork();
-        // A contract made on one fork is absent from another unless persistent: this deployer, and the market configs.
-        _vm.makePersistent(address(this));
+        // A contract made on one fork is absent from another unless persistent: the market configs.
         for (uint256 i = 0; i < markets.length; ++i) {
             _vm.makePersistent(address(markets[i]));
         }

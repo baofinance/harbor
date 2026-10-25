@@ -49,4 +49,5 @@ echo "# rehearsing with capture ${HOLDERS_DIR} ($(grep '^to-block:' "${HOLDERS_D
 # where production sends each as a transaction of its own. Without --disable-block-gas-limit the call runs out of gas
 # part way through the second market.
 HOLDERS_DIR="$HOLDERS_DIR" exec script/verify/run-campaign-test script/verify/v3-upgrade \
-  tmp/v3-upgrade-rehearsal.log "${FORGE_VERBOSITY:--vv}" --disable-block-gas-limit
+  tmp/v3-upgrade-rehearsal.log --mc "FrozenMarketsReadPoint|MarketsUpgradeRehearsal" "${FORGE_VERBOSITY:--vv}" \
+  --disable-block-gas-limit

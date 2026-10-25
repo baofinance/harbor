@@ -219,7 +219,9 @@ contract UpgradeMarketToV3Test is Test {
         uint256 leveragedSupply = IStabilityPool(leveragedPool).totalAssetSupply();
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
-        new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE).run("harbor_v1");
+        FrozenMarketUpgradeRun upgrade = new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE);
+        vm.makePersistent(address(upgrade));
+        upgrade.run("harbor_v1");
 
         assertEq(
             keccak256(abi.encode(IMinter(frozenMinter).config())),
@@ -279,7 +281,9 @@ contract UpgradeMarketToV3Test is Test {
         uint256 liveBacking = IMinter(liveMinter).collateralTokenBalance();
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
-        new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE).run("harbor_v1");
+        FrozenMarketUpgradeRun upgrade = new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE);
+        vm.makePersistent(address(upgrade));
+        upgrade.run("harbor_v1");
 
         (uint256 recorded, uint256 held) = IMinter_v3(retiredMinter).impairment();
         assertEq(recorded, 0, "the retired market records what it holds: nothing");

@@ -1,123 +1,74 @@
-# StabilityPool v2 accumulator data migration (prep for v3)
+# Before and after the upgrade of every market to v3
 
-Force-migrate every stability pool's per-user reward data from the legacy **V1**
-(`uint192` integral) format to the **V2** (`uint256` integral) format, then restore each
-pool to its current `StabilityPool_v2` implementation.
+`script/Upgrade_MarketsToV3_mainnet.s.sol` upgrades every live market to Minter_v3, StabilityPool_v3 and
+StabilityPoolManager_v2, one Safe batch per market. This campaign runs that script on an anvil fork of the chain's
+head, and checks what every market contract reads after it against what it read before.
 
-## Why
-
-When the pools went v1 → v2, the reward integral was widened to `uint256`. To avoid
-disrupting users, v2's accumulator lazily migrates a user's data on first interaction and
-keeps a **V1 read-fallback** for those not yet touched
-(`MultipleRewardCompoundingAccumulator_v2._getUserRewardSnapshot`). That fallback can only
-be removed safely once **every** remaining user is in V2 format.
-
-This step force-migrates the stragglers so a later `StabilityPool_v3` upgrade can delete the
-fallback. **It ends on v2** — it does not upgrade to v3. The migration is a pure storage
-copy: no user-visible value (balance, claimable, claimed, withdrawal request) changes.
-
-Key facts (verified):
-
-- The V1 mapping is **never written** by v2 — so the set of users needing migration was
-  frozen at the v1→v2 upgrade and can only shrink (users self-migrate on interaction). New
-  depositors are born directly in V2.
-- `remediate` is a **pure copy** (V1 integral/timestamp/pending → V2), idempotent (skips
-  already-migrated and no-V1-data entries). The old V1 slot is never modified.
-- The migration covers **active + historical** reward tokens: a user can carry V1 data for a
-  no-longer-active token, and `_checkpoint` snapshots both.
-
-## Pieces
-
-| File | Role |
-|------|------|
-| `../../Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders` | Discover holders per pool via Etherscan `UserDepositChange` logs → `tmp/sp-holders/<saltKey>.txt`, then run `FilterSpHolders` to write the git-tracked filtered files (unless `--no-filter`) |
-| `../../Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol` | Comment out holders needing no migration (on-chain V1/V2 check) → `script/Migrate_StabilityPool_v2_Data_mainnet/<saltKey>.txt` |
-| `../../Migrate_StabilityPool_v2_Data_mainnet.s.sol` | The migration: per pool, queue upgrade→ForceMigrate, `remediate(tokens, holders)`, restore→v2. Reads the holder files. |
-| `MigrateCaptureTest.t.sol` | **Prong A** (black-box): capture all pool/holder state + interactions to JSON for a before/after diff |
-| `MigrateBalancesTest.t.sol` | **Prong B** (white-box): upgrade→ForceMigrate, assert `balances()` copies V1→V2 correctly |
-| `../../Deploy_StabilityPool_v3_mainnet.s.sol` | **Prod** v2→v3 upgrade, reused unmodified for **Validation 2**. Plain `upgradeToAndCall(impl, "")` (no initialize/reinitializer — v3 sets immutables in its constructor; the one-shot data fix lives in ForceMigrate). On `--local` it touches only the local state copy. |
-| `run-migrate-StabilityPool_v2-data` | Local end-to-end driver: discover → before → prongs → **migrate (prod)** → after (v2 diff) → **v3 (prod)** → after-v3 (v3 diff) |
-
-Holder discovery uses `UserDepositChange(owner,…)` — the event emitted whenever an account is
-checkpointed (deposit→receiver, withdraw→sender, liquidation→account). The distinct `owner`
-set is exactly the accounts that may carry V1 data. (Over-approximation is harmless:
-`remediate` skips accounts with no V1 data.) This was cross-checked against the holder list
-hardcoded in `script/test/MainnetForkUpgradeTest.t.sol`: the discovery set is complete and
-precise (it found real holders that list missed, and the addresses that list had but discovery
-did not were verified to have zero `UserDepositChange`/`Deposit`-as-receiver events).
-
-## Local verification (one command)
-
-Start nothing first — the runner prompts you to start anvil. It resolves the fork block to a
-concrete number, regenerates holders at that block, captures before, runs both prongs + the
-real migrate script, captures after, **then upgrades to v3 and captures again** — two diffs.
+## How it runs
 
 ```bash
-script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data            # full run at latest
-script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data --block <number>   # full run at a specific block
-# --block: latest (default, → concrete number) | <number>
-# --include <pool-filter>
+script/verify/v3-upgrade/run-upgrade-before-after --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
 ```
 
-What it does, in one anvil session (`forge test` forks in-memory; `run-script --broadcast
---local` persists to anvil — so the order is correct without cycling anvil). The block is
-resolved once and used identically for discovery, the fork, and START_TIMESTAMP:
+The runner asks you to start anvil (`script/anvil --block latest`), then:
 
-1. Discover + filter holders → `tmp/sp-holders/` (raw) and `script/Migrate_StabilityPool_v2_Data_mainnet/` (filtered), at the resolved block (recorded in each file's `# to-block:` header).
-2. **Prong A**: `VERSION=before` capture → `tmp/before/{pre,post}/*.json`.
-3. **Prong B**: `MigrateBalancesTest` asserts the V1→V2 copy on the un-migrated node.
-4. Run the **actual** `Migrate_StabilityPool_v2_Data_mainnet` (`--broadcast --local`) — persists
-   upgrade→remediate→restore-v2 to anvil.
-5. **Prong A**: `VERSION=after` capture → `tmp/after/…`.
-6. **Validation 1 (v2 transparency)**: `diff tmp/before tmp/after` — **MUST be empty**. Proves the
-   migration changed nothing observable. (Also proves pure-copy ≡ on-demand: "before" reads
-   unmigrated users via the V1 fallback, "after" via pure-copied V2 data.)
-7. Run `Deploy_StabilityPool_v3_mainnet` (`--broadcast --local`) — upgrades all pools to v3.
-8. **Prong A**: `VERSION=after-v3` capture → `tmp/after-v3/…`.
-9. **Validation 2 (v3 completeness)**: `diff tmp/before tmp/after-v3` — **MUST be empty**. v3 has
-   no V1 fallback, so any holder the migrate **missed** reads `claimable=0` here and the diff
-   exposes it. This is the gate that closes Validation 1's blind spot.
+1. copies `deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the
+   deployed addresses;
+2. **before**: `MarketsCapture` with `VERSION=before`, on a fork of mainnet at the capture's block - the last block
+   before the pause of 2026-10-22, where the markets still run. The managers were paused earlier, at block
+   26,241,030, so the capture puts each manager's own implementation back first;
+3. runs the upgrade script as it will be run on mainnet, with `--local` added: the batches execute on anvil as the
+   multisig would execute them;
+4. **after**: `MarketsCapture` with `VERSION=after`, on a fork of anvil;
+5. **storage**: `MarketsStorageCopy`, on a fork of anvil;
+6. **expected after**: `MarketsExpectedAfter` writes the record each contract must have after;
+7. sorts the keys of each record and diffs the expected after against the after. Any difference fails the run.
 
-**Why two validations:** ending on v2 keeps the fallback, so Validation 1's diff cannot, alone,
-detect an *incomplete* migration (a missed holder still reads correctly via V1). Validation 2
-removes the fallback (v3) and re-checks against the same baseline, so incompleteness surfaces.
-The v3 upgrade here is verification-only — the production migration ends on v2.
+`forge test` forks anvil in memory and writes nothing back, so one anvil session serves the whole run. Both captures
+are warped to the same time, 12,000 seconds after anvil's head, so the reward streams and withdrawal windows read alike.
 
-## Producing the mainnet Safe batch
+Each step's output is kept in `tmp/v3-upgrade/*.log`, and the records in `tmp/v3-upgrade/{before,after,expected-after}/`.
+The runner needs `MAINNET_RPC_URL`, archival at the capture's block.
 
-```bash
-# 1. Discover holders (fixed --to-block for reproducibility)
-script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders --to-block <block>
+## What is recorded
 
-# 2. Build the Safe batch JSON (no --local: writes deployments/mainnet/batch/*.json)
-script/run-script Migrate_StabilityPool_v2_Data_mainnet --salt harbor_v1 --network mainnet --broadcast
-```
+`MarketsCapture` writes one record per contract, named by its salt key: `pre/` holds its state; for a pool, `post/`
+holds its behaviour under the same interactions - a deposit, a reward deposited and streamed, claims, a withdrawal -
+and its state after them.
 
-The holder lists are embedded in each pool's `remediate` calldata in the batch JSON, so the
-exact migrated set is auditable in the transaction the Safe signs.
+- **Minter**: owner, config, the backing it records, its pegged and leveraged supply, the wrapped collateral it holds,
+  its tokens, oracle, reserve pool and fee receiver, and the roles of the manager and the genesis contract.
+- **StabilityPool**: supply, tokens, reward tokens and streams, withdrawal window and early-withdrawal fee, and per
+  captured holder: balance, claimable and claimed rewards per reward token, withdrawal request.
+- **StabilityPoolManager**: owner, pools, the harvest bounty and cut, the rebalance bounty and threshold, and the fee
+  receiver.
 
-## Re-run / completeness check (after the Safe batch executes)
+Where the two versions answer the same question through different functions, each is read through its own, into the
+same key.
 
-The needs-migration set is frozen and can only shrink, so a post-execution re-run cannot find
-genuinely-new users that need migration — it catches a *discovery miss*. To verify:
+## What the upgrade is expected to change
 
-```bash
-# Re-discover up to a later block, into a separate dir, and diff.
-# --no-filter: raw discovery only, so the git-tracked filtered files are not touched.
-script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders --to-block latest --out-dir tmp/sp-holders-rerun --no-filter
-diff -ru tmp/sp-holders tmp/sp-holders-rerun
-```
+The expected after is the before record, changed only where an expectation says. Each expectation is written in
+`MarketsExpectedAfter.t.sol` with its reason:
 
-Any address present only in the re-run is either a user who self-migrated in the interim
-(harmless — already V2) or a new depositor (born in V2). If you want to be certain none carry
-unmigrated V1 data, run `MigrateBalancesTest` (Prong B) against a fork with the re-run holder
-files: it flags any holder with `oldIntegral != 0 && newIntegral == 0`.
+| Contract | Key | Expected after | Reason |
+|---|---|---|---|
+| Minter that records backing but holds no wrapped collateral (GOLD::fxUSD, SILVER::fxUSD) | `minter_recordedBacking` | `0` | its batch recognises the backing it records but does not hold |
+| StabilityPoolManager | `manager_yieldVaultCount` | `0` | v2 adds yield vaults; the upgrade registers none |
+| StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
+| StabilityPool | `state_rewardDivisor` | supply less the ledger gap | v3 divides rewards by what the holders hold |
+| StabilityPool with a ledger gap | each claimable, each claim's payout, and after the interactions each claimed total | the before value, within `RewardDivisorGapLib.rewardBound` | v3 pays a reward not yet settled into a holder's record over what the holders hold, not over the supply |
 
-## Notes
+An expectation of the `Within` kind admits the after value if it lies within its bound, derived for that value, and
+otherwise writes the expected value, so the diff shows both. An expectation for a key neither record has is refused.
 
-- `tmp/sp-holders/` is ephemeral (gitignored). The runner regenerates it; the mainnet flow
-  regenerates it in step 1 above.
-- Both `capture-sp-holders` and the runner default the fork block to **latest**, resolved to a
-  concrete number. `capture-sp-holders` records it in each holder file (`# to-block: <N>`), so
-  every capture is self-documenting and the verification forks exactly the state the holders were
-  found in. Each run re-discovers holders fresh at the resolved block.
+## Storage copied
+
+`MarketsStorageCopy` reads, for every pool, the storage the upgrade copied, which the records see only through views:
+
+- each captured holder's reward record for each reward token - pending, claimed, timestamp, integral - in its V2
+  layout at the capture's block, against its V3 record after the upgrade;
+- each reward token's stream;
+- the ledger gap the upgrade wrote, against the pool's supply less what the captured holders held.
+
+It fails unless at least one reward record had data to compare.

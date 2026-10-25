@@ -16,6 +16,7 @@ import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
+import {StabilityPoolRewardRecordLib} from "@harbor-test/harness/StabilityPoolRewardRecordLib.sol";
 
 /// @title StabilityPoolMigrationPreflight — can every deployed pool migrate v2->v3 through StabilityPool_v3_Upgrader?
 /// @notice The upgrade (`UpgradeMarketToV3.upgradeMarketsToV3`) migrates each pool through `StabilityPool_v3_Upgrader`,
@@ -79,15 +80,6 @@ contract StabilityPoolMigrationPreflight is
     uint256 internal claimDataPairsAlreadyV3; // pairs already carrying V3 data (a re-run would skip them)
     uint256 internal claimDataPairsStillOnV1; // pairs whose live data is in the V1 mapping the upgrader does NOT read
 
-    /// @dev The accumulator's ERC-7201 namespace, and the member offsets of the two per-user snapshot mappings within
-    ///      it. V2 and V3 agree on the first four members, so `userRewardSnapshotV2` sits at offset 3 under both; V3
-    ///      adds its widened mapping at offset 4. Read directly because the live V2 pool exposes no getter for the
-    ///      checkpoint `integral` - and the integral is the field that MUST be copied (see `_locateRewardSnapshots`).
-    bytes32 internal constant _ACCUMULATOR_STORAGE = 0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
-    uint256 internal constant _SNAPSHOT_V1_OFFSET = 2;
-    uint256 internal constant _SNAPSHOT_V2_OFFSET = 3;
-    uint256 internal constant _SNAPSHOT_V3_OFFSET = 4;
-
     /// @dev The supply ceiling StabilityPool_v3 derives from a pool's floor, mirroring the v3 constructor: the mirror
     ///      of the floor, saturated at the supply field width above which a larger ceiling is unreachable. Migration
     ///      does not go through the deposit path where v3 enforces this, so it is gated here instead: above the
@@ -103,13 +95,6 @@ contract StabilityPoolMigrationPreflight is
     uint256 internal constant _RESIDENT_NONE = 0;
     uint256 internal constant _RESIDENT_V2 = 1;
     uint256 internal constant _RESIDENT_V1 = 2;
-
-    /// @dev First slot of `mapping(address => mapping(address => T))` held at member `offset` of the accumulator
-    ///      namespace, for the `[holder][token]` entry.
-    function _snapshotSlot(uint256 offset, address holder, address token) internal pure returns (uint256 slot) {
-        bytes32 inner = keccak256(abi.encode(holder, uint256(_ACCUMULATOR_STORAGE) + offset));
-        slot = uint256(keccak256(abi.encode(token, inner)));
-    }
 
     /// @dev Determine, for EVERY `(holder, token)` pair, which storage location holds that pair's live reward snapshot
     ///      - and count each outcome. The population is every holder in the capture crossed with the pool's active and
@@ -177,7 +162,11 @@ contract StabilityPoolMigrationPreflight is
                 // Each candidate mapping is read in its own scope, so the slot local goes out of scope with the branch
                 // that owns it (this function is at the stack limit) and each name still says which mapping it means.
                 {
-                    uint256 v2Base = _snapshotSlot(_SNAPSHOT_V2_OFFSET, holders[h], tokens[t]);
+                    uint256 v2Base = StabilityPoolRewardRecordLib.recordSlot(
+                        StabilityPoolRewardRecordLib.V2_OFFSET,
+                        holders[h],
+                        tokens[t]
+                    );
                     if (
                         uint256(vm.load(pool, bytes32(v2Base + 2))) != 0 || // integral
                         uint256(vm.load(pool, bytes32(v2Base + 1))) != 0 // timestamp
@@ -187,7 +176,11 @@ contract StabilityPoolMigrationPreflight is
                     }
                 }
                 if (residency == _RESIDENT_NONE) {
-                    uint256 v1Base = _snapshotSlot(_SNAPSHOT_V1_OFFSET, holders[h], tokens[t]);
+                    uint256 v1Base = StabilityPoolRewardRecordLib.recordSlot(
+                        StabilityPoolRewardRecordLib.V1_OFFSET,
+                        holders[h],
+                        tokens[t]
+                    );
                     if (
                         uint256(vm.load(pool, bytes32(v1Base))) != 0 || // ClaimData: pending | claimed
                         uint256(vm.load(pool, bytes32(v1Base + 1))) != 0 // checkpoint: timestamp | integral
@@ -215,7 +208,11 @@ contract StabilityPoolMigrationPreflight is
                 }
 
                 {
-                    uint256 v3Base = _snapshotSlot(_SNAPSHOT_V3_OFFSET, holders[h], tokens[t]);
+                    uint256 v3Base = StabilityPoolRewardRecordLib.recordSlot(
+                        StabilityPoolRewardRecordLib.V3_OFFSET,
+                        holders[h],
+                        tokens[t]
+                    );
                     if (
                         uint256(vm.load(pool, bytes32(v3Base))) != 0 || // pending
                         uint256(vm.load(pool, bytes32(v3Base + 1))) != 0 || // claimed

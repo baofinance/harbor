@@ -39,11 +39,18 @@ the minter runs v3, taking the record to zero.
   its holders hold, and each market's contracts name its tokens and each other; a capture taken earlier is refused
 - `run-upgrade-rehearsal --holders-dir <capture>` — runs both (needs `MAINNET_RPC_URL`, archival at the capture's
   block); run before signing the batches, with the capture the script will be given
+- `MarketsCapture.t.sol`, `MarketsExpectedAfter.t.sol`, `MarketsStorageCopy.t.sol` and `CaptureExpectationsLib.sol` —
+  the before and after of the upgrade script run on anvil: every contract of every market reads after the upgrade as
+  it did before, or as written down beforehand with its reason; and the storage the upgrade copied matches the frozen
+  pools'
+- `run-upgrade-before-after --holders-dir <capture>` — runs them, with the upgrade script, on an anvil fork of the
+  chain's head; see [upgrade-markets-to-v3.md](v3-upgrade/upgrade-markets-to-v3.md)
 
 To upgrade:
 
 ```bash
 script/verify/v3-upgrade/run-upgrade-rehearsal --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
+script/verify/v3-upgrade/run-upgrade-before-after --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
 script/verify/sp-v3-reward-divisor-migration/run-migration-preflight --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
 HOLDERS_DIR=script/UpgradeStabilityPool_v2_v3/holders-26248723 \
   script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast
