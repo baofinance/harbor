@@ -23,6 +23,7 @@ import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
+import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
@@ -68,10 +69,6 @@ contract UpgradeMarketToV3Test is Test {
 
     /// @dev A later block, at which BTC::stETH's collateral pool holds a depositor who joined after `CAPTURE`.
     uint256 internal constant AFTER_A_DEPOSITOR_JOINED = 25691117;
-
-    /// @dev The capture the live upgrade runs on, taken to the last block before the pause that froze every minter and
-    ///      pool.
-    string internal constant FROZEN_CAPTURE = "script/UpgradeStabilityPool_v2_v3/holders-26248723/";
 
     HarborDeployRun internal deployRun;
     MarketUpgradeRun internal upgrade;
@@ -194,7 +191,7 @@ contract UpgradeMarketToV3Test is Test {
     /// config read before the pause, each pool with the supply read, the manager reports StabilityPoolManager_v2, and
     /// the market's contracts name its tokens and each other.
     function test_theFrozenUpgradeBuildsAtThePauseBlock() public {
-        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_CAPTURE);
+        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
@@ -219,9 +216,9 @@ contract UpgradeMarketToV3Test is Test {
         uint256 leveragedSupply = IStabilityPool(leveragedPool).totalAssetSupply();
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
-        FrozenMarketUpgradeRun upgrade = new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE);
-        vm.makePersistent(address(upgrade));
-        upgrade.run("harbor_v1");
+        FrozenMarketUpgradeRun frozenUpgrade = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE);
+        vm.makePersistent(address(frozenUpgrade));
+        frozenUpgrade.run("harbor_v1");
 
         assertEq(
             keccak256(abi.encode(IMinter(frozenMinter).config())),
@@ -252,7 +249,7 @@ contract UpgradeMarketToV3Test is Test {
     /// nothing, and it reports no shortfall. A market that holds its backing - BTC::stETH, upgraded beside it - keeps
     /// its record.
     function test_theUpgradeRecognisesBackingNothingHolds() public {
-        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_CAPTURE);
+        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
         (, Config_MinterMarket[] memory goldMarkets) = goldMintersConfig();
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
@@ -281,9 +278,9 @@ contract UpgradeMarketToV3Test is Test {
         uint256 liveBacking = IMinter(liveMinter).collateralTokenBalance();
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
-        FrozenMarketUpgradeRun upgrade = new FrozenMarketUpgradeRun(markets, FROZEN_CAPTURE);
-        vm.makePersistent(address(upgrade));
-        upgrade.run("harbor_v1");
+        FrozenMarketUpgradeRun frozenUpgrade = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE);
+        vm.makePersistent(address(frozenUpgrade));
+        frozenUpgrade.run("harbor_v1");
 
         (uint256 recorded, uint256 held) = IMinter_v3(retiredMinter).impairment();
         assertEq(recorded, 0, "the retired market records what it holds: nothing");

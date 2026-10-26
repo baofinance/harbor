@@ -13,24 +13,22 @@ import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 /// @notice The v3 upgrade reads the live markets at the end of the capture's block, the last before the pause that froze
 ///         them, and runs on the frozen state. These check the two are the same in everything the upgrade reads: the
 ///         pause changed only which implementation each minter and pool runs, and nothing earlier in the pause's block
 ///         changed a minter or a pool.
-/// @dev The capture is HOLDERS_DIR, set by `run-upgrade-rehearsal --holders-dir`. Replaying the pause's block needs the
-///      Osaka EVM: the block holds EIP-7702 transactions, which forge refuses under the repository's Cancun setting.
+/// @dev The capture is the upgrade's, `FROZEN_MARKETS_CAPTURE`. Replaying the pause's block needs the Osaka EVM: the block holds EIP-7702 transactions, which forge refuses under the repository's Cancun setting.
 contract FrozenMarketsReadPoint is Test, HarborDeployer {
     /// @dev The Safe transaction that paused every minter and stability pool, in block 26,248,724.
     bytes32 internal constant PAUSE = 0x0359c9fbfd7be6ef5b34e9f8aa8dfb8147b59aa7280d61787e83ffe9afc89a44;
 
-    string internal capture;
     uint256 internal captureBlock;
     Config_MinterMarket[] internal markets;
 
     function setUp() public {
-        capture = vm.envString("HOLDERS_DIR");
-        captureBlock = HolderCaptureLib.captureBlock(capture);
+        captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         _setSaltPrefix("harbor_v1");
         markets = allMintersConfig();
         for (uint256 i = 0; i < markets.length; ++i) {
@@ -162,7 +160,7 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
                 .rewardData(tokens[t]);
             answers = bytes.concat(answers, abi.encode(lastUpdate, finishAt, rate, queued));
         }
-        address[] memory holders = HolderCaptureLib.holders(capture, stabilityPoolKey(market, poolType));
+        address[] memory holders = HolderCaptureLib.holders(FROZEN_MARKETS_CAPTURE, stabilityPoolKey(market, poolType));
         for (uint256 h = 0; h < holders.length; ++h) {
             answers = bytes.concat(answers, abi.encode(IStabilityPool(pool).assetBalanceOf(holders[h])));
             for (uint256 t = 0; t < tokens.length; ++t) {

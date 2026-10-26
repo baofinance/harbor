@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 # Rehearse the upgrade of every live market to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2, with the capture
-# the upgrade will use, and check the state it reads is the state it runs on:
+# the upgrade script reads (FROZEN_MARKETS_CAPTURE in script/Upgrade_MarketsToV3_mainnet.s.sol), and check the state it
+# reads is the state it runs on:
 #   - FrozenMarketsReadPoint: the pause changed only which implementation each minter and pool runs, and nothing
 #     earlier in the pause's block changed a market, so the end of the capture's block is the frozen state;
 #   - MarketsUpgradeRehearsal: the upgrade script, on a fork of the chain's head, builds every market's batch, each
 #     executes as the multisig, and every market keeps what it held; a capture taken earlier is refused.
 #
-# The capture is a REQUIRED argument, the one the upgrade script will be given: taken to the last block before the
-# pause. Its block comes from its manifest.
-#
 # Fails unless the campaign's tests actually ran - see script/verify/run-campaign-test.
 #
 # Usage:
-#   script/verify/v3-upgrade/run-upgrade-rehearsal --holders-dir <capture>
-#
-# The live markets' capture is script/UpgradeStabilityPool_v2_v3/holders-26248723. Produce another with:
-#   script/holders/capture-holders --to-block <block>
+#   script/verify/v3-upgrade/run-upgrade-rehearsal
 #
 # Needs MAINNET_RPC_URL, archival at the capture's block. The full output is kept in tmp/v3-upgrade-rehearsal.log.
 
@@ -24,30 +19,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../../.."
 
-HOLDERS_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --holders-dir) HOLDERS_DIR="$2"; shift 2 ;;
     -h|--help)     sed -n '2,/^$/p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
-if [[ -z "$HOLDERS_DIR" ]]; then
-  echo "ERROR: --holders-dir is required (the capture the upgrade reads)" >&2
-  echo "       produce one with: script/holders/capture-holders --to-block <block>" >&2
-  exit 1
-fi
-if [[ ! -f "${HOLDERS_DIR}/manifest.txt" ]]; then
-  echo "ERROR: ${HOLDERS_DIR} is not a capture (no manifest.txt)" >&2
-  exit 1
-fi
-
-echo "# rehearsing with capture ${HOLDERS_DIR} ($(grep '^to-block:' "${HOLDERS_DIR}/manifest.txt"))" >&2
-
 # The rehearsal runs every market's deploys and batches in one test call - about 410M gas for the 11 live markets -
 # where production sends each as a transaction of its own. Without --disable-block-gas-limit the call runs out of gas
 # part way through the second market.
-HOLDERS_DIR="$HOLDERS_DIR" exec script/verify/run-campaign-test script/verify/v3-upgrade \
+exec script/verify/run-campaign-test script/verify/v3-upgrade \
   tmp/v3-upgrade-rehearsal.log --mc "FrozenMarketsReadPoint|MarketsUpgradeRehearsal" "${FORGE_VERBOSITY:--vv}" \
   --disable-block-gas-limit

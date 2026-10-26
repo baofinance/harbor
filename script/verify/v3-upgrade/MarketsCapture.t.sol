@@ -20,6 +20,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
@@ -29,10 +30,11 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///         after (`VERSION=after`); `MarketsExpectedAfter` then writes what the after record must read, and the runner
 ///         diffs the two. Every value must read the same after as before, or as written down beforehand.
 ///
-///         The before is taken where the markets still run - a fork of mainnet at the holder capture's block, the last
-///         before the pause that froze every minter and pool - with each manager's own implementation put back (the
-///         managers were paused earlier, at block 26,241,030). The after is taken on anvil, after the upgrade script ran
-///         there. Both are warped to the same START_TIMESTAMP, so time-dependent values compare.
+///         The before is taken where the markets still run - a fork of mainnet at the block of the upgrade's holder
+///         capture, `FROZEN_MARKETS_CAPTURE`, the last before the pause that froze every minter and pool - with each
+///         manager's own implementation put back (the managers were paused earlier, at block 26,241,030). The after is
+///         taken on anvil, after the upgrade script ran there. Both are warped to the same START_TIMESTAMP, so
+///         time-dependent values compare.
 ///
 ///         Each version is read through its own form where the two differ (a pool's reward reads, the views v3 dropped
 ///         or added), into the same keys.
@@ -41,8 +43,8 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///   tmp/v3-upgrade/{VERSION}/pre/{saltKey}.json   -- its state before any interaction
 ///   tmp/v3-upgrade/{VERSION}/post/{saltKey}.json  -- a pool's interaction results, then its state after them
 ///
-/// Run by run-upgrade-before-after, with VERSION, HOLDERS_DIR and START_TIMESTAMP set and the fork given on the forge
-/// command line.
+/// Run by run-upgrade-before-after, with VERSION and START_TIMESTAMP set: the before forks mainnet itself; the after runs
+/// on the fork given on the forge command line, anvil.
 contract MarketsCapture is Test, HarborDeployer {
     /// @dev The managers were paused in this block; the block before it holds each one's own implementation.
     uint256 internal constant MANAGERS_PAUSED_AT = 26_241_030;
@@ -51,7 +53,6 @@ contract MarketsCapture is Test, HarborDeployer {
     string private _jsonKey;
 
     bool internal isBefore;
-    string internal capture;
     Config_MinterMarket[] internal markets;
     address internal testUser;
 
@@ -62,7 +63,6 @@ contract MarketsCapture is Test, HarborDeployer {
             isBefore || keccak256(bytes(version)) == keccak256("after"),
             string.concat("VERSION is '", version, "': it must be before or after")
         );
-        capture = vm.envString("HOLDERS_DIR");
         _setSaltPrefix("harbor_v1");
         testUser = makeAddr("testUser");
         markets = allMintersConfig();
@@ -78,8 +78,20 @@ contract MarketsCapture is Test, HarborDeployer {
     /// @notice Record every market's contracts, and each pool's interactions, to JSON.
     function test_capture() public {
         string memory version = isBefore ? "before" : "after";
+        uint256 captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         if (isBefore) {
+            vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
             _restoreManagers();
+        } else {
+            require(
+                block.number > captureBlock,
+                string.concat(
+                    "the after runs at block ",
+                    vm.toString(block.number),
+                    ", not after the capture's block ",
+                    vm.toString(captureBlock)
+                )
+            );
         }
 
         // Normalize timestamp so before and after start from the same point: the after runs on anvil after the upgrade
@@ -219,7 +231,7 @@ contract MarketsCapture is Test, HarborDeployer {
 
     /// @dev The pool's captured holders, and the test user too once it has deposited.
     function _users(string memory label, bool withTestUser) private view returns (address[] memory users) {
-        address[] memory holders = HolderCaptureLib.holders(capture, label);
+        address[] memory holders = HolderCaptureLib.holders(FROZEN_MARKETS_CAPTURE, label);
         users = new address[](holders.length + (withTestUser ? 1 : 0));
         for (uint256 i = 0; i < holders.length; ++i) {
             users[i] = holders[i];
@@ -460,7 +472,7 @@ contract MarketsCapture is Test, HarborDeployer {
         address proxy = stabilityPoolAddress(market, poolType);
         _jsonKey = string.concat("post_", label);
         string memory prefix = "interact";
-        address[] memory depositors = HolderCaptureLib.holders(capture, label);
+        address[] memory depositors = HolderCaptureLib.holders(FROZEN_MARKETS_CAPTURE, label);
         address[] memory allUsers = _users(label, true);
         address[] memory activeTokens = IMultipleRewardDistributor(proxy).activeRewardTokens();
 

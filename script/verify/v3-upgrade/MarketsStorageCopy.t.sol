@@ -10,6 +10,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {StabilityPoolRewardRecordLib} from "@harbor-test/harness/StabilityPoolRewardRecordLib.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -18,18 +19,17 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 /// @notice White-box check of the storage the upgrade copies, which the before/after record (Prong A) sees only
 ///         through views - a holder's checkpoint integral and timestamp through nothing but claimable. For every pool:
 ///         each captured holder's reward record for each reward token - pending, claimed, timestamp, integral - read in
-///         its V2 layout at the capture's block equals its V3 record after the upgrade; each reward token's stream reads
+///         its V2 layout at the block of the upgrade's capture, `FROZEN_MARKETS_CAPTURE`, equals its V3 record after the
+///         upgrade; each reward token's stream reads
 ///         the same; and the ledger gap the upgrade wrote is the pool's supply less what the captured holders held.
 ///
 ///         Runs against anvil after the upgrade script (`--fork-url local`, by run-upgrade-before-after), and forks
 ///         mainnet at the capture's block itself for the V2 side: the pools are frozen, so that is the state the
 ///         upgrade copied.
 contract MarketsStorageCopy is Test, HarborDeployer {
-    string internal capture;
     Config_MinterMarket[] internal markets;
 
     function setUp() public {
-        capture = vm.envString("HOLDERS_DIR");
         _setSaltPrefix("harbor_v1");
         markets = allMintersConfig();
         for (uint256 i = 0; i < markets.length; ++i) {
@@ -40,7 +40,7 @@ contract MarketsStorageCopy is Test, HarborDeployer {
     /// @notice Every pool's reward records, streams and ledger gap were copied exactly.
     function test_everyPoolsStorageIsCopied() public {
         uint256 upgraded = vm.activeFork();
-        uint256 frozen = vm.createFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(capture));
+        uint256 frozen = vm.createFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE));
         uint256 records;
         for (uint256 i = 0; i < markets.length; ++i) {
             records += _checkPool(markets[i], StabilityPoolType.Collateral, upgraded, frozen);
@@ -59,7 +59,7 @@ contract MarketsStorageCopy is Test, HarborDeployer {
     ) private returns (uint256 records) {
         string memory label = stabilityPoolKey(market, poolType);
         address pool = stabilityPoolAddress(market, poolType);
-        address[] memory holders = HolderCaptureLib.holders(capture, label);
+        address[] memory holders = HolderCaptureLib.holders(FROZEN_MARKETS_CAPTURE, label);
 
         vm.selectFork(upgraded);
         address[] memory tokens = IMultipleRewardDistributor(pool).activeRewardTokens();

@@ -3,24 +3,19 @@
 # upgrade script itself on anvil, and comparing what every market contract reads before and after it.
 #
 #   Prong A (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
-#     behaviour under the same interactions. The before is a fork of mainnet at the capture's block, the last before
-#     the pause; the after is a fork of anvil once the upgrade script has run there. MarketsExpectedAfter then writes
-#     the record each contract must have after: its before record, changed only where an expectation says, with the
-#     reason. The expected and the actual after records must not differ.
+#     behaviour under the same interactions. The before is a fork of mainnet at the block of the upgrade's capture
+#     (FROZEN_MARKETS_CAPTURE in script/Upgrade_MarketsToV3_mainnet.s.sol), the last before the pause; the after is a
+#     fork of anvil once the upgrade script has run there. MarketsExpectedAfter then writes the record each contract
+#     must have after: its before record, changed only where an expectation says, with the reason. The expected and the
+#     actual after records must not differ.
 #   Prong B (white-box): MarketsStorageCopy checks the storage the upgrade copied - each holder's reward records,
 #     each reward stream, each pool's ledger gap - against the frozen pools.
 #
 # forge test forks anvil in memory and writes nothing back to it. run-script --broadcast --local sends the upgrade to
 # anvil and executes each market's batch as the multisig would. So one anvil session serves the whole run.
 #
-# The capture is a REQUIRED argument, the one the upgrade script is given: taken to the last block before the pause.
-# Its block comes from its manifest.
-#
 # Usage:
-#   script/verify/v3-upgrade/run-upgrade-before-after --holders-dir <capture>
-#
-# The live markets' capture is script/UpgradeStabilityPool_v2_v3/holders-26248723. Produce another with:
-#   script/holders/capture-holders --to-block <block>
+#   script/verify/v3-upgrade/run-upgrade-before-after
 #
 # Needs MAINNET_RPC_URL, archival at the capture's block. The records are written to tmp/v3-upgrade/, and each step's
 # output is kept there in a .log file.
@@ -35,13 +30,8 @@ NETWORK="mainnet"
 OUT="tmp/v3-upgrade"
 FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
 
-HOLDERS_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --holders-dir)
-      HOLDERS_DIR="$2"
-      shift 2
-      ;;
     -h | --help)
       sed -n '2,/^$/p' "$0"
       exit 0
@@ -52,21 +42,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-if [[ -z "$HOLDERS_DIR" ]]; then
-  echo "ERROR: --holders-dir is required (the capture the upgrade reads)" >&2
-  echo "       produce one with: script/holders/capture-holders --to-block <block>" >&2
-  exit 1
-fi
-if [[ ! -f "${HOLDERS_DIR}/manifest.txt" ]]; then
-  echo "ERROR: ${HOLDERS_DIR} is not a capture (no manifest.txt)" >&2
-  exit 1
-fi
-CAPTURE_BLOCK="$(sed -n 's/^to-block: *//p' "${HOLDERS_DIR}/manifest.txt")"
-if [[ ! "$CAPTURE_BLOCK" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: the manifest of ${HOLDERS_DIR} gives no numeric to-block: '${CAPTURE_BLOCK}'" >&2
-  exit 1
-fi
 
 echotty() {
   echo "$*"
@@ -100,7 +75,6 @@ campaign_test() {
 echo "======================================================================"
 echo "  Upgrade of every live market to v3: before and after"
 echo "======================================================================"
-echo "  Capture:        $HOLDERS_DIR (to block $CAPTURE_BLOCK)"
 echo "  Salt:           $SALT"
 
 # The records of an earlier run would hide one this run fails to write.
@@ -114,27 +88,22 @@ mkdir -p "deployments/local/$NETWORK"
 cp "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
 echo "  Local state:    copied from deployments/$NETWORK/$SALT.state.json"
 
-HEAD_BLOCK="$(cast block-number --rpc-url local)"
-if [[ ! "$HEAD_BLOCK" =~ ^[0-9]+$ || "$HEAD_BLOCK" -le "$CAPTURE_BLOCK" ]]; then
-  echo "ERROR: anvil's head is block '${HEAD_BLOCK}', not after the capture's block ${CAPTURE_BLOCK}" >&2
-  exit 1
-fi
 # Both captures are warped to the same time, well after anvil's head, so the blocks the upgrade adds stay before it.
+HEAD_BLOCK="$(cast block-number --rpc-url local)"
 HEAD_TIMESTAMP="$(cast block latest -f timestamp --rpc-url local)"
 START_TIMESTAMP=$((HEAD_TIMESTAMP + 12000))
 echo "  anvil head:     block $HEAD_BLOCK"
 echo "  START_TIMESTAMP: $START_TIMESTAMP (anvil head's time + 12000s)"
 
 echo ""
-echo "Prong A: capturing the before, on mainnet at block $CAPTURE_BLOCK..."
-VERSION=before HOLDERS_DIR="$HOLDERS_DIR" START_TIMESTAMP="$START_TIMESTAMP" \
-  campaign_test before.log MarketsCapture --fork-url "$NETWORK" --fork-block-number "$CAPTURE_BLOCK"
+echo "Prong A: capturing the before, on mainnet at the capture's block..."
+VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test before.log MarketsCapture
 
 echo ""
 echo "Running Upgrade_MarketsToV3_mainnet on anvil (--broadcast --local)..."
 set +e
-HOLDERS_DIR="$HOLDERS_DIR" script/run-script Upgrade_MarketsToV3_mainnet --salt "$SALT" --network "$NETWORK" \
-  --broadcast --local 2>&1 | tee "$OUT/upgrade.log"
+script/run-script Upgrade_MarketsToV3_mainnet --salt "$SALT" --network "$NETWORK" --broadcast --local 2>&1 |
+  tee "$OUT/upgrade.log"
 status=${PIPESTATUS[0]}
 set -e
 if [[ "$status" -ne 0 ]]; then
@@ -144,12 +113,11 @@ fi
 
 echo ""
 echo "Prong A: capturing the after, on anvil..."
-VERSION=after HOLDERS_DIR="$HOLDERS_DIR" START_TIMESTAMP="$START_TIMESTAMP" \
-  campaign_test after.log MarketsCapture --fork-url local
+VERSION=after START_TIMESTAMP="$START_TIMESTAMP" campaign_test after.log MarketsCapture --fork-url local
 
 echo ""
 echo "Prong B: checking the storage the upgrade copied..."
-HOLDERS_DIR="$HOLDERS_DIR" campaign_test storage-copy.log MarketsStorageCopy --fork-url local
+campaign_test storage-copy.log MarketsStorageCopy --fork-url local
 
 echo ""
 echo "Prong A: writing the expected after..."

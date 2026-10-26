@@ -21,8 +21,8 @@ remediation - are kept, no longer compiled, under `deprecated/script/verify/`.
 
 The upgrade of every live market to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2, by
 `script/Upgrade_MarketsToV3_mainnet.s.sol`. A pause froze every minter and pool on 2026-10-22; the script reads each
-market at the last block before it, with the holder capture taken to that block
-(`script/UpgradeStabilityPool_v2_v3/holders-26248723/`), and deploys and saves one batch per market at the chain's
+market at the last block before it, with the holder capture taken to that block (`FROZEN_MARKETS_CAPTURE`, which names
+`script/UpgradeStabilityPool_v2_v3/holders-26248723/`; the campaign's tests read the same constant), and deploys and saves one batch per market at the chain's
 head. It refuses a capture not taken at that block, a capture whose holders leave a ledger gap beyond rounding, a
 minter config Minter_v3's loader refuses, and a pool implementation that would not keep the live pool's floor or
 withdrawal window. A minter that records backing but holds no wrapped collateral - a retired market's dust (GOLD::fxUSD
@@ -37,23 +37,22 @@ the minter runs v3, taking the record to zero.
   none of gone to zero - and is not impaired, each manager reports StabilityPoolManager_v2, each pool keeps its supply,
   reward tokens and streams, every captured holder's balance and claimed rewards, and divides rewards by exactly what
   its holders hold, and each market's contracts name its tokens and each other; a capture taken earlier is refused
-- `run-upgrade-rehearsal --holders-dir <capture>` — runs both (needs `MAINNET_RPC_URL`, archival at the capture's
-  block); run before signing the batches, with the capture the script will be given
+- `run-upgrade-rehearsal` — runs both (needs `MAINNET_RPC_URL`, archival at the capture's block); run before signing
+  the batches
 - `MarketsCapture.t.sol`, `MarketsExpectedAfter.t.sol`, `MarketsStorageCopy.t.sol` and `CaptureExpectationsLib.sol` —
   the before and after of the upgrade script run on anvil: every contract of every market reads after the upgrade as
   it did before, or as written down beforehand with its reason; and the storage the upgrade copied matches the frozen
   pools'
-- `run-upgrade-before-after --holders-dir <capture>` — runs them, with the upgrade script, on an anvil fork of the
-  chain's head; see [upgrade-markets-to-v3.md](v3-upgrade/upgrade-markets-to-v3.md)
+- `run-upgrade-before-after` — runs them, with the upgrade script, on an anvil fork of the chain's head; see
+  [upgrade-markets-to-v3.md](v3-upgrade/upgrade-markets-to-v3.md)
 
 To upgrade:
 
 ```bash
-script/verify/v3-upgrade/run-upgrade-rehearsal --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
-script/verify/v3-upgrade/run-upgrade-before-after --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
+script/verify/v3-upgrade/run-upgrade-rehearsal
+script/verify/v3-upgrade/run-upgrade-before-after
 script/verify/sp-v3-reward-divisor-migration/run-migration-preflight --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
-HOLDERS_DIR=script/UpgradeStabilityPool_v2_v3/holders-26248723 \
-  script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast
+script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --account <name>
 ```
 
 ### [spm-v2-upgrade/](spm-v2-upgrade/)

@@ -7,7 +7,15 @@ head, and checks what every market contract reads after it against what it read 
 ## How it runs
 
 ```bash
-script/verify/v3-upgrade/run-upgrade-before-after --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
+script/verify/v3-upgrade/run-upgrade-before-after
+```
+
+The upgrade reads one holder capture, `FROZEN_MARKETS_CAPTURE` in `script/Upgrade_MarketsToV3_mainnet.s.sol`, and the
+campaign's tests read the same constant. The rehearsal and the mainnet run differ only in `--local` and `--account`:
+
+```bash
+script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --local
+script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --account <name>
 ```
 
 The runner asks you to start anvil (`script/anvil --block latest`), then:
@@ -19,7 +27,7 @@ The runner asks you to start anvil (`script/anvil --block latest`), then:
    26,241,030, so the capture puts each manager's own implementation back first;
 3. runs the upgrade script as it will be run on mainnet, with `--local` added: the batches execute on anvil as the
    multisig would execute them;
-4. **after**: `MarketsCapture` with `VERSION=after`, on a fork of anvil;
+4. **after**: `MarketsCapture` with `VERSION=after`, on a fork of anvil, which must be past the capture's block;
 5. **storage**: `MarketsStorageCopy`, on a fork of anvil;
 6. **expected after**: `MarketsExpectedAfter` writes the record each contract must have after;
 7. sorts the keys of each record and diffs the expected after against the after. Any difference fails the run.

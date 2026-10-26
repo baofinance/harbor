@@ -20,7 +20,7 @@ import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
-import {Upgrade_MarketsToV3_mainnet} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
+import {FROZEN_MARKETS_CAPTURE, Upgrade_MarketsToV3_mainnet} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {MarketVerification} from "@harbor-test/harness/MarketVerification.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -43,7 +43,7 @@ contract FrozenMarketsRead is UpgradeMarketToV3 {
 ///         capture, reads every market at the capture's block and saves its batches, which execute as the multisig.
 ///         Afterwards every market holds what it held at the capture's block, as Minter_v3 and StabilityPool_v3 report
 ///         it, and each pool divides rewards by what its holders hold.
-/// @dev The capture is HOLDERS_DIR, set by `run-upgrade-rehearsal --holders-dir`; the upgrade script reads it there too.
+/// @dev The capture is the upgrade script's, `FROZEN_MARKETS_CAPTURE`.
 contract MarketsUpgradeRehearsal is Test, HarborDeployer {
     /// @dev What a minter holds: its config, the backing it records, its pegged and leveraged balances, and the wrapped
     ///      collateral it holds.
@@ -65,13 +65,11 @@ contract MarketsUpgradeRehearsal is Test, HarborDeployer {
         bytes claimed;
     }
 
-    string internal capture;
     uint256 internal captureBlock;
     Config_MinterMarket[] internal markets;
 
     function setUp() public {
-        capture = vm.envString("HOLDERS_DIR");
-        captureBlock = HolderCaptureLib.captureBlock(capture);
+        captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         _setSaltPrefix("harbor_v1");
         markets = allMintersConfig();
         for (uint256 i = 0; i < markets.length; ++i) {
@@ -176,7 +174,7 @@ contract MarketsUpgradeRehearsal is Test, HarborDeployer {
         holdings.supply = IStabilityPool(pool).totalAssetSupply();
         holdings.tokens = IMultipleRewardDistributor(pool).activeRewardTokens();
         holdings.streams = _streams(pool, holdings.tokens);
-        address[] memory holders = HolderCaptureLib.holders(capture, stabilityPoolKey(market, poolType));
+        address[] memory holders = HolderCaptureLib.holders(FROZEN_MARKETS_CAPTURE, stabilityPoolKey(market, poolType));
         holdings.balances = new uint256[](holders.length);
         for (uint256 h = 0; h < holders.length; ++h) {
             holdings.balances[h] = IStabilityPool(pool).assetBalanceOf(holders[h]);
@@ -197,7 +195,7 @@ contract MarketsUpgradeRehearsal is Test, HarborDeployer {
     ) private {
         string memory key = stabilityPoolKey(market, poolType);
         address pool = stabilityPoolAddress(market, poolType);
-        address[] memory holders = HolderCaptureLib.holders(capture, key);
+        address[] memory holders = HolderCaptureLib.holders(FROZEN_MARKETS_CAPTURE, key);
         address[] memory tokens = IMultipleRewardDistributor(pool).activeRewardTokens();
 
         assertEq(IStabilityPool_v3(pool).totalAssetSupply(), before.supply, string.concat(key, ": the supply is kept"));
