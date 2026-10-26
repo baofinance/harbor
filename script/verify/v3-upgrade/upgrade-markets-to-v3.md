@@ -1,13 +1,13 @@
-# Before and after the upgrade of every market to v3
+# Rehearsing the upgrade of every market to v3
 
 `script/Upgrade_MarketsToV3_mainnet.s.sol` upgrades every live market to Minter_v3, StabilityPool_v3 and
-StabilityPoolManager_v2, one Safe batch per market. This campaign runs that script on an anvil fork of the chain's
-head, and checks what every market contract reads after it against what it read before.
+StabilityPoolManager_v2, one Safe batch per market. This campaign rehearses that script on an anvil fork of the
+chain's head, and checks what every market contract reads after it against what it read before.
 
 ## How it runs
 
 ```bash
-script/verify/v3-upgrade/run-upgrade-before-after
+script/verify/v3-upgrade/run-upgrade-rehearsal
 ```
 
 The upgrade reads one holder capture, `FROZEN_MARKETS_CAPTURE` in `script/Upgrade_MarketsToV3_mainnet.s.sol`, and the
@@ -18,7 +18,9 @@ script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet
 script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --account <name>
 ```
 
-The runner asks you to start anvil (`script/anvil --block latest`), then:
+The runner first runs `FrozenMarketsReadPoint`: the state the upgrade reads, at the end of the capture's block, is the
+state it runs on - the pause changed only which implementation each minter and pool runs. It then asks you to start
+anvil (`script/anvil --block latest`), and:
 
 1. copies `deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the
    deployed addresses;
@@ -45,11 +47,13 @@ holds its behaviour under the same interactions - a deposit, a reward deposited 
 and its state after them.
 
 - **Minter**: owner, config, the backing it records, its pegged and leveraged supply, the wrapped collateral it holds,
-  its tokens, oracle, reserve pool and fee receiver, and the roles of the manager and the genesis contract.
+  its tokens, oracle, reserve pool and fee receiver, and the roles of the manager and the genesis contract; after, on
+  Minter_v3, whether it is impaired.
 - **StabilityPool**: supply, tokens, reward tokens and streams, withdrawal window and early-withdrawal fee, and per
-  captured holder: balance, claimable and claimed rewards per reward token, withdrawal request.
-- **StabilityPoolManager**: owner, pools, the harvest bounty and cut, the rebalance bounty and threshold, and the fee
-  receiver.
+  captured holder: balance, claimable and claimed rewards per reward token, withdrawal request; after, on
+  StabilityPool_v3, its reward divisor and the minter it names.
+- **StabilityPoolManager**: owner, pools, its minter and the market's tokens, the harvest bounty and cut, the rebalance
+  bounty and threshold, and the fee receiver; after, whether it reports StabilityPoolManager_v2, and its yield vaults.
 
 Where the two versions answer the same question through different functions, each is read through its own, into the
 same key.
@@ -61,9 +65,12 @@ The expected after is the before record, changed only where an expectation says.
 
 | Contract | Key | Expected after | Reason |
 |---|---|---|---|
+| Minter | `minter_impaired` | `false` | Minter_v3 halts a minter that records more backing than it holds; the upgrade leaves none so |
 | Minter that records backing but holds no wrapped collateral (GOLD::fxUSD, SILVER::fxUSD) | `minter_recordedBacking` | `0` | its batch recognises the backing it records but does not hold |
+| StabilityPoolManager | `manager_reportsStabilityPoolManager_v2` | `true` | the upgrade puts StabilityPoolManager_v2 behind the manager |
 | StabilityPoolManager | `manager_yieldVaultCount` | `0` | v2 adds yield vaults; the upgrade registers none |
 | StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
+| StabilityPool | `state_minter` | the market's minter | v3 names its minter, which v2 does not |
 | StabilityPool | `state_rewardDivisor` | supply less the ledger gap | v3 divides rewards by what the holders hold |
 | StabilityPool with a ledger gap | each claimable, each claim's payout, and after the interactions each claimed total | the before value, within `RewardDivisorGapLib.rewardBound` | v3 pays a reward not yet settled into a holder's record over what the holders hold, not over the supply |
 

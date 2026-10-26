@@ -17,7 +17,7 @@ string constant FROZEN_MARKETS_CAPTURE = "script/UpgradeStabilityPool_v2_v3/hold
 /// @dev Rehearse on anvil, executing each batch as the multisig would, then run on mainnet:
 ///        script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --local
 ///        script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --account <name>
-///      `script/verify/v3-upgrade/run-upgrade-before-after` runs the rehearsal and checks it.
+///      `script/verify/v3-upgrade/run-upgrade-rehearsal` runs the rehearsal and checks it.
 contract Upgrade_MarketsToV3_mainnet is Script, UpgradeMarketToV3 {
     function build() internal override {
         // The config objects are script-side inputs, created outside the broadcast so they are not deployed.

@@ -32,25 +32,21 @@ the minter runs v3, taking the record to zero.
 - `FrozenMarketsReadPoint.t.sol` — the state read is the state the upgrade runs on: replayed, the pause changed only
   which implementation each minter and pool runs; and at the same moment every minter and pool answers the views the
   upgrade reads the same at the end of the capture's block as just before the pause
-- `MarketsUpgradeRehearsal.t.sol` — the upgrade script itself on a fork of the chain's head: every market's batch
-  executes as the multisig, and afterwards each minter keeps its config and balances - its record of backing it held
-  none of gone to zero - and is not impaired, each manager reports StabilityPoolManager_v2, each pool keeps its supply,
-  reward tokens and streams, every captured holder's balance and claimed rewards, and divides rewards by exactly what
-  its holders hold, and each market's contracts name its tokens and each other; a capture taken earlier is refused
-- `run-upgrade-rehearsal` — runs both (needs `MAINNET_RPC_URL`, archival at the capture's block); run before signing
-  the batches
 - `MarketsCapture.t.sol`, `MarketsExpectedAfter.t.sol`, `MarketsStorageCopy.t.sol` and `CaptureExpectationsLib.sol` —
   the before and after of the upgrade script run on anvil: every contract of every market reads after the upgrade as
-  it did before, or as written down beforehand with its reason; and the storage the upgrade copied matches the frozen
-  pools'
-- `run-upgrade-before-after` — runs them, with the upgrade script, on an anvil fork of the chain's head; see
+  it did before, or as written down beforehand with its reason - among them each minter unimpaired, each manager on
+  StabilityPoolManager_v2, and each market's contracts naming its tokens and each other; and the storage the upgrade
+  copied matches the frozen pools'
+- `run-upgrade-rehearsal` — runs them all, with the upgrade script, on an anvil fork of the chain's head (needs
+  `MAINNET_RPC_URL`, archival at the capture's block); run before signing the batches; see
   [upgrade-markets-to-v3.md](v3-upgrade/upgrade-markets-to-v3.md)
+
+The refusal of a capture taken before the last block is tested in `test/deployment/UpgradeMarketToV3.t.sol`.
 
 To upgrade:
 
 ```bash
 script/verify/v3-upgrade/run-upgrade-rehearsal
-script/verify/v3-upgrade/run-upgrade-before-after
 script/verify/sp-v3-reward-divisor-migration/run-migration-preflight --holders-dir script/UpgradeStabilityPool_v2_v3/holders-26248723
 script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --account <name>
 ```

@@ -23,7 +23,7 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///         upgrade; each reward token's stream reads
 ///         the same; and the ledger gap the upgrade wrote is the pool's supply less what the captured holders held.
 ///
-///         Runs against anvil after the upgrade script (`--fork-url local`, by run-upgrade-before-after), and forks
+///         Runs against anvil after the upgrade script (`--fork-url local`, by run-upgrade-rehearsal), and forks
 ///         mainnet at the capture's block itself for the V2 side: the pools are frozen, so that is the state the
 ///         upgrade copied.
 contract MarketsStorageCopy is Test, HarborDeployer {

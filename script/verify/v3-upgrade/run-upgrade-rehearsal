@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Verify the upgrade of every live market to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2 by running the
-# upgrade script itself on anvil, and comparing what every market contract reads before and after it.
+# Rehearse the upgrade of every live market to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2: run the upgrade
+# script itself on anvil, as it will run on mainnet but for --local, and compare what every market contract reads
+# before and after it.
 #
+#   Read point: FrozenMarketsReadPoint checks the state the upgrade reads is the state it runs on - the pause changed
+#     only which implementation each minter and pool runs, and nothing earlier in the pause's block changed a market.
 #   Prong A (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
 #     behaviour under the same interactions. The before is a fork of mainnet at the block of the upgrade's capture
 #     (FROZEN_MARKETS_CAPTURE in script/Upgrade_MarketsToV3_mainnet.s.sol), the last before the pause; the after is a
@@ -15,7 +18,9 @@
 # anvil and executes each market's batch as the multisig would. So one anvil session serves the whole run.
 #
 # Usage:
-#   script/verify/v3-upgrade/run-upgrade-before-after
+#   script/verify/v3-upgrade/run-upgrade-rehearsal
+#
+# Fails unless each step's tests actually ran - see script/verify/run-campaign-test.
 #
 # Needs MAINNET_RPC_URL, archival at the capture's block. The records are written to tmp/v3-upgrade/, and each step's
 # output is kept there in a .log file.
@@ -64,7 +69,7 @@ prompt() {
 }
 
 # Run the campaign's tests matching <contract> with the given forge arguments, logging to $OUT/<log>. The capture runs
-# every market's interactions in one test call, so the block gas limit is lifted, as for the rehearsal.
+# every market's interactions in one test call, so the block gas limit is lifted.
 campaign_test() {
   local log="$1" contract="$2"
   shift 2
@@ -73,13 +78,17 @@ campaign_test() {
 }
 
 echo "======================================================================"
-echo "  Upgrade of every live market to v3: before and after"
+echo "  Upgrade of every live market to v3: rehearsal"
 echo "======================================================================"
 echo "  Salt:           $SALT"
 
 # The records of an earlier run would hide one this run fails to write.
 rm -rf "$OUT/before" "$OUT/after" "$OUT/expected-after" "$OUT/compare"
 mkdir -p "$OUT"
+
+echo ""
+echo "Read point: the state the upgrade reads is the state it runs on..."
+campaign_test read-point.log FrozenMarketsReadPoint
 
 prompt "Start a fresh anvil fork of the chain's head:  script/anvil --block latest"
 
