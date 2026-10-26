@@ -29,8 +29,8 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         }
     }
 
-    /// @dev Every minter runs on Minter_v3 unimpaired. A minter that records backing but holds no wrapped collateral is
-    ///      recognised as impaired in its batch: it records what it holds, nothing.
+    /// @dev Every minter runs on Minter_v3 unimpaired. A minter that records backing but holds no wrapped collateral has
+    ///      the record set to zero in its batch: it records what it holds, nothing.
     function _minterExpectations(
         string memory before
     ) private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
@@ -49,7 +49,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
                 kind: CaptureExpectationsLib.Kind.Value,
                 value: "0",
                 bound: 0,
-                reason: "the batch recognises the backing it records but does not hold"
+                reason: "its batch upgrades it through Minter_v3_Upgrader, which sets the backing it does not hold to zero"
             });
         }
     }

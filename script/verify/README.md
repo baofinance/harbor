@@ -26,8 +26,8 @@ market at the last block before it, with the holder capture taken to that block 
 head. It refuses a capture not taken at that block, a capture whose holders leave a ledger gap beyond rounding, a
 minter config Minter_v3's loader refuses, and a pool implementation that would not keep the live pool's floor or
 withdrawal window. A minter that records backing but holds no wrapped collateral - a retired market's dust (GOLD::fxUSD
-and SILVER::fxUSD record 1 wei) - would be halted by Minter_v3 as impaired; its batch recognises the impairment once
-the minter runs v3, taking the record to zero.
+and SILVER::fxUSD record 1 wei) - would be halted by Minter_v3 as impaired; its batch upgrades it through
+`Minter_v3_Upgrader` (`script/UpgradeMinter_v2_v3/`), which sets the record to zero on the way, reading no price.
 
 - `FrozenMarketsReadPoint.t.sol` — the state read is the state the upgrade runs on: replayed, the pause changed only
   which implementation each minter and pool runs; and at the same moment every minter and pool answers the views the

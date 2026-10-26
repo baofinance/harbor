@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
+import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -23,6 +24,8 @@ import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
+import {IMinter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/IMinter_v3_Upgrader.sol";
+import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
@@ -244,20 +247,34 @@ contract UpgradeMarketToV3Test is Test {
         );
     }
 
-    /// A minter that records backing but holds no wrapped collateral - GOLD::fxUSD, retired, recording a wei - would be
-    /// halted by Minter_v3 as impaired. Its upgrade recognises the impairment: afterwards its record is what it holds,
-    /// nothing, and it reports no shortfall. A market that holds its backing - BTC::stETH, upgraded beside it - keeps
-    /// its record.
-    function test_theUpgradeRecognisesBackingNothingHolds() public {
+    /// @dev GOLD::fxUSD - retired, recording backing and holding no wrapped collateral - and BTC::stETH, which holds its
+    ///      backing, as read at the capture's block: what the retired-market tests check the upgrade against.
+    struct RetiredBesideLive {
+        Config_MinterMarket[] markets;
+        address retiredMinter;
+        address retiredCollateral;
+        address retiredOracle;
+        uint256 retiredBacking;
+        bytes retiredConfig;
+        address liveMinter;
+        uint256 liveBacking;
+    }
+
+    /// @dev Read GOLD::fxUSD and BTC::stETH at the capture's block, then fork the block after it, where every minter is
+    ///      paused and the upgrade runs; return what was read and the upgrade, built but not run.
+    function _retiredBesideLive()
+        private
+        returns (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade)
+    {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
         (, Config_MinterMarket[] memory goldMarkets) = goldMintersConfig();
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
-        Config_MinterMarket[] memory markets = new Config_MinterMarket[](2);
-        markets[0] = goldMarkets[0]; // GOLD::fxUSD
-        markets[1] = btcMarkets[1]; // BTC::stETH
-        vm.makePersistent(address(markets[0]));
-        vm.makePersistent(address(markets[1]));
+        fixture.markets = new Config_MinterMarket[](2);
+        fixture.markets[0] = goldMarkets[0]; // GOLD::fxUSD
+        fixture.markets[1] = btcMarkets[1]; // BTC::stETH
+        vm.makePersistent(address(fixture.markets[0]));
+        vm.makePersistent(address(fixture.markets[1]));
         HarborDeployRun addresses = new HarborDeployRun(
             address(0),
             address(0),
@@ -265,27 +282,84 @@ contract UpgradeMarketToV3Test is Test {
             "mainnet",
             HarborDeployRun.Cut.Whole
         );
-        vm.makePersistent(address(addresses));
-        address retiredMinter = addresses.minterAddress(markets[0]);
-        address liveMinter = addresses.minterAddress(markets[1]);
-        address retiredCollateral = IMinter(retiredMinter).WRAPPED_COLLATERAL_TOKEN();
-        assertGt(
-            IMinter(retiredMinter).collateralTokenBalance(),
-            0,
-            "precondition: the retired market records backing"
-        );
-        assertEq(IERC20(retiredCollateral).balanceOf(retiredMinter), 0, "precondition: and holds none");
-        uint256 liveBacking = IMinter(liveMinter).collateralTokenBalance();
+        fixture.retiredMinter = addresses.minterAddress(fixture.markets[0]);
+        fixture.liveMinter = addresses.minterAddress(fixture.markets[1]);
+        fixture.retiredCollateral = IMinter(fixture.retiredMinter).WRAPPED_COLLATERAL_TOKEN();
+        fixture.retiredOracle = IMinter(fixture.retiredMinter).priceOracle();
+        fixture.retiredBacking = IMinter(fixture.retiredMinter).collateralTokenBalance();
+        fixture.retiredConfig = abi.encode(IMinter(fixture.retiredMinter).config());
+        fixture.liveBacking = IMinter(fixture.liveMinter).collateralTokenBalance();
+        assertGt(fixture.retiredBacking, 0, "precondition: the retired market records backing");
+        assertEq(IERC20(fixture.retiredCollateral).balanceOf(fixture.retiredMinter), 0, "precondition: and holds none");
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
-        FrozenMarketUpgradeRun frozenUpgrade = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE);
+        frozenUpgrade = new FrozenMarketUpgradeRun(fixture.markets, FROZEN_MARKETS_CAPTURE);
         vm.makePersistent(address(frozenUpgrade));
+    }
+
+    /// A minter that records backing but holds no wrapped collateral - GOLD::fxUSD, retired, recording a wei - would be
+    /// halted by Minter_v3 as impaired. Its upgrade sets the record to zero, and says so: afterwards it runs Minter_v3
+    /// with the config it held, records nothing, holds nothing and reports no shortfall. A market that holds its backing
+    /// - BTC::stETH, upgraded beside it - keeps its record.
+    function test_theUpgradeZeroesBackingNothingHolds() public {
+        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+
+        vm.expectEmit(fixture.retiredMinter);
+        emit IMinter_v3_Upgrader.BackingZeroed(fixture.retiredBacking);
         frozenUpgrade.run("harbor_v1");
 
-        (uint256 recorded, uint256 held) = IMinter_v3(retiredMinter).impairment();
-        assertEq(recorded, 0, "the retired market records what it holds: nothing");
+        (uint256 recorded, uint256 held) = IMinter_v3(fixture.retiredMinter).impairment();
+        assertEq(recorded, 0, "the retired market records nothing");
         assertEq(held, 0, "and holds nothing");
-        assertEq(IMinter(liveMinter).collateralTokenBalance(), liveBacking, "the live market keeps its record");
+        assertEq(
+            abi.encode(IMinter(fixture.retiredMinter).config()),
+            fixture.retiredConfig,
+            "it runs with the config it held"
+        );
+        assertEq(
+            IMinter(fixture.liveMinter).collateralTokenBalance(),
+            fixture.liveBacking,
+            "the live market keeps its record"
+        );
+    }
+
+    /// Setting the record to zero reads no price: with GOLD::fxUSD's oracle reverting every call, its upgrade still
+    /// sets it.
+    function test_theZeroingReadsNoPrice() public {
+        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+
+        vm.mockCallRevert(fixture.retiredOracle, bytes(""), bytes("the oracle answers nothing"));
+        frozenUpgrade.run("harbor_v1");
+        vm.clearMockedCalls();
+
+        (uint256 recorded, ) = IMinter_v3(fixture.retiredMinter).impairment();
+        assertEq(recorded, 0, "the retired market records nothing");
+    }
+
+    /// Only dust is set to zero: a minter that holds wrapped collateral - a wei given to GOLD::fxUSD after the capture
+    /// - is refused, naming what it holds, and the whole upgrade reverts with it.
+    function test_theUpgraderRefusesAMinterHoldingCollateral() public {
+        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+        deal(fixture.retiredCollateral, fixture.retiredMinter, 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter_v3_Upgrader.MinterHoldsWrappedCollateral.selector,
+                fixture.retiredCollateral,
+                1
+            )
+        );
+        frozenUpgrade.run("harbor_v1");
+    }
+
+    /// Only the owner runs the minter upgrader: any other caller is refused before it reads or writes anything.
+    function test_onlyTheOwnerRunsTheUpgrader() public {
+        address upgrader = address(new Minter_v3_Upgrader(makeAddr("owner")));
+
+        vm.startPrank(makeAddr("stranger"));
+        vm.expectRevert(IBaoFixedOwnable.Unauthorized.selector);
+        IMinter_v3_Upgrader(upgrader).zeroBackingAndUpgrade(address(0), "");
+        vm.stopPrank();
     }
 
     /// A capture not taken at the last block before the pause is refused: at the block after an earlier capture's, the

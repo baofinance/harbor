@@ -10,7 +10,6 @@ import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
@@ -19,6 +18,8 @@ import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {Minter} from "@harbor-script/src/contracts/Minter.sol";
 import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
+import {IMinter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/IMinter_v3_Upgrader.sol";
+import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol";
 import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol";
 
 /// @notice The upgrade of live markets from Minter_v2, StabilityPool_v2 and StabilityPoolManager_v1 to the versions
@@ -124,11 +125,11 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     }
 
     /// @notice Upgrade each market `inputs` names: deploy its new implementations, from its `marketAddresses`, and save,
-    ///         as one batch for the multisig, the upgrade of its minter, loading the config read - followed, where the
-    ///         minter records backing but holds no wrapped collateral, by the recognition of that impairment; of its two
-    ///         pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders and gap read; and of its
-    ///         manager, in that order. Refuses a pool whose new implementation would not keep the floor or withdrawal
-    ///         window read.
+    ///         as one batch for the multisig, the upgrade of its minter, loading the config read - through one
+    ///         `Minter_v3_Upgrader`, which sets the record to zero, where the minter records backing but holds no
+    ///         wrapped collateral; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the
+    ///         holders and gap read; and of its manager, in that order. Refuses a pool whose new implementation would
+    ///         not keep the floor or withdrawal window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
     function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
@@ -138,8 +139,16 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         state.baoFactory = baoFactory();
         _reportRun(_WHAT, saltPrefix(), network);
 
-        // The upgrader upgrades each pool away from itself in the call that runs it, so one serves every pool.
+        // Each upgrader upgrades a proxy away from itself in the call that runs it, so one serves every pool, and one
+        // every minter that records backing it holds none of - deployed only when a minter does.
         address upgrader = address(new StabilityPool_v3_Upgrader(owner()));
+        address minterUpgrader;
+        for (uint256 i = 0; i < inputs.length; ++i) {
+            if (_recordsBackingItHoldsNoneOf(inputs[i])) {
+                minterUpgrader = address(new Minter_v3_Upgrader(owner()));
+                break;
+            }
+        }
 
         for (uint256 i = 0; i < inputs.length; ++i) {
             Config_MinterMarket config = inputs[i].market;
@@ -165,24 +174,27 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 addresses
             );
 
-            // The stored config is loaded again, through Minter_v3's own loader, in the call that upgrades: the plain
-            // swap would carry the stored encoding across unchecked, and v3 refuses configs v2 accepted.
-            queue(
-                minterKey(config),
-                abi.encodeCall(
-                    UUPSUpgradeable.upgradeToAndCall,
-                    (minterImplementation, abi.encodeCall(IMinter.updateConfig, (inputs[i].minterConfig)))
-                ),
-                "upgrade to Minter_v3, loading its config through v3's loader"
-            );
-            // A minter recording backing it holds none of - a retired market's dust - is impaired under Minter_v3, which
-            // halts the market until the record is written down. Nothing held is worth nothing at any rate, so v3's own
-            // recognition, called once the minter runs v3, takes the record to zero.
-            if (inputs[i].recordedBacking > 0 && inputs[i].wrappedCollateralHeld == 0) {
+            {
+                // The stored config is loaded again, through Minter_v3's own loader, in the call that upgrades: the
+                // plain swap would carry the stored encoding across unchecked, and v3 refuses configs v2 accepted.
+                address upgradeTo = minterImplementation;
+                bytes memory upgradeCall = abi.encodeCall(IMinter.updateConfig, (inputs[i].minterConfig));
+                string memory how = "upgrade to Minter_v3, loading its config through v3's loader";
+                if (_recordsBackingItHoldsNoneOf(inputs[i])) {
+                    // Minter_v3 would halt a minter recording backing it holds none of - a retired market's rounding
+                    // dust - as impaired. Nothing held is worth nothing, so the upgrader sets the record to zero on
+                    // the way.
+                    upgradeTo = minterUpgrader;
+                    upgradeCall = abi.encodeCall(
+                        IMinter_v3_Upgrader.zeroBackingAndUpgrade,
+                        (minterImplementation, upgradeCall)
+                    );
+                    how = "set the backing it records but does not hold to zero, then upgrade to Minter_v3, loading its config";
+                }
                 queue(
                     minterKey(config),
-                    abi.encodeCall(IMinter_v3.recogniseImpairment, ()),
-                    "recognise the backing it records but does not hold"
+                    abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (upgradeTo, upgradeCall)),
+                    how
                 );
             }
             _queuePoolMigration(
@@ -244,6 +256,12 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
 
         input.minTotalAssetSupply = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
         (input.withdrawalStartDelay, input.withdrawalEndWindow) = IStabilityPool(pool).getWithdrawalWindow();
+    }
+
+    /// @dev Whether the minter `input` describes records backing but holds no wrapped collateral - a retired market's
+    ///      rounding dust.
+    function _recordsBackingItHoldsNoneOf(MarketUpgradeInput memory input) private pure returns (bool) {
+        return input.recordedBacking > 0 && input.wrappedCollateralHeld == 0;
     }
 
     /// @dev Queue the `poolType` pool's migration through `upgrader` to `implementation`, its new StabilityPool_v3, with

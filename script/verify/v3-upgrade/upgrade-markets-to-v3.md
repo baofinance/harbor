@@ -66,7 +66,7 @@ The expected after is the before record, changed only where an expectation says.
 | Contract | Key | Expected after | Reason |
 |---|---|---|---|
 | Minter | `minter_impaired` | `false` | Minter_v3 halts a minter that records more backing than it holds; the upgrade leaves none so |
-| Minter that records backing but holds no wrapped collateral (GOLD::fxUSD, SILVER::fxUSD) | `minter_recordedBacking` | `0` | its batch recognises the backing it records but does not hold |
+| Minter that records backing but holds no wrapped collateral (GOLD::fxUSD, SILVER::fxUSD) | `minter_recordedBacking` | `0` | its batch upgrades it through `Minter_v3_Upgrader`, which sets the backing it does not hold to zero |
 | StabilityPoolManager | `manager_reportsStabilityPoolManager_v2` | `true` | the upgrade puts StabilityPoolManager_v2 behind the manager |
 | StabilityPoolManager | `manager_yieldVaultCount` | `0` | v2 adds yield vaults; the upgrade registers none |
 | StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
