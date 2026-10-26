@@ -72,10 +72,25 @@ The expected after is the before record, changed only where an expectation says.
 | StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
 | StabilityPool | `state_minter` | the market's minter | v3 names its minter, which v2 does not |
 | StabilityPool | `state_rewardDivisor` | supply less the ledger gap | v3 divides rewards by what the holders hold |
-| StabilityPool with a ledger gap | each claimable, each claim's payout, and after the interactions each claimed total | the before value, within `RewardDivisorGapLib.rewardBound` | v3 pays a reward not yet settled into a holder's record over what the holders hold, not over the supply |
+| StabilityPool with a ledger gap | each claimable before the claims, each claim's payout, and after the interactions each claimed total | the before value moved by the shift, within 2 wei per fold | v3 divides the reward it folds into its reward-per-share after the upgrade by what the holders hold, not by the supply |
 
 An expectation of the `Within` kind admits the after value if it lies within its bound, derived for that value, and
 otherwise writes the expected value, so the diff shows both. An expectation for a key neither record has is refused.
+
+### The shift of a pool's rewards
+
+A holder's claimable is what is settled into their record, plus their share of what the pool has folded into its
+reward-per-share, plus their share of the stream it has not folded yet. StabilityPool_v2 computed the first two and the
+upgrade copies them; only reward folded after the upgrade - or read as the unfolded stream - is divided by v3's divisor,
+the supply less the gap. For each such fold v3 credits a holder `credit x gap / (divisor - gap)` more than v2 did,
+`credit` being v2's credit for that fold.
+
+The capture folds three times: the test user's deposit folds the stream pending at the start, at the supply before
+the interactions; the half-period and full-period claims fold the two halves of the rehearsal's reward stream, at the
+supply after the two deposits. The first fold's credit is each holder's share of the pending stream; the other two are
+read from v2's own readings. Each version floors a reading once per fold, and the computed shift truncates once, so the
+after value lies within 2 wei per fold of the before value moved by the shift. A pool whose deposits failed before the
+upgrade is refused, since its folds fall elsewhere.
 
 ## Storage copied
 
