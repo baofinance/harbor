@@ -288,6 +288,34 @@ contract UpgradeMarketToV3Test is Test {
         assertEq(IMinter(liveMinter).collateralTokenBalance(), liveBacking, "the live market keeps its record");
     }
 
+    /// A capture not taken at the last block before the pause is refused: at the block after an earlier capture's, the
+    /// market's minter still answers, and the read names it and that block - before any upgrade is built.
+    function test_theFrozenReadRefusesACaptureBeforeTheLastBlock() public {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = btcMarkets[1]; // BTC::stETH
+        vm.makePersistent(address(markets[0]));
+        HarborDeployRun addresses = new HarborDeployRun(
+            address(0),
+            address(0),
+            "harbor_v1",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        string memory refusal = string.concat(
+            addresses.minterKey(markets[0]),
+            " answers at block ",
+            vm.toString(HolderCaptureLib.captureBlock(CAPTURE) + 1),
+            ", the block after the capture's: the capture must end at the last block before the pause"
+        );
+        FrozenMarketUpgradeRun refused = new FrozenMarketUpgradeRun(markets, CAPTURE);
+        vm.makePersistent(address(refused));
+
+        vm.expectRevert(bytes(refusal));
+        refused.run("harbor_v1");
+    }
+
     /// A capture taken before a depositor joined misses what they hold. Read where they have joined, the captured
     /// holders leave a gap far beyond rounding, and the read refuses it, naming the pool, what the captured holders hold
     /// and the supply - before any upgrade is built.

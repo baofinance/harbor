@@ -5,15 +5,18 @@ import {Test, console} from "forge-std/Test.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IYieldVaultManager} from "@harbor/interfaces/IYieldVaultManager.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
@@ -43,7 +46,7 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///   tmp/v3-upgrade/{VERSION}/pre/{saltKey}.json   -- its state before any interaction
 ///   tmp/v3-upgrade/{VERSION}/post/{saltKey}.json  -- a pool's interaction results, then its state after them
 ///
-/// Run by run-upgrade-before-after, with VERSION and START_TIMESTAMP set: the before forks mainnet itself; the after runs
+/// Run by run-upgrade-rehearsal, with VERSION and START_TIMESTAMP set: the before forks mainnet itself; the after runs
 /// on the fork given on the forge command line, anvil.
 contract MarketsCapture is Test, HarborDeployer {
     /// @dev The managers were paused in this block; the block before it holds each one's own implementation.
@@ -79,6 +82,9 @@ contract MarketsCapture is Test, HarborDeployer {
     function test_capture() public {
         string memory version = isBefore ? "before" : "after";
         uint256 captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
+        // Whether Minter_v3 reports each minter impaired, on the after only. It values what it holds at its oracle's
+        // rate, which the warp below would leave stale, so it is read here, at anvil's head, where the minters next run.
+        bool[] memory impaired = new bool[](markets.length);
         if (isBefore) {
             vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
             _restoreManagers();
@@ -92,6 +98,10 @@ contract MarketsCapture is Test, HarborDeployer {
                     vm.toString(captureBlock)
                 )
             );
+            for (uint256 i = 0; i < markets.length; ++i) {
+                (uint256 recorded, uint256 held) = IMinter_v3(minterAddress(markets[i])).impairment();
+                impaired[i] = recorded > held;
+            }
         }
 
         // Normalize timestamp so before and after start from the same point: the after runs on anvil after the upgrade
@@ -112,7 +122,7 @@ contract MarketsCapture is Test, HarborDeployer {
 
         // PRE FILES: each contract's state before any interaction
         for (uint256 i = 0; i < markets.length; ++i) {
-            _writeMinter(markets[i], preDir);
+            _writeMinter(markets[i], preDir, impaired[i]);
             _writePool(markets[i], StabilityPoolType.Collateral, preDir, "pre_");
             _writePool(markets[i], StabilityPoolType.Leveraged, preDir, "pre_");
             _writeManager(markets[i], preDir);
@@ -159,8 +169,9 @@ contract MarketsCapture is Test, HarborDeployer {
     // ========================================================================
 
     /// @dev Write the minter's state: the config it holds, the backing it records, its balances, the wrapped collateral
-    ///      it holds, whom it reads and pays, and the roles of the manager and genesis.
-    function _writeMinter(Config_MinterMarket market, string memory dir) private {
+    ///      it holds, whom it reads and pays, and the roles of the manager and genesis; on the after, `impaired`, whether
+    ///      Minter_v3 reports it impaired.
+    function _writeMinter(Config_MinterMarket market, string memory dir, bool impaired) private {
         string memory label = minterKey(market);
         address minter = minterAddress(market);
         _jsonKey = string.concat("pre_", label);
@@ -180,10 +191,15 @@ contract MarketsCapture is Test, HarborDeployer {
         vm.serializeString(_jsonKey, "minter_feeReceiver", vm.toString(IMinter(minter).feeReceiver()));
         _serializeUint("minter_rolesOf_manager", IBaoRoles(minter).rolesOf(stabilityPoolManagerAddress(market)));
         _serializeUint("minter_rolesOf_genesis", IBaoRoles(minter).rolesOf(genesisAddress(market)));
+        if (!isBefore) {
+            // Minter_v3 only: it halts while it records more backing than it holds.
+            vm.serializeString(_jsonKey, "minter_impaired", vm.toString(impaired));
+        }
         vm.writeJson(vm.serializeString(_jsonKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
     }
 
-    /// @dev Write the manager's state: its owner, its pools, its harvest and rebalance settings and whom it pays.
+    /// @dev Write the manager's state: its owner, its pools, its minter and the market's tokens, its harvest and
+    ///      rebalance settings and whom it pays.
     function _writeManager(Config_MinterMarket market, string memory dir) private {
         string memory label = stabilityPoolManagerKey(market);
         address manager = stabilityPoolManagerAddress(market);
@@ -203,8 +219,25 @@ contract MarketsCapture is Test, HarborDeployer {
         _serializeUint("manager_rebalanceBountyRatio", IStabilityPoolManager(manager).rebalanceBountyRatio());
         _serializeUint("manager_rebalanceThreshold", IStabilityPoolManager(manager).rebalanceThreshold());
         vm.serializeString(_jsonKey, "manager_feeReceiver", vm.toString(IStabilityPoolManager(manager).feeReceiver()));
+        {
+            // StabilityPoolManager_v1 keeps these as public immutables too; v2's interface declares them.
+            IStabilityPoolManager_v2 named = IStabilityPoolManager_v2(manager);
+            vm.serializeString(_jsonKey, "manager_minter", vm.toString(named.MINTER()));
+            vm.serializeString(
+                _jsonKey,
+                "manager_wrappedCollateralToken",
+                vm.toString(named.WRAPPED_COLLATERAL_TOKEN())
+            );
+            vm.serializeString(_jsonKey, "manager_peggedToken", vm.toString(named.PEGGED_TOKEN()));
+            vm.serializeString(_jsonKey, "manager_leveragedToken", vm.toString(named.LEVERAGED_TOKEN()));
+        }
         if (!isBefore) {
-            // StabilityPoolManager_v2 also keeps the yield vaults it compounds.
+            // StabilityPoolManager_v2 only: it reports its interface, and keeps the yield vaults it compounds.
+            vm.serializeString(
+                _jsonKey,
+                "manager_reportsStabilityPoolManager_v2",
+                vm.toString(IERC165(manager).supportsInterface(type(IStabilityPoolManager_v2).interfaceId))
+            );
             _serializeUint("manager_yieldVaultCount", IYieldVaultManager(manager).yieldVaultCount());
         }
         vm.writeJson(vm.serializeString(_jsonKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
@@ -428,8 +461,13 @@ contract MarketsCapture is Test, HarborDeployer {
             );
             _serializeUint(string.concat(prefix, "_minDeposit"), IStabilityPool(proxy).MIN_DEPOSIT());
         } else {
-            // StabilityPool_v3 only: what rewards are divided by.
+            // StabilityPool_v3 only: what rewards are divided by, and the minter it names, which v2 does not.
             _serializeUint(string.concat(prefix, "_rewardDivisor"), _rewardDivisor(proxy));
+            vm.serializeString(
+                _jsonKey,
+                string.concat(prefix, "_minter"),
+                vm.toString(IStabilityPool_v3(proxy).MINTER())
+            );
         }
 
         _serializeUint(

@@ -28,20 +28,27 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         for (uint256 i = 0; i < markets.length; ++i) {
             _write("pre", minterKey(markets[i]), _minterExpectations(_read("before", "pre", minterKey(markets[i]))));
             _write("pre", stabilityPoolManagerKey(markets[i]), _managerExpectations());
-            _writePool(stabilityPoolKey(markets[i], StabilityPoolType.Collateral));
-            _writePool(stabilityPoolKey(markets[i], StabilityPoolType.Leveraged));
+            _writePool(markets[i], StabilityPoolType.Collateral);
+            _writePool(markets[i], StabilityPoolType.Leveraged);
         }
     }
 
-    /// @dev A minter that records backing but holds no wrapped collateral is recognised as impaired in its batch: it
-    ///      records what it holds, nothing.
+    /// @dev Every minter runs on Minter_v3 unimpaired. A minter that records backing but holds no wrapped collateral is
+    ///      recognised as impaired in its batch: it records what it holds, nothing.
     function _minterExpectations(
         string memory before
     ) private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
         bool unheld = _uint(before, "minter_wrappedCollateralHeld") == 0 && _uint(before, "minter_recordedBacking") > 0;
-        expectations = new CaptureExpectationsLib.Expectation[](unheld ? 1 : 0);
+        expectations = new CaptureExpectationsLib.Expectation[](unheld ? 2 : 1);
+        expectations[0] = CaptureExpectationsLib.Expectation({
+            key: "minter_impaired",
+            kind: CaptureExpectationsLib.Kind.Value,
+            value: "false",
+            bound: 0,
+            reason: "Minter_v3 halts a minter that records more backing than it holds; the upgrade leaves none so"
+        });
         if (unheld) {
-            expectations[0] = CaptureExpectationsLib.Expectation({
+            expectations[1] = CaptureExpectationsLib.Expectation({
                 key: "minter_recordedBacking",
                 kind: CaptureExpectationsLib.Kind.Value,
                 value: "0",
@@ -51,10 +58,17 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         }
     }
 
-    /// @dev StabilityPoolManager_v2 starts with no yield vault.
+    /// @dev The manager runs StabilityPoolManager_v2, which starts with no yield vault.
     function _managerExpectations() private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
-        expectations = new CaptureExpectationsLib.Expectation[](1);
+        expectations = new CaptureExpectationsLib.Expectation[](2);
         expectations[0] = CaptureExpectationsLib.Expectation({
+            key: "manager_reportsStabilityPoolManager_v2",
+            kind: CaptureExpectationsLib.Kind.Value,
+            value: "true",
+            bound: 0,
+            reason: "the upgrade puts StabilityPoolManager_v2 behind the manager"
+        });
+        expectations[1] = CaptureExpectationsLib.Expectation({
             key: "manager_yieldVaultCount",
             kind: CaptureExpectationsLib.Kind.Value,
             value: "0",
@@ -64,8 +78,14 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     }
 
     /// @dev Write the pool's expected-after records, pre and post. Its ledger gap - the supply less what the captured
-    ///      holders hold, from the before's pre record - decides how its rewards move.
-    function _writePool(string memory label) private {
+    ///      holders hold, from the before's pre record - decides how its rewards move. The minter it must name is the
+    ///      one the market's manager named before the upgrade.
+    function _writePool(Config_MinterMarket market, StabilityPoolType poolType) private {
+        string memory label = stabilityPoolKey(market, poolType);
+        string memory minter = vm.parseJsonString(
+            _read("before", "pre", stabilityPoolManagerKey(market)),
+            ".manager_minter"
+        );
         string memory beforePre = _read("before", "pre", label);
         uint256 supply = _uint(beforePre, "state_totalAssetSupply");
         uint256 held;
@@ -74,12 +94,13 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             held += _uint(beforePre, string.concat("state_user_", vm.toString(i), "_assetBalance"));
         }
         int256 gap = int256(supply) - int256(held);
-        _write("pre", label, _poolExpectations(beforePre, "pre", gap, supply));
-        _write("post", label, _poolExpectations(_read("before", "post", label), "post", gap, supply));
+        _write("pre", label, _poolExpectations(beforePre, "pre", gap, supply, minter));
+        _write("post", label, _poolExpectations(_read("before", "post", label), "post", gap, supply, minter));
     }
 
     /// @dev The pool's expectations in one record:
     ///      - StabilityPool_v3 has no `LIQUIDATION_TOKEN` or `MIN_DEPOSIT`;
+    ///      - it names its minter, which v2 does not: `minter`, the market's;
     ///      - it divides rewards by the supply less the ledger gap - what the holders hold;
     ///      - so, on a pool with a gap, a reward not yet settled into a holder's record moves by at most
     ///        `RewardDivisorGapLib.rewardBound` of itself: every claimable, every claim's payout, and - after the
@@ -89,16 +110,24 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         string memory before,
         string memory phase,
         int256 gap,
-        uint256 preSupply
+        uint256 preSupply,
+        string memory minter
     ) private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
         string[] memory keys = vm.parseJsonKeys(before, "$");
-        CaptureExpectationsLib.Expectation[] memory all = new CaptureExpectationsLib.Expectation[](keys.length + 3);
+        CaptureExpectationsLib.Expectation[] memory all = new CaptureExpectationsLib.Expectation[](keys.length + 4);
         uint256 count;
         all[count++] = _removed("state_liquidationToken", "StabilityPool_v3 names no single liquidation token");
         all[count++] = _removed(
             "state_minDeposit",
             "StabilityPool_v3 calls its minimum the floor, MIN_TOTAL_ASSET_SUPPLY"
         );
+        all[count++] = CaptureExpectationsLib.Expectation({
+            key: "state_minter",
+            kind: CaptureExpectationsLib.Kind.Value,
+            value: minter,
+            bound: 0,
+            reason: "StabilityPool_v3 names its minter, which v2 does not: the market's"
+        });
         all[count++] = CaptureExpectationsLib.Expectation({
             key: "state_rewardDivisor",
             kind: CaptureExpectationsLib.Kind.Value,
