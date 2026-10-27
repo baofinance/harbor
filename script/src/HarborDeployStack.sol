@@ -113,7 +113,7 @@ abstract contract HarborDeployStack is
         _setSaltPrefix(saltPrefix);
 
         DeploymentTypes.State memory state = _shouldPersistState()
-            ? DeploymentState.load(_stateFileRead())
+            ? DeploymentState.loadOrFresh(_stateFileRead(), saltPrefix, network)
             : DeploymentState.fresh(saltPrefix, network);
         state.baoFactory = baoFactory();
 

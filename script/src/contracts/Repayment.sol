@@ -54,7 +54,7 @@ abstract contract Repayment is HarborDeployer {
         address impl = deployRepaymentImplementation(stateData, key, token);
         bytes memory initData = abi.encodeCall(
             Repayment_v1.initialize,
-            (address(this), owner(), name_, symbol_, accounts, debts)
+            (deployerOwner(), owner(), name_, symbol_, accounts, debts)
         );
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
     }

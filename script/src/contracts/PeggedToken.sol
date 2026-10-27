@@ -54,7 +54,7 @@ abstract contract PeggedToken is HarborDeployer {
 
             bytes memory initData = abi.encodeCall(
                 MintableBurnableERC20_v2.initialize,
-                (address(this), owner(), pegConfig.name(), pegConfig.symbol())
+                (deployerOwner(), owner(), pegConfig.name(), pegConfig.symbol())
             );
 
             peggedToken = _deployProxyAndRecord(stateData, tokenKey, impl, initData);

@@ -40,7 +40,7 @@ abstract contract LeveragedToken is HarborDeployer {
 
         bytes memory initData = abi.encodeCall(
             MintableBurnableERC20_v2.initialize,
-            (address(this), owner(), tokenName, tokenSymbol)
+            (deployerOwner(), owner(), tokenName, tokenSymbol)
         );
 
         leveragedToken = _deployProxyAndRecord(stateData, key, impl, initData);

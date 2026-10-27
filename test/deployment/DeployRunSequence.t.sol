@@ -17,6 +17,11 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 abstract contract DeployRunSetUp is BaoTest, Deploy_ETH_Minter {
     Config_MinterMarket internal market;
 
+    /// @dev This test sends the deploy's configuring calls itself, so it holds each contract until the hand-over.
+    function deployerOwner() public view override returns (address) {
+        return address(this);
+    }
+
     function _run(string memory saltPrefix) internal {
         forkMainnetWithBaoFactory();
 

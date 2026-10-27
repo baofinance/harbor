@@ -80,7 +80,7 @@ abstract contract StabilityPool is HarborDeployer {
 
         bytes memory initData = abi.encodeCall(
             StabilityPool_v3.initialize,
-            (address(this), owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
+            (deployerOwner(), owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
         );
 
         proxy = _deployProxyAndRecord(stateData, spKey, impl, initData);

@@ -137,7 +137,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///      state when it does not.
     function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
         DeploymentTypes.State memory state = _shouldPersistState()
-            ? DeploymentState.load(_stateFileRead())
+            ? DeploymentState.loadOrFresh(_stateFileRead(), saltPrefix(), network)
             : DeploymentState.fresh(saltPrefix(), network);
         state.baoFactory = baoFactory();
         _reportRun(_WHAT, saltPrefix(), network);

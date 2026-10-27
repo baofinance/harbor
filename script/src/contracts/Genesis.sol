@@ -40,7 +40,7 @@ abstract contract Genesis is HarborDeployer {
 
         address impl = deployGenesisImplementation(stateData, key, minterAddress(marketConfig));
 
-        bytes memory initData = abi.encodeCall(Genesis_v2.initialize, (address(this), owner()));
+        bytes memory initData = abi.encodeCall(Genesis_v2.initialize, (deployerOwner(), owner()));
 
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
     }

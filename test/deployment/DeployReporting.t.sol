@@ -11,6 +11,11 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 /// @dev Asserted on the predicate itself rather than on captured output — forge offers no way to read
 ///      console output back, so scraping stdout would test the harness rather than the layer.
 abstract contract DeployReportingSetUp is BaoTest, Deploy_ETH_Minter {
+    /// @dev This test sends the deploy's configuring calls itself, so it holds each contract until the hand-over.
+    function deployerOwner() public view override returns (address) {
+        return address(this);
+    }
+
     /// @dev The shipped predicate, reached from a test. Not a copy of it — it calls the real one.
     function shouldReport() public view returns (bool) {
         return _shouldReport();

@@ -63,7 +63,7 @@ abstract contract StabilityPoolManager is HarborDeployer {
 
         address impl = deployStabilityPoolManagerImplementation(stateData, key, marketAddresses(marketConfig));
 
-        bytes memory initData = abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()));
+        bytes memory initData = abi.encodeCall(StabilityPoolManager_v2.initialize, (deployerOwner(), owner()));
 
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
 
