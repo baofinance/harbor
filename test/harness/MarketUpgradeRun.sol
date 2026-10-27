@@ -23,3 +23,19 @@ contract MarketUpgradeRun is UpgradeMarketToV3 {
         upgradeMarketsToV3(readMarketUpgradeInputs(_markets, _capture), "mainnet");
     }
 }
+
+/// @dev The production upgrade of markets a pause has frozen, as the upgrade script runs it - read at the capture's
+///      block, upgraded on the fork selected - for the markets and capture it is constructed with.
+contract FrozenMarketUpgradeRun is UpgradeMarketToV3 {
+    Config_MinterMarket[] private _markets;
+    string private _capture;
+
+    constructor(Config_MinterMarket[] memory markets_, string memory capture_) {
+        _markets = markets_;
+        _capture = capture_;
+    }
+
+    function build() internal override {
+        upgradeMarketsToV3(readFrozenMarketUpgradeInputs(_markets, _capture, "mainnet"), "mainnet");
+    }
+}

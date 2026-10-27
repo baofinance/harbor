@@ -8,30 +8,27 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {IYieldVaultManager} from "@harbor/interfaces/IYieldVaultManager.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
+import {MarketSettings} from "@harbor-script/verify/v3-upgrade/MarketSettings.sol";
 
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
 /// @title MarketsCapture - Prong A of the v3 upgrade's verification
-/// @notice Records every market's contracts - minter, both stability pools, manager - to JSON: each one's state, and
-///         each pool's behaviour under the same interactions. Run once before the upgrade (`VERSION=before`) and once
-///         after (`VERSION=after`); `MarketsExpectedAfter` then writes what the after record must read, and the runner
-///         diffs the two. Every value must read the same after as before, or as written down beforehand.
+/// @notice Records every market's contracts - minter, both stability pools, manager - to JSON: each one's settings, read
+///         by `MarketSettings`, and its holdings, and each pool's behaviour under the same interactions. Run once before
+///         the upgrade (`VERSION=before`) and once after (`VERSION=after`); `MarketsExpectedAfter` then writes what the
+///         after record must read, and the runner diffs the two. Every value must read the same after as before, or as
+///         written down beforehand.
 ///
 ///         The before is taken where the markets still run - a fork of mainnet at the block of the upgrade's holder
 ///         capture, `FROZEN_MARKETS_CAPTURE`, the last before the pause that froze every minter and pool - with each
@@ -52,12 +49,10 @@ contract MarketsCapture is Test, HarborDeployer {
     /// @dev The managers were paused in this block; the block before it holds each one's own implementation.
     uint256 internal constant MANAGERS_PAUSED_AT = 26_241_030;
 
-    /// @dev Mutable JSON object key - unique per contract per phase.
-    string private _jsonKey;
-
     bool internal isBefore;
     Config_MinterMarket[] internal markets;
     address internal testUser;
+    MarketSettings internal settings;
 
     function setUp() public {
         string memory version = vm.envString("VERSION");
@@ -72,6 +67,8 @@ contract MarketsCapture is Test, HarborDeployer {
         for (uint256 i = 0; i < markets.length; ++i) {
             vm.makePersistent(address(markets[i]));
         }
+        settings = new MarketSettings();
+        vm.makePersistent(address(settings));
     }
 
     // ========================================================================
@@ -168,79 +165,39 @@ contract MarketsCapture is Test, HarborDeployer {
     // MINTER AND MANAGER
     // ========================================================================
 
-    /// @dev Write the minter's state: the config it holds, the backing it records, its balances, the wrapped collateral
-    ///      it holds, whom it reads and pays, and the roles of the manager and genesis; on the after, `impaired`, whether
-    ///      Minter_v3 reports it impaired.
+    /// @dev Write the minter's record: its settings; the backing it records, its balances and the wrapped collateral it
+    ///      holds; and, on the after, `impaired`, whether Minter_v3 reports it impaired.
     function _writeMinter(Config_MinterMarket market, string memory dir, bool impaired) private {
         string memory label = minterKey(market);
         address minter = minterAddress(market);
-        _jsonKey = string.concat("pre_", label);
-        vm.serializeString(_jsonKey, "label", label);
-        vm.serializeString(_jsonKey, "minter_owner", vm.toString(IBaoOwnable(minter).owner()));
-        vm.serializeString(_jsonKey, "minter_config", vm.toString(abi.encode(IMinter(minter).config())));
-        _serializeUint("minter_recordedBacking", IMinter(minter).collateralTokenBalance());
-        _serializeUint("minter_peggedBalance", IMinter(minter).peggedTokenBalance());
-        _serializeUint("minter_leveragedBalance", IMinter(minter).leveragedTokenBalance());
-        address wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
-        _serializeUint("minter_wrappedCollateralHeld", IERC20(wrappedCollateral).balanceOf(minter));
-        vm.serializeString(_jsonKey, "minter_wrappedCollateralToken", vm.toString(wrappedCollateral));
-        vm.serializeString(_jsonKey, "minter_peggedToken", vm.toString(IMinter(minter).PEGGED_TOKEN()));
-        vm.serializeString(_jsonKey, "minter_leveragedToken", vm.toString(IMinter(minter).LEVERAGED_TOKEN()));
-        vm.serializeString(_jsonKey, "minter_priceOracle", vm.toString(IMinter(minter).priceOracle()));
-        vm.serializeString(_jsonKey, "minter_reservePool", vm.toString(IMinter(minter).reservePool()));
-        vm.serializeString(_jsonKey, "minter_feeReceiver", vm.toString(IMinter(minter).feeReceiver()));
-        _serializeUint("minter_rolesOf_manager", IBaoRoles(minter).rolesOf(stabilityPoolManagerAddress(market)));
-        _serializeUint("minter_rolesOf_genesis", IBaoRoles(minter).rolesOf(genesisAddress(market)));
+        string memory objectKey = string.concat("pre_", label);
+        vm.serializeString(objectKey, "label", label);
+        settings.serializeMinter(objectKey, this, market);
+        _serializeUint(objectKey, "minter_recordedBacking", IMinter(minter).collateralTokenBalance());
+        _serializeUint(objectKey, "minter_peggedBalance", IMinter(minter).peggedTokenBalance());
+        _serializeUint(objectKey, "minter_leveragedBalance", IMinter(minter).leveragedTokenBalance());
+        _serializeUint(
+            objectKey,
+            "minter_wrappedCollateralHeld",
+            IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(minter)
+        );
         if (!isBefore) {
             // Minter_v3 only: it halts while it records more backing than it holds.
-            vm.serializeString(_jsonKey, "minter_impaired", vm.toString(impaired));
+            vm.serializeString(objectKey, "minter_impaired", vm.toString(impaired));
         }
-        vm.writeJson(vm.serializeString(_jsonKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
+        vm.writeJson(vm.serializeString(objectKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
     }
 
-    /// @dev Write the manager's state: its owner, its pools, its minter and the market's tokens, its harvest and
-    ///      rebalance settings and whom it pays.
+    /// @dev Write the manager's record: its settings.
     function _writeManager(Config_MinterMarket market, string memory dir) private {
         string memory label = stabilityPoolManagerKey(market);
-        address manager = stabilityPoolManagerAddress(market);
-        _jsonKey = string.concat("pre_", label);
-        vm.serializeString(_jsonKey, "label", label);
-        vm.serializeString(_jsonKey, "manager_owner", vm.toString(IBaoOwnable(manager).owner()));
-        address[] memory pools = IStabilityPoolManager(manager).stabilityPools();
-        for (uint256 i = 0; i < pools.length; ++i) {
-            vm.serializeString(
-                _jsonKey,
-                string.concat("manager_stabilityPool_", vm.toString(i)),
-                vm.toString(pools[i])
-            );
-        }
-        _serializeUint("manager_harvestBountyRatio", IStabilityPoolManager(manager).harvestBountyRatio());
-        _serializeUint("manager_harvestCutRatio", IStabilityPoolManager(manager).harvestCutRatio());
-        _serializeUint("manager_rebalanceBountyRatio", IStabilityPoolManager(manager).rebalanceBountyRatio());
-        _serializeUint("manager_rebalanceThreshold", IStabilityPoolManager(manager).rebalanceThreshold());
-        vm.serializeString(_jsonKey, "manager_feeReceiver", vm.toString(IStabilityPoolManager(manager).feeReceiver()));
-        {
-            // StabilityPoolManager_v1 keeps these as public immutables too; v2's interface declares them.
-            IStabilityPoolManager_v2 named = IStabilityPoolManager_v2(manager);
-            vm.serializeString(_jsonKey, "manager_minter", vm.toString(named.MINTER()));
-            vm.serializeString(
-                _jsonKey,
-                "manager_wrappedCollateralToken",
-                vm.toString(named.WRAPPED_COLLATERAL_TOKEN())
-            );
-            vm.serializeString(_jsonKey, "manager_peggedToken", vm.toString(named.PEGGED_TOKEN()));
-            vm.serializeString(_jsonKey, "manager_leveragedToken", vm.toString(named.LEVERAGED_TOKEN()));
-        }
+        string memory objectKey = string.concat("pre_", label);
+        vm.serializeString(objectKey, "label", label);
+        settings.serializeManager(objectKey, this, market);
         if (!isBefore) {
-            // StabilityPoolManager_v2 only: it reports its interface, and keeps the yield vaults it compounds.
-            vm.serializeString(
-                _jsonKey,
-                "manager_reportsStabilityPoolManager_v2",
-                vm.toString(IERC165(manager).supportsInterface(type(IStabilityPoolManager_v2).interfaceId))
-            );
-            _serializeUint("manager_yieldVaultCount", IYieldVaultManager(manager).yieldVaultCount());
+            settings.serializeManagerV2(objectKey, this, market);
         }
-        vm.writeJson(vm.serializeString(_jsonKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
+        vm.writeJson(vm.serializeString(objectKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
     }
 
     // ========================================================================
@@ -255,11 +212,10 @@ contract MarketsCapture is Test, HarborDeployer {
         string memory phase
     ) private {
         string memory label = stabilityPoolKey(market, poolType);
-        address pool = stabilityPoolAddress(market, poolType);
-        _jsonKey = string.concat(phase, label);
-        vm.serializeString(_jsonKey, "label", label);
-        _serializePoolState(pool, _users(label, keccak256(bytes(phase)) == keccak256("post_")), "state");
-        vm.writeJson(vm.serializeString(_jsonKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
+        string memory objectKey = string.concat(phase, label);
+        vm.serializeString(objectKey, "label", label);
+        _serializePoolState(objectKey, market, poolType, _users(label, keccak256(bytes(phase)) == keccak256("post_")));
+        vm.writeJson(vm.serializeString(objectKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
     }
 
     /// @dev The pool's captured holders, and the test user too once it has deposited.
@@ -274,9 +230,9 @@ contract MarketsCapture is Test, HarborDeployer {
         }
     }
 
-    /// @dev Serialize a uint256 as a decimal string.
-    function _serializeUint(string memory key, uint256 value) internal {
-        vm.serializeString(_jsonKey, key, vm.toString(value));
+    /// @dev Serialize a uint256 as a decimal string into the object `objectKey`.
+    function _serializeUint(string memory objectKey, string memory key, uint256 value) internal {
+        vm.serializeString(objectKey, key, vm.toString(value));
     }
 
     /// @dev `user`'s claimable reward of `token` from `pool`, as its version reports it.
@@ -322,10 +278,20 @@ contract MarketsCapture is Test, HarborDeployer {
     }
 
     /// @dev Serialize totalAssetSupply + per-user assetBalanceOf. Called 2x per pool (pre/post deposit).
-    function _serializeBalances(address proxy, address[] memory users, string memory prefix) internal {
-        _serializeUint(string.concat(prefix, "_totalAssetSupply"), IStabilityPool_v3(proxy).totalAssetSupply());
+    function _serializeBalances(
+        string memory objectKey,
+        address proxy,
+        address[] memory users,
+        string memory prefix
+    ) internal {
+        _serializeUint(
+            objectKey,
+            string.concat(prefix, "_totalAssetSupply"),
+            IStabilityPool_v3(proxy).totalAssetSupply()
+        );
         for (uint256 i = 0; i < users.length; i++) {
             _serializeUint(
+                objectKey,
                 string.concat(prefix, "_user_", vm.toString(i), "_assetBalance"),
                 IStabilityPool_v3(proxy).assetBalanceOf(users[i])
             );
@@ -334,6 +300,7 @@ contract MarketsCapture is Test, HarborDeployer {
 
     /// @dev Serialize per-user per-token claimable. Called 6x per pool (before/after reward, half/full claim).
     function _serializeClaimables(
+        string memory objectKey,
         address proxy,
         address[] memory users,
         address[] memory tokens,
@@ -342,6 +309,7 @@ contract MarketsCapture is Test, HarborDeployer {
         for (uint256 u = 0; u < users.length; u++) {
             for (uint256 t = 0; t < tokens.length; t++) {
                 _serializeUint(
+                    objectKey,
                     string.concat(prefix, "_user_", vm.toString(u), "_reward_", vm.toString(t), "_claimable"),
                     _claimable(proxy, users[u], tokens[t])
                 );
@@ -353,6 +321,7 @@ contract MarketsCapture is Test, HarborDeployer {
     /// Called 2x per pool (half/full period). Records deltas instead of absolute balances to avoid
     /// cross-pool contamination when the same user appears in multiple pools.
     function _claimAllWithDeltas(
+        string memory objectKey,
         address proxy,
         address[] memory users,
         address[] memory tokens,
@@ -370,9 +339,9 @@ contract MarketsCapture is Test, HarborDeployer {
         for (uint256 i = 0; i < users.length; i++) {
             vm.startPrank(users[i]);
             try IMultipleRewardAccumulator(proxy).claim() {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "true");
+                vm.serializeString(objectKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "true");
             } catch {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "false");
+                vm.serializeString(objectKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "false");
             }
             vm.stopPrank();
         }
@@ -381,6 +350,7 @@ contract MarketsCapture is Test, HarborDeployer {
         for (uint256 u = 0; u < users.length; u++) {
             for (uint256 t = 0; t < tokens.length; t++) {
                 _serializeUint(
+                    objectKey,
                     string.concat(prefix, "_user_", vm.toString(u), "_reward_", vm.toString(t), "_delta"),
                     IERC20(tokens[t]).balanceOf(users[u]) - balancesBefore[u * tokens.length + t]
                 );
@@ -388,119 +358,87 @@ contract MarketsCapture is Test, HarborDeployer {
         }
     }
 
-    /// @dev Serialize reward token data for one token. Called per-token per-pool per-phase.
-    function _serializeRewardToken(address proxy, address token, string memory ri) internal {
-        vm.serializeString(_jsonKey, string.concat(ri, "_token"), vm.toString(token));
-        vm.serializeString(_jsonKey, string.concat(ri, "_isActive"), "true");
+    /// @dev Serialize one reward token's stream - the token itself is a setting, `MarketSettings`'s. Called per-token
+    ///      per-pool per-phase.
+    function _serializeRewardToken(string memory objectKey, address proxy, address token, string memory ri) internal {
+        vm.serializeString(objectKey, string.concat(ri, "_isActive"), "true");
 
         {
             (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(proxy)
                 .rewardData(token);
-            _serializeUint(string.concat(ri, "_lastUpdate"), lastUpdate);
-            _serializeUint(string.concat(ri, "_finishAt"), finishAt);
-            _serializeUint(string.concat(ri, "_rate"), rate);
-            _serializeUint(string.concat(ri, "_queued"), queued);
+            _serializeUint(objectKey, string.concat(ri, "_lastUpdate"), lastUpdate);
+            _serializeUint(objectKey, string.concat(ri, "_finishAt"), finishAt);
+            _serializeUint(objectKey, string.concat(ri, "_rate"), rate);
+            _serializeUint(objectKey, string.concat(ri, "_queued"), queued);
         }
 
         try IMultipleRewardDistributor(proxy).pendingRewards(token) returns (
             uint256 distributable,
             uint256 undistributed
         ) {
-            vm.serializeString(_jsonKey, string.concat(ri, "_pendingRewards_ok"), "true");
-            _serializeUint(string.concat(ri, "_pendingDistributable"), distributable);
-            _serializeUint(string.concat(ri, "_pendingUndistributed"), undistributed);
+            vm.serializeString(objectKey, string.concat(ri, "_pendingRewards_ok"), "true");
+            _serializeUint(objectKey, string.concat(ri, "_pendingDistributable"), distributable);
+            _serializeUint(objectKey, string.concat(ri, "_pendingUndistributed"), undistributed);
         } catch {
-            vm.serializeString(_jsonKey, string.concat(ri, "_pendingRewards_ok"), "false");
-            _serializeUint(string.concat(ri, "_pendingDistributable"), 0);
-            _serializeUint(string.concat(ri, "_pendingUndistributed"), 0);
+            vm.serializeString(objectKey, string.concat(ri, "_pendingRewards_ok"), "false");
+            _serializeUint(objectKey, string.concat(ri, "_pendingDistributable"), 0);
+            _serializeUint(objectKey, string.concat(ri, "_pendingUndistributed"), 0);
         }
     }
 
     /// @dev Serialize per-user view data. Called per-user per-pool per-phase.
-    function _serializeUser(address proxy, address user, address[] memory activeTokens, string memory ui) internal {
-        vm.serializeString(_jsonKey, string.concat(ui, "_address"), vm.toString(user));
-        _serializeUint(string.concat(ui, "_assetBalance"), IStabilityPool_v3(proxy).assetBalanceOf(user));
+    function _serializeUser(
+        string memory objectKey,
+        address proxy,
+        address user,
+        address[] memory activeTokens,
+        string memory ui
+    ) internal {
+        vm.serializeString(objectKey, string.concat(ui, "_address"), vm.toString(user));
+        _serializeUint(objectKey, string.concat(ui, "_assetBalance"), IStabilityPool_v3(proxy).assetBalanceOf(user));
 
         {
             (uint64 wStart, uint64 wEnd) = IStabilityPool_v3(proxy).getWithdrawalRequest(user);
-            _serializeUint(string.concat(ui, "_withdrawalStart"), uint256(wStart));
-            _serializeUint(string.concat(ui, "_withdrawalEnd"), uint256(wEnd));
+            _serializeUint(objectKey, string.concat(ui, "_withdrawalStart"), uint256(wStart));
+            _serializeUint(objectKey, string.concat(ui, "_withdrawalEnd"), uint256(wEnd));
         }
 
         for (uint256 t = 0; t < activeTokens.length; t++) {
             string memory ut = string.concat(ui, "_reward_", vm.toString(t));
-            _serializeUint(string.concat(ut, "_claimable"), _claimable(proxy, user, activeTokens[t]));
-            _serializeUint(string.concat(ut, "_claimed"), _claimed(proxy, user, activeTokens[t]));
+            _serializeUint(objectKey, string.concat(ut, "_claimable"), _claimable(proxy, user, activeTokens[t]));
+            _serializeUint(objectKey, string.concat(ut, "_claimed"), _claimed(proxy, user, activeTokens[t]));
         }
     }
 
-    /// @dev Serialize all view functions for a pool into the current JSON object. The views both versions have are read
-    ///      through `IStabilityPool_v3`: their selectors are the same in both interfaces.
-    function _serializePoolState(address proxy, address[] memory depositors, string memory prefix) internal {
-        vm.serializeString(_jsonKey, string.concat(prefix, "_owner"), vm.toString(IBaoOwnable(proxy).owner()));
-        {
-            IStabilityPool_v3 pool = IStabilityPool_v3(proxy);
-            _serializeUint(string.concat(prefix, "_totalAssetSupply"), pool.totalAssetSupply());
-            _serializeUint(string.concat(prefix, "_lastAssetLossError"), pool.lastAssetLossError());
-            _serializeUint(string.concat(prefix, "_earlyWithdrawalFee"), pool.getEarlyWithdrawalFee());
-            vm.serializeString(_jsonKey, string.concat(prefix, "_feeAddress"), vm.toString(pool.getFeeAddress()));
-            {
-                (uint64 startDelay, uint64 endWindow) = pool.getWithdrawalWindow();
-                _serializeUint(string.concat(prefix, "_withdrawalStartDelay"), uint256(startDelay));
-                _serializeUint(string.concat(prefix, "_withdrawalEndWindow"), uint256(endWindow));
-            }
-            _serializeUint(string.concat(prefix, "_minTotalAssetSupply"), pool.MIN_TOTAL_ASSET_SUPPLY());
-            vm.serializeString(_jsonKey, string.concat(prefix, "_assetToken"), vm.toString(pool.ASSET_TOKEN()));
-        }
+    /// @dev Serialize the pool's state into the object `objectKey`: its settings, read by `MarketSettings` in its
+    ///      version's form, then its holdings - its supply and loss error, on v3 what it divides rewards by, each reward
+    ///      token's stream, and each depositor's balance, withdrawal request and rewards. The views both versions have are
+    ///      read through `IStabilityPool_v3`: their selectors are the same in both interfaces.
+    function _serializePoolState(
+        string memory objectKey,
+        Config_MinterMarket market,
+        StabilityPoolType poolType,
+        address[] memory depositors
+    ) internal {
+        address proxy = stabilityPoolAddress(market, poolType);
+        settings.serializePool(objectKey, this, market, poolType);
+        _serializeUint(objectKey, "state_totalAssetSupply", IStabilityPool_v3(proxy).totalAssetSupply());
+        _serializeUint(objectKey, "state_lastAssetLossError", IStabilityPool_v3(proxy).lastAssetLossError());
         if (isBefore) {
-            // StabilityPool_v2 only: v3 names no single liquidation token, and calls its minimum deposit the floor.
-            vm.serializeString(
-                _jsonKey,
-                string.concat(prefix, "_liquidationToken"),
-                vm.toString(IStabilityPool(proxy).LIQUIDATION_TOKEN())
-            );
-            _serializeUint(string.concat(prefix, "_minDeposit"), IStabilityPool(proxy).MIN_DEPOSIT());
+            settings.serializePoolV2(objectKey, this, market, poolType);
         } else {
-            // StabilityPool_v3 only: what rewards are divided by, and the minter it names, which v2 does not.
-            _serializeUint(string.concat(prefix, "_rewardDivisor"), _rewardDivisor(proxy));
-            vm.serializeString(
-                _jsonKey,
-                string.concat(prefix, "_minter"),
-                vm.toString(IStabilityPool_v3(proxy).MINTER())
-            );
+            settings.serializePoolV3(objectKey, this, market, poolType);
+            _serializeUint(objectKey, "state_rewardDivisor", _rewardDivisor(proxy));
         }
 
-        _serializeUint(
-            string.concat(prefix, "_rewardPeriodLength"),
-            uint256(IMultipleRewardDistributor(proxy).REWARD_PERIOD_LENGTH())
-        );
-
-        {
-            address[] memory activeTokens = IMultipleRewardDistributor(proxy).activeRewardTokens();
-            _serializeUint(string.concat(prefix, "_activeRewardTokenCount"), activeTokens.length);
-            for (uint256 i = 0; i < activeTokens.length; i++) {
-                _serializeRewardToken(proxy, activeTokens[i], string.concat(prefix, "_reward_", vm.toString(i)));
-            }
+        address[] memory activeTokens = IMultipleRewardDistributor(proxy).activeRewardTokens();
+        for (uint256 i = 0; i < activeTokens.length; i++) {
+            _serializeRewardToken(objectKey, proxy, activeTokens[i], string.concat("state_reward_", vm.toString(i)));
         }
 
-        {
-            address[] memory historicalTokens = IMultipleRewardDistributor(proxy).historicalRewardTokens();
-            _serializeUint(string.concat(prefix, "_historicalRewardTokenCount"), historicalTokens.length);
-            for (uint256 i = 0; i < historicalTokens.length; i++) {
-                vm.serializeString(
-                    _jsonKey,
-                    string.concat(prefix, "_historicalRewardToken_", vm.toString(i)),
-                    vm.toString(historicalTokens[i])
-                );
-            }
-        }
-
-        {
-            address[] memory activeTokens = IMultipleRewardDistributor(proxy).activeRewardTokens();
-            _serializeUint(string.concat(prefix, "_depositorCount"), depositors.length);
-            for (uint256 u = 0; u < depositors.length; u++) {
-                _serializeUser(proxy, depositors[u], activeTokens, string.concat(prefix, "_user_", vm.toString(u)));
-            }
+        _serializeUint(objectKey, "state_depositorCount", depositors.length);
+        for (uint256 u = 0; u < depositors.length; u++) {
+            _serializeUser(objectKey, proxy, depositors[u], activeTokens, string.concat("state_user_", vm.toString(u)));
         }
     }
 
@@ -508,14 +446,14 @@ contract MarketsCapture is Test, HarborDeployer {
     function _interact(Config_MinterMarket market, StabilityPoolType poolType) internal {
         string memory label = stabilityPoolKey(market, poolType);
         address proxy = stabilityPoolAddress(market, poolType);
-        _jsonKey = string.concat("post_", label);
+        string memory objectKey = string.concat("post_", label);
         string memory prefix = "interact";
         address[] memory depositors = HolderCaptureLib.holders(FROZEN_MARKETS_CAPTURE, label);
         address[] memory allUsers = _users(label, true);
         address[] memory activeTokens = IMultipleRewardDistributor(proxy).activeRewardTokens();
 
         // 1. Pre-deposit balances
-        _serializeBalances(proxy, allUsers, string.concat(prefix, "_preDeposit"));
+        _serializeBalances(objectKey, proxy, allUsers, string.concat(prefix, "_preDeposit"));
 
         // 2. Deposit (new user)
         {
@@ -524,12 +462,12 @@ contract MarketsCapture is Test, HarborDeployer {
             vm.startPrank(testUser);
             IERC20(assetToken).approve(proxy, type(uint256).max);
             try IStabilityPool_v3(proxy).deposit(100 ether, testUser, 0) {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_deposit_success"), "true");
+                vm.serializeString(objectKey, string.concat(prefix, "_deposit_success"), "true");
             } catch {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_deposit_success"), "false");
+                vm.serializeString(objectKey, string.concat(prefix, "_deposit_success"), "false");
             }
             vm.stopPrank();
-            _serializeUint(string.concat(prefix, "_deposit_amount"), 100 ether);
+            _serializeUint(objectKey, string.concat(prefix, "_deposit_amount"), 100 ether);
         }
 
         // 2b. Existing depositor deposit (exercises checkpoint with historical reward integral)
@@ -540,23 +478,23 @@ contract MarketsCapture is Test, HarborDeployer {
             vm.startPrank(existingDepositor);
             IERC20(assetToken2).approve(proxy, type(uint256).max);
             try IStabilityPool_v3(proxy).deposit(100 ether, existingDepositor, 0) {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_existingDepositorDeposit_success"), "true");
+                vm.serializeString(objectKey, string.concat(prefix, "_existingDepositorDeposit_success"), "true");
             } catch {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_existingDepositorDeposit_success"), "false");
+                vm.serializeString(objectKey, string.concat(prefix, "_existingDepositorDeposit_success"), "false");
             }
             vm.stopPrank();
             vm.serializeString(
-                _jsonKey,
+                objectKey,
                 string.concat(prefix, "_existingDepositorDeposit_user"),
                 vm.toString(existingDepositor)
             );
         }
 
         // 3. Post-deposit balances
-        _serializeBalances(proxy, allUsers, string.concat(prefix, "_postDeposit"));
+        _serializeBalances(objectKey, proxy, allUsers, string.concat(prefix, "_postDeposit"));
 
         // 4. Pre-depositReward claimables
-        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_preReward"));
+        _serializeClaimables(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_preReward"));
 
         // 5. Deposit a reward in the pool's first reward token (the owner may deposit rewards in both versions)
         {
@@ -566,36 +504,36 @@ contract MarketsCapture is Test, HarborDeployer {
             vm.startPrank(owner);
             IERC20(rewardToken).approve(proxy, type(uint256).max);
             try IMultipleRewardDistributor(proxy).depositReward(rewardToken, 10 ether) {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_depositReward_success"), "true");
+                vm.serializeString(objectKey, string.concat(prefix, "_depositReward_success"), "true");
             } catch {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_depositReward_success"), "false");
+                vm.serializeString(objectKey, string.concat(prefix, "_depositReward_success"), "false");
             }
             vm.stopPrank();
-            vm.serializeString(_jsonKey, string.concat(prefix, "_depositReward_token"), vm.toString(rewardToken));
-            _serializeUint(string.concat(prefix, "_depositReward_amount"), 10 ether);
+            vm.serializeString(objectKey, string.concat(prefix, "_depositReward_token"), vm.toString(rewardToken));
+            _serializeUint(objectKey, string.concat(prefix, "_depositReward_amount"), 10 ether);
         }
 
         // 6. Post-depositReward claimables
-        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_postReward"));
+        _serializeClaimables(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_postReward"));
 
         // 7. Warp half period
         uint256 halfPeriod = uint256(IMultipleRewardDistributor(proxy).REWARD_PERIOD_LENGTH()) / 2;
         vm.warp(block.timestamp + halfPeriod);
-        _serializeUint(string.concat(prefix, "_warp_half_seconds"), halfPeriod);
+        _serializeUint(objectKey, string.concat(prefix, "_warp_half_seconds"), halfPeriod);
 
         // 8-10. Half-period: claimable before, claim all (with balance deltas), claimable after
-        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_half_preClaim"));
-        _claimAllWithDeltas(proxy, allUsers, activeTokens, string.concat(prefix, "_half_claim"));
-        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_half_postClaim"));
+        _serializeClaimables(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_half_preClaim"));
+        _claimAllWithDeltas(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_half_claim"));
+        _serializeClaimables(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_half_postClaim"));
 
         // 11. Warp remaining half period
         vm.warp(block.timestamp + halfPeriod);
-        _serializeUint(string.concat(prefix, "_warp_total_seconds"), halfPeriod * 2);
+        _serializeUint(objectKey, string.concat(prefix, "_warp_total_seconds"), halfPeriod * 2);
 
         // 12-14. Full-period: claimable before, claim all (with balance deltas), claimable after
-        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_full_preClaim"));
-        _claimAllWithDeltas(proxy, allUsers, activeTokens, string.concat(prefix, "_full_claim"));
-        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_full_postClaim"));
+        _serializeClaimables(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_full_preClaim"));
+        _claimAllWithDeltas(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_full_claim"));
+        _serializeClaimables(objectKey, proxy, allUsers, activeTokens, string.concat(prefix, "_full_postClaim"));
 
         // 15. Whether every claimable is zero after the full period
         {
@@ -607,13 +545,13 @@ contract MarketsCapture is Test, HarborDeployer {
                     }
                 }
             }
-            vm.serializeString(_jsonKey, string.concat(prefix, "_full_allClaimableZero"), allZero ? "true" : "false");
+            vm.serializeString(objectKey, string.concat(prefix, "_full_allClaimableZero"), allZero ? "true" : "false");
         }
 
         // 16. Withdraw for test user (request, warp into window, withdraw)
         vm.startPrank(testUser);
         try IStabilityPool_v3(proxy).requestWithdrawal() {
-            vm.serializeString(_jsonKey, string.concat(prefix, "_requestWithdrawal_success"), "true");
+            vm.serializeString(objectKey, string.concat(prefix, "_requestWithdrawal_success"), "true");
             vm.stopPrank();
 
             {
@@ -626,17 +564,17 @@ contract MarketsCapture is Test, HarborDeployer {
             uint256 withdrawAmount = IStabilityPool_v3(proxy).assetBalanceOf(testUser) / 2;
             vm.startPrank(testUser);
             try IStabilityPool_v3(proxy).withdraw(withdrawAmount, testUser, 0) {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_withdraw_success"), "true");
+                vm.serializeString(objectKey, string.concat(prefix, "_withdraw_success"), "true");
             } catch {
-                vm.serializeString(_jsonKey, string.concat(prefix, "_withdraw_success"), "false");
+                vm.serializeString(objectKey, string.concat(prefix, "_withdraw_success"), "false");
             }
             vm.stopPrank();
-            _serializeUint(string.concat(prefix, "_withdraw_amount"), withdrawAmount);
+            _serializeUint(objectKey, string.concat(prefix, "_withdraw_amount"), withdrawAmount);
         } catch {
             vm.stopPrank();
-            vm.serializeString(_jsonKey, string.concat(prefix, "_requestWithdrawal_success"), "false");
-            vm.serializeString(_jsonKey, string.concat(prefix, "_withdraw_success"), "false");
-            _serializeUint(string.concat(prefix, "_withdraw_amount"), 0);
+            vm.serializeString(objectKey, string.concat(prefix, "_requestWithdrawal_success"), "false");
+            vm.serializeString(objectKey, string.concat(prefix, "_withdraw_success"), "false");
+            _serializeUint(objectKey, string.concat(prefix, "_withdraw_amount"), 0);
         }
     }
 }

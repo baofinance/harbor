@@ -144,8 +144,10 @@ script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet
 The calls are the same: the batch files and the local execution come from the same queue.
 
 The runner first runs `FrozenMarketsReadPoint`: the state the upgrade reads, at the end of the capture's block, is the
-state it runs on - the pause changed only which implementation each minter and pool runs. It then asks you to start
-anvil (`script/anvil --block latest`), and:
+state it runs on - the pause changed only which implementation each minter and pool runs. It then runs
+`UpgradedMarketsMatchANativeDeploy`: each upgraded market holds the settings a native deploy sets (see
+[Settings against a native deploy](#settings-against-a-native-deploy)). It then asks you to start anvil
+(`script/anvil --block latest`), and:
 
 1. copies `deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the
    deployed addresses;
@@ -169,14 +171,15 @@ The runner needs `MAINNET_RPC_URL`, archival at the capture's block.
 
 `MarketsCapture` writes one record per contract, named by its salt key: `pre/` holds its state; for a pool, `post/`
 holds its behaviour under the same interactions - a deposit, a reward deposited and streamed, claims, a withdrawal -
-and its state after them.
+and its state after them. A contract's state is its settings - what a deploy writes, read by `MarketSettings.sol` - and
+its holdings - what holders' actions write.
 
 - **Minter**: owner, config, the backing it records, its pegged and leveraged supply, the wrapped collateral it holds,
-  its tokens, oracle, reserve pool and fee receiver, and the roles of the manager and the genesis contract; after, on
-  Minter_v3, whether it is impaired.
-- **StabilityPool**: supply, tokens, reward tokens and streams, withdrawal window and early-withdrawal fee, and per
-  captured holder: balance, claimable and claimed rewards per reward token, withdrawal request; after, on
-  StabilityPool_v3, its reward divisor and the minter it names.
+  its tokens, oracle, reserve pool and fee receiver, the roles of the manager and the genesis contract, and the owner of
+  its reserve pool and of each token with the roles it holds on each; after, on Minter_v3, whether it is impaired.
+- **StabilityPool**: supply, tokens, reward tokens and streams, withdrawal window and early-withdrawal fee, the roles
+  of the manager, and per captured holder: balance, claimable and claimed rewards per reward token, withdrawal request;
+  after, on StabilityPool_v3, its reward divisor and the minter it names.
 - **StabilityPoolManager**: owner, pools, its minter and the market's tokens, the harvest bounty and cut, the rebalance
   bounty and threshold, and the fee receiver; after, whether it reports StabilityPoolManager_v2, and its yield vaults.
 
@@ -228,6 +231,25 @@ upgrade is refused, since its folds fall elsewhere.
 
 It fails unless at least one reward record had data to compare.
 
+### Settings against a native deploy
+
+The records compare each market with itself before the upgrade. `UpgradedMarketsMatchANativeDeploy` compares it with a
+market deployed natively on v3. A contract's behaviour follows from its code, its settings and its holdings. The code
+is built from the same source as a native deploy's, and the records check the holdings carried over, so a market that
+also holds a native deploy's settings behaves as a native market would, holding what it holds.
+
+For each peg, on a fork of mainnet at the block after the capture, where every minter and pool is paused:
+
+1. the upgrade script's own function upgrades the peg's markets, as the multisig would execute it;
+2. the production deploy deploys the same peg beside them, under the salt prefix `native_v3`, wired to the live
+   oracles, and owned and paid as production's;
+3. `MarketSettings` reads the settings of both markets' minter, pools and manager. Each address the native market
+   names is read as the upgraded market's at the same deploy key: its minter, reserve pool, genesis, pools, manager
+   and tokens. Every setting must be equal; each difference is logged before the test fails.
+
+One test per peg, so each stays within a test's gas and a failure names its peg. A role granted on mainnet to an
+address the deploy grants none is not seen.
+
 ## Files
 
 - `script/Upgrade_MarketsToV3_mainnet.s.sol` - the script, and `FROZEN_MARKETS_CAPTURE`
@@ -236,4 +258,5 @@ It fails unless at least one reward record had data to compare.
   - the one-shot upgraders
 - `test/deployment/UpgradeMarketToV3.t.sol` - the upgrade's tests
 - `script/verify/v3-upgrade/` - the rehearsal: `run-upgrade-rehearsal`, `FrozenMarketsReadPoint.t.sol`,
-  `MarketsCapture.t.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`
+  `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`, `MarketSettings.sol`,
+  `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`

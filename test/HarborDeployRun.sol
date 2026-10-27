@@ -231,3 +231,16 @@ contract HarborDeployRun is HarborDeployStack {
         }
     }
 }
+
+/// @notice A run told the salt prefix the price oracles were deployed under, as `Deploy_<PEG>_mainnet.run` tells one
+///         given an oracle salt.
+contract OracleSaltDeployRun is HarborDeployRun {
+    constructor(
+        address owner_,
+        address treasury_,
+        string memory saltPrefix_,
+        string memory oracleSalt
+    ) HarborDeployRun(owner_, treasury_, saltPrefix_, "mainnet", HarborDeployRun.Cut.Whole) {
+        _setOracleSaltPrefix(oracleSalt);
+    }
+}

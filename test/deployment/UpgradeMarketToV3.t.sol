@@ -23,30 +23,13 @@ import {goldMintersConfig} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
-import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {IMinter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/IMinter_v3_Upgrader.sol";
 import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
-import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
+import {FrozenMarketUpgradeRun, MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
 import {MarketVerification} from "@harbor-test/harness/MarketVerification.sol";
-
-/// @dev The production upgrade of markets a pause has frozen, as the upgrade script runs it - read at the capture's
-///      block, upgraded on the fork selected - for the markets and capture it is constructed with.
-contract FrozenMarketUpgradeRun is UpgradeMarketToV3 {
-    Config_MinterMarket[] private _markets;
-    string private _capture;
-
-    constructor(Config_MinterMarket[] memory markets_, string memory capture_) {
-        _markets = markets_;
-        _capture = capture_;
-    }
-
-    function build() internal override {
-        upgradeMarketsToV3(readFrozenMarketUpgradeInputs(_markets, _capture, "mainnet"), "mainnet");
-    }
-}
 
 /// @dev MCAP::fxUSD as production configures it, with a floor a wei above its live pools'.
 contract ConfigMarket_MCAP_fxUSD_floorAWeiHigher is ConfigMarket_MCAP_fxUSD_mainnet {

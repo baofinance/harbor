@@ -12,26 +12,13 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
-import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {HarborDeployRun, OracleSaltDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
-
-/// @notice A run told the salt prefix the price oracles were deployed under, as `Deploy_<PEG>_mainnet.run` tells one
-///         given an oracle salt.
-contract OracleSaltDeployRun is HarborDeployRun {
-    constructor(
-        address owner_,
-        address treasury_,
-        string memory saltPrefix_,
-        string memory oracleSalt
-    ) HarborDeployRun(owner_, treasury_, saltPrefix_, "mainnet", HarborDeployRun.Cut.Whole) {
-        _setOracleSaltPrefix(oracleSalt);
-    }
-}
 
 /// @notice A deploy run carries its identity — actors, salt namespace, network — from construction, so several
 ///         independent runs can exist at once.

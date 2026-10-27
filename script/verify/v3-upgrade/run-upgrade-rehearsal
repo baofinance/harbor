@@ -5,6 +5,9 @@
 #
 #   Read point: FrozenMarketsReadPoint checks the state the upgrade reads is the state it runs on - the pause changed
 #     only which implementation each minter and pool runs, and nothing earlier in the pause's block changed a market.
+#   Native settings: UpgradedMarketsMatchANativeDeploy upgrades each peg's markets by the upgrade script's own function,
+#     on a fork of mainnet at the block after the capture, deploys the same peg natively beside them, and requires
+#     every contract of each market to hold the settings the native deploy sets.
 #   Prong A (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
 #     behaviour under the same interactions. The before is a fork of mainnet at the block of the upgrade's capture
 #     (FROZEN_MARKETS_CAPTURE in script/Upgrade_MarketsToV3_mainnet.s.sol), the last before the pause; the after is a
@@ -89,6 +92,10 @@ mkdir -p "$OUT"
 echo ""
 echo "Read point: the state the upgrade reads is the state it runs on..."
 campaign_test read-point.log FrozenMarketsReadPoint
+
+echo ""
+echo "Native settings: each upgraded market holds the settings a native deploy sets..."
+campaign_test native-settings.log UpgradedMarketsMatchANativeDeploy
 
 prompt "Start a fresh anvil fork of the chain's head:  script/anvil --block latest"
 
