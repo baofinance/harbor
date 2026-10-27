@@ -2,11 +2,14 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 import {CaptureExpectationsLib} from "@harbor-script/verify/v3-upgrade/CaptureExpectationsLib.sol";
 
 /// @notice What every market contract is expected to read after the upgrade, written down beforehand: for each record
@@ -16,13 +19,21 @@ import {CaptureExpectationsLib} from "@harbor-script/verify/v3-upgrade/CaptureEx
 contract MarketsExpectedAfter is Test, HarborDeployer {
     string internal constant ROOT = "tmp/v3-upgrade/";
 
-    /// @notice Write the expected-after record of every contract the capture recorded.
+    /// @notice Write the expected-after record of every contract the capture recorded. The oracle the deploy predicts
+    ///         for each market, and what that proxy runs, are read on mainnet at the capture's block, where the before
+    ///         was taken.
     function test_writeExpectedAfter() public {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE));
+        _setSaltPrefix("harbor_v1");
         Config_MinterMarket[] memory markets = allMintersConfig();
         vm.createDir(string.concat(ROOT, "expected-after/pre"), true);
         vm.createDir(string.concat(ROOT, "expected-after/post"), true);
         for (uint256 i = 0; i < markets.length; ++i) {
-            _write("pre", minterKey(markets[i]), _minterExpectations(_read("before", "pre", minterKey(markets[i]))));
+            _write(
+                "pre",
+                minterKey(markets[i]),
+                _minterExpectations(markets[i], _read("before", "pre", minterKey(markets[i])))
+            );
             _write("pre", stabilityPoolManagerKey(markets[i]), _managerExpectations());
             _writePool(markets[i], StabilityPoolType.Collateral);
             _writePool(markets[i], StabilityPoolType.Leveraged);
@@ -30,13 +41,28 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     }
 
     /// @dev Every minter runs on Minter_v3 unimpaired. A minter that records backing but holds no wrapped collateral has
-    ///      the record set to zero in its batch: it records what it holds, nothing.
+    ///      the record set to zero in its batch: it records what it holds, nothing. A minter that reads the very
+    ///      implementation its predicted oracle proxy runs is pointed at the proxy: afterwards it reads the proxy, and
+    ///      the proxy runs the oracle it read before.
     function _minterExpectations(
+        Config_MinterMarket market,
         string memory before
-    ) private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
+    ) private returns (CaptureExpectationsLib.Expectation[] memory expectations) {
         bool unheld = _uint(before, "minter_wrappedCollateralHeld") == 0 && _uint(before, "minter_recordedBacking") > 0;
-        expectations = new CaptureExpectationsLib.Expectation[](unheld ? 2 : 1);
-        expectations[0] = CaptureExpectationsLib.Expectation({
+        string memory oracleRead = vm.parseJsonString(before, ".minter_priceOracle");
+        address predictedOracle = wrappedPriceOracleAddress(market);
+        bool movesOracle = keccak256(bytes(oracleRead)) != keccak256(bytes(vm.toString(predictedOracle))) &&
+            keccak256(bytes(oracleRead)) ==
+                keccak256(
+                    bytes(
+                        vm.toString(
+                            address(uint160(uint256(vm.load(predictedOracle, ERC1967Utils.IMPLEMENTATION_SLOT))))
+                        )
+                    )
+                );
+        expectations = new CaptureExpectationsLib.Expectation[](1 + (unheld ? 1 : 0) + (movesOracle ? 2 : 0));
+        uint256 count;
+        expectations[count++] = CaptureExpectationsLib.Expectation({
             key: "minter_impaired",
             kind: CaptureExpectationsLib.Kind.Value,
             value: "false",
@@ -44,12 +70,28 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             reason: "Minter_v3 halts a minter that records more backing than it holds; the upgrade leaves none so"
         });
         if (unheld) {
-            expectations[1] = CaptureExpectationsLib.Expectation({
+            expectations[count++] = CaptureExpectationsLib.Expectation({
                 key: "minter_recordedBacking",
                 kind: CaptureExpectationsLib.Kind.Value,
                 value: "0",
                 bound: 0,
                 reason: "its batch upgrades it through Minter_v3_Upgrader, which sets the backing it does not hold to zero"
+            });
+        }
+        if (movesOracle) {
+            expectations[count++] = CaptureExpectationsLib.Expectation({
+                key: "minter_priceOracle",
+                kind: CaptureExpectationsLib.Kind.Value,
+                value: vm.toString(predictedOracle),
+                bound: 0,
+                reason: "its batch points it at the oracle proxy the deploy predicts, which runs the oracle it read"
+            });
+            expectations[count++] = CaptureExpectationsLib.Expectation({
+                key: "minter_priceOracle_implementation",
+                kind: CaptureExpectationsLib.Kind.Value,
+                value: oracleRead,
+                bound: 0,
+                reason: "the proxy it reads runs the implementation it read before"
             });
         }
     }
@@ -95,7 +137,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         CaptureExpectationsLib.Expectation[] memory postRewards;
         if (gap != 0) {
             preRewards = _preRewardShifts(beforePre, gap);
-            postRewards = _postRewardShifts(label, beforePre, beforePost, gap);
+            postRewards = _postRewardShifts(beforePre, beforePost, gap);
         }
         _write("pre", label, _poolExpectations(beforePre, gap, minter, preRewards));
         _write("post", label, _poolExpectations(beforePost, gap, minter, postRewards));
@@ -179,56 +221,34 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     }
 
     /// @dev The post record's reward readings, through the interactions: the captured holders, then the test user,
-    ///      who deposited after fold 0 and so has no share in it. Refuses a pool whose deposits failed in the before
-    ///      record: the folds would fall elsewhere.
+    ///      who deposited after fold 0 and so has no share in it. Every interaction ran: one that reverts fails the
+    ///      capture.
     function _postRewardShifts(
-        string memory label,
         string memory beforePre,
         string memory beforePost,
         int256 gap
     ) private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
         uint256 holders = _uint(beforePre, "state_depositorCount");
         uint256 tokens = _uint(beforePre, "state_activeRewardTokenCount");
-        require(
-            _isTrue(beforePost, "interact_deposit_success") &&
-                (holders == 0 || _isTrue(beforePost, "interact_existingDepositorDeposit_success")),
-            string.concat(label, ": a deposit failed before the upgrade, so the folds the shift follows did not happen")
-        );
         UserFolds memory folds;
         folds.gap = gap;
         folds.depositedSupply = _uint(beforePost, "interact_postDeposit_totalAssetSupply");
-        CaptureExpectationsLib.Expectation[] memory all = new CaptureExpectationsLib.Expectation[](
-            (holders + 1) * tokens * 7
-        );
+        expectations = new CaptureExpectationsLib.Expectation[]((holders + 1) * tokens * 7);
         uint256 count;
         for (uint256 i = 0; i <= holders; ++i) {
-            folds.halfPaid = _isTrue(
-                beforePost,
-                string.concat("interact_half_claim_user_", vm.toString(i), "_success")
-            );
-            folds.fullPaid = _isTrue(
-                beforePost,
-                string.concat("interact_full_claim_user_", vm.toString(i), "_success")
-            );
             for (uint256 t = 0; t < tokens; ++t) {
                 folds.shift0 = i < holders ? _pendingShift(beforePre, i, t, gap) : int256(0);
-                count = _userRewardShifts(beforePost, i, t, folds, all, count);
+                count = _userRewardShifts(beforePost, i, t, folds, expectations, count);
             }
-        }
-        expectations = new CaptureExpectationsLib.Expectation[](count);
-        for (uint256 e = 0; e < count; ++e) {
-            expectations[e] = all[e];
         }
     }
 
     /// @dev What one user's post-record reward readings in one token follow: the pool's gap, its supply after the two
-    ///      deposits, the user's fold 0 shift, and whether each of their claims paid.
+    ///      deposits, and the user's fold 0 shift.
     struct UserFolds {
         int256 gap;
         uint256 depositedSupply;
         int256 shift0;
-        bool halfPaid;
-        bool fullPaid;
     }
 
     /// @dev Add user `user`'s expectations in reward token `token` to `all` from `count`; return the new count.
@@ -260,23 +280,14 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             2
         );
         all[count++] = _shifted(beforePost, _rewardKey("interact_full_preClaim", user, token, "_claimable"), shift2, 1);
-        if (folds.halfPaid) {
-            all[count++] = _shifted(
-                beforePost,
-                _rewardKey("interact_half_claim", user, token, "_delta"),
-                shift0 + shift1,
-                2
-            );
-        }
-        if (folds.fullPaid) {
-            all[count++] = _shifted(beforePost, _rewardKey("interact_full_claim", user, token, "_delta"), shift2, 1);
-        }
         all[count++] = _shifted(
             beforePost,
-            _rewardKey("state", user, token, "_claimed"),
-            (folds.halfPaid ? shift0 + shift1 : int256(0)) + (folds.fullPaid ? shift2 : int256(0)),
-            (folds.halfPaid ? 2 : 0) + (folds.fullPaid ? 1 : 0)
+            _rewardKey("interact_half_claim", user, token, "_delta"),
+            shift0 + shift1,
+            2
         );
+        all[count++] = _shifted(beforePost, _rewardKey("interact_full_claim", user, token, "_delta"), shift2, 1);
+        all[count++] = _shifted(beforePost, _rewardKey("state", user, token, "_claimed"), shift0 + shift1 + shift2, 3);
         return count;
     }
 
@@ -345,10 +356,6 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         string memory what
     ) private pure returns (string memory) {
         return string.concat(prefix, "_user_", vm.toString(user), "_reward_", vm.toString(token), what);
-    }
-
-    function _isTrue(string memory json, string memory key) private pure returns (bool) {
-        return keccak256(bytes(vm.parseJsonString(json, string.concat(".", key)))) == keccak256("true");
     }
 
     function _removed(

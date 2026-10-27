@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
@@ -55,21 +56,22 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         uint64 withdrawalEndWindow;
     }
 
-    /// @notice What one market's upgrade needs from it: its minter's stored config, the backing it records and the
-    ///         wrapped collateral it holds, and each pool's input.
+    /// @notice What one market's upgrade needs from it: its minter's stored config, the backing it records, the wrapped
+    ///         collateral it holds and the price oracle it reads, and each pool's input.
     struct MarketUpgradeInput {
         Config_MinterMarket market;
         IMinter.Config minterConfig;
         uint256 recordedBacking;
         uint256 wrappedCollateralHeld;
+        address priceOracle;
         PoolUpgradeInput collateralPool;
         PoolUpgradeInput leveragedPool;
     }
 
     /// @notice Read what upgrading each of `markets` needs, on the fork selected now: each minter's stored config, the
-    ///         backing it records and the wrapped collateral it holds, and for each pool the holders the capture in
-    ///         `capture` lists, the ledger gap they leave, and its floor and withdrawal window. Refuses a capture whose
-    ///         holders leave a gap beyond rounding either way.
+    ///         backing it records, the wrapped collateral it holds and the price oracle it reads, and for each pool the
+    ///         holders the capture in `capture` lists, the ledger gap they leave, and its floor and withdrawal window.
+    ///         Refuses a capture whose holders leave a gap beyond rounding either way.
     function readMarketUpgradeInputs(
         Config_MinterMarket[] memory markets,
         string memory capture
@@ -81,6 +83,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
             inputs[i].minterConfig = IMinter(minter).config();
             inputs[i].recordedBacking = IMinter(minter).collateralTokenBalance();
             inputs[i].wrappedCollateralHeld = IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(minter);
+            inputs[i].priceOracle = IMinter(minter).priceOracle();
             inputs[i].collateralPool = _readPoolUpgradeInput(markets[i], StabilityPoolType.Collateral, capture);
             inputs[i].leveragedPool = _readPoolUpgradeInput(markets[i], StabilityPoolType.Leveraged, capture);
         }
@@ -127,9 +130,10 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     /// @notice Upgrade each market `inputs` names: deploy its new implementations, from its `marketAddresses`, and save,
     ///         as one batch for the multisig, the upgrade of its minter, loading the config read - through one
     ///         `Minter_v3_Upgrader`, which sets the record to zero, where the minter records backing but holds no
-    ///         wrapped collateral; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the
-    ///         holders and gap read; and of its manager, in that order. Refuses a pool whose new implementation would
-    ///         not keep the floor or withdrawal window read.
+    ///         wrapped collateral - then, where it reads the implementation its predicted oracle proxy runs, its move to
+    ///         that proxy; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders and
+    ///         gap read; and of its manager, in that order. Refuses a pool whose new implementation would not keep the
+    ///         floor or withdrawal window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
     function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
@@ -195,6 +199,20 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                     minterKey(config),
                     abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (upgradeTo, upgradeCall)),
                     how
+                );
+            }
+            // A deploy wires the minter to the oracle proxy it predicts. A minter reading the very implementation that
+            // proxy runs is pointed at the proxy, which answers as that implementation does; a minter reading any
+            // other oracle keeps it.
+            if (
+                inputs[i].priceOracle != addresses.oracle &&
+                address(uint160(uint256(_vm.load(addresses.oracle, ERC1967Utils.IMPLEMENTATION_SLOT)))) ==
+                    inputs[i].priceOracle
+            ) {
+                queue(
+                    minterKey(config),
+                    abi.encodeCall(IMinter.updatePriceOracle, (addresses.oracle)),
+                    "read the price through the oracle proxy that runs the oracle it reads"
                 );
             }
             _queuePoolMigration(

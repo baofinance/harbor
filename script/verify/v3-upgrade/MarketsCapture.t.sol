@@ -317,7 +317,7 @@ contract MarketsCapture is Test, HarborDeployer {
         }
     }
 
-    /// @dev Claim for each user via try/catch, recording success/failure and per-token balance deltas.
+    /// @dev Claim for each user, recording per-token balance deltas; a claim that reverts fails the capture.
     /// Called 2x per pool (half/full period). Records deltas instead of absolute balances to avoid
     /// cross-pool contamination when the same user appears in multiple pools.
     function _claimAllWithDeltas(
@@ -338,11 +338,7 @@ contract MarketsCapture is Test, HarborDeployer {
         // Claim for each user. The no-argument claim() is a self-claim on both versions.
         for (uint256 i = 0; i < users.length; i++) {
             vm.startPrank(users[i]);
-            try IMultipleRewardAccumulator(proxy).claim() {
-                vm.serializeString(objectKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "true");
-            } catch {
-                vm.serializeString(objectKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "false");
-            }
+            IMultipleRewardAccumulator(proxy).claim();
             vm.stopPrank();
         }
 
@@ -372,18 +368,9 @@ contract MarketsCapture is Test, HarborDeployer {
             _serializeUint(objectKey, string.concat(ri, "_queued"), queued);
         }
 
-        try IMultipleRewardDistributor(proxy).pendingRewards(token) returns (
-            uint256 distributable,
-            uint256 undistributed
-        ) {
-            vm.serializeString(objectKey, string.concat(ri, "_pendingRewards_ok"), "true");
-            _serializeUint(objectKey, string.concat(ri, "_pendingDistributable"), distributable);
-            _serializeUint(objectKey, string.concat(ri, "_pendingUndistributed"), undistributed);
-        } catch {
-            vm.serializeString(objectKey, string.concat(ri, "_pendingRewards_ok"), "false");
-            _serializeUint(objectKey, string.concat(ri, "_pendingDistributable"), 0);
-            _serializeUint(objectKey, string.concat(ri, "_pendingUndistributed"), 0);
-        }
+        (uint256 distributable, uint256 undistributed) = IMultipleRewardDistributor(proxy).pendingRewards(token);
+        _serializeUint(objectKey, string.concat(ri, "_pendingDistributable"), distributable);
+        _serializeUint(objectKey, string.concat(ri, "_pendingUndistributed"), undistributed);
     }
 
     /// @dev Serialize per-user view data. Called per-user per-pool per-phase.
@@ -442,7 +429,8 @@ contract MarketsCapture is Test, HarborDeployer {
         }
     }
 
-    /// @dev Try all interactions on a pool, recording each outcome under the pool's post key.
+    /// @dev Run every interaction on a pool, recording what each reads under the pool's post key. An interaction that
+    ///      reverts fails the capture.
     function _interact(Config_MinterMarket market, StabilityPoolType poolType) internal {
         string memory label = stabilityPoolKey(market, poolType);
         address proxy = stabilityPoolAddress(market, poolType);
@@ -461,11 +449,7 @@ contract MarketsCapture is Test, HarborDeployer {
             deal(assetToken, testUser, 100 ether);
             vm.startPrank(testUser);
             IERC20(assetToken).approve(proxy, type(uint256).max);
-            try IStabilityPool_v3(proxy).deposit(100 ether, testUser, 0) {
-                vm.serializeString(objectKey, string.concat(prefix, "_deposit_success"), "true");
-            } catch {
-                vm.serializeString(objectKey, string.concat(prefix, "_deposit_success"), "false");
-            }
+            IStabilityPool_v3(proxy).deposit(100 ether, testUser, 0);
             vm.stopPrank();
             _serializeUint(objectKey, string.concat(prefix, "_deposit_amount"), 100 ether);
         }
@@ -477,11 +461,7 @@ contract MarketsCapture is Test, HarborDeployer {
             deal(assetToken2, existingDepositor, 100 ether);
             vm.startPrank(existingDepositor);
             IERC20(assetToken2).approve(proxy, type(uint256).max);
-            try IStabilityPool_v3(proxy).deposit(100 ether, existingDepositor, 0) {
-                vm.serializeString(objectKey, string.concat(prefix, "_existingDepositorDeposit_success"), "true");
-            } catch {
-                vm.serializeString(objectKey, string.concat(prefix, "_existingDepositorDeposit_success"), "false");
-            }
+            IStabilityPool_v3(proxy).deposit(100 ether, existingDepositor, 0);
             vm.stopPrank();
             vm.serializeString(
                 objectKey,
@@ -503,11 +483,7 @@ contract MarketsCapture is Test, HarborDeployer {
             deal(rewardToken, owner, 10 ether);
             vm.startPrank(owner);
             IERC20(rewardToken).approve(proxy, type(uint256).max);
-            try IMultipleRewardDistributor(proxy).depositReward(rewardToken, 10 ether) {
-                vm.serializeString(objectKey, string.concat(prefix, "_depositReward_success"), "true");
-            } catch {
-                vm.serializeString(objectKey, string.concat(prefix, "_depositReward_success"), "false");
-            }
+            IMultipleRewardDistributor(proxy).depositReward(rewardToken, 10 ether);
             vm.stopPrank();
             vm.serializeString(objectKey, string.concat(prefix, "_depositReward_token"), vm.toString(rewardToken));
             _serializeUint(objectKey, string.concat(prefix, "_depositReward_amount"), 10 ether);
@@ -550,31 +526,20 @@ contract MarketsCapture is Test, HarborDeployer {
 
         // 16. Withdraw for test user (request, warp into window, withdraw)
         vm.startPrank(testUser);
-        try IStabilityPool_v3(proxy).requestWithdrawal() {
-            vm.serializeString(objectKey, string.concat(prefix, "_requestWithdrawal_success"), "true");
-            vm.stopPrank();
+        IStabilityPool_v3(proxy).requestWithdrawal();
+        vm.stopPrank();
 
-            {
-                (uint64 wStart, ) = IStabilityPool_v3(proxy).getWithdrawalRequest(testUser);
-                if (wStart > 0) {
-                    vm.warp(uint256(wStart) + 1);
-                }
+        {
+            (uint64 wStart, ) = IStabilityPool_v3(proxy).getWithdrawalRequest(testUser);
+            if (wStart > 0) {
+                vm.warp(uint256(wStart) + 1);
             }
-
-            uint256 withdrawAmount = IStabilityPool_v3(proxy).assetBalanceOf(testUser) / 2;
-            vm.startPrank(testUser);
-            try IStabilityPool_v3(proxy).withdraw(withdrawAmount, testUser, 0) {
-                vm.serializeString(objectKey, string.concat(prefix, "_withdraw_success"), "true");
-            } catch {
-                vm.serializeString(objectKey, string.concat(prefix, "_withdraw_success"), "false");
-            }
-            vm.stopPrank();
-            _serializeUint(objectKey, string.concat(prefix, "_withdraw_amount"), withdrawAmount);
-        } catch {
-            vm.stopPrank();
-            vm.serializeString(objectKey, string.concat(prefix, "_requestWithdrawal_success"), "false");
-            vm.serializeString(objectKey, string.concat(prefix, "_withdraw_success"), "false");
-            _serializeUint(objectKey, string.concat(prefix, "_withdraw_amount"), 0);
         }
+
+        uint256 withdrawAmount = IStabilityPool_v3(proxy).assetBalanceOf(testUser) / 2;
+        vm.startPrank(testUser);
+        IStabilityPool_v3(proxy).withdraw(withdrawAmount, testUser, 0);
+        vm.stopPrank();
+        _serializeUint(objectKey, string.concat(prefix, "_withdraw_amount"), withdrawAmount);
     }
 }

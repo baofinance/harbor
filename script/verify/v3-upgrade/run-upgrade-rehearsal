@@ -93,9 +93,13 @@ echo ""
 echo "Read point: the state the upgrade reads is the state it runs on..."
 campaign_test read-point.log FrozenMarketsReadPoint
 
+# Independent of the rehearsal below: a failure here is reported at the end, after the rehearsal has run.
 echo ""
 echo "Native settings: each upgraded market holds the settings a native deploy sets..."
+set +e
 campaign_test native-settings.log UpgradedMarketsMatchANativeDeploy
+native_status=$?
+set -e
 
 prompt "Start a fresh anvil fork of the chain's head:  script/anvil --block latest"
 
@@ -153,10 +157,21 @@ echo "  Prong A: the expected after against the after - expect NO differences"
 echo "======================================================================"
 if diff -ru "$OUT/compare/expected-after" "$OUT/compare/after"; then
   echo "  ✅ PASS: every contract reads after the upgrade as it did before, or as expected"
-  exit 0
+  rehearsal_status=0
+else
+  if command -v meld >/dev/null 2>&1; then
+    meld "$OUT/compare/expected-after" "$OUT/compare/after" &
+  fi
+  echo "  ❌ FAIL: the differences above are neither unchanged nor expected"
+  rehearsal_status=1
 fi
-if command -v meld >/dev/null 2>&1; then
-  meld "$OUT/compare/expected-after" "$OUT/compare/after" &
+
+if [[ "$native_status" -eq 0 ]]; then
+  echo "  ✅ PASS: every upgraded market holds the settings a native deploy sets"
+else
+  echo "  ❌ FAIL: an upgraded market's settings differ from a native deploy's - see $OUT/native-settings.log"
 fi
-echo "  ❌ FAIL: the differences above are neither unchanged nor expected"
-exit 1
+if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 ]]; then
+  exit 1
+fi
+exit 0

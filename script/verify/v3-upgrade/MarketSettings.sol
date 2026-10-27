@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -30,7 +31,8 @@ contract MarketSettings {
     // The well-known forge cheatcode address, referenced directly: this is not a test contract.
     Vm private constant _vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
-    /// @notice The minter's settings: its owner and config; the wrapped collateral, oracle and fee receiver it names;
+    /// @notice The minter's settings: its owner and config; the wrapped collateral, oracle and fee receiver it names,
+    ///         with the implementation the oracle runs from its ERC-1967 slot - zero for an oracle that is not a proxy;
     ///         the roles the manager and genesis hold on it; and the reserve pool and each token it names, with the
     ///         owner of each and the roles the minter holds on it.
     function serializeMinter(
@@ -46,7 +48,15 @@ contract MarketSettings {
             "minter_wrappedCollateralToken",
             _vm.toString(IMinter(minter).WRAPPED_COLLATERAL_TOKEN())
         );
-        _vm.serializeString(objectKey, "minter_priceOracle", _vm.toString(IMinter(minter).priceOracle()));
+        {
+            address oracle = IMinter(minter).priceOracle();
+            _vm.serializeString(objectKey, "minter_priceOracle", _vm.toString(oracle));
+            _vm.serializeString(
+                objectKey,
+                "minter_priceOracle_implementation",
+                _vm.toString(address(uint160(uint256(_vm.load(oracle, ERC1967Utils.IMPLEMENTATION_SLOT)))))
+            );
+        }
         _vm.serializeString(objectKey, "minter_feeReceiver", _vm.toString(IMinter(minter).feeReceiver()));
         _vm.serializeString(
             objectKey,

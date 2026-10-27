@@ -68,12 +68,14 @@ Safe.
 script/decode-safe-batch <batch.json>
 ```
 
-Each market's batch holds four calls, in this order:
+Each market's batch holds these calls, in this order:
 
 1. the minter's upgrade - through `Minter_v3_Upgrader` for GOLD::fxUSD and SILVER::fxUSD;
-2. the collateral pool's migration through `StabilityPool_v3_Upgrader`;
-3. the leveraged pool's migration through `StabilityPool_v3_Upgrader`;
-4. the manager's upgrade.
+2. for BTC::fxUSD, BTC::stETH, ETH::fxUSD and EUR::fxUSD only, `updatePriceOracle` to the oracle proxy the deploy
+   predicts;
+3. the collateral pool's migration through `StabilityPool_v3_Upgrader`;
+4. the leveraged pool's migration through `StabilityPool_v3_Upgrader`;
+5. the manager's upgrade.
 
 ### 5. Sign and execute
 
@@ -102,6 +104,11 @@ implementation:
    records backing but holds no wrapped collateral - GOLD::fxUSD and SILVER::fxUSD, 1 wei each - would be halted by
    Minter_v3 as impaired. It is upgraded through `Minter_v3_Upgrader` (`script/UpgradeMinter_v2_v3/`), which refuses a
    minter holding wrapped collateral, sets the record to zero, then upgrades it to Minter_v3 in the same call.
+   A deploy wires a minter to the oracle proxy it predicts. A minter that reads the very implementation that proxy runs
+   is pointed at the proxy, which answers as that implementation does; a minter reading any other oracle keeps it. At
+   the capture, BTC::fxUSD, BTC::stETH, ETH::fxUSD and EUR::fxUSD read their proxy's implementation directly.
+   GOLD::fxUSD reads the fxUSD/XAU implementation, where its config names the fxUSD/GOLD proxy, which runs other code,
+   so it keeps it.
 2. **Each pool** is migrated through `StabilityPool_v3_Upgrader` (`script/UpgradeStabilityPool_v2_v3/`), which copies
    its storage into v3's layout (below), writes its ledger gap, then upgrades it to StabilityPool_v3 in the same call.
 3. **The manager** is upgraded to StabilityPoolManager_v2; its settings stay where they are in storage.
@@ -158,8 +165,12 @@ state it runs on - the pause changed only which implementation each minter and p
    multisig would execute them;
 4. **after**: `MarketsCapture` with `VERSION=after`, on a fork of anvil, which must be past the capture's block;
 5. **storage**: `MarketsStorageCopy`, on a fork of anvil;
-6. **expected after**: `MarketsExpectedAfter` writes the record each contract must have after;
+6. **expected after**: `MarketsExpectedAfter` writes the record each contract must have after, reading on mainnet at
+   the capture's block the oracle the deploy predicts for each market;
 7. sorts the keys of each record and diffs the expected after against the after. Any difference fails the run.
+
+The native-settings check and the rehearsal are independent: the runner runs both, reports each, and fails if either
+failed.
 
 `forge test` forks anvil in memory and writes nothing back, so one anvil session serves the whole run. Both captures
 are warped to the same time, 12,000 seconds after anvil's head, so the reward streams and withdrawal windows read alike.
@@ -171,12 +182,13 @@ The runner needs `MAINNET_RPC_URL`, archival at the capture's block.
 
 `MarketsCapture` writes one record per contract, named by its salt key: `pre/` holds its state; for a pool, `post/`
 holds its behaviour under the same interactions - a deposit, a reward deposited and streamed, claims, a withdrawal -
-and its state after them. A contract's state is its settings - what a deploy writes, read by `MarketSettings.sol` - and
-its holdings - what holders' actions write.
+and its state after them. Every interaction must succeed: one that reverts fails the capture. A contract's state is
+its settings - what a deploy writes, read by `MarketSettings.sol` - and its holdings - what holders' actions write.
 
 - **Minter**: owner, config, the backing it records, its pegged and leveraged supply, the wrapped collateral it holds,
-  its tokens, oracle, reserve pool and fee receiver, the roles of the manager and the genesis contract, and the owner of
-  its reserve pool and of each token with the roles it holds on each; after, on Minter_v3, whether it is impaired.
+  its tokens, oracle - with the implementation it runs, zero for an oracle that is not a proxy - reserve pool and fee
+  receiver, the roles of the manager and the genesis contract, and the owner of its reserve pool and of each token with
+  the roles it holds on each; after, on Minter_v3, whether it is impaired.
 - **StabilityPool**: supply, tokens, reward tokens and streams, withdrawal window and early-withdrawal fee, the roles
   of the manager, and per captured holder: balance, claimable and claimed rewards per reward token, withdrawal request;
   after, on StabilityPool_v3, its reward divisor and the minter it names.
@@ -195,6 +207,8 @@ The expected after is the before record, changed only where an expectation says.
 |---|---|---|---|
 | Minter | `minter_impaired` | `false` | Minter_v3 halts a minter that records more backing than it holds; the upgrade leaves none so |
 | Minter that records backing but holds no wrapped collateral (GOLD::fxUSD, SILVER::fxUSD) | `minter_recordedBacking` | `0` | its batch upgrades it through `Minter_v3_Upgrader`, which sets the backing it does not hold to zero |
+| Minter that reads the implementation its predicted oracle proxy runs (BTC::fxUSD, BTC::stETH, ETH::fxUSD, EUR::fxUSD) | `minter_priceOracle` | the predicted proxy | its batch points it at the oracle proxy the deploy predicts, which runs the oracle it read |
+| the same | `minter_priceOracle_implementation` | the oracle it read before | the proxy it reads runs the implementation it read before |
 | StabilityPoolManager | `manager_reportsStabilityPoolManager_v2` | `true` | the upgrade puts StabilityPoolManager_v2 behind the manager |
 | StabilityPoolManager | `manager_yieldVaultCount` | `0` | v2 adds yield vaults; the upgrade registers none |
 | StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
@@ -217,8 +231,7 @@ The capture folds three times: the test user's deposit folds the stream pending 
 the interactions; the half-period and full-period claims fold the two halves of the rehearsal's reward stream, at the
 supply after the two deposits. The first fold's credit is each holder's share of the pending stream; the other two are
 read from v2's own readings. Each version floors a reading once per fold, and the computed shift truncates once, so the
-after value lies within 2 wei per fold of the before value moved by the shift. A pool whose deposits failed before the
-upgrade is refused, since its folds fall elsewhere.
+after value lies within 2 wei per fold of the before value moved by the shift.
 
 ### Storage copied
 

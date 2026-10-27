@@ -231,15 +231,19 @@ contract UpgradeMarketToV3Test is Test {
     }
 
     /// @dev GOLD::fxUSD - retired, recording backing and holding no wrapped collateral - and BTC::stETH, which holds its
-    ///      backing, as read at the capture's block: what the retired-market tests check the upgrade against.
+    ///      backing, as read at the capture's block: what the retired-market tests check the upgrade against. With each,
+    ///      the oracle its minter reads and the oracle proxy the deploy predicts for it.
     struct RetiredBesideLive {
         Config_MinterMarket[] markets;
         address retiredMinter;
         address retiredCollateral;
         address retiredOracle;
+        address retiredPredictedOracle;
         uint256 retiredBacking;
         bytes retiredConfig;
         address liveMinter;
+        address liveOracle;
+        address livePredictedOracle;
         uint256 liveBacking;
     }
 
@@ -269,8 +273,11 @@ contract UpgradeMarketToV3Test is Test {
         fixture.liveMinter = addresses.minterAddress(fixture.markets[1]);
         fixture.retiredCollateral = IMinter(fixture.retiredMinter).WRAPPED_COLLATERAL_TOKEN();
         fixture.retiredOracle = IMinter(fixture.retiredMinter).priceOracle();
+        fixture.retiredPredictedOracle = addresses.wrappedPriceOracleAddress(fixture.markets[0]);
         fixture.retiredBacking = IMinter(fixture.retiredMinter).collateralTokenBalance();
         fixture.retiredConfig = abi.encode(IMinter(fixture.retiredMinter).config());
+        fixture.liveOracle = IMinter(fixture.liveMinter).priceOracle();
+        fixture.livePredictedOracle = addresses.wrappedPriceOracleAddress(fixture.markets[1]);
         fixture.liveBacking = IMinter(fixture.liveMinter).collateralTokenBalance();
         assertGt(fixture.retiredBacking, 0, "precondition: the retired market records backing");
         assertEq(IERC20(fixture.retiredCollateral).balanceOf(fixture.retiredMinter), 0, "precondition: and holds none");
@@ -333,6 +340,39 @@ contract UpgradeMarketToV3Test is Test {
             )
         );
         frozenUpgrade.run("harbor_v1");
+    }
+
+    /// A minter reads its price through the oracle proxy the deploy predicts for it. The upgrade points a minter that
+    /// reads the very implementation that proxy runs - BTC::stETH - at the proxy, so its answers cannot change; a
+    /// minter whose predicted proxy runs other code - GOLD::fxUSD, reading the XAU oracle's implementation where its
+    /// config names the GOLD oracle - keeps the oracle it reads.
+    function test_theUpgradePointsAMinterAtTheProxyRunningItsOracle() public {
+        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+        assertNotEq(fixture.liveOracle, fixture.livePredictedOracle, "precondition: BTC::stETH reads another oracle");
+        assertEq(
+            _implementation(fixture.livePredictedOracle),
+            fixture.liveOracle,
+            "precondition: its predicted proxy runs the oracle it reads"
+        );
+        assertNotEq(
+            _implementation(fixture.retiredPredictedOracle),
+            fixture.retiredOracle,
+            "precondition: GOLD::fxUSD's predicted proxy runs other code"
+        );
+
+        frozenUpgrade.run("harbor_v1");
+
+        assertEq(
+            IMinter(fixture.liveMinter).priceOracle(),
+            fixture.livePredictedOracle,
+            "BTC::stETH reads its oracle through the proxy"
+        );
+        assertEq(IMinter(fixture.retiredMinter).priceOracle(), fixture.retiredOracle, "GOLD::fxUSD keeps its oracle");
+    }
+
+    /// @dev The implementation the ERC-1967 proxy at `proxy` runs.
+    function _implementation(address proxy) private view returns (address) {
+        return address(uint160(uint256(vm.load(proxy, ERC1967Utils.IMPLEMENTATION_SLOT))));
     }
 
     /// Only the owner runs the minter upgrader: any other caller is refused before it reads or writes anything.
