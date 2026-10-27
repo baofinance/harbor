@@ -10,7 +10,6 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
@@ -79,9 +78,6 @@ contract MarketsCapture is Test, HarborDeployer {
     function test_capture() public {
         string memory version = isBefore ? "before" : "after";
         uint256 captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        // Whether Minter_v3 reports each minter impaired, on the after only. It values what it holds at its oracle's
-        // rate, which the warp below would leave stale, so it is read here, at anvil's head, where the minters next run.
-        bool[] memory impaired = new bool[](markets.length);
         if (isBefore) {
             vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
             _restoreManagers();
@@ -95,10 +91,6 @@ contract MarketsCapture is Test, HarborDeployer {
                     vm.toString(captureBlock)
                 )
             );
-            for (uint256 i = 0; i < markets.length; ++i) {
-                (uint256 recorded, uint256 held) = IMinter_v3(minterAddress(markets[i])).impairment();
-                impaired[i] = recorded > held;
-            }
         }
 
         // Normalize timestamp so before and after start from the same point: the after runs on anvil after the upgrade
@@ -119,7 +111,7 @@ contract MarketsCapture is Test, HarborDeployer {
 
         // PRE FILES: each contract's state before any interaction
         for (uint256 i = 0; i < markets.length; ++i) {
-            _writeMinter(markets[i], preDir, impaired[i]);
+            _writeMinter(markets[i], preDir);
             _writePool(markets[i], StabilityPoolType.Collateral, preDir, "pre_");
             _writePool(markets[i], StabilityPoolType.Leveraged, preDir, "pre_");
             _writeManager(markets[i], preDir);
@@ -166,8 +158,8 @@ contract MarketsCapture is Test, HarborDeployer {
     // ========================================================================
 
     /// @dev Write the minter's record: its settings; the backing it records, its balances and the wrapped collateral it
-    ///      holds; and, on the after, `impaired`, whether Minter_v3 reports it impaired.
-    function _writeMinter(Config_MinterMarket market, string memory dir, bool impaired) private {
+    ///      holds.
+    function _writeMinter(Config_MinterMarket market, string memory dir) private {
         string memory label = minterKey(market);
         address minter = minterAddress(market);
         string memory objectKey = string.concat("pre_", label);
@@ -181,10 +173,6 @@ contract MarketsCapture is Test, HarborDeployer {
             "minter_wrappedCollateralHeld",
             IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(minter)
         );
-        if (!isBefore) {
-            // Minter_v3 only: it halts while it records more backing than it holds.
-            vm.serializeString(objectKey, "minter_impaired", vm.toString(impaired));
-        }
         vm.writeJson(vm.serializeString(objectKey, "_complete", "true"), string.concat(dir, "/", label, ".json"));
     }
 

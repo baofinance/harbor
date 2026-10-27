@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
@@ -130,8 +129,8 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     /// @notice Upgrade each market `inputs` names: deploy its new implementations, from its `marketAddresses`, and save,
     ///         as one batch for the multisig, the upgrade of its minter, loading the config read - through one
     ///         `Minter_v3_Upgrader`, which sets the record to zero, where the minter records backing but holds no
-    ///         wrapped collateral - then, where it reads the implementation its predicted oracle proxy runs, its move to
-    ///         that proxy; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders and
+    ///         wrapped collateral - then, where it reads another oracle, its move to the oracle proxy the deploy
+    ///         predicts; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders and
     ///         gap read; and of its manager, in that order. Refuses a pool whose new implementation would not keep the
     ///         floor or withdrawal window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
@@ -201,18 +200,13 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                     how
                 );
             }
-            // A deploy wires the minter to the oracle proxy it predicts. A minter reading the very implementation that
-            // proxy runs is pointed at the proxy, which answers as that implementation does; a minter reading any
-            // other oracle keeps it.
-            if (
-                inputs[i].priceOracle != addresses.oracle &&
-                address(uint160(uint256(_vm.load(addresses.oracle, ERC1967Utils.IMPLEMENTATION_SLOT)))) ==
-                    inputs[i].priceOracle
-            ) {
+            // A deploy wires the minter to the oracle proxy it predicts; a minter reading another oracle is pointed at
+            // it, so every minter reads its price as a fresh deploy's does.
+            if (inputs[i].priceOracle != addresses.oracle) {
                 queue(
                     minterKey(config),
                     abi.encodeCall(IMinter.updatePriceOracle, (addresses.oracle)),
-                    "read the price through the oracle proxy that runs the oracle it reads"
+                    "read the price from the oracle proxy the deploy predicts"
                 );
             }
             _queuePoolMigration(

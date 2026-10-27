@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
@@ -40,42 +41,27 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         }
     }
 
-    /// @dev Every minter runs on Minter_v3 unimpaired. A minter that records backing but holds no wrapped collateral has
-    ///      the record set to zero in its batch: it records what it holds, nothing. A minter that reads the very
-    ///      implementation its predicted oracle proxy runs is pointed at the proxy: afterwards it reads the proxy, and
-    ///      the proxy runs the oracle it read before.
+    /// @dev A minter that holds no wrapped collateral must record no backing: one that records any has the record set
+    ///      to zero in its batch. A minter that reads an oracle other than the proxy the deploy predicts is pointed at
+    ///      that proxy, which must run the oracle it read before or, running other code, answer as that oracle did at
+    ///      the capture's block - refused otherwise.
     function _minterExpectations(
         Config_MinterMarket market,
         string memory before
     ) private returns (CaptureExpectationsLib.Expectation[] memory expectations) {
         bool unheld = _uint(before, "minter_wrappedCollateralHeld") == 0 && _uint(before, "minter_recordedBacking") > 0;
-        string memory oracleRead = vm.parseJsonString(before, ".minter_priceOracle");
+        address oracleRead = vm.parseJsonAddress(before, ".minter_priceOracle");
         address predictedOracle = wrappedPriceOracleAddress(market);
-        bool movesOracle = keccak256(bytes(oracleRead)) != keccak256(bytes(vm.toString(predictedOracle))) &&
-            keccak256(bytes(oracleRead)) ==
-                keccak256(
-                    bytes(
-                        vm.toString(
-                            address(uint160(uint256(vm.load(predictedOracle, ERC1967Utils.IMPLEMENTATION_SLOT))))
-                        )
-                    )
-                );
-        expectations = new CaptureExpectationsLib.Expectation[](1 + (unheld ? 1 : 0) + (movesOracle ? 2 : 0));
+        bool movesOracle = oracleRead != predictedOracle;
+        expectations = new CaptureExpectationsLib.Expectation[]((unheld ? 1 : 0) + (movesOracle ? 2 : 0));
         uint256 count;
-        expectations[count++] = CaptureExpectationsLib.Expectation({
-            key: "minter_impaired",
-            kind: CaptureExpectationsLib.Kind.Value,
-            value: "false",
-            bound: 0,
-            reason: "Minter_v3 halts a minter that records more backing than it holds; the upgrade leaves none so"
-        });
         if (unheld) {
             expectations[count++] = CaptureExpectationsLib.Expectation({
                 key: "minter_recordedBacking",
                 kind: CaptureExpectationsLib.Kind.Value,
                 value: "0",
                 bound: 0,
-                reason: "its batch upgrades it through Minter_v3_Upgrader, which sets the backing it does not hold to zero"
+                reason: "a minter holding no wrapped collateral records none: its batch upgrades it through Minter_v3_Upgrader, which sets the record to zero"
             });
         }
         if (movesOracle) {
@@ -84,16 +70,62 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
                 kind: CaptureExpectationsLib.Kind.Value,
                 value: vm.toString(predictedOracle),
                 bound: 0,
-                reason: "its batch points it at the oracle proxy the deploy predicts, which runs the oracle it read"
+                reason: "its batch points it at the oracle proxy the deploy predicts"
             });
-            expectations[count++] = CaptureExpectationsLib.Expectation({
-                key: "minter_priceOracle_implementation",
-                kind: CaptureExpectationsLib.Kind.Value,
-                value: oracleRead,
-                bound: 0,
-                reason: "the proxy it reads runs the implementation it read before"
-            });
+            address proxyRuns = address(uint160(uint256(vm.load(predictedOracle, ERC1967Utils.IMPLEMENTATION_SLOT))));
+            if (proxyRuns == oracleRead) {
+                expectations[count++] = CaptureExpectationsLib.Expectation({
+                    key: "minter_priceOracle_implementation",
+                    kind: CaptureExpectationsLib.Kind.Value,
+                    value: vm.toString(oracleRead),
+                    bound: 0,
+                    reason: "the proxy it reads runs the implementation it read before"
+                });
+            } else {
+                string memory answerRead = _answer(oracleRead);
+                string memory answerPredicted = _answer(predictedOracle);
+                require(
+                    keccak256(bytes(answerRead)) == keccak256(bytes(answerPredicted)),
+                    string.concat(
+                        minterKey(market),
+                        ": the oracle it reads, ",
+                        vm.toString(oracleRead),
+                        ", answers ",
+                        answerRead,
+                        " at the capture's block; the oracle proxy the deploy predicts, ",
+                        vm.toString(predictedOracle),
+                        ", runs ",
+                        vm.toString(proxyRuns),
+                        " and answers ",
+                        answerPredicted
+                    )
+                );
+                expectations[count++] = CaptureExpectationsLib.Expectation({
+                    key: "minter_priceOracle_implementation",
+                    kind: CaptureExpectationsLib.Kind.Value,
+                    value: vm.toString(proxyRuns),
+                    bound: 0,
+                    reason: "the proxy it reads runs other code, which answered as the oracle it read at the capture's block"
+                });
+            }
         }
+    }
+
+    /// @dev The oracle at `oracle`'s answer, as text: its price band, then its rate band, each low then high.
+    function _answer(address oracle) private view returns (string memory) {
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(oracle)
+            .latestAnswer();
+        return
+            string.concat(
+                "price ",
+                vm.toString(minPrice),
+                " to ",
+                vm.toString(maxPrice),
+                ", rate ",
+                vm.toString(minRate),
+                " to ",
+                vm.toString(maxRate)
+            );
     }
 
     /// @dev The manager runs StabilityPoolManager_v2, which starts with no yield vault.

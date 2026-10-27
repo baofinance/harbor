@@ -9,6 +9,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 
 import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -287,10 +288,10 @@ contract UpgradeMarketToV3Test is Test {
         vm.makePersistent(address(frozenUpgrade));
     }
 
-    /// A minter that records backing but holds no wrapped collateral - GOLD::fxUSD, retired, recording a wei - would be
-    /// halted by Minter_v3 as impaired. Its upgrade sets the record to zero, and says so: afterwards it runs Minter_v3
-    /// with the config it held, records nothing, holds nothing and reports no shortfall. A market that holds its backing
-    /// - BTC::stETH, upgraded beside it - keeps its record.
+    /// A minter that holds no wrapped collateral must record no backing. GOLD::fxUSD, retired, holds none and records a
+    /// wei: its upgrade sets the record to zero, and says so. Afterwards it runs Minter_v3 with the config it held,
+    /// holds nothing and records nothing. A market that holds its backing - BTC::stETH, upgraded beside it - keeps its
+    /// record.
     function test_theUpgradeZeroesBackingNothingHolds() public {
         (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
 
@@ -298,9 +299,12 @@ contract UpgradeMarketToV3Test is Test {
         emit IMinter_v3_Upgrader.BackingZeroed(fixture.retiredBacking);
         frozenUpgrade.run("harbor_v1");
 
-        (uint256 recorded, uint256 held) = IMinter_v3(fixture.retiredMinter).impairment();
-        assertEq(recorded, 0, "the retired market records nothing");
-        assertEq(held, 0, "and holds nothing");
+        assertEq(
+            IERC20(fixture.retiredCollateral).balanceOf(fixture.retiredMinter),
+            0,
+            "the retired market holds nothing"
+        );
+        assertEq(IMinter(fixture.retiredMinter).collateralTokenBalance(), 0, "and records nothing");
         assertEq(
             abi.encode(IMinter(fixture.retiredMinter).config()),
             fixture.retiredConfig,
@@ -320,10 +324,8 @@ contract UpgradeMarketToV3Test is Test {
 
         vm.mockCallRevert(fixture.retiredOracle, bytes(""), bytes("the oracle answers nothing"));
         frozenUpgrade.run("harbor_v1");
-        vm.clearMockedCalls();
 
-        (uint256 recorded, ) = IMinter_v3(fixture.retiredMinter).impairment();
-        assertEq(recorded, 0, "the retired market records nothing");
+        assertEq(IMinter(fixture.retiredMinter).collateralTokenBalance(), 0, "the retired market records nothing");
     }
 
     /// Only dust is set to zero: a minter that holds wrapped collateral - a wei given to GOLD::fxUSD after the capture
@@ -342,11 +344,11 @@ contract UpgradeMarketToV3Test is Test {
         frozenUpgrade.run("harbor_v1");
     }
 
-    /// A minter reads its price through the oracle proxy the deploy predicts for it. The upgrade points a minter that
-    /// reads the very implementation that proxy runs - BTC::stETH - at the proxy, so its answers cannot change; a
-    /// minter whose predicted proxy runs other code - GOLD::fxUSD, reading the XAU oracle's implementation where its
-    /// config names the GOLD oracle - keeps the oracle it reads.
-    function test_theUpgradePointsAMinterAtTheProxyRunningItsOracle() public {
+    /// A minter reads its price from the oracle proxy the deploy predicts for it, and the upgrade points a minter that
+    /// reads another oracle at that proxy: BTC::stETH, reading the very implementation its proxy runs, and GOLD::fxUSD,
+    /// reading the XAU oracle's implementation where its config names the GOLD oracle, whose proxy runs other code that
+    /// answers alike.
+    function test_theUpgradePointsEveryMinterAtItsPredictedOracle() public {
         (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
         assertNotEq(fixture.liveOracle, fixture.livePredictedOracle, "precondition: BTC::stETH reads another oracle");
         assertEq(
@@ -359,15 +361,31 @@ contract UpgradeMarketToV3Test is Test {
             fixture.retiredOracle,
             "precondition: GOLD::fxUSD's predicted proxy runs other code"
         );
+        assertEq(
+            _answer(fixture.retiredPredictedOracle),
+            _answer(fixture.retiredOracle),
+            "precondition: which answers as the oracle it reads"
+        );
 
         frozenUpgrade.run("harbor_v1");
 
         assertEq(
             IMinter(fixture.liveMinter).priceOracle(),
             fixture.livePredictedOracle,
-            "BTC::stETH reads its oracle through the proxy"
+            "BTC::stETH reads its predicted oracle"
         );
-        assertEq(IMinter(fixture.retiredMinter).priceOracle(), fixture.retiredOracle, "GOLD::fxUSD keeps its oracle");
+        assertEq(
+            IMinter(fixture.retiredMinter).priceOracle(),
+            fixture.retiredPredictedOracle,
+            "GOLD::fxUSD reads its predicted oracle"
+        );
+    }
+
+    /// @dev The oracle at `oracle`'s answer - its price and rate bands - encoded for comparison.
+    function _answer(address oracle) private view returns (bytes memory) {
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(oracle)
+            .latestAnswer();
+        return abi.encode(minPrice, maxPrice, minRate, maxRate);
     }
 
     /// @dev The implementation the ERC-1967 proxy at `proxy` runs.

@@ -71,8 +71,8 @@ script/decode-safe-batch <batch.json>
 Each market's batch holds these calls, in this order:
 
 1. the minter's upgrade - through `Minter_v3_Upgrader` for GOLD::fxUSD and SILVER::fxUSD;
-2. for BTC::fxUSD, BTC::stETH, ETH::fxUSD and EUR::fxUSD only, `updatePriceOracle` to the oracle proxy the deploy
-   predicts;
+2. for BTC::fxUSD, BTC::stETH, ETH::fxUSD, EUR::fxUSD and GOLD::fxUSD only, `updatePriceOracle` to the oracle proxy
+   the deploy predicts;
 3. the collateral pool's migration through `StabilityPool_v3_Upgrader`;
 4. the leveraged pool's migration through `StabilityPool_v3_Upgrader`;
 5. the manager's upgrade.
@@ -101,14 +101,13 @@ implementation:
 
 1. **The minter** is upgraded to Minter_v3, with its stored config loaded again through v3's loader in the same call:
    v3 refuses configs v2 accepted, and a plain upgrade would carry the stored encoding across unchecked. A minter that
-   records backing but holds no wrapped collateral - GOLD::fxUSD and SILVER::fxUSD, 1 wei each - would be halted by
-   Minter_v3 as impaired. It is upgraded through `Minter_v3_Upgrader` (`script/UpgradeMinter_v2_v3/`), which refuses a
-   minter holding wrapped collateral, sets the record to zero, then upgrades it to Minter_v3 in the same call.
-   A deploy wires a minter to the oracle proxy it predicts. A minter that reads the very implementation that proxy runs
-   is pointed at the proxy, which answers as that implementation does; a minter reading any other oracle keeps it. At
-   the capture, BTC::fxUSD, BTC::stETH, ETH::fxUSD and EUR::fxUSD read their proxy's implementation directly.
-   GOLD::fxUSD reads the fxUSD/XAU implementation, where its config names the fxUSD/GOLD proxy, which runs other code,
-   so it keeps it.
+   holds no wrapped collateral must record no backing. GOLD::fxUSD and SILVER::fxUSD, retired, hold none and record
+   1 wei each: each is upgraded through `Minter_v3_Upgrader` (`script/UpgradeMinter_v2_v3/`), which refuses a minter
+   holding wrapped collateral, sets the record to zero, then upgrades it to Minter_v3 in the same call.
+   A deploy wires a minter to the oracle proxy it predicts, and a minter reading another oracle is pointed at that
+   proxy. At the capture, BTC::fxUSD, BTC::stETH, ETH::fxUSD and EUR::fxUSD read the very implementation their proxy
+   runs, directly. GOLD::fxUSD reads the fxUSD/XAU implementation, where its config names the fxUSD/GOLD proxy, which
+   runs `Aggregator_fxUSD_GOLD_mainnet`: the XAU aggregator with its quote name changed, answering alike.
 2. **Each pool** is migrated through `StabilityPool_v3_Upgrader` (`script/UpgradeStabilityPool_v2_v3/`), which copies
    its storage into v3's layout (below), writes its ledger gap, then upgrades it to StabilityPool_v3 in the same call.
 3. **The manager** is upgraded to StabilityPoolManager_v2; its settings stay where they are in storage.
@@ -188,7 +187,7 @@ its settings - what a deploy writes, read by `MarketSettings.sol` - and its hold
 - **Minter**: owner, config, the backing it records, its pegged and leveraged supply, the wrapped collateral it holds,
   its tokens, oracle - with the implementation it runs, zero for an oracle that is not a proxy - reserve pool and fee
   receiver, the roles of the manager and the genesis contract, and the owner of its reserve pool and of each token with
-  the roles it holds on each; after, on Minter_v3, whether it is impaired.
+  the roles it holds on each.
 - **StabilityPool**: supply, tokens, reward tokens and streams, withdrawal window and early-withdrawal fee, the roles
   of the manager, and per captured holder: balance, claimable and claimed rewards per reward token, withdrawal request;
   after, on StabilityPool_v3, its reward divisor and the minter it names.
@@ -205,10 +204,10 @@ The expected after is the before record, changed only where an expectation says.
 
 | Contract | Key | Expected after | Reason |
 |---|---|---|---|
-| Minter | `minter_impaired` | `false` | Minter_v3 halts a minter that records more backing than it holds; the upgrade leaves none so |
-| Minter that records backing but holds no wrapped collateral (GOLD::fxUSD, SILVER::fxUSD) | `minter_recordedBacking` | `0` | its batch upgrades it through `Minter_v3_Upgrader`, which sets the backing it does not hold to zero |
-| Minter that reads the implementation its predicted oracle proxy runs (BTC::fxUSD, BTC::stETH, ETH::fxUSD, EUR::fxUSD) | `minter_priceOracle` | the predicted proxy | its batch points it at the oracle proxy the deploy predicts, which runs the oracle it read |
-| the same | `minter_priceOracle_implementation` | the oracle it read before | the proxy it reads runs the implementation it read before |
+| Minter that records backing but holds no wrapped collateral (GOLD::fxUSD, SILVER::fxUSD) | `minter_recordedBacking` | `0` | a minter holding no wrapped collateral records none: its batch upgrades it through `Minter_v3_Upgrader`, which sets the record to zero |
+| Minter that reads an oracle other than its predicted proxy (BTC::fxUSD, BTC::stETH, ETH::fxUSD, EUR::fxUSD, GOLD::fxUSD) | `minter_priceOracle` | the predicted proxy | its batch points it at the oracle proxy the deploy predicts |
+| the same, where the proxy runs the oracle it read (all but GOLD::fxUSD) | `minter_priceOracle_implementation` | the oracle it read before | the proxy it reads runs the implementation it read before |
+| the same, where the proxy runs other code (GOLD::fxUSD) | `minter_priceOracle_implementation` | the proxy's implementation | it answered as the oracle it read at the capture's block - the expected after is refused otherwise |
 | StabilityPoolManager | `manager_reportsStabilityPoolManager_v2` | `true` | the upgrade puts StabilityPoolManager_v2 behind the manager |
 | StabilityPoolManager | `manager_yieldVaultCount` | `0` | v2 adds yield vaults; the upgrade registers none |
 | StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
