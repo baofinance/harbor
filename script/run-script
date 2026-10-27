@@ -129,7 +129,10 @@ done
   echo "❌ --timestamp requires --local" >&2
   exit 1
 }
-[[ "$USE_BROADCAST" == true || "$USE_LOCAL" == true || -n "$ACCOUNT" ]] || true # account optional
+if [[ "$USE_BROADCAST" == true && "$USE_LOCAL" != true && -z "$ACCOUNT" ]]; then
+  echo "❌ --account required: a broadcast that is not --local signs with a keystore account" >&2
+  exit 1
+fi
 
 SCRIPT_PATH="script/${SCRIPT_NAME}.s.sol"
 [[ -f "$SCRIPT_PATH" ]] || {
