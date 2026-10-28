@@ -94,6 +94,9 @@ Each figures file values every party before and after its transaction, and the r
   role: the minter's fee receiver, both pools' early-withdrawal fee address, and the manager's fee receiver for the
   harvest cut. There was no harvest in either transaction, so no cut was taken.
 
+Every change, wallet by wallet, is classified by these mechanisms in [holder-stories.md](holder-stories.md), under
+"The mechanisms", with each market's total under each.
+
 ### Correcting the balances
 
 Each accounts file lists every account whose holdings changed in its market, losers and gainers alike, one row per
@@ -229,12 +232,31 @@ at its exploit's block:
 3. **Bring the Minter_v3 deployment forward.** Upgrade the minter, the manager and both pools together, with
    `script/Upgrade_MarketsToV3_mainnet.s.sol`. This is the fix for the cause.
 4. **Do not rely on a larger early-withdrawal fee.** An attacker who prepares one withdrawal delay ahead avoids it.
-5. **Decide on compensation** for the accounts listed in the two accounts files, each followed to the pause in its
-   holders file.
+5. **Compensate** the accounts listed in the two accounts files, each followed to the pause in its holders file.
+   Decided 2026-10-28: see below.
+
+## The repayment
+
+The rule and each wallet's treatment are in [holder-stories.md](holder-stories.md) ("The rule", "How the repayment is
+made"); the figures per wallet are the two compensation files, written by the report.
+
+- **Phase 1 rides the v3 upgrade.** `script/src/CompensateRebalanceDilution.sol`, mixed into
+  `script/Upgrade_MarketsToV3_mainnet.s.sol`, puts the compensation into BTC::stETH's and EUR::stETH's unpause
+  batches: the gains taken back from the gainers' unclaimed rewards as the leveraged pool is migrated and paid to the
+  multisig; the multisig's fee-free redemptions of its pegged fees and the tokens taken back; and a fee-free mint of
+  leveraged tokens into every wallet that lost, for the fund's fraction of its debt. Every amount is priced at the
+  capture block's reading, held still for the batch, so it is fixed when the batch is built. The upgrade's build
+  writes the payout as queued to [phase1.md](phase1.md). The runbook's compensation section is in
+  [script/verify/v3-upgrade/README.md](../../../script/verify/v3-upgrade/README.md).
+- **Phase 2** is the remainder of each debt, what the exploits paid out; its form is to be settled.
+- **The tests:** `script/verify/incidents/CompensateRebalanceDilution.t.sol`, run by
+  `script/verify/incidents/run-compensation-test`, size the payout as the minter prices it and run both markets'
+  compensated batches on a fork at the block after the pause, checking every amount against the minter's events.
 
 ## Reproducing
 
 - The tests: `forge test --no-dynamic-test-linking --deny never --match-path test/deployment/RebalanceDilution.t.sol -vv`
 - The figures: `script/verify/incidents/run-rebalance-dilution-report`
+- The compensation: `script/verify/incidents/run-compensation-test`
 
-Both need `MAINNET_RPC_URL` on an archival node.
+All need `MAINNET_RPC_URL` on an archival node.

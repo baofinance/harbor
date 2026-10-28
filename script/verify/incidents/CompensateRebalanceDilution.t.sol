@@ -237,6 +237,27 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         assertEq(p.leveraged[1][0], 2.7 ether, "2.7 collateral buys 2.7 leveraged");
     }
 
+    /// @notice A fund larger than every debt pays each debt whole and no more: the fraction is capped at one, and what
+    ///         the fund holds beyond the debts is not minted with.
+    function test_sizePayout_paysNoMoreThanTheDebt() public {
+        CompensationRun run = _aRun();
+        CompensateRebalanceDilution.MarketCompensation[] memory markets = _twoSyntheticMarkets();
+        // Debts of 0.4, 0.6 and 0 against a fund of 5.4: the fraction would be 5.4.
+        markets[0].debts[0] = 0.4 ether;
+        markets[0].debts[1] = 0.6 ether;
+        markets[0].totalDebt = 1 ether;
+        markets[1].debts[0] = 0;
+        markets[1].totalDebt = 0;
+
+        CompensateRebalanceDilution.Payout memory p = run.size(markets, _twoFrozenMarkets());
+
+        assertEq(p.fund, 5.4 ether, "the fund");
+        assertEq(p.fraction, 1 ether, "the fraction is capped at the whole debt");
+        assertEq(p.mints[0][0], 0.4 ether, "a debt of 0.4 is paid whole");
+        assertEq(p.mints[0][1], 0.6 ether, "a debt of 0.6 is paid whole");
+        assertEq(p.mintTotals[0] + p.mintTotals[1], 1 ether, "the debts are paid, the rest of the fund is not minted");
+    }
+
     /// @notice A market whose oracle reported two prices or two rates at the capture's block is refused, naming the
     ///         market and the reading.
     function test_sizePayout_refusesAReadingWithABand() public {

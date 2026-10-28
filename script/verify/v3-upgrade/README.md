@@ -53,10 +53,12 @@ script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet
 This is the rehearsal's command with `--account` in place of `--local`. It:
 
 - deploys 11 Minter_v3, 22 StabilityPool_v3 and 11 StabilityPoolManager_v2 implementations, three libraries, one
-  `StabilityPool_v3_Upgrader`, and one `Minter_v3_Upgrader` (GOLD::fxUSD and SILVER::fxUSD need it);
+  `StabilityPool_v3_Upgrader`, one `Minter_v3_Upgrader` (GOLD::fxUSD and SILVER::fxUSD need it), and two
+  `FrozenPriceOracle`s (BTC::stETH's and EUR::stETH's compensation);
 - saves 11 batch files, one per market, as
   `deployments/mainnet/batch/Upgrade_MarketsToV3_mainnet_<time>_<market>@harbor_multisig.json`;
-- adds the new implementations to `deployments/mainnet/harbor_v1.state.json`.
+- adds the new implementations to `deployments/mainnet/harbor_v1.state.json`;
+- writes the compensation as queued to `doc/incidents/2026-10-16-rebalance-dilution/phase1.md`.
 
 The batch files are written before any transaction is sent. If the run stops part way, finish it with `--resume`, and
 sign nothing until every deployment has landed: a batch naming an implementation that does not exist reverts in the
@@ -80,13 +82,36 @@ Each market's batch holds these calls, in this order:
 6. for BTC::stETH and EUR::stETH, the compensation's approvals, redemptions and mints, then `updatePriceOracle` to
    the oracle proxy the deploy predicts.
 
+### The compensation: phase 1 in the batches, phase 2 after
+
+BTC::stETH's and EUR::stETH's batches carry phase 1 of the repayment for the rebalance dilution exploits of
+2026-10-16 ([the incident](../../../doc/incidents/2026-10-16-rebalance-dilution/README.md); the rule and each wallet's
+treatment in its [holder-stories.md](../../../doc/incidents/2026-10-16-rebalance-dilution/holder-stories.md)). What
+each batch does is under [Each market's batch](#each-markets-batch), item 4. Before signing those two batches:
+
+- **Read `doc/incidents/2026-10-16-rebalance-dilution/phase1.md`**, which step 3 wrote: the fund, the fraction of each
+  debt it pays, and per wallet the wrapped collateral minted with, the leveraged tokens it receives and what it is
+  still owed. Every figure is what the batch moves: the batch prices the operations at the capture block's oracle
+  reading, held still for it, so nothing in it depends on the price at execution.
+- **Check the decoded batch against it:** the move to the `FrozenPriceOracle`, the pegged fee approved and redeemed,
+  the cuts approved and redeemed (BTC::stETH), the wrapped collateral approved for the mints' total, one mint per
+  wallet with the amount `phase1.md` states, and the move to the oracle proxy last.
+- **The multisig must hold what the batch spends:** its wstETH fees from the exploits (3.0028 for BTC::stETH, 0.9899
+  for EUR::stETH), 0.07405 haBTC and 1,584.05 haEUR - its fees from the exploits, as the compensation files record
+  them. The redemptions put back what the mints need beyond the wstETH fees. If any of these has moved, the batch
+  reverts and the market stays paused.
+- **Phase 2** is what remains of each debt after phase 1, the "still owed" column of `phase1.md`: about 7.8 wstETH
+  over both markets, what the exploits paid out. Nothing in these batches depends on it. Its form is to be settled;
+  it is not part of this upgrade.
+
 ### 5. Sign and execute
 
 - Each market's batch is independent of the others: they can be executed in any order.
 - The Safe runs a batch as one transaction: all of it happens, or none of it. The largest batch uses about 4.2M gas.
 - Executing a market's batch moves its minter, pools and manager off the pause implementation onto v3: **that market is
   live again at once**.
-- No call in a batch reads a price.
+- No call in a batch reads a live price: BTC::stETH's and EUR::stETH's batches price the compensation at the capture
+  block's reading, held still in a `FrozenPriceOracle`; every other batch reads none.
 
 ### 6. Afterwards: the state file
 

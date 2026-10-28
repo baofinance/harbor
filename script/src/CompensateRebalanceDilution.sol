@@ -187,8 +187,9 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
     /// @notice Size the payout, each market's operations priced as Minter_v3 prices them at the market's frozen
     ///         reading and state, each on the state the one before leaves: the pegged fees redeemed for wrapped
     ///         collateral, then the cuts redeemed, then each loser minted for. The fund is every market's wrapped
-    ///         fees and what its two redemptions return; the fraction is the fund over every debt; each loser is
-    ///         minted for with that fraction of its debt, floored. A zero debt gets nothing.
+    ///         fees and what its two redemptions return; the fraction is the fund over every debt, at most the whole
+    ///         debt; each loser is minted for with that fraction of its debt, floored. A zero debt gets nothing, and
+    ///         what the fund holds beyond the debts is not minted with.
     /// @dev The record of backing follows the minter's own rule: credited with a mint's wrapped collateral converted
     ///      at the rate and floored, debited a redemption's collateral ceiled.
     function sizePayout(
@@ -243,7 +244,7 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
             p.fund += markets[m].feesWrapped + p.peggedReturns[m] + p.leveragedReturns[m];
             debts += markets[m].totalDebt;
         }
-        p.fraction = Math.mulDiv(p.fund, 1 ether, debts);
+        p.fraction = Math.min(Math.mulDiv(p.fund, 1 ether, debts), 1 ether);
         for (uint256 m = 0; m < count; ++m) {
             uint256 accounts = markets[m].accounts.length;
             p.mints[m] = new uint256[](accounts);
@@ -293,7 +294,8 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
     }
 
     /// @notice Write the payout as a document: the fund, the fraction, and per market what its redemptions return and
-    ///         every account's debt, cut taken, wrapped collateral minted with and leveraged tokens received.
+    ///         every account's debt, cut taken, wrapped collateral minted with, leveraged tokens received and what it
+    ///         is still owed after - the remainder phase 2 settles.
     function writePayoutReport(string memory path, MarketCompensation[] memory markets, Payout memory p) internal {
         string memory text = string.concat(
             "# Phase 1 of the repayment, as queued\n\n",
@@ -325,8 +327,10 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
                 _scaled(p.leveragedReturns[m]),
                 " wrapped\n- Minted with: ",
                 _scaled(p.mintTotals[m]),
-                " wrapped\n\n| Account | Debt (wrapped) | Cut taken (leveraged) | Minted with (wrapped) | ",
-                "Leveraged received |\n|---|---|---|---|---|\n"
+                " wrapped\n- Still owed after, in all: ",
+                _scaled(markets[m].totalDebt - p.mintTotals[m]),
+                " wrapped, for phase 2\n\n| Account | Debt (wrapped) | Cut taken (leveraged) | Minted with (wrapped) | ",
+                "Leveraged received | Still owed (wrapped) |\n|---|---|---|---|---|---|\n"
             );
             for (uint256 i = 0; i < markets[m].accounts.length; ++i) {
                 text = string.concat(
@@ -341,6 +345,8 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
                     _scaled(p.mints[m][i]),
                     " | ",
                     _scaled(p.leveraged[m][i]),
+                    " | ",
+                    _scaled(markets[m].debts[i] - p.mints[m][i]),
                     " |\n"
                 );
             }
