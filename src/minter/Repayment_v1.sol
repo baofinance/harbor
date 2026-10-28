@@ -52,6 +52,7 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address token) {
         Token.ensureNonZeroAddress(token);
+        // slither-disable-next-line missing-zero-check
         TOKEN = token;
         _disableInitializers();
     }
@@ -254,6 +255,7 @@ contract Repayment_v1 is IRepayment_v1, Initializable, UUPSUpgradeable, TokenHol
             revert NoDebt(account);
         }
         amount = _claimable($, account);
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) {
             revert NothingToClaim(account);
         }
