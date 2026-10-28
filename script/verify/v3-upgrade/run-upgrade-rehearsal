@@ -89,6 +89,11 @@ echo "  Salt:           $SALT"
 rm -rf "$OUT/before" "$OUT/after" "$OUT/expected-after" "$OUT/compare"
 mkdir -p "$OUT"
 
+# The expected-after records are built by this library; its own tests run first, before anything is forked.
+echo ""
+echo "Expectations library: a record expected after is built as its tests say..."
+campaign_test expectations.log CaptureExpectations
+
 echo ""
 echo "Read point: the state the upgrade reads is the state it runs on..."
 campaign_test read-point.log FrozenMarketsReadPoint

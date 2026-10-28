@@ -164,8 +164,10 @@ script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet
 `--local` sends each call of every batch as its own transaction from the multisig; the Safe sends each batch as one.
 The calls are the same: the batch files and the local execution come from the same queue.
 
-The runner first runs `FrozenMarketsReadPoint`: the state the upgrade reads, at the end of the capture's block, is the
-state it runs on - the pause changed only which implementation each minter and pool runs. It then runs
+The runner first runs `CaptureExpectations`, the tests of the library that builds the expected-after records, so a
+broken library fails the run before anything is forked. It then runs `FrozenMarketsReadPoint`: the state the upgrade
+reads, at the end of the capture's block, is the state it runs on - the pause changed only which implementation each
+minter and pool runs. It then runs
 `UpgradedMarketsMatchANativeDeploy`: each upgraded market holds the settings a native deploy sets (see
 [Settings against a native deploy](#settings-against-a-native-deploy)). It then asks you to start anvil
 (`script/anvil --block latest`), and:
@@ -299,6 +301,6 @@ address the deploy grants none is not seen.
 - `script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol`, `script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol`
   - the one-shot upgraders
 - `test/deployment/UpgradeMarketToV3.t.sol` - the upgrade's tests
-- `script/verify/v3-upgrade/` - the rehearsal: `run-upgrade-rehearsal`, `FrozenMarketsReadPoint.t.sol`,
-  `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`, `MarketSettings.sol`,
-  `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`
+- `script/verify/v3-upgrade/` - the rehearsal: `run-upgrade-rehearsal`, `CaptureExpectations.t.sol`,
+  `FrozenMarketsReadPoint.t.sol`, `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`,
+  `MarketSettings.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`
