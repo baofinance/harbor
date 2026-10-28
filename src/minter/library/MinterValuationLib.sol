@@ -211,6 +211,39 @@ library MinterValuationLib {
         return Math.mulDiv(pegged, collateralTokenBalance_ * 1 ether, peggedTokenBalance_);
     }
 
+    /// @notice The collateral `leveraged` leveraged tokens redeem for before any fee, at 1e18 times the collateral's
+    /// scale: the offer's share of the residual - the backing's value at `collateralPrice` less the pegged claim -
+    /// over the leveraged supply, floored. Nothing at the peg or below it, where the residual is gone. The one
+    /// definition every leveraged redemption prices by, fee-paying or free, and what sizes a redemption before it is
+    /// made.
+    /// @dev The supply must not be zero where the residual is worth something: the minter turns an empty supply away
+    /// before asking. The price is not zero there either, as the residual is worth something.
+    /// @param leveraged The leveraged tokens offered.
+    /// @param peggedTokenBalance_ The pegged supply.
+    /// @param collateralTokenBalance_ The collateral backing.
+    /// @param collateralPrice The collateral price the redemption is valued at.
+    /// @param leveragedTokenBalance_ The leveraged supply before the redemption.
+    function collateralForLeveraged(
+        uint256 leveraged,
+        uint256 peggedTokenBalance_,
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice,
+        uint256 leveragedTokenBalance_
+    ) internal pure returns (uint256 collateralE36) {
+        (uint256 collateralValueE36, uint256 peggedValueE36) = tokenValuesE36(
+            peggedTokenBalance_,
+            collateralTokenBalance_,
+            collateralPrice
+        );
+        if (collateralValueE36 > peggedValueE36) {
+            collateralE36 = Math.mulDiv(
+                leveraged * 1 ether,
+                collateralValueE36 - peggedValueE36,
+                collateralPrice * leveragedTokenBalance_
+            );
+        }
+    }
+
     function peggedTokenPriceE36(
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,

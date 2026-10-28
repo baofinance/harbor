@@ -71,11 +71,14 @@ script/decode-safe-batch <batch.json>
 Each market's batch holds these calls, in this order:
 
 1. the minter's upgrade - through `Minter_v3_Upgrader` for GOLD::fxUSD and SILVER::fxUSD;
-2. for BTC::fxUSD, BTC::stETH, ETH::fxUSD, EUR::fxUSD and GOLD::fxUSD only, `updatePriceOracle` to the oracle proxy
-   the deploy predicts;
+2. for BTC::fxUSD, ETH::fxUSD, EUR::fxUSD and GOLD::fxUSD, `updatePriceOracle` to the oracle proxy the deploy
+   predicts; for BTC::stETH and EUR::stETH, whose batches carry the compensation, `updatePriceOracle` to a
+   `FrozenPriceOracle` of the batch's own, answering what the minter's oracle answered at the capture's block;
 3. the collateral pool's migration through `StabilityPool_v3_Upgrader`;
 4. the leveraged pool's migration through `StabilityPool_v3_Upgrader`;
-5. the manager's upgrade.
+5. the manager's upgrade;
+6. for BTC::stETH and EUR::stETH, the compensation's approvals, redemptions and mints, then `updatePriceOracle` to
+   the oracle proxy the deploy predicts.
 
 ### 5. Sign and execute
 
@@ -116,8 +119,13 @@ implementation:
    the leveraged pool's migration takes each gainer's cut from what it may claim and pays it to the multisig; then the
    multisig approves and redeems, fee-free, its pegged fee from the exploit and the tokens taken back, approves the
    wrapped collateral it mints with, and mints leveraged tokens fee-free for each holder that lost, with its share of
-   the fund. All in the market's one transaction, so nobody acts on the market in between. The payout as queued is
-   written to the incident directory's `phase1.md`.
+   the fund. All in the market's one transaction, so nobody acts on the market in between. Every amount is fixed when
+   the batch is built: before the pools' migration the batch points the minter at a `FrozenPriceOracle`
+   (`script/UpgradeMinter_v2_v3/`) answering what its oracle answered at the capture's block, the reading the batch's
+   every input was read at, and after the compensation at the oracle proxy the deploy predicts; the redemptions'
+   returns and each mint's leveraged are sized by the minter's own arithmetic at that reading, so the fund is exactly
+   what the multisig holds to mint with. The payout as queued, with what each loser receives, is written to the
+   incident directory's `phase1.md`.
 
 The upgrade refuses a capture not taken at the last block before the pause, holders that leave a ledger gap beyond
 rounding, a minter config Minter_v3's loader refuses, and a pool implementation that would not keep the pool's floor
@@ -224,7 +232,8 @@ The expected after is the before record, changed only where an expectation says.
 | Minter of a compensated market (BTC::stETH, EUR::stETH) | `minter_peggedBalance` | before, less the pegged fee redeemed | the multisig redeems its pegged fee from the exploit, fee-free, in the market's batch; the fee redeemed is read from the minter's events on anvil and must be the file's |
 | the same | `minter_leveragedBalance` | before, less the cuts redeemed, plus the leveraged minted (the events) | the multisig redeems the cuts taken back and mints fee-free for each loser |
 | the same | `minter_wrappedCollateralHeld` | before, less the redemptions, plus the mints (the events) | the redemptions take wrapped collateral out of the minter and the mints put it in |
-| the same | `minter_recordedBacking` | before moved by the same, each mint's wrapped collateral converted at the oracle's low rate and floored, each redemption's at the high rate and ceiled, within 2 wei per operation | the record follows the holding |
+| the same | `minter_recordedBacking` | before moved by the same, each mint's wrapped collateral converted at the low rate and floored, each redemption's at the high rate and ceiled - the rates the batch held still for the operations, its oracle's at the capture's block - within 2 wei per operation | the record follows the holding |
+| the same | `minter_priceOracle` | the predicted proxy, as for any minter reading another oracle | its batch points it at a `FrozenPriceOracle` for the compensation and at the proxy after; EUR::stETH, reading the proxy before, reads it after |
 | StabilityPool whose migration takes rewards back (BTC::stETH's leveraged pool) | each deducted holder's claimable until its first claim, that claim's payout, and its claimed total | the before value less the cut, moved by the shift | the migration takes the cut from what the holder may claim and pays it to the multisig |
 | the same | every claimable, payout and claimed total | within 2 wei per fold, one fold more | the migration's checkpoint folded the stream up to its moment, at the same divisor as fold 0 |
 | the same | `state_reward_<t>_lastUpdate` | the migration's moment: the after's own reading, which must lie after the before's and no later than the captures' time | the checkpoint folded every stream |

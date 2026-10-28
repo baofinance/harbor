@@ -19,6 +19,7 @@ import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {Minter} from "@harbor-script/src/contracts/Minter.sol";
 import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
+import {FrozenPriceOracle} from "@harbor-script/UpgradeMinter_v2_v3/FrozenPriceOracle.sol";
 import {IMinter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/IMinter_v3_Upgrader.sol";
 import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
@@ -46,6 +47,12 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 ///      to the owner by the upgrader), then the owner's fee-free operations once the market runs v3
 ///      (`OwnerOperations`: its pegged and leveraged redeemed, and leveraged minted for named accounts). Neither is read
 ///      from a market: an input names them, and each is empty for a market with nothing to put right.
+///
+///      The owner's operations are priced at the oracle reading the operations name - the reading at the block the
+///      batch's other inputs were read at - not at the price of the moment the batch executes: the batch points the
+///      minter at a `FrozenPriceOracle` answering that reading before the operations and at the oracle proxy the deploy
+///      predicts after, in the same transaction. So what each operation moves is fixed when the batch is built, and
+///      the batch cannot run short of what a later price would have returned.
 abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManager {
     Vm private constant _vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -65,11 +72,22 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         IStabilityPool_v3_Upgrader.Deduction[] deductions;
     }
 
+    /// @notice One oracle reading, as `IWrappedPriceOracle.latestAnswer` gives it: the band of the collateral's price
+    ///         in pegged units and the band of the wrapped-to-underlying rate, each low then high, 18 decimals.
+    struct OracleAnswer {
+        uint256 minPrice;
+        uint256 maxPrice;
+        uint256 minRate;
+        uint256 maxRate;
+    }
+
     /// @notice The owner's fee-free operations a market's batch carries once the market runs v3, in this order: its
     ///         pegged redeemed for wrapped collateral, its leveraged redeemed for wrapped collateral, then wrapped
-    ///         collateral minted into leveraged for each account named, the minter sizing the tokens at the price of the
-    ///         moment. Each is zero, or empty, where there is none.
+    ///         collateral minted into leveraged for each account named - every one priced by the minter at `answer`,
+    ///         the oracle reading the batch points it at for them. Each amount is zero, or empty, where there is none;
+    ///         with no operation the answer is not read.
     struct OwnerOperations {
+        OracleAnswer answer;
         uint256 peggedRedeemed;
         uint256 leveragedRedeemed;
         address[] accounts;
@@ -113,18 +131,31 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         }
     }
 
-    /// @notice `readMarketUpgradeInputs` for markets a pause has frozen, read at the capture's block on `network`. That
-    ///         block must be the last before the pause: at the next block every minter and pool reverts `Paused`. The
-    ///         pause changes only which implementation each proxy runs, so what is read there is what the upgrade runs
-    ///         on. The fork selected before is selected again after.
-    /// @dev This deployer must be persistent across forks. A script is; a test that holds a deployer makes it so. It
-    ///      cannot make itself so: forge refuses a script that uses its own address.
+    /// @notice `readMarketUpgradeInputs` for markets a pause has frozen, read at the capture's block on `network`,
+    ///         selected by `selectFrozenReadBlock`. The fork selected before is selected again after.
     function readFrozenMarketUpgradeInputs(
         Config_MinterMarket[] memory markets,
         string memory capture,
         string memory network
     ) internal returns (MarketUpgradeInput[] memory inputs) {
-        uint256 head = _vm.activeFork();
+        uint256 head = selectFrozenReadBlock(markets, capture, network);
+        inputs = readMarketUpgradeInputs(markets, capture);
+        _vm.selectFork(head);
+    }
+
+    /// @notice Select a fork of `network` at the capture's block, where markets a pause has frozen are read, and
+    ///         return the fork selected before, for the caller to select again when done. That block must be the last
+    ///         before the pause: at the next block every minter and pool of `markets` must revert `Paused`, which is
+    ///         checked first. The pause changes only which implementation each proxy runs, so what is read there is
+    ///         what the upgrade runs on.
+    /// @dev This deployer must be persistent across forks. A script is; a test that holds a deployer makes it so. It
+    ///      cannot make itself so: forge refuses a script that uses its own address.
+    function selectFrozenReadBlock(
+        Config_MinterMarket[] memory markets,
+        string memory capture,
+        string memory network
+    ) internal returns (uint256 head) {
+        head = _vm.activeFork();
         // A contract made on one fork is absent from another unless persistent: the market configs.
         for (uint256 i = 0; i < markets.length; ++i) {
             _vm.makePersistent(address(markets[i]));
@@ -147,8 +178,6 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         }
 
         _vm.createSelectFork(_vm.rpcUrl(network), readBlock);
-        inputs = readMarketUpgradeInputs(markets, capture);
-        _vm.selectFork(head);
     }
 
     /// @notice Upgrade each market `inputs` names: deploy its new implementations, from its `marketAddresses`, and save,
@@ -157,7 +186,9 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///         wrapped collateral - then, where it reads another oracle, its move to the oracle proxy the deploy
     ///         predicts; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders,
     ///         gap and deductions its input holds; of its manager; then the owner's operations its input names, in
-    ///         that order. Refuses a pool whose new implementation would not keep the floor or withdrawal window read.
+    ///         that order. A market with operations is moved instead to a `FrozenPriceOracle` answering their reading,
+    ///         deployed here, before its pools' migration, and to the oracle proxy after the operations. Refuses a pool
+    ///         whose new implementation would not keep the floor or withdrawal window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
     function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
@@ -226,8 +257,29 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 );
             }
             // A deploy wires the minter to the oracle proxy it predicts; a minter reading another oracle is pointed at
-            // it, so every minter reads its price as a fresh deploy's does.
-            if (inputs[i].priceOracle != addresses.oracle) {
+            // it, so every minter reads its price as a fresh deploy's does. A minter whose batch carries the owner's
+            // operations reads their reading, held still, until they are done, and the proxy after.
+            bool operated = _hasOperations(inputs[i].ownerOperations);
+            if (operated) {
+                OracleAnswer memory answer = inputs[i].ownerOperations.answer;
+                address frozen = address(
+                    new FrozenPriceOracle(answer.minPrice, answer.maxPrice, answer.minRate, answer.maxRate)
+                );
+                queue(
+                    minterKey(config),
+                    abi.encodeCall(IMinter.updatePriceOracle, (frozen)),
+                    string.concat(
+                        "read the price the owner's operations are priced at, held still: ",
+                        _scaled(answer.minPrice),
+                        " to ",
+                        _scaled(answer.maxPrice),
+                        " pegged per collateral, at a wrapped rate of ",
+                        _scaled(answer.minRate),
+                        " to ",
+                        _scaled(answer.maxRate)
+                    )
+                );
+            } else if (inputs[i].priceOracle != addresses.oracle) {
                 queue(
                     minterKey(config),
                     abi.encodeCall(IMinter.updatePriceOracle, (addresses.oracle)),
@@ -256,10 +308,10 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
 
             string memory market = MinterMarketConfigLib.salt(config);
             {
-                // The owner's fee-free operations, on the market now running v3. Each redemption burns from the
-                // owner's allowance and each mint takes the wrapped collateral from it, so each is preceded by its
-                // approval. The redemptions have no floor on what they return: the minter prices them by its oracle,
-                // so there is nothing to slip against.
+                // The owner's fee-free operations, on the market now running v3 and reading their reading. Each
+                // redemption burns from the owner's allowance and each mint takes the wrapped collateral from it, so
+                // each is preceded by its approval. The redemptions have no floor on what they return: the minter
+                // prices them by a reading fixed here, so there is nothing to slip against.
                 OwnerOperations memory operations = inputs[i].ownerOperations;
                 if (operations.accounts.length != operations.mints.length) {
                     revert AccountsAndMintsOfDifferentLengths(
@@ -324,6 +376,13 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                         );
                     }
                 }
+                if (operated) {
+                    queue(
+                        minterKey(config),
+                        abi.encodeCall(IMinter.updatePriceOracle, (addresses.oracle)),
+                        "the operations done, read the price from the oracle proxy the deploy predicts"
+                    );
+                }
             }
             flush(market, string.concat(market, ": ", _WHAT));
         }
@@ -369,6 +428,11 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///      rounding dust.
     function _recordsBackingItHoldsNoneOf(MarketUpgradeInput memory input) private pure returns (bool) {
         return input.recordedBacking > 0 && input.wrappedCollateralHeld == 0;
+    }
+
+    /// @dev Whether `operations` has anything for the owner to do: a redemption, or an account to mint for.
+    function _hasOperations(OwnerOperations memory operations) private pure returns (bool) {
+        return operations.peggedRedeemed > 0 || operations.leveragedRedeemed > 0 || operations.accounts.length > 0;
     }
 
     /// @dev Queue the `poolType` pool's migration through `upgrader` to `implementation`, its new StabilityPool_v3, with

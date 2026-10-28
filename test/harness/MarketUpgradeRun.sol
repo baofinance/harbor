@@ -25,17 +25,26 @@ contract MarketUpgradeRun is UpgradeMarketToV3 {
 }
 
 /// @dev The production upgrade of markets a pause has frozen, as the upgrade script runs it - read at the capture's
-///      block, upgraded on the fork selected - for the markets and capture it is constructed with.
+///      block, upgraded on the fork selected - for the markets and capture it is constructed with, each market's batch
+///      carrying the owner's operations it is constructed with: one per market, or none at all.
 contract FrozenMarketUpgradeRun is UpgradeMarketToV3 {
     Config_MinterMarket[] private _markets;
     string private _capture;
+    OwnerOperations[] private _operations;
 
-    constructor(Config_MinterMarket[] memory markets_, string memory capture_) {
+    constructor(Config_MinterMarket[] memory markets_, string memory capture_, OwnerOperations[] memory operations_) {
         _markets = markets_;
         _capture = capture_;
+        for (uint256 i = 0; i < operations_.length; ++i) {
+            _operations.push(operations_[i]);
+        }
     }
 
     function build() internal override {
-        upgradeMarketsToV3(readFrozenMarketUpgradeInputs(_markets, _capture, "mainnet"), "mainnet");
+        MarketUpgradeInput[] memory inputs = readFrozenMarketUpgradeInputs(_markets, _capture, "mainnet");
+        for (uint256 i = 0; i < _operations.length; ++i) {
+            inputs[i].ownerOperations = _operations[i];
+        }
+        upgradeMarketsToV3(inputs, "mainnet");
     }
 }

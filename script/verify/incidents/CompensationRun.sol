@@ -10,13 +10,15 @@ import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2
 ///         and the compensation files it is constructed with, `run(saltPrefix)` reads the frozen markets at the
 ///         capture's block, puts the compensation into their inputs, upgrades them on the fork selected, and executes
 ///         each market's batch as the owner - the Harbor multisig, which owns the live proxies. The batches as queued
-///         are kept for reading, and the compensation's own functions are callable from outside.
+///         and the payout as sized are kept for reading, and the compensation's own functions are callable from
+///         outside.
 contract CompensationRun is CompensateRebalanceDilution {
     string private _saltPrefix;
     Config_MinterMarket[] private _markets;
     string private _capture;
     string[] private _files;
     Transaction[] private _batches;
+    bytes private _payout;
 
     /// @param saltPrefix_ The run's identity, fixed at construction, so every address it predicts resolves from the
     ///        moment it exists; `run` is given the same.
@@ -42,7 +44,8 @@ contract CompensationRun is CompensateRebalanceDilution {
         for (uint256 i = 0; i < _files.length; ++i) {
             compensated[i] = readCompensation(_files[i]);
         }
-        compensate(inputs, compensated);
+        FrozenMarket[] memory frozen = readFrozenMarkets(compensated, _capture, "mainnet");
+        _payout = abi.encode(compensate(inputs, compensated, frozen));
         upgradeMarketsToV3(inputs, "mainnet");
         for (uint256 i = 0; i < _allTransactions.length; ++i) {
             _batches.push(_allTransactions[i]);
@@ -65,17 +68,18 @@ contract CompensationRun is CompensateRebalanceDilution {
 
     function size(
         MarketCompensation[] memory markets,
-        uint256[] memory peggedValues
+        FrozenMarket[] memory frozen
     ) public pure returns (Payout memory) {
-        return sizePayout(markets, peggedValues);
-    }
-
-    function peggedInWrappedOf(address oracle, uint256 pegged) public view returns (uint256) {
-        return peggedInWrapped(oracle, pegged);
+        return sizePayout(markets, frozen);
     }
 
     /// @notice Every market's batch as `run` queued it, in order, whether or not executed since.
     function batches() public view returns (Transaction[] memory) {
         return _batches;
+    }
+
+    /// @notice The payout as `run` sized it, which its batches carry.
+    function payout() public view returns (Payout memory) {
+        return abi.decode(_payout, (Payout));
     }
 }

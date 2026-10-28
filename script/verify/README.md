@@ -73,10 +73,11 @@ The figures of an incident report, generated from the chain so none is copied by
 - `run-rebalance-dilution-report` — runs it (needs `MAINNET_RPC_URL`, archival; makes no log queries)
 - `CompensateRebalanceDilution.t.sol` — phase 1 of the repayment, which rides the v3 upgrade
   (`script/src/CompensateRebalanceDilution.sol`): the compensation files read as the report wrote them, the deductions
-  and the payout sized from them, and the compensated upgrade of both exploited markets run on a fork at the block
-  after the pause, each market's batch executed as the multisig - the gainers' cuts taken back in the pool migration,
-  the multisig's fee-free redemptions, and each loser's fee-free mint checked against the batch and the minter's
-  events. `CompensationRun.sol` holds the upgrade for it.
+  and the payout sized from them by the minter's own arithmetic at the capture block's reading, and the compensated
+  upgrade of both exploited markets run on a fork at the block after the pause, each market's batch executed as the
+  multisig - the gainers' cuts taken back in the pool migration, the minter pointed at that reading held still, the
+  multisig's fee-free redemptions, and each loser's fee-free mint, every amount checked exact against the batch and
+  the minter's events. `CompensationRun.sol` holds the upgrade for it.
 - `run-compensation-test` — runs it (needs `MAINNET_RPC_URL`, archival at the capture's block; lifts the block gas
   limit, the two markets' upgrade running in one test call)
 

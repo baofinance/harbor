@@ -36,7 +36,8 @@ contract Upgrade_MarketsToV3_mainnet is Script, CompensateRebalanceDilution {
         MarketCompensation[] memory compensated = new MarketCompensation[](2);
         compensated[0] = readCompensation(BTC_STETH_COMPENSATION);
         compensated[1] = readCompensation(EUR_STETH_COMPENSATION);
-        Payout memory payout = compensate(inputs, compensated);
+        FrozenMarket[] memory frozen = readFrozenMarkets(compensated, FROZEN_MARKETS_CAPTURE, "mainnet");
+        Payout memory payout = compensate(inputs, compensated, frozen);
 
         vm.startBroadcast();
         upgradeMarketsToV3(inputs, "mainnet");

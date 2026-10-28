@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -24,6 +25,7 @@ import {goldMintersConfig} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
+import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {IMinter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/IMinter_v3_Upgrader.sol";
 import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
@@ -203,7 +205,11 @@ contract UpgradeMarketToV3Test is Test {
         uint256 leveragedSupply = IStabilityPool(leveragedPool).totalAssetSupply();
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
-        FrozenMarketUpgradeRun frozenUpgrade = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE);
+        FrozenMarketUpgradeRun frozenUpgrade = new FrozenMarketUpgradeRun(
+            markets,
+            FROZEN_MARKETS_CAPTURE,
+            _noOperations()
+        );
         vm.makePersistent(address(frozenUpgrade));
         frozenUpgrade.run("harbor_v1");
 
@@ -233,7 +239,8 @@ contract UpgradeMarketToV3Test is Test {
 
     /// @dev GOLD::fxUSD - retired, recording backing and holding no wrapped collateral - and BTC::stETH, which holds its
     ///      backing, as read at the capture's block: what the retired-market tests check the upgrade against. With each,
-    ///      the oracle its minter reads and the oracle proxy the deploy predicts for it.
+    ///      the oracle its minter reads and the oracle proxy the deploy predicts for it; for BTC::stETH, what its
+    ///      oracle answered at the capture's block and its leveraged token.
     struct RetiredBesideLive {
         Config_MinterMarket[] markets;
         address retiredMinter;
@@ -246,14 +253,13 @@ contract UpgradeMarketToV3Test is Test {
         address liveOracle;
         address livePredictedOracle;
         uint256 liveBacking;
+        UpgradeMarketToV3.OracleAnswer liveAnswer;
+        address liveLeveraged;
     }
 
     /// @dev Read GOLD::fxUSD and BTC::stETH at the capture's block, then fork the block after it, where every minter is
-    ///      paused and the upgrade runs; return what was read and the upgrade, built but not run.
-    function _retiredBesideLive()
-        private
-        returns (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade)
-    {
+    ///      paused and the upgrade runs; return what was read.
+    function _retiredBesideLive() private returns (RetiredBesideLive memory fixture) {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
         (, Config_MinterMarket[] memory goldMarkets) = goldMintersConfig();
@@ -280,12 +286,32 @@ contract UpgradeMarketToV3Test is Test {
         fixture.liveOracle = IMinter(fixture.liveMinter).priceOracle();
         fixture.livePredictedOracle = addresses.wrappedPriceOracleAddress(fixture.markets[1]);
         fixture.liveBacking = IMinter(fixture.liveMinter).collateralTokenBalance();
+        (
+            fixture.liveAnswer.minPrice,
+            fixture.liveAnswer.maxPrice,
+            fixture.liveAnswer.minRate,
+            fixture.liveAnswer.maxRate
+        ) = IWrappedPriceOracle(fixture.liveOracle).latestAnswer();
+        fixture.liveLeveraged = addresses.leveragedTokenAddress(fixture.markets[1]);
         assertGt(fixture.retiredBacking, 0, "precondition: the retired market records backing");
         assertEq(IERC20(fixture.retiredCollateral).balanceOf(fixture.retiredMinter), 0, "precondition: and holds none");
 
         vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
-        frozenUpgrade = new FrozenMarketUpgradeRun(fixture.markets, FROZEN_MARKETS_CAPTURE);
+    }
+
+    /// @dev The frozen upgrade of `markets`, built but not run, on the fork selected, each market's batch carrying
+    ///      `operations` - one per market, or none at all.
+    function _frozenUpgrade(
+        Config_MinterMarket[] memory markets,
+        UpgradeMarketToV3.OwnerOperations[] memory operations
+    ) private returns (FrozenMarketUpgradeRun frozenUpgrade) {
+        frozenUpgrade = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE, operations);
         vm.makePersistent(address(frozenUpgrade));
+    }
+
+    /// @dev No owner operations in any market's batch.
+    function _noOperations() private pure returns (UpgradeMarketToV3.OwnerOperations[] memory) {
+        return new UpgradeMarketToV3.OwnerOperations[](0);
     }
 
     /// A minter that holds no wrapped collateral must record no backing. GOLD::fxUSD, retired, holds none and records a
@@ -293,7 +319,8 @@ contract UpgradeMarketToV3Test is Test {
     /// holds nothing and records nothing. A market that holds its backing - BTC::stETH, upgraded beside it - keeps its
     /// record.
     function test_theUpgradeZeroesBackingNothingHolds() public {
-        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+        RetiredBesideLive memory fixture = _retiredBesideLive();
+        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, _noOperations());
 
         vm.expectEmit(fixture.retiredMinter);
         emit IMinter_v3_Upgrader.BackingZeroed(fixture.retiredBacking);
@@ -320,7 +347,8 @@ contract UpgradeMarketToV3Test is Test {
     /// Setting the record to zero reads no price: with GOLD::fxUSD's oracle reverting every call, its upgrade still
     /// sets it.
     function test_theZeroingReadsNoPrice() public {
-        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+        RetiredBesideLive memory fixture = _retiredBesideLive();
+        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, _noOperations());
 
         vm.mockCallRevert(fixture.retiredOracle, bytes(""), bytes("the oracle answers nothing"));
         frozenUpgrade.run("harbor_v1");
@@ -331,7 +359,8 @@ contract UpgradeMarketToV3Test is Test {
     /// Only dust is set to zero: a minter that holds wrapped collateral - a wei given to GOLD::fxUSD after the capture
     /// - is refused, naming what it holds, and the whole upgrade reverts with it.
     function test_theUpgraderRefusesAMinterHoldingCollateral() public {
-        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+        RetiredBesideLive memory fixture = _retiredBesideLive();
+        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, _noOperations());
         deal(fixture.retiredCollateral, fixture.retiredMinter, 1);
 
         vm.expectRevert(
@@ -349,7 +378,8 @@ contract UpgradeMarketToV3Test is Test {
     /// reading the XAU oracle's implementation where its config names the GOLD oracle, whose proxy runs other code that
     /// answers alike.
     function test_theUpgradePointsEveryMinterAtItsPredictedOracle() public {
-        (RetiredBesideLive memory fixture, FrozenMarketUpgradeRun frozenUpgrade) = _retiredBesideLive();
+        RetiredBesideLive memory fixture = _retiredBesideLive();
+        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, _noOperations());
         assertNotEq(fixture.liveOracle, fixture.livePredictedOracle, "precondition: BTC::stETH reads another oracle");
         assertEq(
             _implementation(fixture.livePredictedOracle),
@@ -379,6 +409,57 @@ contract UpgradeMarketToV3Test is Test {
             fixture.retiredPredictedOracle,
             "GOLD::fxUSD reads its predicted oracle"
         );
+    }
+
+    /// The owner's operations in a market's batch are priced at the oracle reading of the capture's block - the last
+    /// before the pause, where the batch's every other input was read: the batch points the minter at an oracle of its
+    /// own answering that reading before them, and at the oracle proxy the deploy predicts after, so the minter never
+    /// runs on the frozen answer. A fee-free mint for a named account then reaches it at that price. GOLD::fxUSD
+    /// beside it, with no operations, is moved once.
+    function test_theOwnerOperatesAtTheCaptureBlocksReading() public {
+        RetiredBesideLive memory fixture = _retiredBesideLive();
+        address paid = makeAddr("paid");
+        UpgradeMarketToV3.OwnerOperations[] memory operations = new UpgradeMarketToV3.OwnerOperations[](2);
+        operations[1].answer = fixture.liveAnswer;
+        operations[1].accounts = new address[](1);
+        operations[1].accounts[0] = paid;
+        operations[1].mints = new uint256[](1);
+        operations[1].mints[0] = 0.001 ether;
+        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, operations);
+
+        vm.recordLogs();
+        frozenUpgrade.run("harbor_v1");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        address[] memory moves = _oracleMoves(logs, fixture.liveMinter);
+
+        assertEq(moves.length, 2, "BTC::stETH's minter is moved twice");
+        assertNotEq(moves[0], fixture.livePredictedOracle, "first to an oracle of the batch's own");
+        assertEq(
+            _answer(moves[0]),
+            abi.encode(fixture.liveAnswer),
+            "which answers as its oracle did at the capture's block"
+        );
+        assertEq(moves[1], fixture.livePredictedOracle, "then to the oracle proxy the deploy predicts");
+        assertEq(IMinter(fixture.liveMinter).priceOracle(), fixture.livePredictedOracle, "which it reads after");
+        assertGt(IERC20(fixture.liveLeveraged).balanceOf(paid), 0, "the account named was minted for");
+        assertEq(_oracleMoves(logs, fixture.retiredMinter).length, 1, "GOLD::fxUSD, with no operations, is moved once");
+    }
+
+    /// @dev Where `minter`'s `UpdatePriceOracle` events in `logs` pointed it, in order.
+    function _oracleMoves(Vm.Log[] memory logs, address minter) private pure returns (address[] memory moves) {
+        uint256 count;
+        for (uint256 l = 0; l < logs.length; ++l) {
+            if (logs[l].emitter == minter && logs[l].topics[0] == IMinter.UpdatePriceOracle.selector) {
+                ++count;
+            }
+        }
+        moves = new address[](count);
+        count = 0;
+        for (uint256 l = 0; l < logs.length; ++l) {
+            if (logs[l].emitter == minter && logs[l].topics[0] == IMinter.UpdatePriceOracle.selector) {
+                moves[count++] = address(uint160(uint256(logs[l].topics[2])));
+            }
+        }
     }
 
     /// @dev The oracle at `oracle`'s answer - its price and rate bands - encoded for comparison.
@@ -424,7 +505,7 @@ contract UpgradeMarketToV3Test is Test {
             vm.toString(HolderCaptureLib.captureBlock(CAPTURE) + 1),
             ", the block after the capture's: the capture must end at the last block before the pause"
         );
-        FrozenMarketUpgradeRun refused = new FrozenMarketUpgradeRun(markets, CAPTURE);
+        FrozenMarketUpgradeRun refused = new FrozenMarketUpgradeRun(markets, CAPTURE, _noOperations());
         vm.makePersistent(address(refused));
 
         vm.expectRevert(bytes(refusal));

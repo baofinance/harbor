@@ -21,6 +21,7 @@ import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {eurMintersConfig} from "@harbor-script/src/Deploy_EUR_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
+import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
 import {
     BTC_STETH_COMPENSATION,
@@ -31,9 +32,10 @@ import {
 import {CompensationRun} from "@harbor-script/verify/incidents/CompensationRun.sol";
 
 /// @notice Phase 1 of the repayment for the rebalance dilution exploits: the compensation's inputs read as the
-///         incident's files record them, the deductions and the payout sized from them, and the compensated upgrade of
-///         the two exploited markets run as it will run - at the block after the pause, each market's batch executed
-///         as the multisig - taking back the gains and paying the losers in the same transaction as the upgrade.
+///         incident's files record them, the deductions and the payout sized from them by the minter's own arithmetic
+///         at the capture block's reading, and the compensated upgrade of the two exploited markets run as it will run
+///         - at the block after the pause, each market's batch executed as the multisig - taking back the gains and
+///         paying the losers in the same transaction as the upgrade, every amount exactly as sized.
 /// @dev Needs MAINNET_RPC_URL, archival at the capture's block, and `--disable-block-gas-limit`: the two markets'
 ///      upgrade runs in one test call, beyond a block's gas (`run-compensation-test`). Under `script/verify/`, with
 ///      the incident's report that writes the files it reads.
@@ -44,14 +46,17 @@ contract CompensateRebalanceDilutionTest is BaoTest {
     ///      paused and the upgrade runs, is 12 seconds later.
     uint256 private constant BLOCK_TIME = 12;
 
-    /// @dev What one market reads before its upgrade: its contracts, each account's claimable leveraged reward in the
-    ///      leveraged pool and its leveraged balance, the pool's leveraged tokens, the multisig's holdings, the
-    ///      leveraged reward stream's rate and the collateral ratio.
+    /// @dev What one market reads before its upgrade: its contracts and the oracle proxy the deploy predicts for it;
+    ///      each account's claimable leveraged reward in the leveraged pool and its leveraged balance; the pool's
+    ///      leveraged tokens; the multisig's holdings; the leveraged reward stream's rate; the collateral ratio; and,
+    ///      as the running minter gives them at the capture's block, its oracle's answer and the leveraged token's
+    ///      price in pegged units.
     struct Before {
         address minter;
         address pool;
         address leveraged;
         address pegged;
+        address predictedOracle;
         uint256[] claimables;
         uint256[] balances;
         uint256 poolLeveraged;
@@ -59,6 +64,8 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         uint256 multisigLeveraged;
         uint256 rate;
         uint256 collateralRatio;
+        UpgradeMarketToV3.OracleAnswer answer;
+        uint256 leveragedPrice;
     }
 
     /// @dev What the minters' events say the batches did to one market: the pegged and leveraged burned, the wrapped
@@ -70,6 +77,15 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         uint256 collateralIn;
         uint256[] paid;
         uint256[] minted;
+    }
+
+    /// @dev One market's share of the payout as the run sized it: what its two redemptions return, and per account
+    ///      the wrapped collateral minted with and the leveraged that mint returns.
+    struct Sized {
+        uint256 peggedReturn;
+        uint256 leveragedReturn;
+        uint256[] mints;
+        uint256[] leveraged;
     }
 
     /// @dev The compensated upgrade of BTC::stETH and EUR::stETH, from the frozen capture and the two incident files.
@@ -181,33 +197,69 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         assertEq(run.deductionsOf(run.read(EUR_STETH_COMPENSATION)).length, 0, "no cut in EUR::stETH");
     }
 
-    /// @notice The fund is every market's wrapped fees, what its pegged fees are worth and what its cuts are worth; the
-    ///         fraction is the fund over every debt; each account is minted for with that fraction of its debt, a zero
-    ///         debt getting nothing.
-    function test_sizePayout_sharesTheFundByDebt() public {
+    /// @notice The payout is sized as the minter prices each operation at the market's frozen reading, each on the
+    ///         state the one before leaves: the pegged fees redeem for their worth at the price over the rate, debiting
+    ///         the record; the cuts redeem for their share of the residual the pegged redemption leaves; the fund is
+    ///         every market's wrapped fees and the two returns; the fraction is the fund over every debt; each
+    ///         account is minted for with that fraction of its debt and receives the leveraged that buys of the
+    ///         residual the redemptions leave, a zero debt getting nothing.
+    function test_sizePayout_pricesEachOperationAsTheMinterDoes() public {
         CompensationRun run = _aRun();
         CompensateRebalanceDilution.MarketCompensation[] memory markets = _twoSyntheticMarkets();
-        uint256[] memory peggedValues = new uint256[](2);
-        peggedValues[0] = 1.9 ether;
-        peggedValues[1] = 2 ether;
+        CompensateRebalanceDilution.FrozenMarket[] memory frozen = _twoFrozenMarkets();
 
-        CompensateRebalanceDilution.Payout memory p = run.size(markets, peggedValues);
+        CompensateRebalanceDilution.Payout memory p = run.size(markets, frozen);
 
-        // 2 + 1.9 + 0.4 and 1 + 2 + 0: 7.3 over debts of 20.
-        assertEq(p.fund, 7.3 ether, "the fund");
-        assertEq(p.fraction, 0.365 ether, "the fraction of each debt it pays");
+        // Each market: 100 backing worth 2 pegged each against 100 pegged, 50 leveraged: a residual of 100 pegged,
+        // 2 pegged - one collateral - a leveraged token. 2 pegged redeem for 1 collateral, leaving 99 backing against
+        // 98 pegged: a residual of 100 pegged over 50 leveraged still. In the first market 0.4 leveraged then redeem
+        // for 0.4, leaving 98.6 backing, 98 pegged and 49.6 leveraged.
+        assertEq(p.peggedReturns[0], 1 ether, "the first market's pegged fees redeem for 1");
+        assertEq(p.leveragedReturns[0], 0.4 ether, "its cuts redeem for 0.4");
+        assertEq(p.peggedReturns[1], 1 ether, "the second market's pegged fees redeem for 1");
+        assertEq(p.leveragedReturns[1], 0, "it has no cut to redeem");
+        // 2 + 1 + 0.4 and 1 + 1: 5.4 over debts of 20.
+        assertEq(p.fund, 5.4 ether, "the fund");
+        assertEq(p.fraction, 0.27 ether, "the fraction of each debt it pays");
         assertEq(p.mints[0].length, 3, "each account of the first market");
-        assertEq(p.mints[0][0], 1.46 ether, "a debt of 4");
-        assertEq(p.mints[0][1], 2.19 ether, "a debt of 6");
+        assertEq(p.mints[0][0], 1.08 ether, "a debt of 4");
+        assertEq(p.mints[0][1], 1.62 ether, "a debt of 6");
         assertEq(p.mints[0][2], 0, "no debt, nothing");
-        assertEq(p.mintTotals[0], 3.65 ether, "the first market's total");
+        assertEq(p.mintTotals[0], 2.7 ether, "the first market's total");
         assertEq(p.mints[1].length, 1, "the one account of the second");
-        assertEq(p.mints[1][0], 3.65 ether, "a debt of 10");
-        assertEq(p.mintTotals[1], 3.65 ether, "the second market's total");
+        assertEq(p.mints[1][0], 2.7 ether, "a debt of 10");
+        assertEq(p.mintTotals[1], 2.7 ether, "the second market's total");
+        // A collateral buys a leveraged token: 1.08 collateral into a residual of 99.2 pegged over 49.6 leveraged, then
+        // 1.62 into 101.36 over 50.68; 2.7 into 100 over 50.
+        assertEq(p.leveraged[0][0], 1.08 ether, "1.08 collateral buys 1.08 leveraged");
+        assertEq(p.leveraged[0][1], 1.62 ether, "1.62 collateral buys 1.62 leveraged, after the first mint");
+        assertEq(p.leveraged[0][2], 0, "nothing paid, nothing received");
+        assertEq(p.leveraged[1][0], 2.7 ether, "2.7 collateral buys 2.7 leveraged");
     }
 
-    /// @dev Two markets with round figures: debts of 4, 6 and 0 against wrapped fees of 2 and a cut worth 0.4, and a
-    ///      debt of 10 against wrapped fees of 1.
+    /// @notice A market whose oracle reported two prices or two rates at the capture's block is refused, naming the
+    ///         market and the reading.
+    function test_sizePayout_refusesAReadingWithABand() public {
+        CompensationRun run = _aRun();
+        CompensateRebalanceDilution.MarketCompensation[] memory markets = _twoSyntheticMarkets();
+        CompensateRebalanceDilution.FrozenMarket[] memory frozen = _twoFrozenMarkets();
+        frozen[1].answer.maxRate = 1 ether + 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CompensateRebalanceDilution.OracleAnswerHasABand.selector,
+                "B",
+                2 ether,
+                2 ether,
+                1 ether,
+                1 ether + 1
+            )
+        );
+        run.size(markets, frozen);
+    }
+
+    /// @dev Two markets with round figures: debts of 4, 6 and 0 against wrapped fees of 2, pegged fees of 2 and a cut
+    ///      of 0.4 leveraged, and a debt of 10 against wrapped fees of 1 and pegged fees of 2.
     function _twoSyntheticMarkets()
         private
         pure
@@ -223,9 +275,11 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         markets[0].debts[0] = 4 ether;
         markets[0].debts[1] = 6 ether;
         markets[0].cutTokens = new uint256[](3);
+        markets[0].cutTokens[0] = 0.4 ether;
         markets[0].totalDebt = 10 ether;
-        markets[0].totalCutValue = 0.4 ether;
+        markets[0].totalCutTokens = 0.4 ether;
         markets[0].feesWrapped = 2 ether;
+        markets[0].feesPegged = 2 ether;
         markets[1].name = "B";
         markets[1].accounts = new address[](1);
         markets[1].accounts[0] = address(0xB1);
@@ -234,16 +288,31 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         markets[1].cutTokens = new uint256[](1);
         markets[1].totalDebt = 10 ether;
         markets[1].feesWrapped = 1 ether;
+        markets[1].feesPegged = 2 ether;
+    }
+
+    /// @dev The two markets' minters at the reading: one price of 2 pegged a collateral at a rate of one, 100 backing
+    ///      against 100 pegged and 50 leveraged.
+    function _twoFrozenMarkets() private pure returns (CompensateRebalanceDilution.FrozenMarket[] memory frozen) {
+        frozen = new CompensateRebalanceDilution.FrozenMarket[](2);
+        for (uint256 m = 0; m < 2; ++m) {
+            frozen[m].answer = UpgradeMarketToV3.OracleAnswer(2 ether, 2 ether, 1 ether, 1 ether);
+            frozen[m].backing = 100 ether;
+            frozen[m].peggedSupply = 100 ether;
+            frozen[m].leveragedSupply = 50 ether;
+        }
     }
 
     /// @notice The compensated upgrade, as it will run: each market's batch, executed as the multisig at the block after
     ///         the pause, migrates the leveraged pool taking each gainer's cut - its claimable reward falls by exactly
-    ///         that, the others' are untouched, the pool pays the multisig - then the multisig redeems its pegged fee
-    ///         and the tokens taken back, fee-free, and mints fee-free for each loser with its share of the fund: every
-    ///         loser's leveraged balance rises by what its mint returned, worth what was paid to the oracle's band; the
-    ///         multisig's pegged fee is gone, its leveraged tokens are as they were, and its wrapped collateral is what
-    ///         it was plus the redemptions less the mints; each market's collateral ratio rises. The batches queue the
-    ///         compensation after the market's upgrade, in order.
+    ///         that, the others' are untouched, the pool pays the multisig - then, the minter reading the capture
+    ///         block's answer held still, the multisig redeems its pegged fee and the tokens taken back, fee-free, for
+    ///         exactly the wrapped collateral sized, and mints fee-free for each loser with its share of the fund:
+    ///         every loser's leveraged balance rises by exactly the leveraged sized; the multisig's pegged fee is
+    ///         gone, its leveraged tokens are as they were, its wrapped collateral is its own but for the mints'
+    ///         floor dust; each market's collateral ratio rises and its minter reads the oracle proxy the deploy
+    ///         predicts. The batches point each minter at the frozen reading before the pools' migration and at the
+    ///         proxy after the compensation, queued after the market's upgrade, in order.
     function test_theCompensatedUpgrade_takesBackTheCutsAndPaysTheLosers() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         // The block after the capture's, where every minter and pool is paused and the upgrade runs. The run and the
@@ -275,26 +344,37 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         vm.recordLogs();
         run.run(SALT);
         Vm.Log[] memory logs = vm.getRecordedLogs();
+        CompensateRebalanceDilution.Payout memory p = run.payout();
 
-        // The batches first: they record what each mint was queued with, which the value check below reads.
-        _checkBatches(run, markets);
+        _checkBatches(run, markets, before, p);
         uint256 wrappedOut;
         uint256 wrappedIn;
+        uint256 fees;
         for (uint256 m = 0; m < 2; ++m) {
             Done memory done = _whatTheMinterDid(logs, before[m].minter, markets[m].accounts);
-            _checkMarketAfter(markets[m], before[m], done, multisig);
+            _checkMarketAfter(markets[m], before[m], done, _sizedFor(p, m), multisig);
             wrappedOut += done.collateralOut;
             wrappedIn += done.collateralIn;
+            fees += markets[m].feesWrapped;
         }
         assertEq(
             IERC20(wrapped).balanceOf(multisig),
             multisigWrapped + wrappedOut - wrappedIn,
             "the multisig's wrapped collateral: the redemptions in, the mints out"
         );
+        // The fund is spent to the wei the mints' floors leave: the multisig's own wrapped collateral is untouched.
+        uint256 dust = p.fund - (p.mintTotals[0] + p.mintTotals[1]);
+        assertLe(dust, markets[0].accounts.length + markets[1].accounts.length, "the floors leave at most a wei each");
+        assertEq(
+            IERC20(wrapped).balanceOf(multisig),
+            multisigWrapped - fees + dust,
+            "the multisig keeps what it held beyond the fees, and the dust"
+        );
     }
 
     /// @dev One market's contracts and what only its running contracts answer, on the frozen fork: each account's
-    ///      claimable leveraged reward, the stream's rate and the collateral ratio.
+    ///      claimable leveraged reward, the stream's rate, the collateral ratio, the oracle's answer and the leveraged
+    ///      token's price.
     function _readFrozen(
         CompensationRun run,
         CompensateRebalanceDilution.MarketCompensation memory market
@@ -303,12 +383,17 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         b.pool = run.stabilityPoolAddress(market.market, HarborDeployer.StabilityPoolType.Leveraged);
         b.leveraged = run.leveragedTokenAddress(market.market);
         b.pegged = run.peggedTokenAddress(market.market);
+        b.predictedOracle = run.wrappedPriceOracleAddress(market.market);
         b.claimables = new uint256[](market.accounts.length);
         for (uint256 i = 0; i < market.accounts.length; ++i) {
             b.claimables[i] = IMultipleRewardAccumulator(b.pool).claimable(market.accounts[i], b.leveraged);
         }
         (, , b.rate, ) = IMultipleRewardDistributor(b.pool).rewardData(b.leveraged);
         b.collateralRatio = IMinter(b.minter).collateralRatio();
+        (b.answer.minPrice, b.answer.maxPrice, b.answer.minRate, b.answer.maxRate) = IWrappedPriceOracle(
+            IMinter(b.minter).priceOracle()
+        ).latestAnswer();
+        b.leveragedPrice = IMinter(b.minter).leveragedTokenPrice();
     }
 
     /// @dev The token balances the batch moves, read where it runs, just before it.
@@ -326,15 +411,29 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         b.multisigLeveraged = IERC20(b.leveraged).balanceOf(multisig);
     }
 
+    /// @dev Market `m`'s share of the payout `p`.
+    function _sizedFor(
+        CompensateRebalanceDilution.Payout memory p,
+        uint256 m
+    ) private pure returns (Sized memory sized) {
+        sized.peggedReturn = p.peggedReturns[m];
+        sized.leveragedReturn = p.leveragedReturns[m];
+        sized.mints = p.mints[m];
+        sized.leveraged = p.leveraged[m];
+    }
+
     /// @dev One market after its batch: the gainers' claimables less their cuts and the others' as they were - to the
     ///      leveraged reward stream's 12 seconds between the capture's block and the upgrade's, and a wei at each of
-    ///      the fold's two divisions - a cut telling against no cut; the pool paid the cuts; every account's leveraged
-    ///      balance rose by its mint's return, worth what was paid to the oracle's band; the multisig's pegged fee gone
-    ///      and its leveraged as it was; the collateral ratio up.
+    ///      the fold's two divisions - a cut telling against no cut; the pool paid the cuts; every account was paid
+    ///      exactly the wrapped collateral sized and its leveraged balance rose by exactly the leveraged sized; the
+    ///      redemptions burned the fee and the cuts and returned exactly what was sized; the multisig's pegged fee
+    ///      gone and its leveraged as it was; the collateral ratio up; the minter reading the oracle proxy the deploy
+    ///      predicts.
     function _checkMarketAfter(
         CompensateRebalanceDilution.MarketCompensation memory market,
         Before memory b,
         Done memory done,
+        Sized memory sized,
         address multisig
     ) private {
         uint256 streamed = b.rate * BLOCK_TIME + 2;
@@ -359,13 +458,13 @@ contract CompensateRebalanceDilutionTest is BaoTest {
                     string.concat(who, ": the claimable reward as it was")
                 );
             }
-            assertEq(done.paid[i], _mintQueuedFor(market, i), string.concat(who, ": the mint paid what was queued"));
+            assertEq(done.paid[i], sized.mints[i], string.concat(who, ": the mint paid what was sized"));
+            assertEq(done.minted[i], sized.leveraged[i], string.concat(who, ": the mint returned the leveraged sized"));
             assertEq(
                 IERC20(b.leveraged).balanceOf(market.accounts[i]),
                 b.balances[i] + done.minted[i],
                 string.concat(who, ": the leveraged balance plus the mint")
             );
-            _checkMintValue(b.minter, done.minted[i], done.paid[i], 4 + market.accounts.length, who);
         }
         assertEq(
             IERC20(b.leveraged).balanceOf(b.pool),
@@ -374,6 +473,12 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         );
         assertEq(done.peggedBurned, market.feesPegged, string.concat(market.name, ": the pegged fee redeemed"));
         assertEq(done.leveragedBurned, market.totalCutTokens, string.concat(market.name, ": the cuts redeemed"));
+        assertEq(
+            done.collateralOut,
+            sized.peggedReturn + sized.leveragedReturn,
+            string.concat(market.name, ": the redemptions returned what was sized")
+        );
+        _checkCutValue(market, b, sized.leveragedReturn);
         assertEq(
             IERC20(b.pegged).balanceOf(multisig),
             b.multisigPegged - market.feesPegged,
@@ -389,59 +494,48 @@ contract CompensateRebalanceDilutionTest is BaoTest {
             b.collateralRatio,
             string.concat(market.name, ": the collateral ratio rises")
         );
+        assertEq(
+            IMinter_v3(b.minter).priceOracle(),
+            b.predictedOracle,
+            string.concat(market.name, ": the minter reads the oracle proxy the deploy predicts after")
+        );
     }
 
-    /// @dev The leveraged `minted` is worth the wrapped collateral `paid` at the market's price after the batch, to
-    ///      the oracle's band and the roundings between, each a floor; and not worth what a mint priced in pegged units
-    ///      would have returned. The minter rounds in pegged units, and a pegged wei is worth up to
-    ///      `1e18 / wrappedInPegged` wrapped wei - about 27 for BTC::stETH - so the floors on the price path count in
-    ///      those: the mint's own price and the price read back, one pegged wei each over the tokens minted; and the
-    ///      price moves by at most one pegged wei at each of the batch's `operations` after the mint, each a floor. In
-    ///      wrapped wei: the mint's token count (one token-wei, worth the price), and the conversion and the value
-    ///      product, one each.
-    function _checkMintValue(
-        address minter,
-        uint256 minted,
-        uint256 paid,
-        uint256 operations,
-        string memory who
-    ) private view {
-        if (paid == 0) {
-            // A zero debt: nothing paid, nothing minted, and no value to judge.
-            assertEq(minted, 0, string.concat(who, ": nothing minted where nothing was paid"));
+    /// @dev The cuts taken back, in tokens of the file's making, redeem for the file's value of them, to the roundings
+    ///      between the two: the file values each unclaimed reward at the running minter's leveraged price in pegged
+    ///      units, floored to the pegged wei a token, over the wrapped collateral's price in pegged units, floored to
+    ///      the wei, and floors the value; each cut's tokens are the cut's value times the reward over that value,
+    ///      floored to the token wei. The minter redeems the tokens' share of the residual, floored twice. So the two
+    ///      differ by at most: the cuts' value over the leveraged price and over the wrapped price, a wei a cut for
+    ///      the value's floor, a token wei's worth a cut, and the minter's two floors.
+    function _checkCutValue(
+        CompensateRebalanceDilution.MarketCompensation memory market,
+        Before memory b,
+        uint256 returned
+    ) private {
+        if (market.totalCutTokens == 0) {
+            assertEq(returned, 0, string.concat(market.name, ": no cut, nothing redeemed"));
             return;
         }
-        (uint256 price, uint256 wrappedInPegged) = _leveragedPriceInWrapped(minter);
-        uint256 wrappedPerPeggedWei = Math.ceilDiv(1 ether, wrappedInPegged);
-        uint256 tokens = Math.ceilDiv(minted, 1 ether);
-        uint256 tolerance = price / 1 ether + 2 + wrappedPerPeggedWei * tokens * (2 + operations);
-        uint256 value = Math.mulDiv(minted, price, 1 ether);
-        assertApprox(
-            value,
-            paid,
-            tolerance,
-            _oracleBand(minter),
-            string.concat(who, ": the mint is worth what was paid")
-        );
-        assertDiscriminates(
-            value,
-            paid,
-            tolerance,
-            Math.mulDiv(paid, wrappedInPegged, 1 ether),
-            string.concat(who, ": the mint is not worth what a mint priced in pegged units would return")
+        uint256 cuts;
+        for (uint256 i = 0; i < market.cutTokens.length; ++i) {
+            if (market.cutTokens[i] > 0) {
+                ++cuts;
+            }
+        }
+        uint256 wrappedInPegged = Math.mulDiv(b.answer.minPrice, b.answer.minRate, 1 ether);
+        uint256 bound = Math.ceilDiv(market.totalCutValue, b.leveragedPrice) +
+            Math.ceilDiv(market.totalCutValue, wrappedInPegged) +
+            cuts +
+            cuts * Math.ceilDiv(b.leveragedPrice, wrappedInPegged) +
+            2;
+        assertApproxEqAbs(
+            returned,
+            market.totalCutValue,
+            bound,
+            string.concat(market.name, ": the cuts redeem for the file's value of them")
         );
     }
-
-    /// @dev The wrapped collateral the batch queued to mint with for the market's account `i`, read from the queued
-    ///      mints; zero where none was queued.
-    function _mintQueuedFor(
-        CompensateRebalanceDilution.MarketCompensation memory market,
-        uint256 i
-    ) private view returns (uint256) {
-        return _mintsQueued[keccak256(abi.encode(market.name, market.accounts[i]))];
-    }
-
-    mapping(bytes32 => uint256) private _mintsQueued;
 
     /// @dev What `minter`'s events say its market's batch did, the mints by account.
     function _whatTheMinterDid(
@@ -474,43 +568,72 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         }
     }
 
-    /// @dev Each market's batch as queued: after its manager's upgrade, the compensation in order - the pegged
-    ///      approval and fee-free redemption, where there is a cut the leveraged approval and fee-free redemption, the
-    ///      wrapped collateral approval for the mints' total, then a fee-free mint per account with a debt, each
-    ///      recorded for the value check; and the leveraged pool's migration carries the market's deductions.
+    /// @dev Each market's batch as queued: before its pools' migration, the minter pointed at an oracle of the batch's
+    ///      own answering what its oracle answered at the capture's block; the leveraged pool's migration carrying the
+    ///      market's deductions; after its manager's upgrade, the compensation in order - the pegged approval and
+    ///      fee-free redemption, where there is a cut the leveraged approval and fee-free redemption, the wrapped
+    ///      collateral approval for the mints' total, then a fee-free mint per account with a debt, each what was
+    ///      sized; then the minter pointed at the oracle proxy the deploy predicts.
     function _checkBatches(
         CompensationRun run,
-        CompensateRebalanceDilution.MarketCompensation[] memory markets
+        CompensateRebalanceDilution.MarketCompensation[] memory markets,
+        Before[] memory before,
+        CompensateRebalanceDilution.Payout memory p
     ) private {
         Deployer.Transaction[] memory queued = run.batches();
         uint256 at;
         for (uint256 m = 0; m < markets.length; ++m) {
-            at = _checkMarketBatch(run, queued, at, markets[m]);
+            at = _checkMarketBatch(run, queued, at, markets[m], before[m], p.mints[m]);
         }
         assertEq(at, queued.length, "nothing else is queued");
     }
 
-    /// @dev One market's batch from `at`: the upgrade's own calls, the leveraged pool's carrying the deductions, then
-    ///      the compensation; return the index after it.
+    /// @dev One market's batch from `at`: the upgrade's own calls, with the minter's move to the frozen reading and the
+    ///      leveraged pool's deductions among them, then the compensation and the minter's move to the proxy; return
+    ///      the index after it.
     function _checkMarketBatch(
         CompensationRun run,
         Deployer.Transaction[] memory queued,
         uint256 at,
-        CompensateRebalanceDilution.MarketCompensation memory market
+        CompensateRebalanceDilution.MarketCompensation memory market,
+        Before memory b,
+        uint256[] memory mints
     ) private returns (uint256) {
-        address pool = run.stabilityPoolAddress(market.market, HarborDeployer.StabilityPoolType.Leveraged);
         address manager = run.stabilityPoolManagerAddress(market.market);
+        bool movedToTheReading;
         while (
             !(queued[at].target == manager && bytes4(queued[at].data) == UUPSUpgradeable.upgradeToAndCall.selector)
         ) {
-            if (queued[at].target == pool) {
+            if (queued[at].target == b.pool) {
                 _checkDeductionsIn(queued[at].data, run.deductionsOf(market), market.name);
+            }
+            if (queued[at].target == b.minter && bytes4(queued[at].data) == IMinter.updatePriceOracle.selector) {
+                address frozen = abi.decode(_arguments(queued[at].data), (address));
+                assertNotEq(
+                    frozen,
+                    b.predictedOracle,
+                    string.concat(market.name, ": the minter is moved first to an oracle of the batch's own")
+                );
+                assertEq(
+                    _answerOf(frozen),
+                    abi.encode(b.answer),
+                    string.concat(market.name, ": which answers what its oracle answered at the capture's block")
+                );
+                movedToTheReading = true;
             }
             ++at;
         }
+        assertTrue(movedToTheReading, string.concat(market.name, ": the minter is moved before the pools' migration"));
         ++at;
         at = _checkRedemptions(run, queued, at, market);
-        return _checkMints(run, queued, at, market);
+        at = _checkMints(run, queued, at, market, mints);
+        at = _expect(queued, at, b.minter, IMinter.updatePriceOracle.selector, market.name);
+        assertEq(
+            abi.decode(_arguments(queued[at - 1].data), (address)),
+            b.predictedOracle,
+            string.concat(market.name, ": the minter is moved last to the oracle proxy the deploy predicts")
+        );
+        return at;
     }
 
     /// @dev The multisig's redemptions from `at`: the pegged fee approved and redeemed fee-free for wrapped collateral
@@ -556,34 +679,37 @@ contract CompensateRebalanceDilutionTest is BaoTest {
     }
 
     /// @dev The multisig's mints from `at`: the wrapped collateral approved for the mints' total, then a fee-free mint
-    ///      per account with a debt, in the file's order, each recorded for the value check.
+    ///      per account with a debt, in the file's order, each with exactly the wrapped collateral sized for it.
     function _checkMints(
         CompensationRun run,
         Deployer.Transaction[] memory queued,
         uint256 at,
-        CompensateRebalanceDilution.MarketCompensation memory market
+        CompensateRebalanceDilution.MarketCompensation memory market,
+        uint256[] memory mints
     ) private returns (uint256) {
         address minter = run.minterAddress(market.market);
         address wrapped = IHarborConfig(address(market.market)).wrappedCollateralToken();
         uint256 approvalAt = at;
         at = _expect(queued, at, wrapped, IERC20.approve.selector, market.name);
-        uint256 mints;
+        uint256 total;
         for (uint256 i = 0; i < market.accounts.length; ++i) {
             if (market.debts[i] > 0) {
                 at = _expect(queued, at, minter, IMinter_v3.freeMintLeveragedToken.selector, market.name);
                 (uint256 mint, address account) = abi.decode(_arguments(queued[at - 1].data), (uint256, address));
                 assertEq(account, market.accounts[i], string.concat(market.name, ": the mint's receiver, in order"));
-                _mintsQueued[keccak256(abi.encode(market.name, account))] = mint;
-                mints += mint;
+                assertEq(mint, mints[i], string.concat(market.name, ": the mint queued what was sized"));
+                total += mint;
+            } else {
+                assertEq(mints[i], 0, string.concat(market.name, ": nothing sized for a zero debt"));
             }
         }
-        assertGt(mints, 0, string.concat(market.name, ": something is minted"));
+        assertGt(total, 0, string.concat(market.name, ": something is minted"));
         _expectApproval(
             queued,
             approvalAt,
             wrapped,
             minter,
-            mints,
+            total,
             string.concat(market.name, ": the wrapped collateral to mint with")
         );
         return at;
@@ -641,25 +767,11 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         }
     }
 
-    /// @dev A minter's leveraged token price in its wrapped collateral, 18 decimals, and the wrapped collateral's price
-    ///      in pegged units it is converted by: the minter prices the token in pegged units; the oracle's price of the
-    ///      collateral in pegged units and its wrapped-to-underlying rate, each read at the middle of its band, turn
-    ///      that into wrapped collateral.
-    function _leveragedPriceInWrapped(address minter) private view returns (uint256 price, uint256 wrappedInPegged) {
-        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(
-            IMinter_v3(minter).priceOracle()
-        ).latestAnswer();
-        wrappedInPegged = Math.mulDiv((minPrice + maxPrice + 1) / 2, (minRate + maxRate + 1) / 2, 1 ether);
-        price = Math.mulDiv(IMinter_v3(minter).leveragedTokenPrice(), 1 ether, wrappedInPegged);
-    }
-
-    /// @dev The relative width of the minter's oracle reading, price and rate together: a fee-free mint is priced at
-    ///      the high price and the low rate, the value read at the middle, so the two differ by at most this.
-    function _oracleBand(address minter) private view returns (uint256) {
-        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(
-            IMinter_v3(minter).priceOracle()
-        ).latestAnswer();
-        return ((maxPrice - minPrice) * 1 ether) / minPrice + ((maxRate - minRate) * 1 ether) / minRate;
+    /// @dev The oracle at `oracle`'s answer - its price and rate bands - encoded for comparison.
+    function _answerOf(address oracle) private view returns (bytes memory) {
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(oracle)
+            .latestAnswer();
+        return abi.encode(minPrice, maxPrice, minRate, maxRate);
     }
 
     /// @dev The calldata without its selector.

@@ -90,13 +90,14 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     /// @dev What the compensation did to a market's minter, read from the minter's events on anvil since the upgrade
     ///      ran: its pegged supply less the pegged fee redeemed; its leveraged supply less the cuts redeemed plus the
     ///      leveraged minted; the wrapped collateral it holds less the redemptions plus the mints; and the backing it
-    ///      records moved by the same, each mint's wrapped collateral converted at the oracle's low rate and floored,
-    ///      each redemption's at the high rate and ceiled - within 2 wei per operation.
+    ///      records moved by the same, each mint's wrapped collateral converted at the low rate and floored, each
+    ///      redemption's at the high rate and ceiled - the rates the batch held still for the operations, its oracle's
+    ///      at the capture's block - within 2 wei per operation.
     function _compensationExpectations(
         CompensateRebalanceDilution.MarketCompensation memory m,
         string memory before
     ) private returns (CaptureExpectationsLib.Expectation[] memory expectations) {
-        MinterEvents memory did = _whatTheMinterDid(minterAddress(m.market), wrappedPriceOracleAddress(m.market));
+        MinterEvents memory did = _whatTheMinterDid(minterAddress(m.market));
         require(did.peggedBurned == m.feesPegged, string.concat(m.name, ": the pegged fee was not redeemed whole"));
         require(did.leveragedBurned == m.totalCutTokens, string.concat(m.name, ": the cuts were not redeemed whole"));
         require(did.operations > 0, string.concat(m.name, ": its minter's events show no compensation"));
@@ -146,9 +147,11 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         uint256 operations;
     }
 
-    /// @dev Read `minter`'s events on anvil since the upgrade ran, with the rates `oracle` gives there; the fork of
-    ///      mainnet at the capture is selected again after.
-    function _whatTheMinterDid(address minter, address oracle) private returns (MinterEvents memory did) {
+    /// @dev Read `minter`'s events on anvil since the upgrade ran, with the rates its batch priced the operations at:
+    ///      what its oracle answered at the capture's block, read on the fork of mainnet there, which is selected
+    ///      again after.
+    function _whatTheMinterDid(address minter) private returns (MinterEvents memory did) {
+        (, , uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(IMinter_v3(minter).priceOracle()).latestAnswer();
         vm.createSelectFork(vm.rpcUrl("local"));
         Vm.EthGetLogs[] memory logs = vm.eth_getLogs(
             vm.envUint("UPGRADE_FROM_BLOCK") + 1,
@@ -156,7 +159,6 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             minter,
             new bytes32[](0)
         );
-        (, , uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(oracle).latestAnswer();
         for (uint256 l = 0; l < logs.length; ++l) {
             bytes32 topic = logs[l].topics[0];
             if (topic == IMinter_v3.MintLeveragedToken.selector) {

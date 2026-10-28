@@ -8,6 +8,7 @@ import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allPegsConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 import {MarketSettings} from "@harbor-script/verify/v3-upgrade/MarketSettings.sol";
 
@@ -85,7 +86,11 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
             markets = marketsByPeg[pegIndex];
             assertGt(markets.length, 0, "precondition: the peg has markets");
 
-            FrozenMarketUpgradeRun upgraded = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE);
+            FrozenMarketUpgradeRun upgraded = new FrozenMarketUpgradeRun(
+                markets,
+                FROZEN_MARKETS_CAPTURE,
+                new UpgradeMarketToV3.OwnerOperations[](0)
+            );
             // It reads the frozen markets on forks of its own, then returns to this one.
             vm.makePersistent(address(upgraded));
             upgraded.run(LIVE_SALT_PREFIX);

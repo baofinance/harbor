@@ -1439,22 +1439,15 @@ contract Minter_v3 is
         uint256 backing = $.underlyingCollateral;
         _requireRecordIsCovered(backing, reading.minRate);
 
-        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
+        // The offer's share of the residual: nothing at the peg or below it, where the residual is gone. The supply
+        // is not zero here - `_redeemable` reverts on an empty one.
+        uint256 underlyingCollateralOutE36 = MinterValuationLib.collateralForLeveraged(
+            leveragedIn,
             $.peggedTokenBalance,
             backing,
-            price
+            price,
+            leveragedTokenBalance_
         );
-        // The offer's share of the residual: nothing at the peg or below it, where the residual is gone. The supply
-        // is not zero here - `_redeemable` reverts on an empty one - and the price is not either, as the residual
-        // is worth something.
-        uint256 underlyingCollateralOutE36;
-        if (collateralValueE36 > peggedValueE36) {
-            underlyingCollateralOutE36 = Math.mulDiv(
-                leveragedIn * 1 ether,
-                collateralValueE36 - peggedValueE36,
-                price * leveragedTokenBalance_
-            );
-        }
         collateralOut = underlyingCollateralOutE36 / reading.maxRate;
         // A redemption that would pay nothing burns nothing and debits nothing, whether the residual is gone or the
         // offer's share of it rounds to nothing: the fee-paying redemption reverts on the same condition, by the same
