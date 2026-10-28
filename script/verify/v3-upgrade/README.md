@@ -294,10 +294,11 @@ after value lies within 2 wei per fold of the before value moved by the shift.
 - the ledger gap the upgrade wrote, against the pool's supply less what the captured holders held.
 
 A pool whose migration takes rewards back (the compensation's deductions, read from the incident's files) is checked
-for what that migration does instead: every stream's last update, and every deducted record's timestamp, is the
-migration's moment; each deducted record's pending is what its account may claim at that moment on the upgraded pool,
-and what it could claim on the frozen pool at that moment less its cut, to the shift of the stream the migration
-folded; its claimed is copied; every other record is copied exactly.
+for what that migration does instead: every stream's last update, and the timestamp of every record of each holder a
+reward is taken from - for every reward token, the checkpoint settling the holder whole - is the migration's moment;
+each such record's pending is what its account may claim at that moment on the upgraded pool,
+and what it could claim on the frozen pool at that moment less its cut, where one was taken in that token, to the
+shift of the stream the migration folded; its claimed is copied; every other holder's records are copied exactly.
 
 It fails unless at least one reward record had data to compare.
 

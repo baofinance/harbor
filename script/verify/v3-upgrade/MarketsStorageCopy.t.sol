@@ -35,10 +35,11 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///         less what the captured holders held.
 ///
 ///         A pool whose migration takes rewards back (the compensation's deductions, read from the incident's files)
-///         is checked for what that migration does instead: every stream and every deducted record is settled at one
-///         moment, the migration's; each deducted record then holds exactly what its account may claim at that moment,
-///         which is what it could claim on the frozen pool at that moment, less its cut; its claimed is copied; every
-///         other record is copied exactly.
+///         is checked for what that migration does instead: every stream, and every record of each holder a reward is
+///         taken from - for every reward token, the checkpoint settling the holder whole - is settled at one moment,
+///         the migration's; each such record then holds exactly what its account may claim at that moment, which is
+///         what it could claim on the frozen pool at that moment, less its cut where one was taken in that token; its
+///         claimed is copied; every other holder's records are copied exactly.
 ///
 ///         Runs against anvil after the upgrade script (`--fork-url local`, by run-upgrade-rehearsal), and forks
 ///         mainnet at the capture's block itself for the V2 side: the pools are frozen, so that is the state the
@@ -114,7 +115,7 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         vm.selectFork(upgraded);
     }
 
-    /// @dev Read the upgraded pool, and check each deducted record is settled.
+    /// @dev Read the upgraded pool, and check each deducted holder's every record is settled.
     function _readUpgraded(
         string memory label,
         address pool,
@@ -134,17 +135,21 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         }
         u.streams = _streams(pool, u.tokens);
         u.gap = _rewardDivisorGap(pool);
-        // A migration taking rewards back settles every stream, and each deducted record, at one moment: its own.
-        // Every active stream's last update is that moment.
+        // A migration taking rewards back settles every stream, and each deducted holder's every record, at one
+        // moment: its own. Every active stream's last update is that moment.
         u.settledAt = taken.length > 0 ? u.streams[0].lastUpdate : 0;
         for (uint256 d = 0; d < taken.length; ++d) {
-            _checkSettled(
-                pool,
-                u.copied[_indexOf(holders, taken[d].account) * u.tokens.length + _indexOf(u.tokens, taken[d].token)],
-                taken[d],
-                u.settledAt,
-                label
-            );
+            uint256 h = _indexOf(holders, taken[d].account);
+            for (uint256 t = 0; t < u.tokens.length; ++t) {
+                _checkSettled(
+                    pool,
+                    u.copied[h * u.tokens.length + t],
+                    taken[d].account,
+                    u.tokens[t],
+                    u.settledAt,
+                    label
+                );
+            }
         }
     }
 
@@ -173,6 +178,7 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         for (uint256 h = 0; h < holders.length; ++h) {
             held += IStabilityPool_v3(pool).assetBalanceOf(holders[h]);
             c.holder = holders[h];
+            c.settled = _isDeducted(taken, holders[h]);
             for (uint256 t = 0; t < u.tokens.length; ++t) {
                 c.what = string.concat(label, " ", vm.toString(holders[h]), " token ", vm.toString(t));
                 c.token = u.tokens[t];
@@ -191,14 +197,16 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         );
     }
 
-    /// @dev One record to check on the frozen pool: whose and which token, its copy, the cut taken from it, the stream
-    ///      of its token, the moment the migration settled at, and the pool's supply and ledger gap.
+    /// @dev One record to check on the frozen pool: whose and which token, its copy, whether the migration settled
+    ///      the holder - a reward was taken from it, in this token or another - and the cut taken in this token, the
+    ///      stream of its token, the moment the migration settled at, and the pool's supply and ledger gap.
     struct RecordCheck {
         string what;
         address pool;
         address holder;
         address token;
         StabilityPoolRewardRecordLib.RewardRecord copy;
+        bool settled;
         uint256 cut;
         Stream stream;
         uint256 settledAt;
@@ -240,56 +248,56 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         }
     }
 
-    /// @dev One record on the frozen pool against its copy: copied exactly where nothing was taken from it, deducted
-    ///      otherwise; return whether it had data.
+    /// @dev One record on the frozen pool against its copy: copied exactly where the migration did not settle its
+    ///      holder, settled otherwise; return whether it had data.
     function _checkRecord(RecordCheck memory c) private returns (bool hadData) {
         StabilityPoolRewardRecordLib.RewardRecord memory original = StabilityPoolRewardRecordLib.v2Record(
             c.pool,
             c.holder,
             c.token
         );
-        if (c.cut == 0) {
+        if (!c.settled) {
             assertEq(c.copy.pending, original.pending, string.concat(c.what, ": pending copied"));
             assertEq(c.copy.claimed, original.claimed, string.concat(c.what, ": claimed copied"));
             assertEq(c.copy.timestamp, original.timestamp, string.concat(c.what, ": timestamp copied"));
             assertEq(c.copy.integral, original.integral, string.concat(c.what, ": integral copied"));
         } else {
-            _checkDeducted(c, original);
+            _checkSettledOnFrozen(c, original);
         }
         return original.timestamp != 0;
     }
 
-    /// @dev On the upgraded pool, at the moment it was settled, a deducted record holds exactly what its account may
-    ///      claim: nothing has accrued since.
+    /// @dev On the upgraded pool, at the moment it was settled, a settled record holds exactly what its account may
+    ///      claim of that token: nothing has accrued since.
     function _checkSettled(
         address pool,
         StabilityPoolRewardRecordLib.RewardRecord memory copy,
-        IStabilityPool_v3_Upgrader.Deduction memory deduction,
+        address account,
+        address token,
         uint256 settledAt,
         string memory label
     ) private {
         address[] memory one = new address[](1);
-        one[0] = deduction.token;
+        one[0] = token;
         uint256 now_ = block.timestamp;
         vm.warp(settledAt);
         assertEq(
             copy.pending,
-            IMultipleRewardAccumulator_v3(pool).claimable(deduction.account, one)[0],
-            string.concat(
-                label,
-                " ",
-                vm.toString(deduction.account),
-                ": the record holds what it may claim when settled"
-            )
+            IMultipleRewardAccumulator_v3(pool).claimable(account, one)[0],
+            string.concat(label, " ", vm.toString(account), ": the record holds what it may claim when settled")
         );
         vm.warp(now_);
     }
 
-    /// @dev On the frozen pool, a deducted record: its claimed copied, its timestamp the migration's moment, and its
+    /// @dev On the frozen pool, a settled record: its claimed copied, its timestamp the migration's moment, and its
     ///      pending what the account could claim at that moment on the frozen pool - the stream extended to it - less
-    ///      the cut; to the shift of the stream the migration folded, which v3 divides by the supply less the gap where
-    ///      v2 divided by the supply, and a wei at each of two floors; a cut telling against no cut.
-    function _checkDeducted(RecordCheck memory c, StabilityPoolRewardRecordLib.RewardRecord memory original) private {
+    ///      the cut taken in its token, if any; to the shift of the stream the migration folded, which v3 divides by
+    ///      the supply less the gap where v2 divided by the supply, and a wei at each of two floors; a cut telling
+    ///      against no cut.
+    function _checkSettledOnFrozen(
+        RecordCheck memory c,
+        StabilityPoolRewardRecordLib.RewardRecord memory original
+    ) private {
         assertEq(c.copy.claimed, original.claimed, string.concat(c.what, ": claimed copied"));
         assertEq(c.copy.timestamp, c.settledAt, string.concat(c.what, ": settled at the migration's moment"));
         uint256 now_ = block.timestamp;
@@ -303,13 +311,36 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
             c.gap < 0 ? uint256(-c.gap) : uint256(c.gap),
             uint256(int256(c.supply) - c.gap)
         ) + 2;
-        assertDiscriminates(
-            c.copy.pending,
-            couldClaim - c.cut,
-            tolerance,
-            couldClaim,
-            string.concat(c.what, ": pending is what it could claim when settled, less the cut, not uncut")
-        );
+        if (c.cut == 0) {
+            assertApprox(
+                c.copy.pending,
+                couldClaim,
+                tolerance,
+                string.concat(c.what, ": pending is what it could claim when settled, nothing taken in this token")
+            );
+        } else {
+            assertDiscriminates(
+                c.copy.pending,
+                couldClaim - c.cut,
+                tolerance,
+                couldClaim,
+                string.concat(c.what, ": pending is what it could claim when settled, less the cut, not uncut")
+            );
+        }
+    }
+
+    /// @dev Whether a reward was taken from `holder` in this pool, in any token: the migration then settled every
+    ///      record of its.
+    function _isDeducted(
+        IStabilityPool_v3_Upgrader.Deduction[] memory taken,
+        address holder
+    ) private pure returns (bool) {
+        for (uint256 d = 0; d < taken.length; ++d) {
+            if (taken[d].account == holder) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// @dev The deductions the `poolType` pool's migration takes: the compensation's, for a leveraged pool of a market
