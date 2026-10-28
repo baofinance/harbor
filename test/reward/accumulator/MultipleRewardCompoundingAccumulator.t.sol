@@ -54,7 +54,9 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     ) internal returns (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) {
         // Deploy accumulator
         accumulator = createMultipleRewardCompoundingAccumulator(periodLength);
-        accumulator.initialize(address(this), address(0));
+        // The test is the owner throughout: the deployer owner hands over to the pending owner an hour after
+        // initialization, and the tests run for weeks.
+        accumulator.initialize(address(this), address(this));
 
         // Grant manager role
         accumulator.grantRoles(manager, accumulator.REWARD_MANAGER_ROLE());
