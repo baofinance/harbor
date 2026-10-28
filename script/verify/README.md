@@ -9,8 +9,9 @@ Documentation that was previously in `doc/fixes/` lives alongside the
 verification scripts it relates to.
 
 The campaigns sit outside forge's test directory, where `forge test --match-path` finds nothing and still exits 0. The
-upgrade campaigns' runners go through [run-campaign-test](run-campaign-test), which points forge at the campaign and
-fails unless at least one test ran.
+upgrade campaigns' runners go through [run-campaign-test](run-campaign-test), which points forge at the campaign,
+builds into `out/_campaign` and `cache/_campaign` so the main build's artifacts stay the main build's, and fails
+unless at least one test ran.
 
 Campaigns whose operation has been carried out - the Minter v1→v2 and StabilityPool v1→v2 upgrades, the ETH::fxUSD SPL
 remediation - are kept, no longer compiled, under `deprecated/script/verify/`.

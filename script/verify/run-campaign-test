@@ -7,6 +7,15 @@
 # otherwise with forge's own status. Dynamic test linking is off, as in `yarn test`: with it on, a test that deploys
 # an edited contract can run its previous bytecode.
 #
+# `--deny never` keeps that cache, as in `yarn test`: with warnings denied (foundry.toml), forge 1.8 writes none and
+# every run compiles everything.
+#
+# The build goes to its own output and cache directories, as the sizes build's does. With the test directory moved,
+# forge compiles with one remapping more (`test/=test/`), so every artifact differs from the main build's by its
+# metadata hash. Sharing `out/` and `cache/` with `yarn test` let each run overwrite the other's artifacts while the
+# cache kept the other's bytecode compiled into the deploy scripts, and the provenance records - which name a
+# contract by matching its deployed code to an artifact exactly - then named nothing and wrote addresses.
+#
 # Usage, from the repository root:
 #   script/verify/run-campaign-test <campaign directory> <log file> <forge test arguments>...
 # e.g.
@@ -20,7 +29,8 @@ shift 2
 mkdir -p "$(dirname "$LOG")"
 
 set +e
-FOUNDRY_TEST="$CAMPAIGN_DIR" forge test --no-dynamic-test-linking "$@" 2>&1 | tee "$LOG"
+FOUNDRY_TEST="$CAMPAIGN_DIR" forge test --no-dynamic-test-linking --deny never --out out/_campaign \
+  --cache-path cache/_campaign "$@" 2>&1 | tee "$LOG"
 status=${PIPESTATUS[0]}
 set -e
 
