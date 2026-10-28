@@ -8,6 +8,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Deployer} from "@bao-script/deployment/Deployer.sol";
+import {JsonSerializer} from "@bao-script/deployment/JsonSerializer.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -348,6 +349,8 @@ contract CompensateRebalanceDilutionTest is BaoTest {
             frozen[m].peggedSupply = 100 ether;
             frozen[m].leveragedSupply = 50 ether;
             frozen[m].wrapped = address(0xEE);
+            frozen[m].readBlock = 1000;
+            frozen[m].readTime = 1_700_000_000;
         }
     }
 
@@ -451,6 +454,27 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         string memory path = "tmp/phase1-preview.md";
         run.writeReport(path, markets, p);
         string memory report = vm.readFile(path);
+        // The header names the block the figures are priced at, with its time and why it was chosen, not the block
+        // the report was written at.
+        assertTrue(
+            vm.contains(
+                report,
+                string.concat(
+                    "priced at the oracle reading of block ",
+                    vm.toString(p.stateBefore[0].readBlock),
+                    " (",
+                    JsonSerializer.formatTimestamp(p.stateBefore[0].readTime),
+                    "), the last block before the pause"
+                )
+            ),
+            "the header names the capture's block, its time and why"
+        );
+        assertEq(
+            p.stateBefore[0].readBlock,
+            HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE),
+            "which is the capture's block"
+        );
+        assertFalse(vm.contains(report, ", at block "), "the report is not stamped with the block it was written at");
         for (uint256 m = 0; m < markets.length; ++m) {
             string memory leveraged = IERC20Metadata(before[m].leveraged).symbol();
             string memory pegged = IERC20Metadata(before[m].pegged).symbol();
