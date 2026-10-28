@@ -72,12 +72,21 @@ prompt() {
 }
 
 # Run the campaign's tests matching <contract> with the given forge arguments, logging to $OUT/<log>. The capture runs
-# every market's interactions in one test call, so the block gas limit is lifted.
+# every market's interactions in one test call, so the block gas limit is lifted. A step given an RPC (--rpc-url
+# mainnet for one forking mainnet from inside its tests, --fork-url local for one against anvil) has the provider's
+# refusals (HTTP 429, a rate limit) retried with a backoff - forge accepts the retry options only with an RPC - and
+# one forking mainnet paces its requests too, as the other campaign runners do; a step against anvil is not paced,
+# anvil being local, and a step forking nothing is given nothing.
 campaign_test() {
   local log="$1" contract="$2"
   shift 2
+  local pacing=()
+  if [[ " $* " == *" --rpc-url "* || " $* " == *" --fork-url "* ]]; then
+    pacing=(--fork-retries 100 --fork-retry-backoff 5000)
+    [[ " $* " == *" local "* ]] || pacing+=(--compute-units-per-second 50)
+  fi
   script/verify/run-campaign-test script/verify/v3-upgrade "$OUT/$log" --mc "$contract" "$@" \
-    "$FORGE_VERBOSITY" --disable-block-gas-limit
+    "$FORGE_VERBOSITY" --disable-block-gas-limit "${pacing[@]}"
 }
 
 echo "======================================================================"
@@ -96,13 +105,13 @@ campaign_test expectations.log CaptureExpectations
 
 echo ""
 echo "Read point: the state the upgrade reads is the state it runs on..."
-campaign_test read-point.log FrozenMarketsReadPoint
+campaign_test read-point.log FrozenMarketsReadPoint --rpc-url mainnet
 
 # Independent of the rehearsal below: a failure here is reported at the end, after the rehearsal has run.
 echo ""
 echo "Native settings: each upgraded market holds the settings a native deploy sets..."
 set +e
-campaign_test native-settings.log UpgradedMarketsMatchANativeDeploy
+campaign_test native-settings.log UpgradedMarketsMatchANativeDeploy --rpc-url mainnet
 native_status=$?
 set -e
 
@@ -122,7 +131,7 @@ echo "  START_TIMESTAMP: $START_TIMESTAMP (anvil head's time + 12000s)"
 
 echo ""
 echo "Prong A: capturing the before, on mainnet at the capture's block..."
-VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test before.log MarketsCapture
+VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test before.log MarketsCapture --rpc-url mainnet
 
 echo ""
 echo "Running Upgrade_MarketsToV3_mainnet on anvil (--broadcast --local)..."
@@ -147,7 +156,8 @@ campaign_test storage-copy.log MarketsStorageCopy --fork-url local
 echo ""
 echo "Prong A: writing the expected after..."
 # The compensated markets' expectations read the minters' events on anvil, from the block after its head.
-START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test expected-after.log MarketsExpectedAfter
+START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test expected-after.log MarketsExpectedAfter \
+  --rpc-url mainnet
 
 # Each record with its keys sorted, so the diff compares values, not the order they were written in.
 for side in expected-after after; do

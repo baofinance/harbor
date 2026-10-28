@@ -182,11 +182,21 @@ else
   fi
 fi
 
-# Build anvil command
+# Build anvil command. Anvil's requests to the provider are paced and retried with a backoff when the provider
+# refuses them (HTTP 429, Infura's rate limit), as the campaign runners pace forge's: forking the latest block, a
+# burst of fresh-address fetches is refused otherwise, and the one request that fails reverts whatever needed it -
+# a deploy script's first `new`. Passing any of the pacing options, or --no-rate-limit, replaces all three.
+PACING=(--retries 100 --fork-retry-backoff 5000 --compute-units-per-second 50)
+for arg in "${PASSTHROUGH[@]}"; do
+  case "$arg" in
+    --retries | --fork-retry-backoff | --compute-units-per-second | --no-rate-limit) PACING=() ;;
+  esac
+done
 ANVIL_ARGS=(
   --fork-url "mainnet"
   --auto-impersonate
   "${FORK_ARGS[@]}"
+  "${PACING[@]}"
 )
 echo "Forking mainnet $FORK_POINT"
 

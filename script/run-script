@@ -163,7 +163,9 @@ CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null) || {
   exit 1
 }
 
-FORGE_ARGS=(--rpc-url "$RPC_URL")
+# A script's forks of mainnet - a frozen read at a pinned block - retry the provider's refusals (HTTP 429, a rate
+# limit) with a backoff rather than fail on the first; the happy path pays nothing for it.
+FORGE_ARGS=(--rpc-url "$RPC_URL" --fork-retries 100 --fork-retry-backoff 5000)
 
 # ── Account / signer ─────────────────────────────────────────────────────
 

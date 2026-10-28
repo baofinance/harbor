@@ -42,7 +42,9 @@ script/verify/v3-upgrade/run-upgrade-rehearsal
 ```
 
 Start anvil when asked (`script/anvil --block latest`). The run must end with PASS. What it checks is described under
-[How the rehearsal checks the upgrade](#how-the-rehearsal-checks-the-upgrade).
+[How the rehearsal checks the upgrade](#how-the-rehearsal-checks-the-upgrade). Every request to the RPC provider is
+paced and retried against its rate limit - anvil's to its upstream by `script/anvil`, the steps' by the runner, the
+script's own forks by `script/run-script` - so a refusal (HTTP 429) waits rather than fails the run.
 
 ### 3. Deploy and save the batches
 
