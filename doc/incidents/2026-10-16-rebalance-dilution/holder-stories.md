@@ -250,6 +250,7 @@ It is the fee receiver of every market. All counts, no price:
 - **BTC::stETH:** +3.003 wstETH (0.1115 BTC) and +0.07405 haBTC, in minting, redemption and early-withdrawal fees.
 - **EUR::stETH:** +0.9899 wstETH (2,691 EUR) and +1,584 haEUR.
 
+Which operation paid which fee is under [How each exploit made its take](#how-each-exploit-made-its-take-operation-by-operation).
 It still holds the haBTC and haEUR at the pause. Its wstETH is not followed after the exploit.
 
 **Proposed treatment:** return the fees to the repayment.
@@ -260,6 +261,68 @@ It still holds the haBTC and haEUR at the pause. Its wstETH is not followed afte
 - `0x0A678044…66F2`, EUR::stETH: 1.455 wstETH, swapped for 1.813 ETH on 2026-10-16.
 
 **Proposed treatment:** none through the contracts. Recovering this is a matter outside them.
+
+## How each exploit made its take, operation by operation
+
+Each exploit was one transaction by a contract made for it, on a flash loan of wstETH. The exact figures of every step
+are in the figures files, under "What the transaction did" and "The caller's gain, flow by flow"; here they are rounded,
+in wstETH, and sorted by what each operation did to the caller's take and to the multisig's fees.
+
+**The take came from one operation: the rebalance.** The caller had deposited nearly all of the leveraged pool, so it
+received nearly all of what the rebalance paid that pool - 20 leveraged tokens for each pegged token taken, where a
+pegged token had been worth about 1.4 (BTC) or 1.2 (EUR) of them before the transaction. Everything else in the
+transaction either set that up or paid for it: the
+mints and redemptions pushed the collateral ratio down to where a rebalance could be called, and each of them paid a
+fee to the multisig. The price part of the holders' loss is this same operation seen from the other side: the tokens
+minted at 20 per pegged diluted every leveraged token, and the caller redeemed its new tokens before the dilution
+could matter to it.
+
+### BTC::stETH — the caller `0x2b9bE8d7…902D`, paying `0x61F31C7B…A880` 6.43 wstETH
+
+| Operation | Count | The caller's take | The multisig's fee |
+|---|---|---|---|
+| Minted 5.63 hsSTETH-BTC with 108.5 wstETH | 1 | | +0.530 wstETH |
+| Minted 8.95 haBTC with 241.5 wstETH | 4 | | +0.563 wstETH |
+| Deposited 8.86 haBTC in the leveraged pool | 1 | | |
+| Redeemed 5.61 hsSTETH-BTC for 106.3 wstETH, lowering the collateral ratio to the rebalance threshold | 40 | | +1.155 wstETH |
+| Called `rebalance`: the manager took 1.55 haBTC from the pools and minted 30.08 hsSTETH-BTC for them; the leveraged pool gave 1.50 haBTC (worth 40.5) and got 29.78 hsSTETH-BTC | 1 | the pool position: −39.14 for the haBTC taken, +50.50 for the 28.78 hsSTETH-BTC claimed next, at the price after: **+11.36** | |
+| The rebalance's bounty, 1% of what it minted and redeemed: 0.0135 wstETH and 0.30 hsSTETH-BTC | 1 | **+0.54** | |
+| Its own 0.0275 hsSTETH-BTC left from the redemptions, held through the rebalance's price fall (0.7117 to 0.0652 BTC) | | **−0.48** | |
+| Claimed 28.78 hsSTETH-BTC from the leveraged pool and redeemed 29.11 for 50.3 wstETH | 1 + 4 | | +0.755 wstETH |
+| Withdrew 7.33 haBTC from the leveraged pool, paying the early-withdrawal fee | 1 | **−1.99** (the fee, in value) | +0.0740 haBTC (1.99 wstETH) |
+| Redeemed 7.42 haBTC for 199.8 wstETH | 1 | | none: no fee was due at that collateral ratio |
+| Repaid the 350 wstETH loan; paid out the rest | | | |
+| **Sum** | | **+6.43** | **5.00** (3.003 wstETH + 0.074 haBTC) |
+
+The mint and redemption fees, 3.00 wstETH, are the caller's fourth flow (**−3.00**): +11.36 + 0.54 − 0.48 − 1.99 − 3.00
+= +6.43. Of a gross gain of 11.9, the multisig's fees took 5.0, the price fall on its leftovers 0.5, and 6.4 was paid
+out.
+
+### EUR::stETH — the caller `0x3e5604AF…66ba`, paying `0x0A678044…66F2` 1.45 wstETH
+
+| Operation | Count | The caller's take | The multisig's fee |
+|---|---|---|---|
+| Minted 64,558 hsSTETH-EUR with 20 wstETH | 1 | | +0.100 wstETH |
+| Minted 197,013 haEUR with 72.8 wstETH | 6 | | +0.344 wstETH |
+| Deposited all 197,013 haEUR in the leveraged pool | 1 | | |
+| Redeemed 63,438 hsSTETH-EUR for 19.3 wstETH, lowering the collateral ratio to the rebalance threshold | 10 | | +0.286 wstETH |
+| Called `rebalance`: the manager took 39,779 haEUR from the pools and minted 783,877 hsSTETH-EUR for them; the leveraged pool gave 39,194 haEUR (worth 14.4) and got 776,038 hsSTETH-EUR | 1 | the pool position: −14.20 for the haEUR taken, +17.37 for the 764,447 hsSTETH-EUR claimed next, at the price after: **+3.17** | |
+| The rebalance's bounty: 0.0022 wstETH and 7,839 hsSTETH-EUR | 1 | **+0.18** | |
+| Its own 1,120 hsSTETH-EUR left from the redemptions, held through the price fall (0.8380 to 0.0618 EUR) | | **−0.32** | |
+| Claimed 764,447 hsSTETH-EUR from the leveraged pool and redeemed 773,405 for 17.3 wstETH | 1 + 1 | | +0.261 wstETH |
+| Withdrew 156,821 haEUR from the leveraged pool, paying the early-withdrawal fee | 1 | **−0.58** (the fee, in value) | +1,584 haEUR (0.58 wstETH) |
+| Redeemed 156,821 haEUR for 57.7 wstETH | 1 | | none |
+| Repaid the 180 wstETH loan; paid out the rest | | | |
+| **Sum** | | **+1.45** | **1.57** (0.990 wstETH + 1,584 haEUR) |
+
+With the mint and redemption fees as the caller's fourth flow (**−0.99**): +3.17 + 0.18 − 0.32 − 0.58 − 0.99 = +1.45. Of a
+gross gain of 3.35, the multisig's fees took 1.57, the price fall on its leftovers 0.32, and 1.45 was paid out.
+
+### What this says about the fees
+
+The multisig's 6.57 wstETH of fees are the exploits' own payments: every one of them came out of the callers' gross gain,
+none from a holder. Returning them to the holders moves back what the exploits paid for the damage, not what they took:
+the 7.88 wstETH paid out is the rest of the holders' loss and sits in the two accounts above.
 
 ## Since the exploits: the rebalance bots
 
