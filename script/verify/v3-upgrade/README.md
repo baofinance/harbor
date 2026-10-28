@@ -57,7 +57,8 @@ This is the rehearsal's command with `--account` in place of `--local`. It:
   `FrozenPriceOracle`s (BTC::stETH's and EUR::stETH's compensation);
 - saves 11 batch files, one per market, as
   `deployments/mainnet/batch/Upgrade_MarketsToV3_mainnet_<time>_<market>@harbor_multisig.json`;
-- adds the new implementations to `deployments/mainnet/harbor_v1.state.json`;
+- adds every contract it deploys to `deployments/mainnet/harbor_v1.state.json`: the implementations under their
+  proxies, the upgraders and the frozen oracles under `*`, as one-shots;
 - writes the compensation as queued to `doc/incidents/2026-10-16-rebalance-dilution/phase1.md`.
 
 The batch files are written before any transaction is sent. If the run stops part way, finish it with `--resume`, and
@@ -68,6 +69,15 @@ Safe.
 
 ```bash
 script/decode-safe-batch <batch.json>
+```
+
+The decoder names every address a batch carries from the state file of the salt prefix the batch names in its meta,
+`<salt prefix>.state.json` beside the batch's directory: a batch under `deployments/mainnet/batch/` from mainnet's
+state, a rehearsal's under `deployments/local/mainnet/batch/` from the rehearsal's. An implementation reads as its
+contract, source, the proxy it serves or "one-shot", and its deploy time, for example:
+
+```
+newImplementation: 0x8456B2…  // Minter_v3 - @harbor/minter/Minter_v3.sol, impl for BTC::stETH::minter, deployed 2026-10-28T17:17:59Z
 ```
 
 Each market's batch holds these calls, in this order:

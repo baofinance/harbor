@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 
@@ -26,11 +27,13 @@ contract MarketUpgradeRun is UpgradeMarketToV3 {
 
 /// @dev The production upgrade of markets a pause has frozen, as the upgrade script runs it - read at the capture's
 ///      block, upgraded on the fork selected - for the markets and capture it is constructed with, each market's batch
-///      carrying the owner's operations it is constructed with: one per market, or none at all.
+///      carrying the owner's operations it is constructed with: one per market, or none at all. What the run
+///      recorded in its deployment state is kept for reading.
 contract FrozenMarketUpgradeRun is UpgradeMarketToV3 {
     Config_MinterMarket[] private _markets;
     string private _capture;
     OwnerOperations[] private _operations;
+    DeploymentTypes.ImplementationRecord[] private _recorded;
 
     constructor(Config_MinterMarket[] memory markets_, string memory capture_, OwnerOperations[] memory operations_) {
         _markets = markets_;
@@ -45,6 +48,14 @@ contract FrozenMarketUpgradeRun is UpgradeMarketToV3 {
         for (uint256 i = 0; i < _operations.length; ++i) {
             inputs[i].ownerOperations = _operations[i];
         }
-        upgradeMarketsToV3(inputs, "mainnet");
+        DeploymentTypes.State memory state = upgradeMarketsToV3(inputs, "mainnet");
+        for (uint256 i = 0; i < state.implementations.length; ++i) {
+            _recorded.push(state.implementations[i]);
+        }
+    }
+
+    /// @notice Every implementation the run recorded in its deployment state, in order.
+    function recorded() public view returns (DeploymentTypes.ImplementationRecord[] memory) {
+        return _recorded;
     }
 }

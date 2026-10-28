@@ -187,24 +187,44 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///         predicts; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders,
     ///         gap and deductions its input holds; of its manager; then the owner's operations its input names, in
     ///         that order. A market with operations is moved instead to a `FrozenPriceOracle` answering their reading,
-    ///         deployed here, before its pools' migration, and to the oracle proxy after the operations. Refuses a pool
-    ///         whose new implementation would not keep the floor or withdrawal window read.
+    ///         deployed here, before its pools' migration, and to the oracle proxy after the operations. Every
+    ///         contract deployed is recorded in the state returned and saved: the implementations under their proxies,
+    ///         the upgraders and frozen oracles under `*`, so every address a batch names can be named from the state.
+    ///         Refuses a pool whose new implementation would not keep the floor or withdrawal window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
-    function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
-        DeploymentTypes.State memory state = _shouldPersistState()
+    function upgradeMarketsToV3(
+        MarketUpgradeInput[] memory inputs,
+        string memory network
+    ) internal returns (DeploymentTypes.State memory state) {
+        state = _shouldPersistState()
             ? DeploymentState.loadOrFresh(_stateFileRead(), saltPrefix(), network)
             : DeploymentState.fresh(saltPrefix(), network);
         state.baoFactory = baoFactory();
         _reportRun(_WHAT, saltPrefix(), network);
 
         // Each upgrader upgrades a proxy away from itself in the call that runs it, so one serves every pool, and one
-        // every minter that records backing it holds none of - deployed only when a minter does.
+        // every minter that records backing it holds none of - deployed only when a minter does. Each is recorded in
+        // the state under `*`, a one-shot serving no proxy, so a batch naming it can be read against the state.
         address upgrader = address(new StabilityPool_v3_Upgrader(owner()));
+        _recordImplementation(
+            state,
+            "*",
+            "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol",
+            "StabilityPool_v3_Upgrader",
+            upgrader
+        );
         address minterUpgrader;
         for (uint256 i = 0; i < inputs.length; ++i) {
             if (_recordsBackingItHoldsNoneOf(inputs[i])) {
                 minterUpgrader = address(new Minter_v3_Upgrader(owner()));
+                _recordImplementation(
+                    state,
+                    "*",
+                    "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol",
+                    "Minter_v3_Upgrader",
+                    minterUpgrader
+                );
                 break;
             }
         }
@@ -264,6 +284,13 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 OracleAnswer memory answer = inputs[i].ownerOperations.answer;
                 address frozen = address(
                     new FrozenPriceOracle(answer.minPrice, answer.maxPrice, answer.minRate, answer.maxRate)
+                );
+                _recordImplementation(
+                    state,
+                    "*",
+                    "@harbor-script/UpgradeMinter_v2_v3/FrozenPriceOracle.sol",
+                    "FrozenPriceOracle",
+                    frozen
                 );
                 queue(
                     minterKey(config),

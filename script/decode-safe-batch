@@ -3,24 +3,31 @@
 # decode-safe-batch.sh
 #
 # Decode the calldata in a Safe transaction-builder batch using LOCAL Foundry
-# build artifacts (out/), label addresses from a deployment registry, and
-# recursively decode nested calldata (e.g. the initializer inside
-# upgradeToAndCall(address,bytes)).
+# build artifacts (out/), name every address it carries from the deployment
+# state file beside the batch, and recursively decode nested calldata (e.g. the
+# initializer inside upgradeToAndCall(address,bytes)).
+#
+# The state file is `<salt prefix>.state.json` in the directory the batch's
+# `batch/` directory sits in - `deployments/<network>/` for a batch saved for the
+# multisig, `deployments/local/<network>/` for a rehearsal's - the salt prefix
+# being the batch's meta name, which the deployer writes. So a batch is named
+# from the deployments it was built against. An implementation is named by its
+# contract, source file, the proxy it serves - or "one-shot" for a contract
+# recorded under `*`, such as an upgrader or a frozen oracle - and its deploy
+# time; a proxy by its key.
 #
 # Usage:
-#   ./decode-safe-batch.sh [-r registry.json] [-o out-dir] <batch.json>
+#   script/decode-safe-batch [-o out-dir] <batch.json>
 #
 # Requires: jq, cast (run `forge build` first). awk is used for labeling.
 
 set -euo pipefail
 
-REGISTRY="deployments/mainnet/harbor_v1.state.json"
 OUT_DIR="out"
-usage() { echo "usage: $0 [-r registry.json] [-o out-dir] <batch.json>" >&2; }
+usage() { echo "usage: $0 [-o out-dir] <batch.json>" >&2; }
 
-while getopts ":r:o:h" opt; do
+while getopts ":o:h" opt; do
   case "$opt" in
-    r) REGISTRY="$OPTARG" ;;
     o) OUT_DIR="$OPTARG" ;;
     h)
       usage
@@ -58,6 +65,19 @@ command -v cast >/dev/null 2>&1 || {
   echo "error: batch file not found: $BATCH" >&2
   exit 1
 }
+# The state file beside the batch: `<salt prefix>.state.json` in the directory above the batch's, the salt prefix
+# being the batch's meta name.
+SALT_PREFIX="$(jq -r '.meta.name // empty' "$BATCH")"
+[[ -n "$SALT_PREFIX" ]] || {
+  echo "error: the batch names no salt prefix (meta.name): $BATCH - a batch is named from the state file of the salt prefix it was built under" >&2
+  exit 1
+}
+DEPLOY_DIR="$(dirname "$(dirname "$BATCH")")"
+REGISTRY="$DEPLOY_DIR/$SALT_PREFIX.state.json"
+[[ -f "$REGISTRY" ]] || {
+  echo "error: no state file $REGISTRY for the salt prefix $SALT_PREFIX the batch names" >&2
+  exit 1
+}
 [[ -d "$OUT_DIR" ]] || {
   echo "error: artifacts dir not found: $OUT_DIR (run 'forge build')" >&2
   exit 1
@@ -84,27 +104,24 @@ done < <(
 )
 echo "Indexed ${#SIG[@]} unique selectors." >&2
 
-# address -> label, from the registry (optional).
+# address -> label, from the state file: an implementation by its contract, source, the proxy it serves (or
+# "one-shot" where it is recorded under `*`) and its deploy time; a proxy by its key.
 declare -A LABEL
-MAPFILE=""
-if [[ -n "$REGISTRY" ]]; then
-  [[ -f "$REGISTRY" ]] || {
-    echo "error: registry not found: $REGISTRY" >&2
-    exit 1
-  }
-  MAPFILE="$(mktemp)"
-  trap 'rm -f "$MAPFILE"' EXIT
-  jq -r '
-    (.implementations // {} | to_entries[]
-       | [(.key|ascii_downcase), (.value.contractType + " (impl for " + .value.proxy + ")")] | @tsv),
-    (.proxies // {} | to_entries[]
-       | [(.value.address|ascii_downcase), (.key + " (proxy)")] | @tsv)
-  ' "$REGISTRY" >"$MAPFILE"
-  while IFS=$'\t' read -r addr label; do
-    [[ -n "$addr" ]] && LABEL["$addr"]="$label"
-  done <"$MAPFILE"
-  echo "Loaded ${#LABEL[@]} address labels from $(basename "$REGISTRY")." >&2
-fi
+MAPFILE="$(mktemp)"
+trap 'rm -f "$MAPFILE"' EXIT
+jq -r '
+  (.implementations // {} | to_entries[]
+     | [(.key|ascii_downcase),
+        (.value.contractType + " - " + .value.contractSource + ", "
+         + (if .value.proxy == "*" then "one-shot" else "impl for " + .value.proxy end)
+         + ", deployed " + .value.deploymentTime)] | @tsv),
+  (.proxies // {} | to_entries[]
+     | [(.value.address|ascii_downcase), (.key + " (proxy)")] | @tsv)
+' "$REGISTRY" >"$MAPFILE"
+while IFS=$'\t' read -r addr label; do
+  [[ -n "$addr" ]] && LABEL["$addr"]="$label"
+done <"$MAPFILE"
+echo "Loaded ${#LABEL[@]} address labels from $REGISTRY." >&2
 echo >&2
 
 #>>> HELPERS (kept between markers so they can be unit-tested in isolation)

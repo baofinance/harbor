@@ -10,6 +10,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 
 import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -419,13 +420,7 @@ contract UpgradeMarketToV3Test is Test {
     function test_theOwnerOperatesAtTheCaptureBlocksReading() public {
         RetiredBesideLive memory fixture = _retiredBesideLive();
         address paid = makeAddr("paid");
-        UpgradeMarketToV3.OwnerOperations[] memory operations = new UpgradeMarketToV3.OwnerOperations[](2);
-        operations[1].answer = fixture.liveAnswer;
-        operations[1].accounts = new address[](1);
-        operations[1].accounts[0] = paid;
-        operations[1].mints = new uint256[](1);
-        operations[1].mints[0] = 0.001 ether;
-        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, operations);
+        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, _aMintFor(paid, fixture));
 
         vm.recordLogs();
         frozenUpgrade.run("harbor_v1");
@@ -443,6 +438,59 @@ contract UpgradeMarketToV3Test is Test {
         assertEq(IMinter(fixture.liveMinter).priceOracle(), fixture.livePredictedOracle, "which it reads after");
         assertGt(IERC20(fixture.liveLeveraged).balanceOf(paid), 0, "the account named was minted for");
         assertEq(_oracleMoves(logs, fixture.retiredMinter).length, 1, "GOLD::fxUSD, with no operations, is moved once");
+    }
+
+    /// The upgrade records every contract it deploys in the deployment state it saves, the one-shot ones under `*`:
+    /// the pool upgrader, the minter upgrader GOLD::fxUSD needs, and the frozen oracle BTC::stETH's operations read,
+    /// the very one its batch points the minter at - each with its contract, source and the run's time, so every
+    /// address a batch names can be named from the state.
+    function test_theUpgradeRecordsItsOneShotContracts() public {
+        RetiredBesideLive memory fixture = _retiredBesideLive();
+        FrozenMarketUpgradeRun frozenUpgrade = _frozenUpgrade(fixture.markets, _aMintFor(makeAddr("paid"), fixture));
+
+        vm.recordLogs();
+        frozenUpgrade.run("harbor_v1");
+        address[] memory moves = _oracleMoves(vm.getRecordedLogs(), fixture.liveMinter);
+        DeploymentTypes.ImplementationRecord[] memory recorded = frozenUpgrade.recorded();
+
+        DeploymentTypes.ImplementationRecord memory oracle = _recordedAs(recorded, "FrozenPriceOracle");
+        assertEq(
+            oracle.implementation,
+            moves[0],
+            "the frozen oracle recorded is the one the batch points the minter at"
+        );
+        assertEq(oracle.proxy, "*", "recorded as a one-shot");
+        assertEq(oracle.contractSource, "@harbor-script/UpgradeMinter_v2_v3/FrozenPriceOracle.sol", "with its source");
+        assertEq(oracle.deploymentTime, uint64(block.timestamp), "at the run's time");
+        assertEq(_recordedAs(recorded, "StabilityPool_v3_Upgrader").proxy, "*", "the pool upgrader, a one-shot");
+        assertEq(_recordedAs(recorded, "Minter_v3_Upgrader").proxy, "*", "the minter upgrader, a one-shot");
+    }
+
+    /// @dev The owner's operations with one fee-free mint of 0.001 wstETH for `account` in BTC::stETH's batch, priced
+    ///      at the reading its oracle gave at the capture's block, and none in GOLD::fxUSD's.
+    function _aMintFor(
+        address account,
+        RetiredBesideLive memory fixture
+    ) private pure returns (UpgradeMarketToV3.OwnerOperations[] memory operations) {
+        operations = new UpgradeMarketToV3.OwnerOperations[](2);
+        operations[1].answer = fixture.liveAnswer;
+        operations[1].accounts = new address[](1);
+        operations[1].accounts[0] = account;
+        operations[1].mints = new uint256[](1);
+        operations[1].mints[0] = 0.001 ether;
+    }
+
+    /// @dev The record of the one contract of type `contractType` among `recorded`.
+    function _recordedAs(
+        DeploymentTypes.ImplementationRecord[] memory recorded,
+        string memory contractType
+    ) private pure returns (DeploymentTypes.ImplementationRecord memory) {
+        for (uint256 i = 0; i < recorded.length; ++i) {
+            if (keccak256(bytes(recorded[i].contractType)) == keccak256(bytes(contractType))) {
+                return recorded[i];
+            }
+        }
+        revert(string.concat(contractType, " is not recorded"));
     }
 
     /// @dev Where `minter`'s `UpdatePriceOracle` events in `logs` pointed it, in order.
