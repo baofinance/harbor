@@ -244,6 +244,28 @@ library MinterValuationLib {
         }
     }
 
+    /// @notice The leveraged token's price in pegged units at 1e36: the residual - the backing's value at
+    /// `collateralPrice` less the pegged claim - over the leveraged supply, floored; one pegged unit where there is no
+    /// supply. The one definition the minter reports and a sizing before an operation reads.
+    function leveragedTokenPriceE36(
+        uint256 peggedTokenBalance_,
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice,
+        uint256 leveragedTokenBalance_
+    ) internal pure returns (uint256 navE36) {
+        if (leveragedTokenBalance_ == 0) {
+            navE36 = 1e36;
+        } else {
+            (uint256 collateralValueE36, uint256 peggedValueE36) = tokenValuesE36(
+                peggedTokenBalance_,
+                collateralTokenBalance_,
+                collateralPrice
+            );
+            // by definition the leveraged token value is the difference between the collateral value and pegged value
+            navE36 = Math.mulDiv(collateralValueE36 - peggedValueE36, 1e18, leveragedTokenBalance_);
+        }
+    }
+
     function peggedTokenPriceE36(
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,

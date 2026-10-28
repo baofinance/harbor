@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Vm} from "forge-std/Vm.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Deployer} from "@bao-script/deployment/Deployer.sol";
@@ -79,13 +80,16 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         uint256[] minted;
     }
 
-    /// @dev One market's share of the payout as the run sized it: what its two redemptions return, and per account
-    ///      the wrapped collateral minted with and the leveraged that mint returns.
+    /// @dev One market's share of the payout as the run sized it: what its two redemptions return, per account the
+    ///      wrapped collateral minted with and the leveraged that mint returns, and the minter's state before the
+    ///      operations and after them.
     struct Sized {
         uint256 peggedReturn;
         uint256 leveragedReturn;
         uint256[] mints;
         uint256[] leveraged;
+        CompensateRebalanceDilution.FrozenMarket stateBefore;
+        CompensateRebalanceDilution.FrozenMarket stateAfter;
     }
 
     /// @dev The compensated upgrade of BTC::stETH and EUR::stETH, from the frozen capture and the two incident files.
@@ -235,6 +239,28 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         assertEq(p.leveraged[0][1], 1.62 ether, "1.62 collateral buys 1.62 leveraged, after the first mint");
         assertEq(p.leveraged[0][2], 0, "nothing paid, nothing received");
         assertEq(p.leveraged[1][0], 2.7 ether, "2.7 collateral buys 2.7 leveraged");
+        // The state each market's operations leave: the first 98.6 + 1.08 + 1.62 backing against 98 pegged and
+        // 49.6 + 1.08 + 1.62 leveraged; the second 99 + 2.7 against 98 and 50 + 2.7. The reading is untouched.
+        assertEq(p.stateBefore[0].backing, 100 ether, "the first market's backing before");
+        assertEq(p.stateAfter[0].backing, 101.3 ether, "its backing after");
+        assertEq(p.stateAfter[0].peggedSupply, 98 ether, "its pegged supply after");
+        assertEq(p.stateAfter[0].leveragedSupply, 52.3 ether, "its leveraged supply after");
+        assertEq(p.stateAfter[1].backing, 101.7 ether, "the second market's backing after");
+        assertEq(p.stateAfter[1].peggedSupply, 98 ether, "its pegged supply after");
+        assertEq(p.stateAfter[1].leveragedSupply, 52.7 ether, "its leveraged supply after");
+        assertEq(p.stateAfter[0].answer.minPrice, 2 ether, "the reading is as it was");
+        // Every operation is at the price, so the leveraged token's price is where it was - 2 pegged, one collateral,
+        // and at a rate of one 1 wrapped - and the collateral ratio rises with the fees put in: from 200 / 100 to
+        // 202.6 / 98 and 203.4 / 98.
+        (uint256 priceBefore, uint256 wrappedBefore) = run.leveragedPriceAt(p.stateBefore[0]);
+        (uint256 priceAfter, uint256 wrappedAfter) = run.leveragedPriceAt(p.stateAfter[0]);
+        assertEq(priceBefore, 2 ether, "the leveraged price before, in pegged units");
+        assertEq(wrappedBefore, 1 ether, "the leveraged price before, in wrapped collateral");
+        assertEq(priceAfter, 2 ether, "the leveraged price after, unchanged");
+        assertEq(wrappedAfter, 1 ether, "in wrapped collateral too");
+        assertEq(run.collateralRatioAt(p.stateBefore[0]), 2 ether, "the collateral ratio before");
+        assertEq(run.collateralRatioAt(p.stateAfter[0]), 2.067346938775510204 ether, "the first market's ratio after");
+        assertEq(run.collateralRatioAt(p.stateAfter[1]), 2.075510204081632653 ether, "the second market's ratio after");
     }
 
     /// @notice A fund larger than every debt pays each debt whole and no more: the fraction is capped at one, and what
@@ -321,7 +347,22 @@ contract CompensateRebalanceDilutionTest is BaoTest {
             frozen[m].backing = 100 ether;
             frozen[m].peggedSupply = 100 ether;
             frozen[m].leveragedSupply = 50 ether;
+            frozen[m].wrapped = address(0xEE);
         }
+    }
+
+    /// @notice Two markets holding different wrapped collateral tokens cannot share a fund: the sizing refuses them,
+    ///         naming both.
+    function test_sizePayout_refusesMarketsOfDifferentWrappedCollateral() public {
+        CompensationRun run = _aRun();
+        CompensateRebalanceDilution.MarketCompensation[] memory markets = _twoSyntheticMarkets();
+        CompensateRebalanceDilution.FrozenMarket[] memory frozen = _twoFrozenMarkets();
+        frozen[1].wrapped = address(0xFF);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CompensateRebalanceDilution.MarketsOfDifferentWrappedCollateral.selector, "A", "B")
+        );
+        run.size(markets, frozen);
     }
 
     /// @notice The compensated upgrade, as it will run: each market's batch, executed as the multisig at the block after
@@ -366,6 +407,7 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         run.run(SALT);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         CompensateRebalanceDilution.Payout memory p = run.payout();
+        _run = run;
 
         _checkBatches(run, markets, before, p);
         uint256 wrappedOut;
@@ -391,6 +433,66 @@ contract CompensateRebalanceDilutionTest is BaoTest {
             multisigWrapped - fees + dust,
             "the multisig keeps what it held beyond the fees, and the dust"
         );
+        _checkReport(run, markets, p, before);
+    }
+
+    /// @dev The run under test, for the checks after it.
+    CompensationRun private _run;
+
+    /// @dev The payout report, written as the upgrade script writes it: every amount named in its token, the symbols
+    ///      the tokens give, each market's reading held still with the leveraged price before and after, and each
+    ///      account's row. Written under `tmp/`, where it also serves as a preview of the upgrade's own report.
+    function _checkReport(
+        CompensationRun run,
+        CompensateRebalanceDilution.MarketCompensation[] memory markets,
+        CompensateRebalanceDilution.Payout memory p,
+        Before[] memory before
+    ) private {
+        string memory path = "tmp/phase1-preview.md";
+        run.writeReport(path, markets, p);
+        string memory report = vm.readFile(path);
+        for (uint256 m = 0; m < markets.length; ++m) {
+            string memory leveraged = IERC20Metadata(before[m].leveraged).symbol();
+            string memory pegged = IERC20Metadata(before[m].pegged).symbol();
+            assertTrue(
+                vm.contains(report, string.concat("| Receives (", leveraged, ") | Worth at the reading (wstETH) |")),
+                string.concat(markets[m].name, ": the table names the leveraged token received and its worth")
+            );
+            assertTrue(
+                vm.contains(report, string.concat("- ", pegged, " fees: ", _scaled(markets[m].feesPegged))),
+                string.concat(markets[m].name, ": the pegged fees are named in the pegged token")
+            );
+            (uint256 priceBefore, uint256 wrappedBefore) = run.leveragedPriceAt(p.stateBefore[m]);
+            assertTrue(
+                vm.contains(
+                    report,
+                    string.concat(
+                        "1 ",
+                        leveraged,
+                        " = ",
+                        _scaled(priceBefore),
+                        " ",
+                        pegged,
+                        " (",
+                        _scaled(wrappedBefore),
+                        " wstETH) before the batch"
+                    )
+                ),
+                string.concat(markets[m].name, ": the leveraged price before, in both units")
+            );
+        }
+        assertFalse(vm.contains(report, "wrapped)"), "no amount is named 'wrapped'");
+        assertFalse(vm.contains(report, "(leveraged)"), "no amount is named 'leveraged'");
+    }
+
+    /// @dev An 18-decimal amount as the report prints it.
+    function _scaled(uint256 amount) private pure returns (string memory) {
+        string memory fraction = vm.toString(amount % 1 ether);
+        bytes memory zeros = new bytes(18 - bytes(fraction).length);
+        for (uint256 i = 0; i < zeros.length; ++i) {
+            zeros[i] = "0";
+        }
+        return string.concat(vm.toString(amount / 1 ether), ".", string(zeros), fraction);
     }
 
     /// @dev One market's contracts and what only its running contracts answer, on the frozen fork: each account's
@@ -441,6 +543,8 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         sized.leveragedReturn = p.leveragedReturns[m];
         sized.mints = p.mints[m];
         sized.leveraged = p.leveraged[m];
+        sized.stateBefore = p.stateBefore[m];
+        sized.stateAfter = p.stateAfter[m];
     }
 
     /// @dev One market after its batch: the gainers' claimables less their cuts and the others' as they were - to the
@@ -519,6 +623,40 @@ contract CompensateRebalanceDilutionTest is BaoTest {
             IMinter_v3(b.minter).priceOracle(),
             b.predictedOracle,
             string.concat(market.name, ": the minter reads the oracle proxy the deploy predicts after")
+        );
+        _checkStateAsSized(market, b, sized);
+    }
+
+    /// @dev The minter's state the sizing started from is what the running minter answered at the capture's block,
+    ///      with the leveraged price and collateral ratio it reported there; the state the sizing says the operations
+    ///      leave is the minter's state after the batch, exactly: the backing it records, its pegged and leveraged
+    ///      supply.
+    function _checkStateAsSized(
+        CompensateRebalanceDilution.MarketCompensation memory market,
+        Before memory b,
+        Sized memory sized
+    ) private {
+        (uint256 priceBefore, ) = _run.leveragedPriceAt(sized.stateBefore);
+        assertEq(priceBefore, b.leveragedPrice, string.concat(market.name, ": the leveraged price sized from"));
+        assertEq(
+            _run.collateralRatioAt(sized.stateBefore),
+            b.collateralRatio,
+            string.concat(market.name, ": the collateral ratio sized from")
+        );
+        assertEq(
+            IMinter_v3(b.minter).collateralTokenBalance(),
+            sized.stateAfter.backing,
+            string.concat(market.name, ": the backing recorded after is as sized")
+        );
+        assertEq(
+            IMinter_v3(b.minter).peggedTokenBalance(),
+            sized.stateAfter.peggedSupply,
+            string.concat(market.name, ": the pegged supply after is as sized")
+        );
+        assertEq(
+            IMinter_v3(b.minter).leveragedTokenBalance(),
+            sized.stateAfter.leveragedSupply,
+            string.concat(market.name, ": the leveraged supply after is as sized")
         );
     }
 

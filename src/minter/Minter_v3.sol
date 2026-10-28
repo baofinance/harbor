@@ -371,25 +371,13 @@ contract Minter_v3 is
     function leveragedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
         OracleReading memory reading = _readOracle($.priceOracle);
-        (uint256 collateralValueE36, uint256 peggedValueE36) = MinterValuationLib.tokenValuesE36(
-            $.peggedTokenBalance,
-            $.underlyingCollateral,
-            _midPrice(reading)
-        );
-        nav = _leveragedTokenPriceE36(collateralValueE36, peggedValueE36, _leveragedTokenBalance()) / 1 ether;
-    }
-
-    function _leveragedTokenPriceE36(
-        uint256 collateralValueE36,
-        uint256 peggedValueE36,
-        uint256 leveragedTokenBalance_
-    ) internal pure returns (uint256 navE36) {
-        if (leveragedTokenBalance_ == 0) {
-            navE36 = 1e36;
-        } else {
-            // by definition the leveraged token value is the difference between the collateral value and pegged value
-            navE36 = Math.mulDiv(collateralValueE36 - peggedValueE36, 1e18, leveragedTokenBalance_);
-        }
+        nav =
+            MinterValuationLib.leveragedTokenPriceE36(
+                $.peggedTokenBalance,
+                $.underlyingCollateral,
+                _midPrice(reading),
+                _leveragedTokenBalance()
+            ) / 1 ether;
     }
 
     /// @inheritdoc IMinter_v3

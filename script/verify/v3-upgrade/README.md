@@ -90,9 +90,10 @@ treatment in its [holder-stories.md](../../../doc/incidents/2026-10-16-rebalance
 each batch does is under [Each market's batch](#each-markets-batch), item 4. Before signing those two batches:
 
 - **Read `doc/incidents/2026-10-16-rebalance-dilution/phase1.md`**, which step 3 wrote: the fund, the fraction of each
-  debt it pays, and per wallet the wrapped collateral minted with, the leveraged tokens it receives and what it is
-  still owed. Every figure is what the batch moves: the batch prices the operations at the capture block's oracle
-  reading, held still for it, so nothing in it depends on the price at execution.
+  debt it pays, each market's reading held still with the leveraged token's price and the collateral ratio before the
+  operations and after them, and per wallet what it is owed in wstETH, the leveraged tokens it receives, their worth
+  at the reading and what it is still owed. Every figure is what the batch moves: the batch prices the operations at
+  the capture block's oracle reading, held still for it, so nothing in it depends on the price at execution.
 - **Check the decoded batch against it:** the move to the `FrozenPriceOracle`, the pegged fee approved and redeemed,
   the cuts approved and redeemed (BTC::stETH), the wrapped collateral approved for the mints' total, one mint per
   wallet with the amount `phase1.md` states, and the move to the oracle proxy last.

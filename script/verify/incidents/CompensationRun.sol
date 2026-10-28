@@ -73,6 +73,18 @@ contract CompensationRun is CompensateRebalanceDilution {
         return sizePayout(markets, frozen);
     }
 
+    function leveragedPriceAt(FrozenMarket memory state) public pure returns (uint256 pegged, uint256 wrapped) {
+        return leveragedPriceOf(state);
+    }
+
+    function collateralRatioAt(FrozenMarket memory state) public pure returns (uint256) {
+        return collateralRatioOf(state);
+    }
+
+    function writeReport(string memory path, MarketCompensation[] memory markets, Payout memory p) public {
+        writePayoutReport(path, markets, p);
+    }
+
     /// @notice Every market's batch as `run` queued it, in order, whether or not executed since.
     function batches() public view returns (Transaction[] memory) {
         return _batches;

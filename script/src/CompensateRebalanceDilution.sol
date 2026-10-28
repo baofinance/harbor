@@ -5,10 +5,13 @@ import {Vm} from "forge-std/Vm.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
@@ -56,18 +59,21 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
     }
 
     /// @notice What a market's minter prices every operation from, read at the capture's block: the reading its
-    ///         oracle gave, the backing it records, and its pegged and leveraged supply.
+    ///         oracle gave, the backing it records, its pegged and leveraged supply, and the wrapped collateral token
+    ///         it holds - the fund's unit, which every market must share.
     struct FrozenMarket {
         OracleAnswer answer;
         uint256 backing;
         uint256 peggedSupply;
         uint256 leveragedSupply;
+        address wrapped;
     }
 
     /// @notice The payout, sized: the fund and the fraction of each debt it pays; per market, the wrapped collateral
-    ///         its pegged fees redeem for, the wrapped collateral its cuts redeem for, and what it mints with in all;
-    ///         per account, the wrapped collateral minted with for it and the leveraged tokens that mint returns -
-    ///         each as Minter_v3 computes it at the market's frozen reading, so each is what the batch moves.
+    ///         its pegged fees redeem for, the wrapped collateral its cuts redeem for, what it mints with in all, and
+    ///         the minter's state before its operations and after them; per account, the wrapped collateral minted
+    ///         with for it and the leveraged tokens that mint returns - each as Minter_v3 computes it at the market's
+    ///         frozen reading, so each is what the batch moves.
     struct Payout {
         uint256 fund;
         uint256 fraction;
@@ -76,6 +82,8 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
         uint256[] mintTotals;
         uint256[][] mints;
         uint256[][] leveraged;
+        FrozenMarket[] stateBefore;
+        FrozenMarket[] stateAfter;
     }
 
     /// @notice The file names a market no deploy configures.
@@ -93,6 +101,9 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
     /// @notice A market's oracle reported two prices or two rates at the capture's block, which the sizing is not
     ///         proven for.
     error OracleAnswerHasABand(string market, uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate);
+
+    /// @notice Two markets hold different wrapped collateral tokens, so their fees and debts cannot be one fund.
+    error MarketsOfDifferentWrappedCollateral(string market, string other);
 
     /// @notice Read a market's compensation file.
     function readCompensation(string memory file) internal returns (MarketCompensation memory m) {
@@ -155,6 +166,7 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
             frozen[m].backing = IMinter(minter).collateralTokenBalance();
             frozen[m].peggedSupply = IMinter(minter).peggedTokenBalance();
             frozen[m].leveragedSupply = IMinter(minter).leveragedTokenBalance();
+            frozen[m].wrapped = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
         }
         _vm.selectFork(head);
     }
@@ -202,9 +214,11 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
         p.mintTotals = new uint256[](count);
         p.mints = new uint256[][](count);
         p.leveraged = new uint256[][](count);
-        // The redemptions leave each market's state where the mints start from: a copy, so the caller's reading is
-        // not changed under it.
+        p.stateBefore = new FrozenMarket[](count);
+        // The operations move each market's state along, each starting from where the one before left it: a copy,
+        // so the caller's reading is not changed under it, kept as the state after.
         FrozenMarket[] memory state = new FrozenMarket[](count);
+        p.stateAfter = state;
         uint256 debts;
         for (uint256 m = 0; m < count; ++m) {
             OracleAnswer memory answer = frozen[m].answer;
@@ -217,7 +231,23 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
                     answer.maxRate
                 );
             }
-            state[m] = FrozenMarket(answer, frozen[m].backing, frozen[m].peggedSupply, frozen[m].leveragedSupply);
+            if (frozen[m].wrapped != frozen[0].wrapped) {
+                revert MarketsOfDifferentWrappedCollateral(markets[0].name, markets[m].name);
+            }
+            p.stateBefore[m] = FrozenMarket(
+                answer,
+                frozen[m].backing,
+                frozen[m].peggedSupply,
+                frozen[m].leveragedSupply,
+                frozen[m].wrapped
+            );
+            state[m] = FrozenMarket(
+                answer,
+                frozen[m].backing,
+                frozen[m].peggedSupply,
+                frozen[m].leveragedSupply,
+                frozen[m].wrapped
+            );
             if (markets[m].feesPegged > 0) {
                 uint256 outE36 = MinterValuationLib.collateralForPegged(
                     markets[m].feesPegged,
@@ -270,6 +300,30 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
         }
     }
 
+    /// @notice What a wrapped collateral token is worth in pegged units at `answer`: the collateral's price times the
+    ///         wrapped-to-underlying rate, each read where the sizing reads it.
+    function wrappedInPeggedOf(OracleAnswer memory answer) internal pure returns (uint256) {
+        return Math.mulDiv(answer.minPrice, answer.minRate, 1 ether);
+    }
+
+    /// @notice The leveraged token's price at `state`, as the minter reports it: in pegged units, and in wrapped
+    ///         collateral through `wrappedInPeggedOf`, each floored to the wei.
+    function leveragedPriceOf(FrozenMarket memory state) internal pure returns (uint256 pegged, uint256 wrapped) {
+        pegged =
+            MinterValuationLib.leveragedTokenPriceE36(
+                state.peggedSupply,
+                state.backing,
+                state.answer.minPrice,
+                state.leveragedSupply
+            ) / 1 ether;
+        wrapped = Math.mulDiv(pegged, 1 ether, wrappedInPeggedOf(state.answer));
+    }
+
+    /// @notice The collateral ratio at `state`, as the minter reports it.
+    function collateralRatioOf(FrozenMarket memory state) internal pure returns (uint256) {
+        return MinterValuationLib.collateralRatio(state.backing, state.answer.minPrice, state.peggedSupply);
+    }
+
     /// @notice Put the compensation into the upgrade's inputs: for each market a file describes, its leveraged pool
     ///         takes back the gainers' cuts, and the owner's operations after its upgrade - priced at the market's
     ///         frozen reading - redeem the pegged fees and the tokens taken back and mint for each loser its share of
@@ -293,65 +347,206 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
         }
     }
 
-    /// @notice Write the payout as a document: the fund, the fraction, and per market what its redemptions return and
-    ///         every account's debt, cut taken, wrapped collateral minted with, leveraged tokens received and what it
-    ///         is still owed after - the remainder phase 2 settles.
+    /// @notice Write the payout as a document, every amount named in its token - the symbols read from the market's
+    ///         tokens: the fund and the fraction; per market the reading held still, with the leveraged token's price
+    ///         and the collateral ratio before the operations and after them, what its redemptions return and what it
+    ///         mints; per account what it is owed, the cut taken, the leveraged tokens it receives, their worth at the
+    ///         reading - the wrapped collateral minted with - and what it is still owed after, the remainder phase 2
+    ///         settles.
     function writePayoutReport(string memory path, MarketCompensation[] memory markets, Payout memory p) internal {
+        // The fund's unit: the wrapped collateral every market holds, as the sizing requires.
+        string memory wrapped = IERC20Metadata(p.stateBefore[0].wrapped).symbol();
         string memory text = string.concat(
             "# Phase 1 of the repayment, as queued\n\n",
             "Generated by the upgrade script, through `script/src/CompensateRebalanceDilution.sol`, at block ",
             block.number.toString(),
-            ". Amounts in tokens, 18 decimals; every amount is what the market's batch moves, priced at the oracle ",
-            "reading of the capture's block, which the batch holds still for the operations.\n\n",
+            ". Amounts in tokens, 18 decimals, each named in its token. Every amount is what the market's batch ",
+            "moves, priced at the oracle reading of the capture's block, which the batch holds still for the ",
+            "operations. Each wallet that lost receives the market's leveraged token, minted fee-free with its share ",
+            "of the fund; what it receives is worth, at that reading, the ",
+            wrapped,
+            " minted with.\n\n"
+        );
+        text = string.concat(
+            text,
             "- Fund: ",
             _scaled(p.fund),
-            " wrapped collateral - each market's wrapped fees and what its two redemptions return.\n",
-            "- Fraction of each debt paid: ",
+            " ",
+            wrapped,
+            " - each market's ",
+            wrapped,
+            " fees and what its two redemptions return.\n- Fraction of each debt paid: ",
             _scaled(p.fraction),
             "\n"
         );
         for (uint256 m = 0; m < markets.length; ++m) {
-            text = string.concat(
-                text,
-                "\n## ",
-                markets[m].name,
-                "\n\n- Wrapped fees: ",
-                _scaled(markets[m].feesWrapped),
-                "\n- Pegged fees: ",
-                _scaled(markets[m].feesPegged),
-                ", redeemed for ",
-                _scaled(p.peggedReturns[m]),
-                " wrapped\n- Cut tokens taken back: ",
-                _scaled(markets[m].totalCutTokens),
-                ", redeemed for ",
-                _scaled(p.leveragedReturns[m]),
-                " wrapped\n- Minted with: ",
-                _scaled(p.mintTotals[m]),
-                " wrapped\n- Still owed after, in all: ",
-                _scaled(markets[m].totalDebt - p.mintTotals[m]),
-                " wrapped, for phase 2\n\n| Account | Debt (wrapped) | Cut taken (leveraged) | Minted with (wrapped) | ",
-                "Leveraged received | Still owed (wrapped) |\n|---|---|---|---|---|---|\n"
-            );
-            for (uint256 i = 0; i < markets[m].accounts.length; ++i) {
-                text = string.concat(
-                    text,
-                    "| `",
-                    markets[m].accounts[i].toHexStringChecksummed(),
-                    "` | ",
-                    _scaled(markets[m].debts[i]),
-                    " | ",
-                    _scaled(markets[m].cutTokens[i]),
-                    " | ",
-                    _scaled(p.mints[m][i]),
-                    " | ",
-                    _scaled(p.leveraged[m][i]),
-                    " | ",
-                    _scaled(markets[m].debts[i] - p.mints[m][i]),
-                    " |\n"
-                );
-            }
+            text = string.concat(text, _marketReport(markets[m], p, m));
         }
         _vm.writeFile(path, text);
+    }
+
+    /// @dev The symbols of a market's three tokens, as the tokens give them.
+    struct Symbols {
+        string wrapped;
+        string pegged;
+        string leveraged;
+    }
+
+    /// @dev One market's section of the payout report.
+    function _marketReport(
+        MarketCompensation memory market,
+        Payout memory p,
+        uint256 m
+    ) private returns (string memory text) {
+        Symbols memory s = Symbols({
+            wrapped: IERC20Metadata(IHarborConfig(address(market.market)).wrappedCollateralToken()).symbol(),
+            pegged: IERC20Metadata(peggedTokenAddress(market.market)).symbol(),
+            leveraged: IERC20Metadata(leveragedTokenAddress(market.market)).symbol()
+        });
+        text = string.concat("\n## ", market.name, "\n\n", _readingReport(p, m, s), _marketLines(market, p, m, s));
+        text = string.concat(
+            text,
+            "| Account | Owed (",
+            s.wrapped,
+            ") | Taken back (",
+            s.leveraged,
+            ") | Receives (",
+            s.leveraged,
+            ") | Worth at the reading ("
+        );
+        text = string.concat(text, s.wrapped, ") | Still owed (", s.wrapped, ") |\n|---|---|---|---|---|---|\n");
+        for (uint256 i = 0; i < market.accounts.length; ++i) {
+            text = string.concat(text, _accountRow(market, p, m, i));
+        }
+    }
+
+    /// @dev A market's figures: its fees, what its redemptions return, what it mints and what is still owed after.
+    function _marketLines(
+        MarketCompensation memory market,
+        Payout memory p,
+        uint256 m,
+        Symbols memory s
+    ) private pure returns (string memory text) {
+        text = string.concat("- ", s.wrapped, " fees: ", _scaled(market.feesWrapped), "\n- ", s.pegged, " fees: ");
+        text = string.concat(
+            text,
+            _scaled(market.feesPegged),
+            ", redeemed for ",
+            _scaled(p.peggedReturns[m]),
+            " ",
+            s.wrapped,
+            "\n- ",
+            s.leveraged
+        );
+        text = string.concat(
+            text,
+            " taken back: ",
+            _scaled(market.totalCutTokens),
+            ", redeemed for ",
+            _scaled(p.leveragedReturns[m]),
+            " ",
+            s.wrapped,
+            "\n- Minted: "
+        );
+        text = string.concat(
+            text,
+            _scaled(_sum(p.leveraged[m])),
+            " ",
+            s.leveraged,
+            " in all, with ",
+            _scaled(p.mintTotals[m]),
+            " ",
+            s.wrapped
+        );
+        text = string.concat(
+            text,
+            "\n- Still owed after, in all: ",
+            _scaled(market.totalDebt - p.mintTotals[m]),
+            " ",
+            s.wrapped,
+            ", for phase 2\n\n"
+        );
+    }
+
+    /// @dev One account's row: what it is owed, the cut taken, what it receives, its worth at the reading and what
+    ///      it is still owed.
+    function _accountRow(
+        MarketCompensation memory market,
+        Payout memory p,
+        uint256 m,
+        uint256 i
+    ) private pure returns (string memory text) {
+        text = string.concat(
+            "| `",
+            market.accounts[i].toHexStringChecksummed(),
+            "` | ",
+            _scaled(market.debts[i]),
+            " | ",
+            _scaled(market.cutTokens[i]),
+            " | "
+        );
+        text = string.concat(
+            text,
+            _scaled(p.leveraged[m][i]),
+            " | ",
+            _scaled(p.mints[m][i]),
+            " | ",
+            _scaled(market.debts[i] - p.mints[m][i]),
+            " |\n"
+        );
+    }
+
+    /// @dev The reading a market's batch holds still, and the leveraged token's price and the collateral ratio at it,
+    ///      before the market's operations and after them.
+    function _readingReport(Payout memory p, uint256 m, Symbols memory s) private pure returns (string memory text) {
+        (uint256 peggedBefore, uint256 wrappedBefore) = leveragedPriceOf(p.stateBefore[m]);
+        text = string.concat(
+            "- The reading held still: 1 ",
+            s.wrapped,
+            " = ",
+            _scaled(wrappedInPeggedOf(p.stateBefore[m].answer)),
+            " ",
+            s.pegged,
+            ". At it, 1 ",
+            s.leveraged
+        );
+        text = string.concat(
+            text,
+            " = ",
+            _scaled(peggedBefore),
+            " ",
+            s.pegged,
+            " (",
+            _scaled(wrappedBefore),
+            " ",
+            s.wrapped
+        );
+        (uint256 peggedAfter, uint256 wrappedAfter) = leveragedPriceOf(p.stateAfter[m]);
+        text = string.concat(
+            text,
+            ") before the batch and ",
+            _scaled(peggedAfter),
+            " ",
+            s.pegged,
+            " (",
+            _scaled(wrappedAfter),
+            " ",
+            s.wrapped
+        );
+        text = string.concat(
+            text,
+            ") after; the collateral ratio ",
+            _scaled(collateralRatioOf(p.stateBefore[m])),
+            " before and ",
+            _scaled(collateralRatioOf(p.stateAfter[m])),
+            " after.\n"
+        );
+    }
+
+    function _sum(uint256[] memory amounts) private pure returns (uint256 total) {
+        for (uint256 i = 0; i < amounts.length; ++i) {
+            total += amounts[i];
+        }
     }
 
     /// @dev The index in `inputs` of the market named `name`, as "<peg>::<collateral>".
