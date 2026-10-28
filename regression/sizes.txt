@@ -49,5 +49,5 @@
 | StabilityPoolManager_v2           |             16,212 |                8,364 |              17,259 |    3,414,990 |            341.50 |
 | StabilityPool_v2                  |             20,642 |                3,934 |              22,510 |    4,353,500 |            435.35 |
 | StabilityPool_v3                  |             24,286 |                  290 |              25,917 |    5,116,370 |            511.64 |
-| StabilityPool_v3_Upgrader         |              3,410 |               21,166 |               4,011 |      722,110 |             72.21 |
+| StabilityPool_v3_Upgrader         |              4,249 |               20,327 |               4,850 |      898,300 |             89.83 |
 | TokenDistributor_v1               |              9,970 |               14,606 |              10,219 |    2,096,190 |            209.62 |

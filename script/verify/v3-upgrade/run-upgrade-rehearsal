@@ -141,7 +141,8 @@ campaign_test storage-copy.log MarketsStorageCopy --fork-url local
 
 echo ""
 echo "Prong A: writing the expected after..."
-campaign_test expected-after.log MarketsExpectedAfter
+# The compensated markets' expectations read the minters' events on anvil, from the block after its head.
+START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test expected-after.log MarketsExpectedAfter
 
 # Each record with its keys sorted, so the diff compares values, not the order they were written in.
 for side in expected-after after; do

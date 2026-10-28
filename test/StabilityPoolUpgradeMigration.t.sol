@@ -18,6 +18,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
 import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
@@ -138,10 +139,19 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     /// temporary implementation and call `migrateAndUpgrade`, which in one transaction widen-copies the reward streams,
     /// writes the reward-divisor gap, and reinstates the real v3 implementation. The gap is `supply - Sum(balanceOf)`
     /// read from the v2 pool pre-upgrade (see `_ledgerGap`), so the v3 divisor (`supply - gap`) equals Sum(balanceOf).
-    function _upgradeToV3() internal {
-        // Deploy impls and read the gap BEFORE the prank — the constructors and the ledger read make external calls
-        // that would otherwise consume it. The implementation takes the floor the v2 proxy already lives with.
-        address v3Impl = address(
+    /// @dev What the upgrade to v3 is made of: the new implementation, taking the floor the v2 proxy already lives
+    ///      with; the upgrader; the ledger gap and the holders read from the v2 pool. Prepared apart from the call that
+    ///      runs the upgrade, so a test can bind a cheatcode to that call alone - the constructors and the ledger read
+    ///      make external calls that would otherwise consume it.
+    struct Upgrade {
+        address v3Impl;
+        address upgraderImpl;
+        int256 gap;
+        address[] holders;
+    }
+
+    function _prepareUpgrade() internal returns (Upgrade memory u) {
+        u.v3Impl = address(
             new StabilityPool_v3(
                 minter,
                 peggedToken,
@@ -152,16 +162,26 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
                 "SP"
             )
         );
-        int256 gap = _ledgerGap();
-        address[] memory holders = new address[](2);
-        holders[0] = user1;
-        holders[1] = user2;
-        address upgraderImpl = address(new StabilityPool_v3_Upgrader(owner()));
-        bytes memory initData = abi.encodeCall(StabilityPool_v3_Upgrader.migrateAndUpgrade, (gap, holders, v3Impl));
+        u.gap = _ledgerGap();
+        u.holders = new address[](2);
+        u.holders[0] = user1;
+        u.holders[1] = user2;
+        u.upgraderImpl = address(new StabilityPool_v3_Upgrader(owner()));
+    }
 
+    /// @dev Run the prepared upgrade as the owner, taking `deductions` back as the pool is migrated: one call.
+    function _upgrade(Upgrade memory u, IStabilityPool_v3_Upgrader.Deduction[] memory deductions) internal {
         vm.startPrank(owner());
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(upgraderImpl, initData);
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(
+            u.upgraderImpl,
+            abi.encodeCall(IStabilityPool_v3_Upgrader.migrateAndUpgrade, (u.gap, u.holders, deductions, u.v3Impl))
+        );
         vm.stopPrank();
+    }
+
+    /// @dev The upgrade to v3 with nothing taken back.
+    function _upgradeToV3() internal {
+        _upgrade(_prepareUpgrade(), new IStabilityPool_v3_Upgrader.Deduction[](0));
     }
 
     /// @dev The ledger gap over the test's holders: `totalAssetSupply - Sum(assetBalanceOf)`, read from the v2 pool
@@ -419,6 +439,151 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
     function test_upgradeFromV2_AfterRewards_CompleteLiquidation() public {
         _test_upgradeFromV2_AfterRewards(false, true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Deductions — rewards taken back as the pool is migrated
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev Two depositors, user1 with twice user2's deposit, and a steam reward streamed to its end with neither
+    ///      checkpointed since: what each may claim is accrued against the pool's integral, not settled in its record,
+    ///      so a deduction has to settle it first to count it. Returns what user1 may claim.
+    function _streamARewardToTwoDepositors() internal returns (uint256 user1MayClaim) {
+        _deposit(user1, 100 ether);
+        _deposit(user2, 50 ether);
+        _depositReward(steam, 10 ether);
+        vm.warp(block.timestamp + 1 weeks);
+        user1MayClaim = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        assertGt(user1MayClaim, 0, "fixture: user1 has a reward to take from");
+    }
+
+    function _oneDeduction(
+        address account,
+        address token,
+        uint256 amount
+    ) internal pure returns (IStabilityPool_v3_Upgrader.Deduction[] memory one) {
+        one = new IStabilityPool_v3_Upgrader.Deduction[](1);
+        one[0] = IStabilityPool_v3_Upgrader.Deduction({account: account, token: token, amount: amount});
+    }
+
+    function _claimableOnV3(address account, address token) internal view returns (uint256) {
+        return IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(account, aa(token))[0];
+    }
+
+    /// @notice A reward taken back as the pool is migrated: the holder may then claim exactly what it could, less the
+    ///         amount - what accrued since its last checkpoint counted - the owner receives the tokens from the pool,
+    ///         the other holder is untouched, and the holder's claim pays the rest and counts only that as claimed.
+    function test_upgradeFromV2_aDeductionIsTakenFromTheHolderAndPaidToTheOwner() public {
+        uint256 user1MayClaim = _streamARewardToTwoDepositors();
+        uint256 user2MayClaim = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, steam);
+        uint256 cut = user1MayClaim / 3;
+        uint256 poolHeld = IERC20(steam).balanceOf(stabilityPoolCollateral);
+        uint256 ownerHeld = IERC20(steam).balanceOf(owner());
+        Upgrade memory u = _prepareUpgrade();
+
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3_Upgrader.RewardDeducted(user1, steam, cut);
+        _upgrade(u, _oneDeduction(user1, steam, cut));
+
+        assertEq(_claimableOnV3(user1, steam), user1MayClaim - cut, "user1 may claim what it could, less the cut");
+        assertEq(_claimableOnV3(user2, steam), user2MayClaim, "user2 is untouched");
+        assertEq(IERC20(steam).balanceOf(owner()), ownerHeld + cut, "the owner receives the cut");
+        assertEq(IERC20(steam).balanceOf(stabilityPoolCollateral), poolHeld - cut, "from the pool");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            0,
+            "user1 has claimed nothing"
+        );
+
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(aa(steam));
+        vm.stopPrank();
+        assertEq(IERC20(steam).balanceOf(user1), user1MayClaim - cut, "user1 claims the rest");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            user1MayClaim - cut,
+            "and that is what it has claimed"
+        );
+    }
+
+    /// @notice Two deductions in two tokens from two holders: each holder may claim exactly what it could, less the
+    ///         amount, in the token taken, and what it could in the other; the owner receives both tokens from the
+    ///         pool.
+    function test_upgradeFromV2_twoDeductionsInTwoTokensAreEachTakenAndPaid() public {
+        _streamARewardToTwoDepositors();
+        // A partial liquidation pays the pool wrapped collateral, a second reward token both holders share.
+        _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
+        uint256 user1Steam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        uint256 user2Steam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, steam);
+        uint256 user1Collateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
+        uint256 user2Collateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user2,
+            wrappedCollateralToken
+        );
+        assertGt(user2Collateral, 0, "fixture: user2 has collateral to take from");
+        uint256 steamCut = user1Steam / 2;
+        uint256 collateralCut = user2Collateral / 4;
+        uint256 ownerSteam = IERC20(steam).balanceOf(owner());
+        uint256 ownerCollateral = IERC20(wrappedCollateralToken).balanceOf(owner());
+        uint256 poolSteam = IERC20(steam).balanceOf(stabilityPoolCollateral);
+        uint256 poolCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
+        IStabilityPool_v3_Upgrader.Deduction[] memory two = new IStabilityPool_v3_Upgrader.Deduction[](2);
+        two[0] = IStabilityPool_v3_Upgrader.Deduction({account: user1, token: steam, amount: steamCut});
+        two[1] = IStabilityPool_v3_Upgrader.Deduction({
+            account: user2,
+            token: wrappedCollateralToken,
+            amount: collateralCut
+        });
+
+        _upgrade(_prepareUpgrade(), two);
+
+        assertEq(_claimableOnV3(user1, steam), user1Steam - steamCut, "user1's steam, less its cut");
+        assertEq(_claimableOnV3(user1, wrappedCollateralToken), user1Collateral, "user1's collateral, untouched");
+        assertEq(_claimableOnV3(user2, steam), user2Steam, "user2's steam, untouched");
+        assertEq(
+            _claimableOnV3(user2, wrappedCollateralToken),
+            user2Collateral - collateralCut,
+            "user2's collateral, less its cut"
+        );
+        assertEq(IERC20(steam).balanceOf(owner()), ownerSteam + steamCut, "the owner receives the steam cut");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(owner()),
+            ownerCollateral + collateralCut,
+            "and the collateral cut"
+        );
+        assertEq(IERC20(steam).balanceOf(stabilityPoolCollateral), poolSteam - steamCut, "the pool pays the steam");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
+            poolCollateral - collateralCut,
+            "and the collateral"
+        );
+    }
+
+    /// @notice A deduction above what the holder may claim is refused, naming the holder, the token, the amount and
+    ///         what it may claim; the pool stays as it was, on v2.
+    function test_upgradeFromV2_aDeductionAboveTheClaimable_reverts() public {
+        uint256 user1MayClaim = _streamARewardToTwoDepositors();
+        Upgrade memory u = _prepareUpgrade();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IStabilityPool_v3_Upgrader.DeductionExceedsReward.selector,
+                user1,
+                steam,
+                user1MayClaim + 1,
+                user1MayClaim
+            )
+        );
+        _upgrade(u, _oneDeduction(user1, steam, user1MayClaim + 1));
+
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
+            user1MayClaim,
+            "user1 may still claim it all"
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════

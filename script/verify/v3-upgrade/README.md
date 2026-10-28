@@ -111,6 +111,13 @@ implementation:
 2. **Each pool** is migrated through `StabilityPool_v3_Upgrader` (`script/UpgradeStabilityPool_v2_v3/`), which copies
    its storage into v3's layout (below), writes its ledger gap, then upgrades it to StabilityPool_v3 in the same call.
 3. **The manager** is upgraded to StabilityPoolManager_v2; its settings stay where they are in storage.
+4. **The compensation**, in the two markets the rebalance dilution exploits of 2026-10-16 hit (BTC::stETH and
+   EUR::stETH; `script/src/CompensateRebalanceDilution.sol`, from the incident's `<market>-compensation.json` files):
+   the leveraged pool's migration takes each gainer's cut from what it may claim and pays it to the multisig; then the
+   multisig approves and redeems, fee-free, its pegged fee from the exploit and the tokens taken back, approves the
+   wrapped collateral it mints with, and mints leveraged tokens fee-free for each holder that lost, with its share of
+   the fund. All in the market's one transaction, so nobody acts on the market in between. The payout as queued is
+   written to the incident directory's `phase1.md`.
 
 The upgrade refuses a capture not taken at the last block before the pause, holders that leave a ledger gap beyond
 rounding, a minter config Minter_v3's loader refuses, and a pool implementation that would not keep the pool's floor
@@ -214,6 +221,14 @@ The expected after is the before record, changed only where an expectation says.
 | StabilityPool | `state_minter` | the market's minter | v3 names its minter, which v2 does not |
 | StabilityPool | `state_rewardDivisor` | supply less the ledger gap | v3 divides rewards by what the holders hold |
 | StabilityPool with a ledger gap | each claimable before the claims, each claim's payout, and after the interactions each claimed total | the before value moved by the shift, within 2 wei per fold | v3 divides the reward it folds into its reward-per-share after the upgrade by what the holders hold, not by the supply |
+| Minter of a compensated market (BTC::stETH, EUR::stETH) | `minter_peggedBalance` | before, less the pegged fee redeemed | the multisig redeems its pegged fee from the exploit, fee-free, in the market's batch; the fee redeemed is read from the minter's events on anvil and must be the file's |
+| the same | `minter_leveragedBalance` | before, less the cuts redeemed, plus the leveraged minted (the events) | the multisig redeems the cuts taken back and mints fee-free for each loser |
+| the same | `minter_wrappedCollateralHeld` | before, less the redemptions, plus the mints (the events) | the redemptions take wrapped collateral out of the minter and the mints put it in |
+| the same | `minter_recordedBacking` | before moved by the same, each mint's wrapped collateral converted at the oracle's low rate and floored, each redemption's at the high rate and ceiled, within 2 wei per operation | the record follows the holding |
+| StabilityPool whose migration takes rewards back (BTC::stETH's leveraged pool) | each deducted holder's claimable until its first claim, that claim's payout, and its claimed total | the before value less the cut, moved by the shift | the migration takes the cut from what the holder may claim and pays it to the multisig |
+| the same | every claimable, payout and claimed total | within 2 wei per fold, one fold more | the migration's checkpoint folded the stream up to its moment, at the same divisor as fold 0 |
+| the same | `state_reward_<t>_lastUpdate` | the migration's moment: the after's own reading, which must lie after the before's and no later than the captures' time | the checkpoint folded every stream |
+| the same | `state_reward_<t>_pendingDistributable` | the rate over the time from the migration's moment to the captures' time, within the period | what is left to distribute runs from where the stream was folded |
 
 An expectation of the `Within` kind admits the after value if it lies within its bound, derived for that value, and
 otherwise writes the expected value, so the diff shows both. An expectation for a key neither record has is refused.
@@ -240,6 +255,12 @@ after value lies within 2 wei per fold of the before value moved by the shift.
   layout at the capture's block, against its V3 record after the upgrade;
 - each reward token's stream;
 - the ledger gap the upgrade wrote, against the pool's supply less what the captured holders held.
+
+A pool whose migration takes rewards back (the compensation's deductions, read from the incident's files) is checked
+for what that migration does instead: every stream's last update, and every deducted record's timestamp, is the
+migration's moment; each deducted record's pending is what its account may claim at that moment on the upgraded pool,
+and what it could claim on the frozen pool at that moment less its cut, to the shift of the stream the migration
+folded; its claimed is copied; every other record is copied exactly.
 
 It fails unless at least one reward record had data to compare.
 

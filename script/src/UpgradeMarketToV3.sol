@@ -10,6 +10,7 @@ import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
@@ -20,6 +21,7 @@ import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
 import {IMinter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/IMinter_v3_Upgrader.sol";
 import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol";
+import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
 import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol";
 
 /// @notice The upgrade of live markets from Minter_v2, StabilityPool_v2 and StabilityPoolManager_v1 to the versions
@@ -38,6 +40,12 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 ///      each holder's reward snapshot in widened storage, which the upgrader copies across, and divides rewards by what
 ///      the holders hold, which needs the pool's ledger gap. Both come from a holder capture, read where the pools can
 ///      no longer change. The read uses the old versions' own functions, so nothing here restates how they compute.
+///
+///      A market's batch can also put right what a fault left in it, in the same transaction as its upgrade, so nobody
+///      acts on the market in between: rewards taken back from holders as their pool is migrated (`deductions`, paid
+///      to the owner by the upgrader), then the owner's fee-free operations once the market runs v3
+///      (`OwnerOperations`: its pegged and leveraged redeemed, and leveraged minted for named accounts). Neither is read
+///      from a market: an input names them, and each is empty for a market with nothing to put right.
 abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManager {
     Vm private constant _vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -45,18 +53,31 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     string private constant _WHAT = "upgrade to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2";
 
     /// @notice What one pool's upgrade needs from it: the holders whose reward records the migration copies, the
-    ///         ledger gap they leave - the pool's supply less what they hold, either sign - and the floor and withdrawal
-    ///         window its new implementation must keep.
+    ///         ledger gap they leave - the pool's supply less what they hold, either sign - the floor and withdrawal
+    ///         window its new implementation must keep, and the rewards the migration takes back from holders, paid to
+    ///         the owner: empty for a pool with nothing to take back.
     struct PoolUpgradeInput {
         address[] holders;
         int256 gap;
         uint256 minTotalAssetSupply;
         uint64 withdrawalStartDelay;
         uint64 withdrawalEndWindow;
+        IStabilityPool_v3_Upgrader.Deduction[] deductions;
+    }
+
+    /// @notice The owner's fee-free operations a market's batch carries once the market runs v3, in this order: its
+    ///         pegged redeemed for wrapped collateral, its leveraged redeemed for wrapped collateral, then wrapped
+    ///         collateral minted into leveraged for each account named, the minter sizing the tokens at the price of the
+    ///         moment. Each is zero, or empty, where there is none.
+    struct OwnerOperations {
+        uint256 peggedRedeemed;
+        uint256 leveragedRedeemed;
+        address[] accounts;
+        uint256[] mints;
     }
 
     /// @notice What one market's upgrade needs from it: its minter's stored config, the backing it records, the wrapped
-    ///         collateral it holds and the price oracle it reads, and each pool's input.
+    ///         collateral it holds and the price oracle it reads, each pool's input, and the owner's operations after.
     struct MarketUpgradeInput {
         Config_MinterMarket market;
         IMinter.Config minterConfig;
@@ -65,7 +86,11 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         address priceOracle;
         PoolUpgradeInput collateralPool;
         PoolUpgradeInput leveragedPool;
+        OwnerOperations ownerOperations;
     }
+
+    /// @notice The owner's operations name a different number of accounts and mints.
+    error AccountsAndMintsOfDifferentLengths(string market, uint256 accounts, uint256 mints);
 
     /// @notice Read what upgrading each of `markets` needs, on the fork selected now: each minter's stored config, the
     ///         backing it records, the wrapped collateral it holds and the price oracle it reads, and for each pool the
@@ -130,9 +155,9 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///         as one batch for the multisig, the upgrade of its minter, loading the config read - through one
     ///         `Minter_v3_Upgrader`, which sets the record to zero, where the minter records backing but holds no
     ///         wrapped collateral - then, where it reads another oracle, its move to the oracle proxy the deploy
-    ///         predicts; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders and
-    ///         gap read; and of its manager, in that order. Refuses a pool whose new implementation would not keep the
-    ///         floor or withdrawal window read.
+    ///         predicts; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders,
+    ///         gap and deductions its input holds; of its manager; then the owner's operations its input names, in
+    ///         that order. Refuses a pool whose new implementation would not keep the floor or withdrawal window read.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
     function upgradeMarketsToV3(MarketUpgradeInput[] memory inputs, string memory network) internal {
@@ -230,6 +255,76 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
             );
 
             string memory market = MinterMarketConfigLib.salt(config);
+            {
+                // The owner's fee-free operations, on the market now running v3. Each redemption burns from the
+                // owner's allowance and each mint takes the wrapped collateral from it, so each is preceded by its
+                // approval. The redemptions have no floor on what they return: the minter prices them by its oracle,
+                // so there is nothing to slip against.
+                OwnerOperations memory operations = inputs[i].ownerOperations;
+                if (operations.accounts.length != operations.mints.length) {
+                    revert AccountsAndMintsOfDifferentLengths(
+                        market,
+                        operations.accounts.length,
+                        operations.mints.length
+                    );
+                }
+                if (operations.peggedRedeemed > 0) {
+                    queue(
+                        addresses.pegged,
+                        abi.encodeCall(IERC20.approve, (addresses.minter, operations.peggedRedeemed)),
+                        string.concat("approve the minter for ", _scaled(operations.peggedRedeemed), " pegged")
+                    );
+                    queue(
+                        minterKey(config),
+                        abi.encodeCall(IMinter_v3.freeRedeemPeggedToken, (operations.peggedRedeemed, 0, owner())),
+                        string.concat("redeem ", _scaled(operations.peggedRedeemed), " pegged, fee-free")
+                    );
+                }
+                if (operations.leveragedRedeemed > 0) {
+                    queue(
+                        addresses.leveraged,
+                        abi.encodeCall(IERC20.approve, (addresses.minter, operations.leveragedRedeemed)),
+                        string.concat("approve the minter for ", _scaled(operations.leveragedRedeemed), " leveraged")
+                    );
+                    queue(
+                        minterKey(config),
+                        abi.encodeCall(IMinter_v3.freeRedeemLeveragedToken, (operations.leveragedRedeemed, owner())),
+                        string.concat("redeem ", _scaled(operations.leveragedRedeemed), " leveraged, fee-free")
+                    );
+                }
+                uint256 minted;
+                for (uint256 a = 0; a < operations.mints.length; ++a) {
+                    minted += operations.mints[a];
+                }
+                if (minted > 0) {
+                    queue(
+                        addresses.wrappedCollateral,
+                        abi.encodeCall(IERC20.approve, (addresses.minter, minted)),
+                        string.concat(
+                            "approve the minter for the ",
+                            _scaled(minted),
+                            " wrapped collateral to mint with"
+                        )
+                    );
+                }
+                for (uint256 a = 0; a < operations.mints.length; ++a) {
+                    if (operations.mints[a] > 0) {
+                        queue(
+                            minterKey(config),
+                            abi.encodeCall(
+                                IMinter_v3.freeMintLeveragedToken,
+                                (operations.mints[a], operations.accounts[a])
+                            ),
+                            string.concat(
+                                "mint leveraged with ",
+                                _scaled(operations.mints[a]),
+                                " wrapped collateral, fee-free, for ",
+                                LibString.toHexStringChecksummed(operations.accounts[a])
+                            )
+                        );
+                    }
+                }
+            }
             flush(market, string.concat(market, ": ", _WHAT));
         }
 
@@ -277,8 +372,8 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     }
 
     /// @dev Queue the `poolType` pool's migration through `upgrader` to `implementation`, its new StabilityPool_v3, with
-    ///      the holders and gap `input` holds. Refuses an implementation whose floor or withdrawal window differs from
-    ///      the pool's.
+    ///      the holders, gap and deductions `input` holds. Refuses an implementation whose floor or withdrawal window
+    ///      differs from the pool's.
     function _queuePoolMigration(
         Config_MinterMarket config,
         StabilityPoolType poolType,
@@ -323,13 +418,29 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 (
                     upgrader,
                     abi.encodeCall(
-                        StabilityPool_v3_Upgrader.migrateAndUpgrade,
-                        (input.gap, input.holders, implementation)
+                        IStabilityPool_v3_Upgrader.migrateAndUpgrade,
+                        (input.gap, input.holders, input.deductions, implementation)
                     )
                 )
             ),
-            "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3"
+            input.deductions.length == 0
+                ? "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3"
+                : string.concat(
+                    "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3, taking back ",
+                    LibString.toString(input.deductions.length),
+                    " rewards for the owner"
+                )
         );
+    }
+
+    /// @dev An 18-decimal amount as "<whole>.<18 digits>", for a batch's descriptions and reports.
+    function _scaled(uint256 amount) internal pure returns (string memory) {
+        string memory fraction = LibString.toString(amount % 1 ether);
+        bytes memory zeros = new bytes(18 - bytes(fraction).length);
+        for (uint256 i = 0; i < zeros.length; ++i) {
+            zeros[i] = "0";
+        }
+        return string.concat(LibString.toString(amount / 1 ether), ".", string(zeros), fraction);
     }
 
     /// @dev Requires the proxy named `key` at `proxy` to revert `call` with the pausers' `Paused` - BaoPauser_v1, which

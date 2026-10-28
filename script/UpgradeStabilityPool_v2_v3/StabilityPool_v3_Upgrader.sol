@@ -3,15 +3,21 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {HarborFixedOwnable} from "@bao/HarborFixedOwnable.sol";
 
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {LinearReward} from "@harbor/reward/distributor/LinearReward.sol";
 import {LinearReward_v2} from "@harbor/reward/distributor/LinearReward_v2.sol";
 import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+
+import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
 
 /// @title StabilityPool_v3_Upgrader
 /// @notice One-shot throwaway implementation for the StabilityPool_v2 -> StabilityPool_v3 upgrade, run atomically as a
@@ -25,11 +31,17 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 ///              denominator reward accrual divides by, which must track Sum(balanceOf)). The value is the exact
 ///              `supply - Sum(balanceOf)` computed off-chain from the complete frozen holder list under realistic
 ///              bounds - `0` when supply already equals the summed balances;
-///           3. upgrades the proxy to the real StabilityPool_v3.
-///         Both steps run in one call because the gap does NOT self-heal - normal operation only rescales it on losses,
+///           3. takes each deduction from what its account may claim and pays it to the owner: a reward a holder was
+///              credited with by a fault, taken back before the pool resumes and anyone can claim. The account is
+///              settled first through the new implementation's own `checkpoint`, delegatecalled on the migrated storage
+///              as the upgrade delegatecalls an initializer, so what it may claim is counted by the arithmetic a claim
+///              counts it by and none is restated here;
+///           4. upgrades the proxy to the real StabilityPool_v3.
+///         All of it runs in one call because the gap does NOT self-heal - normal operation only rescales it on losses,
 ///         never re-derives it from balances - so it must be correct before any reward accrues; a separate later run
-///         would leave the pool on v3 with an un-seeded divisor in between. It leaves no migration code on the
-///         functional contract.
+///         would leave the pool on v3 with an un-seeded divisor in between. The deductions ride the same call because
+///         the pool's first claim after it must already see them. It leaves no migration code on the functional
+///         contract.
 /// @dev Owner-gated and single-shot by construction: it upgrades away from itself in the same transaction, so
 ///      `migrateAndUpgrade` can never run twice - no re-run guard is needed. Storage safety: it reaches each namespace
 ///      it touches (the pool's and the linear distributor's) through that contract's own canonical struct type
@@ -42,8 +54,9 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 /// @custom:oz-upgrades
 /// @custom:bao-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
 // solhint-disable-next-line contract-name-capwords
-contract StabilityPool_v3_Upgrader is Initializable, UUPSUpgradeable, HarborFixedOwnable {
+contract StabilityPool_v3_Upgrader is Initializable, UUPSUpgradeable, HarborFixedOwnable, IStabilityPool_v3_Upgrader {
     using EnumerableSet for EnumerableSet.AddressSet;
+    using SafeERC20 for IERC20;
 
     /// @dev The linear distributor's ERC-7201 slot. Its storage LAYOUT is reached through the canonical
     ///      `LinearMultipleRewardDistributorStorage` type below, so only the slot is copied and it cannot drift; the
@@ -69,19 +82,11 @@ contract StabilityPool_v3_Upgrader is Initializable, UUPSUpgradeable, HarborFixe
         _disableInitializers();
     }
 
-    /// @notice Widen-copy the reward streams and per-holder reward snapshots, write the reward-divisor gap, then upgrade
-    ///         the proxy to StabilityPool_v3.
-    /// @param rewardDivisorGap The gap to seed: `supply - Sum(balanceOf)`, computed off-chain from the complete frozen
-    ///        holder list under realistic bounds so the v3 divisor (`supply - gap`) tracks Sum(balanceOf) from the
-    ///        first block. `0` when supply already equals the summed balances.
-    /// @param holders The complete frozen holder list (the same one the gap is computed from) whose per-token reward
-    ///        snapshots must be widen-copied into the v3 mapping. MUST be complete: a holder omitted here reads an empty
-    ///        v3 snapshot after the upgrade - losing their pending/claimed and over-crediting future accrual from
-    ///        integral 0. Runs in one transaction, so the list must fit the block gas limit.
-    /// @param stabilityPoolV3 The real StabilityPool_v3 implementation to reinstate once migrated.
+    /// @inheritdoc IStabilityPool_v3_Upgrader
     function migrateAndUpgrade(
         int256 rewardDivisorGap,
         address[] calldata holders,
+        Deduction[] calldata deductions,
         address stabilityPoolV3
     ) external onlyOwner {
         LinearMultipleRewardDistributor_v3.LinearMultipleRewardDistributorStorage storage $reward = _rewardStorage();
@@ -119,7 +124,31 @@ contract StabilityPool_v3_Upgrader is Initializable, UUPSUpgradeable, HarborFixe
             }
         }
 
+        // The gap before any checkpoint: the checkpoint folds the stream since the pool's last update into its
+        // reward-per-share, dividing by the divisor the gap seeds.
         _stabilityPoolStorage().rewardDivisorGap = rewardDivisorGap;
+
+        for (uint256 d = 0; d < deductions.length; ++d) {
+            Deduction calldata deduction = deductions[d];
+            // Settled by the new implementation's own checkpoint, on the storage just migrated: what the record then
+            // holds as pending is exactly what the account may claim. A revert there is passed on unchanged.
+            Address.functionDelegateCall(
+                stabilityPoolV3,
+                abi.encodeCall(IMultipleRewardAccumulator_v3.checkpoint, (deduction.account))
+            );
+            MultipleRewardCompoundingAccumulator_v3.ClaimDataV3 storage rewards = $acc
+                .userRewardSnapshot[deduction.account][deduction.token]
+                .rewards;
+            uint256 claimable = rewards.pending;
+            if (deduction.amount > claimable) {
+                revert DeductionExceedsReward(deduction.account, deduction.token, deduction.amount, claimable);
+            }
+            rewards.pending = claimable - deduction.amount;
+            emit RewardDeducted(deduction.account, deduction.token, deduction.amount);
+            // The pool's own tokens, no longer owed to anyone, to the owner. The account's `claimed` is not touched:
+            // it counts what the account received.
+            IERC20(deduction.token).safeTransfer(owner(), deduction.amount);
+        }
 
         upgradeToAndCall(stabilityPoolV3, "");
     }
