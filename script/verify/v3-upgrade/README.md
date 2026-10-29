@@ -163,11 +163,13 @@ that sets every manager's harvest and rebalance terms to its config's again, thr
    its storage into v3's layout (below), writes its ledger gap, then upgrades it to StabilityPool_v3 in the same call.
 3. **The manager** is upgraded to StabilityPoolManager_v2; its settings stay where they are in storage. Then
    `updateRebalanceConfig` and `updateHarvestConfig` set each action's bounty ratio, bounty ceiling and cut ratio to
-   the market config's, as a deploy sets them. At the capture every market runs on its config's ratios, so no ratio
-   changes: the calls set the bounty ceilings v2 adds, and the rebalance cut v2 adds, which the config makes zero. The
-   ceilings are a hundred and two hundred times the config's `aboutADollarInWrappedCollateral` - for example, as
-   configured on 2026-10-29, 0.03 and 0.06 wstETH in the stETH markets, 100 and 200 fxSAVE in the fxUSD markets. The
-   rebalance threshold and the fee receiver stay as they are.
+   the market config's, as a deploy sets them. At the capture every market runs on a 1% harvest bounty, a 99% harvest
+   cut and a 1% rebalance bounty. As configured on 2026-10-29, the config gives 0.5%, 99.5% and 0.5%, a 0.5% rebalance
+   cut, and ceilings of a hundred and two hundred times its `aboutADollarInWrappedCollateral`: 0.03 and 0.06 wstETH in
+   the stETH markets, 100 and 200 fxSAVE in the fxUSD markets. So the calls change the three ratios, and set the
+   ceilings and the rebalance cut v2 adds. Why these terms:
+   [the configured terms](../../../doc/guides/risk-parameters.md#the-configured-terms-and-why). The rebalance threshold
+   and the fee receiver stay as they are.
 4. **The compensation**, in the two markets the rebalance dilution exploits of 2026-10-16 hit (BTC::stETH and
    EUR::stETH; `script/src/CompensateRebalanceDilution.sol`, from the incident's `<market>-compensation.json` files):
    the leveraged pool's migration takes each gainer's cut from what it may claim and pays it to the multisig; then the

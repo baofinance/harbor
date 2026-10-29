@@ -164,15 +164,17 @@ uint256 remainder = distributedGross - bountyAmount - cutAmount;
 
 | Destination | Intended share | Recipient |
 |-------------|----------------|-----------|
-| **Bounty** | about 1%, at most the ceiling | `bountyReceiver` (whoever calls `harvest()`) |
-| **Cut** | about 1%, with the bounty above its ceiling | `feeReceiver` (or treasury) |
-| **Remainder** | about 98% | Automatically deposited to stability pools |
+| **Bounty** | about 0.5%, at most the ceiling | `bountyReceiver` (whoever calls `harvest()`) |
+| **Cut** | about 0.5%, with the bounty above its ceiling | `feeReceiver` (or treasury) |
+| **Remainder** | about 99% | Automatically deposited to stability pools |
+
+Why these shares: [the configured terms](risk-parameters.md#the-configured-terms-and-why).
 
 ### Setting the Terms
 
 ```solidity
-// Owner sets the bounty ratio, the bounty ceiling and the cut ratio together (e.g., 1%, 0.03 wrapped collateral, 1%)
-stabilityPoolManager.updateHarvestConfig(0.01 ether, 0.03 ether, 0.01 ether);
+// Owner sets the bounty ratio, the bounty ceiling and the cut ratio together (e.g., 0.5%, 0.03 wrapped collateral, 0.5%)
+stabilityPoolManager.updateHarvestConfig(0.005 ether, 0.03 ether, 0.005 ether);
 ```
 
 Each ratio must be <= 1 ether (100%), and the two together too. The owner can update them at any time; a ceiling of zero is no ceiling.

@@ -83,23 +83,77 @@ Each action's bounty ratio, bounty ceiling and cut ratio are set together, in on
 an amount of wrapped collateral, and zero means no ceiling.
 
 ```solidity
-stabilityPoolManager.updateHarvestConfig(0.02e18, 0.03e18, 0.03e18); // 2% bounty, at most 0.03 wrapped collateral, 3% cut
-stabilityPoolManager.updateRebalanceConfig(0.01e18, 0.06e18, 0);     // 1% bounty, at most 0.06 wrapped collateral, no cut
-stabilityPoolManager.updateFeeReceiver(newFeeReceiver);               // Multisig recommended
+stabilityPoolManager.updateHarvestConfig(0.005e18, 0.03e18, 0.005e18);   // 0.5% bounty, at most 0.03 wrapped collateral, 0.5% cut
+stabilityPoolManager.updateRebalanceConfig(0.005e18, 0.06e18, 0.005e18); // 0.5% bounty, at most 0.06 wrapped collateral, 0.5% cut
+stabilityPoolManager.updateFeeReceiver(newFeeReceiver);                   // Multisig recommended
 ```
 
 | Parameter | Recommended | Purpose |
 |-----------|-------------|---------|
-| `harvestBountyRatio` | 1-5% | Incentivizes keepers to harvest |
-| `harvestBountyCeiling` | well above a harvest's gas cost | The most one harvest pays its caller; the rest goes to the fee receiver |
-| `harvestCutRatio` | 1-5% | Protocol revenue |
-| `rebalanceBountyRatio` | 1-5% | Incentivizes keepers to rebalance |
-| `rebalanceBountyCeiling` | well above a rebalance's gas cost | The most one rebalance pays its caller; the rest stays with the pools |
-| `rebalanceCutRatio` | 0 | Protocol revenue, taken from what the pools are paid |
+| `harvestBountyRatio` | about 0.5% | Incentivizes keepers to harvest |
+| `harvestBountyCeiling` | about $100 of wrapped collateral | The most one harvest pays its caller; the rest goes to the fee receiver |
+| `harvestCutRatio` | about 0.5% | Protocol revenue |
+| `rebalanceBountyRatio` | about 0.5% | Incentivizes keepers to rebalance |
+| `rebalanceBountyCeiling` | about $200 of wrapped collateral | The most one rebalance pays its caller; the rest stays with the pools |
+| `rebalanceCutRatio` | about 0.5% | Protocol revenue, taken from what the pools are paid |
 | `feeReceiver` | Multisig | Receives the cuts |
 
 A ceiling is a fixed amount of wrapped collateral, so it is set again when the collateral's price
 moves far from what it was set at.
+
+### The configured terms, and why
+
+As configured on 2026-10-29 (`script/config/stabilitypool/ConfigStabilityPoolManager.sol`), every
+market's manager has these terms:
+
+| | Bounty ratio | Bounty ceiling | Cut ratio |
+|---|---|---|---|
+| Rebalance | 0.5% | 200 × `aboutADollarInWrappedCollateral`, about $200 | 0.5% |
+| Harvest | 0.5% | 100 × `aboutADollarInWrappedCollateral`, about $100 | 99.5% |
+
+The harvest cut of 99.5% is temporary. The fee receiver distributes it by hand: 99/99.5 of it to the
+stability pools, and 0.5/99.5 to the repayment of the holders who lost in the rebalance dilution
+exploits of 2026-10-16. So a harvest pays 0.5% to its caller, 0.5% to the repayment and 99% to the
+pools. A cut of 0.5% gives the same split, with the pools paid directly.
+
+What a ceiling withholds from a harvest's caller reaches the fee receiver with the cut, in the same
+transfer, and goes to the repayment. So the pools' share is 99% of the harvest's total - the amount
+its `Harvested` event gives - not 99/99.5 of what the fee receiver received. Above the ceiling the two
+differ.
+
+The reasons:
+
+- **More income for the repayment.** Both bounties were 1%. Half of each now goes to the fee
+  receiver instead: from a harvest as part of its cut, from a rebalance as its cut. So does what a
+  ceiling withholds from a harvest's caller.
+- **The pools give up 1%, as before.** A harvest's pools receive 99% of it, as they did beside a 1%
+  bounty. A rebalance's pools pay a 0.5% bounty and a 0.5% cut, where they paid a 1% bounty. Above a
+  ceiling they give up less: what a ceiling withholds from a rebalance's caller stays with the
+  pools.
+- **Callers keep an incentive, for larger calls.** A caller acts when the bounty pays for the call's
+  gas. With half the bounty, a harvest waits for twice the yield. The table gives the smallest call
+  whose 0.5% bounty pays for its gas. It uses the most gas each call used in the tests (harvest
+  439,752, rebalance 892,978, each with the transaction's 21,000 added) and ETH at $2,339 (Chainlink
+  ETH/USD, 2026-10-29):
+
+  | Gas price | Harvest | Rebalance paying the pools |
+  |---|---|---|
+  | 0.88 gwei, 2026's average | about $190 | about $380 |
+  | 0.05 gwei, a quiet time | about $11 | about $21 |
+
+- **A large call pays at most the ceiling.** A harvest's bounty reaches its ceiling at a harvest of
+  about $20,000 ($100 / 0.5%). A rebalance's reaches it at a rebalance paying the pools about $40,000
+  ($200 / 0.5%). However large the call beyond that, its caller receives the ceiling: a rebalance
+  funded by a flash loan earns no more.
+
+Two limits follow from the ceiling:
+
+- **Its dollar value moves with the collateral's price.** On 2026-10-29, with stETH and fxUSD taken at
+  their pegs, the ceilings were 0.03 and 0.06 wstETH in the stETH markets, about $88 and $175, and 100
+  and 200 fxSAVE in the fxUSD markets, about $112 and $223.
+- **It bounds the gas price a call can pay.** Above about 80 gwei in the stETH markets, and about 100
+  gwei in the fxUSD markets, no harvest or rebalance pays for its gas, whatever its size. The owner
+  raises a ceiling with the action's setter.
 
 ## Fee Structure Validation
 

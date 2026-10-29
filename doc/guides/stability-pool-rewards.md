@@ -77,7 +77,7 @@ anchor would have redeemed for. What the ceiling withholds from the keeper stays
 owner sets the three together, zero meaning no ceiling:
 
 ```solidity
-stabilityPoolManager.updateRebalanceConfig(0.01 ether, 0.06 ether, 0); // 1% bounty, at most 0.06 wrapped collateral, no cut
+stabilityPoolManager.updateRebalanceConfig(0.005 ether, 0.06 ether, 0.005 ether); // 0.5% bounty, at most 0.06 wrapped collateral, 0.5% cut
 ```
 
 ### Net effect
@@ -154,9 +154,11 @@ sweeping nothing, so the owed ledger is rolled back rather than left mutated.
 
 | Portion | Ratio | No ceiling | A ceiling of 0.03 wstETH | Destination |
 |---|---|---|---|---|
-| Bounty | about 1% | 1 wstETH | 0.03 wstETH | Whoever called `harvest()` (a nominated receiver) |
-| Cut | about 1% | 1 wstETH | 1.97 wstETH: the cut and the bounty's 0.97 above the ceiling | Fee receiver / treasury |
-| Remainder | the rest | 98 wstETH | 98 wstETH | Stability pools, into a 7-day vesting stream |
+| Bounty | about 0.5% | 0.5 wstETH | 0.03 wstETH | Whoever called `harvest()` (a nominated receiver) |
+| Cut | about 0.5% | 0.5 wstETH | 0.97 wstETH: the cut and the bounty's 0.47 above the ceiling | Fee receiver / treasury |
+| Remainder | the rest | 99 wstETH | 99 wstETH | Stability pools, into a 7-day vesting stream |
+
+Why these figures: [the configured terms](risk-parameters.md#the-configured-terms-and-why).
 
 Both ratios default to 0 and are set together by the owner, with the bounty's ceiling — the most a
 harvest pays its caller, in wrapped collateral, zero for none. What the ceiling withholds goes to the

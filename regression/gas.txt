@@ -64,37 +64,40 @@ src/minter/Minter_v3.sol:Minter_v3
 | upgradeToAndCall                                 |  11034 | 1.103e+04 |
 
 src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
-| function name              |    max |   display |
-|----------------------------|--------|-----------|
-| LEVERAGED_TOKEN            |    283 | 2.830e+02 |
-| MINTER                     |    325 | 3.250e+02 |
-| PEGGED_TOKEN               |    326 | 3.260e+02 |
-| WRAPPED_COLLATERAL_TOKEN   |    282 | 2.820e+02 |
-| addYieldVault              |  70630 | 7.063e+04 |
-| feeReceiver                |   2419 | 2.419e+03 |
-| harvest                    | 437569 | 4.376e+05 |
-| harvestBountyRatio         |   2370 | 2.370e+03 |
-| harvestCutRatio            |   2371 | 2.371e+03 |
-| harvestable                |  30566 | 3.057e+04 |
-| hasStabilityPool           |    559 | 5.590e+02 |
-| initialize                 |  94276 | 9.428e+04 |
-| owner                      |   4633 | 4.633e+03 |
-| proxiableUUID              |    375 | 3.750e+02 |
-| rebalance                  | 884556 | 8.846e+05 |
-| rebalanceBountyRatio       |   2399 | 2.399e+03 |
-| rebalanceThreshold         |   2348 | 2.348e+03 |
-| rebalanceable              |  45050 | 4.505e+04 |
-| removeYieldVault           |  30031 | 3.003e+04 |
-| stabilityPools             |    926 | 9.260e+02 |
-| supportsInterface          |    624 | 6.240e+02 |
-| transferOwnership          |   7855 | 7.855e+03 |
-| updateFeeReceiver          |   9396 | 9.396e+03 |
-| updateHarvestRatios        |  51222 | 5.122e+04 |
-| updateRebalanceBountyRatio |  27917 | 2.792e+04 |
-| updateRebalanceThreshold   |  27953 | 2.795e+04 |
-| upgradeToAndCall           |  10989 | 1.099e+04 |
-| yieldVault                 |   4875 | 4.875e+03 |
-| yieldVaultCount            |   2458 | 2.458e+03 |
+| function name            |    max |   display |
+|--------------------------|--------|-----------|
+| LEVERAGED_TOKEN          |    283 | 2.830e+02 |
+| MINTER                   |    325 | 3.250e+02 |
+| PEGGED_TOKEN             |    284 | 2.840e+02 |
+| WRAPPED_COLLATERAL_TOKEN |    282 | 2.820e+02 |
+| addYieldVault            |  70630 | 7.063e+04 |
+| feeReceiver              |   2419 | 2.419e+03 |
+| harvest                  | 439752 | 4.398e+05 |
+| harvestBountyCeiling     |   2347 | 2.347e+03 |
+| harvestBountyRatio       |   2370 | 2.370e+03 |
+| harvestCutRatio          |   2349 | 2.349e+03 |
+| harvestable              |  30566 | 3.057e+04 |
+| hasStabilityPool         |    559 | 5.590e+02 |
+| initialize               |  94276 | 9.428e+04 |
+| owner                    |   4633 | 4.633e+03 |
+| proxiableUUID            |    375 | 3.750e+02 |
+| rebalance                | 892978 | 8.930e+05 |
+| rebalanceBountyCeiling   |   2346 | 2.346e+03 |
+| rebalanceBountyRatio     |   2399 | 2.399e+03 |
+| rebalanceCutRatio        |   2348 | 2.348e+03 |
+| rebalanceThreshold       |   2348 | 2.348e+03 |
+| rebalanceable            |  45007 | 4.501e+04 |
+| removeYieldVault         |  30031 | 3.003e+04 |
+| stabilityPools           |    926 | 9.260e+02 |
+| supportsInterface        |    647 | 6.470e+02 |
+| transferOwnership        |   7855 | 7.855e+03 |
+| updateFeeReceiver        |   9396 | 9.396e+03 |
+| updateHarvestConfig      |  72914 | 7.291e+04 |
+| updateRebalanceConfig    |  70771 | 7.077e+04 |
+| updateRebalanceThreshold |  27914 | 2.791e+04 |
+| upgradeToAndCall         |  11012 | 1.101e+04 |
+| yieldVault               |   4875 | 4.875e+03 |
+| yieldVaultCount          |   2458 | 2.458e+03 |
 
 src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | function name           |    max |   display |

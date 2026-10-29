@@ -12,8 +12,8 @@ REBALANCE_EXPLOIT_BTC_STETH_BLOCK=26204584
 REBALANCE_EXPLOIT_EUR_STETH_TX=0x14ce80309b26d251b5e1e71c8aa03df677917cd627cf35b825767c97b3fcb84f
 REBALANCE_EXPLOIT_EUR_STETH_BLOCK=26204708
 # The earlier of the two exploits' blocks
-REBALANCE_EXPLOIT_BLOCK=$((REBALANCE_EXPLOIT_BTC_STETH_BLOCK < REBALANCE_EXPLOIT_EUR_STETH_BLOCK \
-  ? REBALANCE_EXPLOIT_BTC_STETH_BLOCK : REBALANCE_EXPLOIT_EUR_STETH_BLOCK))
+REBALANCE_EXPLOIT_BLOCK=$((REBALANCE_EXPLOIT_BTC_STETH_BLOCK < REBALANCE_EXPLOIT_EUR_STETH_BLOCK ? \
+  REBALANCE_EXPLOIT_BTC_STETH_BLOCK : REBALANCE_EXPLOIT_EUR_STETH_BLOCK))
 
 usage() {
   cat <<EOF
@@ -205,18 +205,6 @@ LOCAL_STATE_DIR="$SCRIPT_DIR/../deployments/local/mainnet"
 MAINNET_STATE_DIR="$SCRIPT_DIR/../deployments/mainnet"
 
 case "$BLOCK_SPEC" in
-  latest)
-    echo ""
-    echo "Block is '$BLOCK_SPEC' - local state should mirror mainnet state."
-    read -rn1 -p "Copy deployments/mainnet/*.json to deployments/local/mainnet/? [Yn] " response
-    echo
-    if [[ ! "$response" =~ ^[Nn]$ ]]; then
-      mkdir -p "$LOCAL_STATE_DIR"
-      cp "$MAINNET_STATE_DIR"/*.json "$LOCAL_STATE_DIR/"
-      rm -rf "$LOCAL_STATE_DIR/batch"
-      echo "Copied mainnet state files to local (batch directory cleared)."
-    fi
-    ;;
   factory)
     echo ""
     echo "Block is 'factory' - starting from a clean state."
@@ -232,12 +220,14 @@ case "$BLOCK_SPEC" in
     ;;
   *)
     echo ""
-    echo "WARNING: Forking $FORK_POINT - state files in deployments/local/mainnet may not be correct."
-    read -rn1 -p "Continue anyway? [Yn] " response
+    echo "Block is '$BLOCK_SPEC' - local state should mirror mainnet state."
+    read -rn1 -p "Copy deployments/mainnet/*.json to deployments/local/mainnet/? [Yn] " response
     echo
-    if [[ "$response" =~ ^[Nn]$ ]]; then
-      echo "Aborted."
-      exit 1
+    if [[ ! "$response" =~ ^[Nn]$ ]]; then
+      mkdir -p "$LOCAL_STATE_DIR"
+      cp "$MAINNET_STATE_DIR"/*.json "$LOCAL_STATE_DIR/"
+      rm -rf "$LOCAL_STATE_DIR/batch"
+      echo "Copied mainnet state files to local (batch directory cleared)."
     fi
     ;;
 esac
