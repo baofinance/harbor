@@ -12,6 +12,7 @@ import {JsonSerializer} from "@bao-script/deployment/JsonSerializer.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -753,7 +754,8 @@ contract CompensateRebalanceDilutionTest is BaoTest {
 
     /// @dev Each market's batch as queued: before its pools' migration, the minter pointed at an oracle of the batch's
     ///      own answering what its oracle answered at the capture's block; the leveraged pool's migration carrying the
-    ///      market's deductions; after its manager's upgrade, the compensation in order - the pegged approval and
+    ///      market's deductions; after its manager's upgrade, the manager's rebalance then harvest terms set to the
+    ///      market config's; then the compensation in order - the pegged approval and
     ///      fee-free redemption, where there is a cut the leveraged approval and fee-free redemption, the wrapped
     ///      collateral approval for the mints' total, then a fee-free mint per account with a debt, each what was
     ///      sized; then the minter pointed at the oracle proxy the deploy predicts.
@@ -772,8 +774,8 @@ contract CompensateRebalanceDilutionTest is BaoTest {
     }
 
     /// @dev One market's batch from `at`: the upgrade's own calls, with the minter's move to the frozen reading and the
-    ///      leveraged pool's deductions among them, then the compensation and the minter's move to the proxy; return
-    ///      the index after it.
+    ///      leveraged pool's deductions among them, the manager's terms after its upgrade, then the compensation and
+    ///      the minter's move to the proxy; return the index after it.
     function _checkMarketBatch(
         CompensationRun run,
         Deployer.Transaction[] memory queued,
@@ -808,6 +810,21 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         }
         assertTrue(movedToTheReading, string.concat(market.name, ": the minter is moved before the pools' migration"));
         ++at;
+        {
+            IHarborConfig config = IHarborConfig(address(market.market));
+            at = _expect(queued, at, manager, IStabilityPoolManager_v2.updateRebalanceConfig.selector, market.name);
+            assertEq(
+                _arguments(queued[at - 1].data),
+                abi.encode(config.rebalanceBountyRatio(), config.rebalanceBountyCeiling(), config.rebalanceCutRatio()),
+                string.concat(market.name, ": the manager's rebalance terms are the market config's")
+            );
+            at = _expect(queued, at, manager, IStabilityPoolManager_v2.updateHarvestConfig.selector, market.name);
+            assertEq(
+                _arguments(queued[at - 1].data),
+                abi.encode(config.harvestBountyRatio(), config.harvestBountyCeiling(), config.harvestCutRatio()),
+                string.concat(market.name, ": the manager's harvest terms are the market config's")
+            );
+        }
         at = _checkRedemptions(run, queued, at, market);
         at = _checkMints(run, queued, at, market, mints);
         at = _expect(queued, at, b.minter, IMinter.updatePriceOracle.selector, market.name);

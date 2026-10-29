@@ -150,31 +150,32 @@ Rewards deposited this way vest over 7 days (same as harvest rewards).
 
 ## Harvest Bounty and Cut
 
-The harvest bounty and cut ratios are configurable parameters set by the contract owner. Both default to 0 and must be set after deployment.
+The harvest bounty ratio, bounty ceiling and cut ratio are configurable parameters set by the contract owner. All three default to 0 and must be set after deployment. Both ratios are taken from the gross a harvest actually distributes, and the bounty is at most the ceiling, an amount of wrapped collateral; what the ceiling withholds goes to the fee receiver with the cut:
 
 ```solidity
-uint256 bountyAmount = (harvestableAmount * harvestBountyRatio) / 1 ether;
-uint256 cutAmount = (harvestableAmount * harvestCutRatio) / 1 ether;
-uint256 remainder = harvestableAmount - bountyAmount - cutAmount;
+uint256 bountyAmount = (distributedGross * harvestBountyRatio) / 1 ether;
+uint256 cutAmount = (distributedGross * harvestCutRatio) / 1 ether;
+if (harvestBountyCeiling > 0 && bountyAmount > harvestBountyCeiling) {
+    cutAmount += bountyAmount - harvestBountyCeiling;
+    bountyAmount = harvestBountyCeiling;
+}
+uint256 remainder = distributedGross - bountyAmount - cutAmount;
 ```
 
-| Destination | Typical Range | Recipient |
-|-------------|---------------|-----------|
-| **Bounty** | 1-10% | `bountyReceiver` (whoever calls `harvest()`) |
-| **Cut** | 5-20% | `feeReceiver` (or treasury) |
-| **Remainder** | 80-95% | Automatically deposited to stability pools |
+| Destination | Intended share | Recipient |
+|-------------|----------------|-----------|
+| **Bounty** | about 1%, at most the ceiling | `bountyReceiver` (whoever calls `harvest()`) |
+| **Cut** | about 1%, with the bounty above its ceiling | `feeReceiver` (or treasury) |
+| **Remainder** | about 98% | Automatically deposited to stability pools |
 
-### Setting Ratios
+### Setting the Terms
 
 ```solidity
-// Owner sets bounty ratio (e.g., 5%)
-stabilityPoolManager.updateHarvestBountyRatio(0.05 ether);
-
-// Owner sets cut ratio (e.g., 10%)
-stabilityPoolManager.updateHarvestCutRatio(0.1 ether);
+// Owner sets the bounty ratio, the bounty ceiling and the cut ratio together (e.g., 1%, 0.03 wrapped collateral, 1%)
+stabilityPoolManager.updateHarvestConfig(0.01 ether, 0.03 ether, 0.01 ether);
 ```
 
-Both ratios must be <= 1 ether (100%) and can be updated at any time by the owner.
+Each ratio must be <= 1 ether (100%), and the two together too. The owner can update them at any time; a ceiling of zero is no ceiling.
 
 ## Empty System Edge Case
 

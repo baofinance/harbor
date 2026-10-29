@@ -38,7 +38,7 @@ reducing anchor supply. They differ only in the payout:
 
 When the collateral ratio drops below the rebalance threshold (e.g. 1.3×), anyone can call
 `rebalance()`. Anchor tokens are taken from the stability pools and redeemed; the proceeds, less a
-bounty, are credited to that pool's depositors.
+bounty and a cut, are credited to that pool's depositors.
 
 ### How a liquidation is sized
 
@@ -69,8 +69,16 @@ Two properties favour the depositor:
 - Liquidation reads the **maximum** of the oracle price band — the end most favourable to the pool.
 - Liquidation redeems at **zero fee**, unlike an ordinary redemption.
 
-A bounty (a ratio of each leg's proceeds) goes to whoever triggered the rebalance; the remainder is
-credited to the pool.
+From each leg's proceeds, a bounty - a ratio of them - goes to whoever triggered the rebalance, and a
+cut - another ratio of them - to the fee receiver; the remainder is credited to the pool. The bounty
+has a ceiling for the whole rebalance, in wrapped collateral, shared between the pools by what each
+has had deposited when the rebalance starts; a leg paid in sail counts as the wrapped collateral its
+anchor would have redeemed for. What the ceiling withholds from the keeper stays with the pool. The
+owner sets the three together, zero meaning no ceiling:
+
+```solidity
+stabilityPoolManager.updateRebalanceConfig(0.01 ether, 0.06 ether, 0); // 1% bounty, at most 0.06 wrapped collateral, no cut
+```
 
 ### Net effect
 
@@ -144,16 +152,17 @@ sweeping nothing, so the owed ledger is rolled back rather than left mutated.
 
 ### Distribution split (example: 100 wstETH actually distributed)
 
-| Portion | Ratio | Destination |
-|---|---|---|
-| Bounty | 1–10% | Whoever called `harvest()` (a nominated receiver) |
-| Cut | 5–20% | Fee receiver / treasury |
-| Remainder | the rest | Stability pools, into a 7-day vesting stream |
+| Portion | Ratio | No ceiling | A ceiling of 0.03 wstETH | Destination |
+|---|---|---|---|---|
+| Bounty | about 1% | 1 wstETH | 0.03 wstETH | Whoever called `harvest()` (a nominated receiver) |
+| Cut | about 1% | 1 wstETH | 1.97 wstETH: the cut and the bounty's 0.97 above the ceiling | Fee receiver / treasury |
+| Remainder | the rest | 98 wstETH | 98 wstETH | Stability pools, into a 7-day vesting stream |
 
 Both ratios default to 0 and are set together by the owner, with the bounty's ceiling — the most a
-harvest pays its caller, in wrapped collateral, zero for none. The ratios are validated as a **pair**,
-because what a pool is streamed is the residual the two leave, so a pair summing above 100% describes
-a split that does not exist:
+harvest pays its caller, in wrapped collateral, zero for none. What the ceiling withholds goes to the
+fee receiver, so the pools are streamed the same with or without it. The ratios are validated as a
+**pair**, because what a pool is streamed is the residual the two leave, so a pair summing above 100%
+describes a split that does not exist:
 
 ```solidity
 stabilityPoolManager.updateHarvestConfig(0.05 ether, 0, 0.1 ether); // 5% bounty, no ceiling, 10% cut
@@ -257,15 +266,16 @@ const harvestable = await minter.harvestable();
 
 The bounty is a ratio of the gross **actually distributed**, which is not the same as `harvestable()`
 whenever a pool's owed exceeds one period's capacity. `harvestable()` is therefore an **upper bound**
-on the base, not the base itself:
+on the base, not the base itself. The bounty is also at most the ceiling, where one is set:
 
 ```typescript
 const harvestable = await minter.harvestable();          // upper bound on the distributable gross
-const bountyRatio  = await manager.harvestBountyRatio();
-const cutRatio     = await manager.harvestCutRatio();
+const bountyRatio = await manager.harvestBountyRatio();
+const ceiling     = await manager.harvestBountyCeiling(); // zero: no ceiling
 
 // upper bound only — the actual base is the gross this call distributes
-const maxBounty = (harvestable * bountyRatio) / ethers.parseEther("1");
+const slice = (harvestable * bountyRatio) / ethers.parseEther("1");
+const maxBounty = ceiling > 0n && slice > ceiling ? ceiling : slice;
 ```
 
 To avoid an unprofitable call, pass a `minBounty` to `harvest()` — it reverts rather than paying

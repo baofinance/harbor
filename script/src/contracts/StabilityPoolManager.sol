@@ -49,11 +49,11 @@ abstract contract StabilityPoolManager is HarborDeployer {
     ///         operating parameters already set.
     /// @dev Takes the market config, not the contract's constructor arguments — this function is the only
     ///      place that splits those values across constructor, `initialize` calldata and setters.
-    ///      The ratios stay setters on the contract deliberately: they are tuned on live markets by
-    ///      multisig batch (see `script/UpdateVolatility_*.s.sol`). What changes here is only that the
-    ///      deploy stack no longer performs the configuration. Each action's bounty ratio, bounty ceiling and
-    ///      cut ratio are set by one call, which is the only way to set any of them - see `updateHarvestConfig`
-    ///      and `updateRebalanceConfig`.
+    ///      The terms stay setters on the contract deliberately: they are tuned on live markets by
+    ///      multisig batch (`queueStabilityPoolManagerConfig`, which
+    ///      `script/UpdateHarvestAndRebalanceConfig_AllMarkets.s.sol` queues for every market). Each action's bounty
+    ///      ratio, bounty ceiling and cut ratio are set by one call, which is the only way to set any of them - see
+    ///      `updateHarvestConfig` and `updateRebalanceConfig`.
     function deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig
@@ -80,5 +80,46 @@ abstract contract StabilityPoolManager is HarborDeployer {
             cfg.harvestCutRatio()
         );
         IStabilityPoolManager_v2(proxy).updateFeeReceiver(treasury());
+    }
+
+    /// @notice Queue for the multisig the calls that set a live manager's harvest and rebalance terms to what
+    ///         `marketConfig` gives - each action's bounty ratio, bounty ceiling and cut ratio, in the one call per
+    ///         action that sets them, as `deployStabilityPoolManager` sets them on a new manager. The manager must run
+    ///         StabilityPoolManager_v2 when the calls execute.
+    function queueStabilityPoolManagerConfig(Config_MinterMarket marketConfig) internal {
+        IHarborConfig cfg = IHarborConfig(address(marketConfig));
+        string memory key = stabilityPoolManagerKey(marketConfig);
+        queue(
+            key,
+            abi.encodeCall(
+                IStabilityPoolManager_v2.updateRebalanceConfig,
+                (cfg.rebalanceBountyRatio(), cfg.rebalanceBountyCeiling(), cfg.rebalanceCutRatio())
+            ),
+            string.concat(
+                "set the rebalance's bounty ratio to ",
+                _scaled(cfg.rebalanceBountyRatio()),
+                ", its bounty ceiling to ",
+                _scaled(cfg.rebalanceBountyCeiling()),
+                " wrapped collateral and its cut ratio to ",
+                _scaled(cfg.rebalanceCutRatio()),
+                ", as the market config gives them"
+            )
+        );
+        queue(
+            key,
+            abi.encodeCall(
+                IStabilityPoolManager_v2.updateHarvestConfig,
+                (cfg.harvestBountyRatio(), cfg.harvestBountyCeiling(), cfg.harvestCutRatio())
+            ),
+            string.concat(
+                "set the harvest's bounty ratio to ",
+                _scaled(cfg.harvestBountyRatio()),
+                ", its bounty ceiling to ",
+                _scaled(cfg.harvestBountyCeiling()),
+                " wrapped collateral and its cut ratio to ",
+                _scaled(cfg.harvestCutRatio()),
+                ", as the market config gives them"
+            )
+        );
     }
 }

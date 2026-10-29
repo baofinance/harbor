@@ -90,7 +90,8 @@ Each market's batch holds these calls, in this order:
    `FrozenPriceOracle` of the batch's own, answering what the minter's oracle answered at the capture's block;
 3. the collateral pool's migration through `StabilityPool_v3_Upgrader`;
 4. the leveraged pool's migration through `StabilityPool_v3_Upgrader`;
-5. the manager's upgrade;
+5. the manager's upgrade, then `updateRebalanceConfig` and `updateHarvestConfig`, each setting one action's bounty
+   ratio, bounty ceiling and cut ratio to the market config's - their descriptions state the values;
 6. for BTC::stETH and EUR::stETH, the compensation's approvals, redemptions and mints, then `updatePriceOracle` to
    the oracle proxy the deploy predicts.
 
@@ -120,7 +121,9 @@ each batch does is under [Each market's batch](#each-markets-batch), item 4. Bef
 ### 5. Sign and execute
 
 - Each market's batch is independent of the others: they can be executed in any order.
-- The Safe runs a batch as one transaction: all of it happens, or none of it. The largest batch uses about 4.2M gas.
+- The Safe runs a batch as one transaction: all of it happens, or none of it. The largest batch used about 4.2M gas
+  on the rehearsal of 2026-10-28. The manager's two setters, added since, cost at most 0.15M more by their measured
+  cost.
 - Executing a market's batch moves its minter, pools and manager off the pause implementation onto v3: **that market is
   live again at once**.
 - No call in a batch reads a live price: BTC::stETH's and EUR::stETH's batches price the compensation at the capture
@@ -135,6 +138,13 @@ implementation:
 - not to an upgrader. `script/update-state --apply` reads only a batch's outer `upgradeToAndCall`, so it would record
   every pool, and the GOLD::fxUSD and SILVER::fxUSD minters, as running an upgrader;
 - the pointers already lag the chain: the pause implementation was never recorded.
+
+### 7. Later: when a market config's terms change
+
+The batches set each manager's terms from the market configs as they are when the batches are built. When a config's
+terms change - for a bounty ceiling, when the wrapped collateral's price has moved far from what its
+`aboutADollarInWrappedCollateral` assumes - `script/UpdateHarvestAndRebalanceConfig_AllMarkets.s.sol` saves one batch
+that sets every manager's harvest and rebalance terms to its config's again, through the same calls.
 
 ## What the upgrade changes
 
@@ -151,7 +161,13 @@ implementation:
    runs `Aggregator_fxUSD_GOLD_mainnet`: the XAU aggregator with its quote name changed, answering alike.
 2. **Each pool** is migrated through `StabilityPool_v3_Upgrader` (`script/UpgradeStabilityPool_v2_v3/`), which copies
    its storage into v3's layout (below), writes its ledger gap, then upgrades it to StabilityPool_v3 in the same call.
-3. **The manager** is upgraded to StabilityPoolManager_v2; its settings stay where they are in storage.
+3. **The manager** is upgraded to StabilityPoolManager_v2; its settings stay where they are in storage. Then
+   `updateRebalanceConfig` and `updateHarvestConfig` set each action's bounty ratio, bounty ceiling and cut ratio to
+   the market config's, as a deploy sets them. At the capture every market runs on its config's ratios, so no ratio
+   changes: the calls set the bounty ceilings v2 adds, and the rebalance cut v2 adds, which the config makes zero. The
+   ceilings are a hundred and two hundred times the config's `aboutADollarInWrappedCollateral` - for example, as
+   configured on 2026-10-29, 0.03 and 0.06 wstETH in the stETH markets, 100 and 200 fxSAVE in the fxUSD markets. The
+   rebalance threshold and the fee receiver stay as they are.
 4. **The compensation**, in the two markets the rebalance dilution exploits of 2026-10-16 hit (BTC::stETH and
    EUR::stETH; `script/src/CompensateRebalanceDilution.sol`, from the incident's `<market>-compensation.json` files):
    the leveraged pool's migration takes each gainer's cut from what it may claim and pays it to the multisig; then the
@@ -172,8 +188,8 @@ or withdrawal window.
 ### Storage layouts
 
 - **Minter**: unchanged - the same namespace and struct in v2 and v3.
-- **StabilityPoolManager**: v2 adds three fields at the end - what each pool is owed from harvests, and the yield
-  vaults - which start empty.
+- **StabilityPoolManager**: v2 adds six fields at the end - what each pool is owed from harvests, the yield vaults,
+  the two bounty ceilings and the rebalance cut - which start empty. The batch sets the ceilings and the cut.
 - **StabilityPool**:
 
 | Change from v2 to v3 | How the upgrade handles it | What checks it |
@@ -247,7 +263,8 @@ its settings - what a deploy writes, read by `MarketSettings.sol` - and its hold
   of the manager, and per captured holder: balance, claimable and claimed rewards per reward token, withdrawal request;
   after, on StabilityPool_v3, its reward divisor and the minter it names.
 - **StabilityPoolManager**: owner, pools, its minter and the market's tokens, the harvest bounty and cut, the rebalance
-  bounty and threshold, and the fee receiver; after, whether it reports StabilityPoolManager_v2, and its yield vaults.
+  bounty and threshold, and the fee receiver; after, whether it reports StabilityPoolManager_v2, its yield vaults, the
+  two bounty ceilings and the rebalance cut.
 
 Where the two versions answer the same question through different functions, each is read through its own, into the
 same key.
@@ -265,6 +282,7 @@ The expected after is the before record, changed only where an expectation says.
 | the same, where the proxy runs other code (GOLD::fxUSD) | `minter_priceOracle_implementation` | the proxy's implementation | it answered as the oracle it read at the capture's block - the expected after is refused otherwise |
 | StabilityPoolManager | `manager_reportsStabilityPoolManager_v2` | `true` | the upgrade puts StabilityPoolManager_v2 behind the manager |
 | StabilityPoolManager | `manager_yieldVaultCount` | `0` | v2 adds yield vaults; the upgrade registers none |
+| StabilityPoolManager | `manager_rebalanceBountyRatio`, `manager_rebalanceBountyCeiling`, `manager_rebalanceCutRatio`, `manager_harvestBountyRatio`, `manager_harvestBountyCeiling`, `manager_harvestCutRatio` | the market config's | its batch sets each action's bounty ratio, bounty ceiling and cut ratio to the market config's |
 | StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
 | StabilityPool | `state_minter` | the market's minter | v3 names its minter, which v2 does not |
 | StabilityPool | `state_rewardDivisor` | supply less the ledger gap | v3 divides rewards by what the holders hold |
@@ -337,6 +355,8 @@ address the deploy grants none is not seen.
 
 - `script/Upgrade_MarketsToV3_mainnet.s.sol` - the script, and `FROZEN_MARKETS_CAPTURE`
 - `script/src/UpgradeMarketToV3.sol` - the read of each market, and its batch
+- `script/src/contracts/StabilityPoolManager.sol` - `queueStabilityPoolManagerConfig`, the manager's two setter calls
+  the batch carries, which `script/UpdateHarvestAndRebalanceConfig_AllMarkets.s.sol` queues for every market
 - `script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol`, `script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol`
   - the one-shot upgraders
 - `test/deployment/UpgradeMarketToV3.t.sol` - the upgrade's tests

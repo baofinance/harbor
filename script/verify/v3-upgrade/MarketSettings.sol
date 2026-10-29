@@ -225,7 +225,8 @@ contract MarketSettings {
         json = _vm.serializeString(objectKey, "manager_leveragedToken", _vm.toString(named.LEVERAGED_TOKEN()));
     }
 
-    /// @notice StabilityPoolManager_v2's own settings: the interface it reports, and how many yield vaults it compounds.
+    /// @notice StabilityPoolManager_v2's own settings: the interface it reports, how many yield vaults it compounds, the
+    ///         bounty ceiling of each action, and the rebalance's cut.
     function serializeManagerV2(
         string memory objectKey,
         HarborDeployer deployment,
@@ -236,6 +237,21 @@ contract MarketSettings {
             objectKey,
             "manager_reportsStabilityPoolManager_v2",
             _vm.toString(IERC165(manager).supportsInterface(type(IStabilityPoolManager_v2).interfaceId))
+        );
+        _vm.serializeString(
+            objectKey,
+            "manager_harvestBountyCeiling",
+            _vm.toString(IStabilityPoolManager_v2(manager).harvestBountyCeiling())
+        );
+        _vm.serializeString(
+            objectKey,
+            "manager_rebalanceBountyCeiling",
+            _vm.toString(IStabilityPoolManager_v2(manager).rebalanceBountyCeiling())
+        );
+        _vm.serializeString(
+            objectKey,
+            "manager_rebalanceCutRatio",
+            _vm.toString(IStabilityPoolManager_v2(manager).rebalanceCutRatio())
         );
         json = _vm.serializeString(
             objectKey,

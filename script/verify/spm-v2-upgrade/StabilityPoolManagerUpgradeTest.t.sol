@@ -8,6 +8,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
@@ -17,20 +18,22 @@ import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
 
 /// @title StabilityPoolManager v2 Upgrade Verification
 /// @notice Upgrades every live market on a mainnet fork, as production will - `UpgradeMarketToV3.upgradeMarketsToV3`,
-///         the function the upgrade script runs, which moves the manager in place with the minter and both pools - and
-///         asserts the manager's upgrade is transparent: the configuration each market was running on survives, the
-///         reported interface becomes the v2 one, and harvest still works on the state it inherits.
+///         the function the upgrade script runs, which moves the manager in place with the minter and both pools, then
+///         sets its harvest and rebalance terms to the market config's - and asserts what the manager's upgrade
+///         changes: each market keeps the ratios it runs on, which are its config's, gains the config's bounty ceilings
+///         and rebalance cut, keeps its rebalance threshold and fee receiver, reports the v2 interface, and harvests on
+///         the state it inherits.
 /// @dev The upgrade migrates each pool's holders from the capture at the test's block, `holders-<block>/` beside it,
 ///      written by `script/holders/capture-holders`.
 ///      Run with: script/verify/spm-v2-upgrade/run-upgrade-test-StabilityPoolManager_v2
 contract StabilityPoolManagerUpgradeTest is BaoTest, HarborDeployer {
-    /// @dev After the multisig brought the two MCAP markets' harvest cut down to the configured 99%, which is the
-    ///      state the upgrade is meant to land on - every market's bounty and cut sum within 100%.
+    /// @dev After the multisig brought the two MCAP markets' harvest cut down to the configured 99%: from here every
+    ///      market runs on its config's ratios.
     uint256 private constant FORK_BLOCK = 25691117;
 
     Config_MinterMarket[] private _markets;
 
-    /// @dev The configuration a market is running before the upgrade, which the upgrade must not disturb.
+    /// @dev The settings a market runs on before the upgrade that both versions hold.
     struct Settings {
         uint256 harvestBountyRatio;
         uint256 harvestCutRatio;
@@ -71,17 +74,35 @@ contract StabilityPoolManagerUpgradeTest is BaoTest, HarborDeployer {
         stabilityPoolManager = stabilityPoolManagerAddress(market);
     }
 
-    /// The upgrade carries every market's configuration across unchanged, and swaps the reported interface from the
-    /// v1 ABI to the v2 one - which is the v1 ABI without the single-ratio harvest setters.
-    function test_upgradePreservesSettings_() public {
+    /// The upgrade sets each action's terms to the market config's and keeps the rest: every market runs on its
+    /// config's ratios at the test's block, so it keeps them and gains only what v2 adds - the config's bounty ceilings
+    /// and rebalance cut - beside its rebalance threshold and fee receiver; and the reported interface swaps from the v1
+    /// ABI to the v2 one.
+    function test_upgradeSetsTheConfiguredTermsAndKeepsTheRest_() public {
         for (uint256 i = 0; i < _markets.length; i++) {
             Config_MinterMarket market = _markets[i];
+            IHarborConfig config = IHarborConfig(address(market));
             address stabilityPoolManager = stabilityPoolManagerAddress(market);
 
             Settings memory before = _settings(stabilityPoolManager);
             assertTrue(
                 IERC165(stabilityPoolManager).supportsInterface(type(IStabilityPoolManager).interfaceId),
                 _label(market, "reports the v1 interface before the upgrade")
+            );
+            assertEq(
+                before.harvestBountyRatio,
+                config.harvestBountyRatio(),
+                _label(market, "runs on the config's harvest bounty")
+            );
+            assertEq(
+                before.harvestCutRatio,
+                config.harvestCutRatio(),
+                _label(market, "runs on the config's harvest cut")
+            );
+            assertEq(
+                before.rebalanceBountyRatio,
+                config.rebalanceBountyRatio(),
+                _label(market, "runs on the config's rebalance bounty")
             );
 
             _upgrade(market);
@@ -93,6 +114,21 @@ contract StabilityPoolManagerUpgradeTest is BaoTest, HarborDeployer {
                 settingsAfter.rebalanceBountyRatio,
                 before.rebalanceBountyRatio,
                 _label(market, "rebalance bounty")
+            );
+            assertEq(
+                IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyCeiling(),
+                config.harvestBountyCeiling(),
+                _label(market, "harvest bounty ceiling")
+            );
+            assertEq(
+                IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyCeiling(),
+                config.rebalanceBountyCeiling(),
+                _label(market, "rebalance bounty ceiling")
+            );
+            assertEq(
+                IStabilityPoolManager_v2(stabilityPoolManager).rebalanceCutRatio(),
+                config.rebalanceCutRatio(),
+                _label(market, "rebalance cut")
             );
             assertEq(
                 settingsAfter.rebalanceThreshold,
@@ -108,22 +144,6 @@ contract StabilityPoolManagerUpgradeTest is BaoTest, HarborDeployer {
             assertFalse(
                 IERC165(stabilityPoolManager).supportsInterface(type(IStabilityPoolManager).interfaceId),
                 _label(market, "no longer claims the v1 interface")
-            );
-        }
-    }
-
-    /// Every market's stored bounty and cut sum within 100%, so v2 can work out what is left for the pools. This is
-    /// the precondition the upgrade depends on - v2 has no single-ratio setter to repair a stored pair with - and it
-    /// holds for a market whether or not it has yield to harvest.
-    function test_upgradedHarvestRatiosAreWithinOneHundredPercent_() public {
-        for (uint256 i = 0; i < _markets.length; i++) {
-            Config_MinterMarket market = _markets[i];
-            address stabilityPoolManager = _upgrade(market);
-            assertLe(
-                IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() +
-                    IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(),
-                1 ether,
-                _label(market, "harvest bounty + cut within 100%")
             );
         }
     }
@@ -153,38 +173,43 @@ contract StabilityPoolManagerUpgradeTest is BaoTest, HarborDeployer {
         assertGt(marketsHarvested, 0, "at least one market had yield to harvest");
     }
 
-    /// The recovery path the upgrade sequencing relies on: a market upgraded while its stored bounty and cut still
-    /// sum above 100% has no harvest - there is no split to make - and the owner repairs it in ONE call, because the
-    /// pair setter validates the pair being written rather than the pair stored.
-    function test_upgradedPairAboveOneHundredPercentIsRepairable_() public {
+    /// A market upgraded while its stored bounty and cut sum above 100% - a split that does not exist, the state the
+    /// MCAP markets held before their repair - comes out of its batch with its config's pair, and harvests at once:
+    /// the batch sets the harvest's terms whole, through the setter that validates the pair being written.
+    function test_theUpgradeRepairsAPairAboveOneHundredPercent_() public {
         (, Config_MinterMarket[] memory ethMarkets) = ethMintersConfig();
-        Config_MinterMarket market = ethMarkets[0]; // ETH::fxUSD, a market with yield, so the repair is observable
+        Config_MinterMarket market = ethMarkets[0]; // ETH::fxUSD, a market with yield, so the harvest is observable
         assertEq(MinterMarketConfigLib.salt(market), "ETH::fxUSD", "the market with yield");
+        IHarborConfig config = IHarborConfig(address(market));
         address stabilityPoolManager = stabilityPoolManagerAddress(market);
-        address owner = IBaoOwnable(stabilityPoolManager).owner();
-        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
-        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
 
-        // put the market back in the state the pre-upgrade batch repaired: a full cut alongside the bounty
-        vm.startPrank(owner);
+        // put the market in the state the MCAP markets were repaired from: a full cut alongside the bounty
+        vm.startPrank(IBaoOwnable(stabilityPoolManager).owner());
         IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(1 ether);
         vm.stopPrank();
+        assertGt(
+            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() +
+                IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(),
+            1 ether,
+            "precondition: the stored pair sums above 100%"
+        );
 
         _upgrade(market);
 
+        assertEq(
+            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(),
+            config.harvestBountyRatio(),
+            "the config's harvest bounty"
+        );
+        assertEq(
+            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(),
+            config.harvestCutRatio(),
+            "the config's harvest cut"
+        );
         address harvester = makeAddr("harvester");
-        vm.startPrank(harvester);
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11)); // the residual has no representation
-        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
-        vm.stopPrank();
-
-        vm.startPrank(owner);
-        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestConfig(bountyRatio, 0, cutRatio);
-        vm.stopPrank();
-
         vm.startPrank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
-        assertGt(harvested, 0, "harvest resumes once the pair is repaired");
+        assertGt(harvested, 0, "the market harvests straight after its batch");
     }
 }

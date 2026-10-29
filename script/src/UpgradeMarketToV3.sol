@@ -37,6 +37,11 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 ///      The minter's upgrade loads its stored config again through Minter_v3's loader, which refuses configs v2
 ///      accepted: a config v3 would refuse reverts the market's whole batch rather than leaving the minter on it.
 ///
+///      The manager's harvest and rebalance terms are set after its upgrade to what the market config gives, as a
+///      deploy sets them: StabilityPoolManager_v2 adds a bounty ceiling to each action and a cut to the rebalance,
+///      which the upgrade alone leaves at zero, and sets each action's bounty ratio, bounty ceiling and cut ratio in
+///      one call. The rebalance threshold and the fee receiver stay as they are.
+///
 ///      Each pool goes through `StabilityPool_v3_Upgrader`, never a plain upgrade: v3 keeps the reward streams and
 ///      each holder's reward snapshot in widened storage, which the upgrader copies across, and divides rewards by what
 ///      the holders hold, which needs the pool's ledger gap. Both come from a holder capture, read where the pools can
@@ -185,8 +190,8 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///         `Minter_v3_Upgrader`, which sets the record to zero, where the minter records backing but holds no
     ///         wrapped collateral - then, where it reads another oracle, its move to the oracle proxy the deploy
     ///         predicts; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders,
-    ///         gap and deductions its input holds; of its manager; then the owner's operations its input names, in
-    ///         that order. A market with operations is moved instead to a `FrozenPriceOracle` answering their reading,
+    ///         gap and deductions its input holds; of its manager, with its harvest and rebalance terms then set to the
+    ///         market config's; then the owner's operations its input names, in that order. A market with operations is moved instead to a `FrozenPriceOracle` answering their reading,
     ///         deployed here, before its pools' migration, and to the oracle proxy after the operations. Every
     ///         contract deployed is recorded in the state returned and saved: the implementations under their proxies,
     ///         the upgraders and frozen oracles under `*`, so every address a batch names can be named from the state.
@@ -332,6 +337,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (managerImplementation, "")),
                 "upgrade to StabilityPoolManager_v2"
             );
+            queueStabilityPoolManagerConfig(config);
 
             string memory market = MinterMarketConfigLib.salt(config);
             {
@@ -522,16 +528,6 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                     " rewards for the owner"
                 )
         );
-    }
-
-    /// @dev An 18-decimal amount as "<whole>.<18 digits>", for a batch's descriptions and reports.
-    function _scaled(uint256 amount) internal pure returns (string memory) {
-        string memory fraction = LibString.toString(amount % 1 ether);
-        bytes memory zeros = new bytes(18 - bytes(fraction).length);
-        for (uint256 i = 0; i < zeros.length; ++i) {
-            zeros[i] = "0";
-        }
-        return string.concat(LibString.toString(amount / 1 ether), ".", string(zeros), fraction);
     }
 
     /// @dev Requires the proxy named `key` at `proxy` to revert `call` with the pausers' `Paused` - BaoPauser_v1, which

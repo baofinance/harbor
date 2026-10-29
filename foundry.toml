@@ -63,6 +63,10 @@ fs_permissions = [
 ]
 
 gas_limit = "18446744073709551615"
+# forge runs each top-level call of a test as its own transaction, and in a fork test caps it at the forked block's gas
+# limit. A test that runs a deploy or upgrade script's entry point makes one call for what the script sends as many
+# transactions, so the cap is lifted, as coverage and the v3 upgrade rehearsal lift it.
+disable_block_gas_limit = true
 
 [lint]
 exclude_lints = ["mixed-case-function", "mixed-case-variable"]

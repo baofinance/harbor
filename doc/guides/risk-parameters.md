@@ -77,19 +77,29 @@ minter.updatePriceOracle(newOracleAddress); // Requires owner role
 
 Validation: oracle address is not zero, implements required interface, has fresh price data, constraints are appropriate.
 
-## Harvest Configuration
+## Harvest and Rebalance Configuration
+
+Each action's bounty ratio, bounty ceiling and cut ratio are set together, in one call. A ceiling is
+an amount of wrapped collateral, and zero means no ceiling.
 
 ```solidity
-stabilityPoolManager.updateHarvestBountyRatio(0.02e18); // 2%
-stabilityPoolManager.updateHarvestCutRatio(0.03e18);     // 3%
-stabilityPoolManager.updateFeeReceiver(newFeeReceiver);  // Multisig recommended
+stabilityPoolManager.updateHarvestConfig(0.02e18, 0.03e18, 0.03e18); // 2% bounty, at most 0.03 wrapped collateral, 3% cut
+stabilityPoolManager.updateRebalanceConfig(0.01e18, 0.06e18, 0);     // 1% bounty, at most 0.06 wrapped collateral, no cut
+stabilityPoolManager.updateFeeReceiver(newFeeReceiver);               // Multisig recommended
 ```
 
 | Parameter | Recommended | Purpose |
 |-----------|-------------|---------|
 | `harvestBountyRatio` | 1-5% | Incentivizes keepers to harvest |
+| `harvestBountyCeiling` | well above a harvest's gas cost | The most one harvest pays its caller; the rest goes to the fee receiver |
 | `harvestCutRatio` | 1-5% | Protocol revenue |
-| `feeReceiver` | Multisig | Receives harvest cut |
+| `rebalanceBountyRatio` | 1-5% | Incentivizes keepers to rebalance |
+| `rebalanceBountyCeiling` | well above a rebalance's gas cost | The most one rebalance pays its caller; the rest stays with the pools |
+| `rebalanceCutRatio` | 0 | Protocol revenue, taken from what the pools are paid |
+| `feeReceiver` | Multisig | Receives the cuts |
+
+A ceiling is a fixed amount of wrapped collateral, so it is set again when the collateral's price
+moves far from what it was set at.
 
 ## Fee Structure Validation
 

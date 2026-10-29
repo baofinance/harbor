@@ -8,6 +8,7 @@ import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Harbor-specific deployment base for scripts and tests.
 /// @dev Inherit from this for all Harbor deployment contracts.
@@ -285,5 +286,17 @@ abstract contract HarborDeployer is HarborReporting {
     ) internal {
         _reportRoleGrant(granterLabel, granteeLabel, roleDescription);
         IHarborRoles(target).grantRoles(grantee, roles);
+    }
+
+    // ─── Batch descriptions ────────────────────────────────────────────────────
+
+    /// @dev An 18-decimal amount as "<whole>.<18 digits>", for a batch's descriptions and reports.
+    function _scaled(uint256 amount) internal pure returns (string memory) {
+        string memory fraction = LibString.toString(amount % 1 ether);
+        bytes memory zeros = new bytes(18 - bytes(fraction).length);
+        for (uint256 i = 0; i < zeros.length; ++i) {
+            zeros[i] = "0";
+        }
+        return string.concat(LibString.toString(amount / 1 ether), ".", string(zeros), fraction);
     }
 }

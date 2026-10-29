@@ -435,7 +435,8 @@ The code calls the pool's side of this a *liquidation* and this document follows
 carries none of its lending-protocol meaning: nothing is seized to cover a debt, and the exchange is
 **fair** — at the middle of the price band, with no fee charged by the protocol (§5.6), anchor
 exchanged at par and sail minted at its own price. The keeper that triggers it takes its bounty from
-the proceeds (§7.7). What changes is *what the depositor holds*.
+the proceeds, within a ceiling, and the fee receiver may take a cut (§7.7). What changes is *what the
+depositor holds*.
 
 **Where the leveraged pool is paid depends on the ratio.** Sail is the residual claim, so its price
 falls toward zero near the peg, and below the leverage floor (§2.3) the protocol mints none. There the
@@ -471,9 +472,10 @@ Stability-pool depositors receive value from two distinct sources, which behave 
 Both are credited proportionally to a depositor's share of the pool at the time of accrual, and both
 accumulate until claimed. A depositor's accrued-but-unclaimed rewards are not capped.
 
-Each source is net of what the keeper that triggered it is paid. A harvest also pays a **cut** to the
-fee receiver first. The owner sets both ratios, and the design intends both to be small, so that
-nearly all the yield reaches the pools (§5.7, §7.7).
+Each source is net of what the keeper that triggered it is paid, and of a **cut** to the fee
+receiver. The owner sets each action's bounty ratio, bounty ceiling and cut ratio, and the design
+intends the bounty and the cut to be small, so that nearly all the value reaches the pools (§5.6,
+§5.7, §7.7).
 
 ### 2.8 The reserve pool
 
@@ -579,8 +581,9 @@ permissionless and unprivileged: they choose *when* to call, never *what* the ca
 **Owner / governance.** A multisig. Holds upgrade authority over every contract, and thereby the
 pause mechanism. Beyond the upgrade, it can:
 
-- set the fee and subsidy schedule, the rebalance threshold, the rebalance bounty ratio and the
-  harvest bounty and cut ratios — each ratio up to 100%;
+- set the fee and subsidy schedule, the rebalance threshold, and each action's bounty ratio, bounty
+  ceiling and cut ratio — a rebalance's and a harvest's, each ratio up to 100% and each action's two
+  together up to 100%;
 - point the Minter at any non-zero price source, and set the fee and reserve destinations;
 - register yield vaults, and recognise an impairment (§2.1);
 - grant the zero-fee, donor, harvester and fee-exempt-withdrawal roles;
@@ -591,8 +594,9 @@ pause mechanism. Beyond the upgrade, it can:
 This is the system's principal trust assumption and is enumerated as such in §9.
 
 **Fee receivers.** Three destinations, set separately: the Minter's, for mint and redeem fees; the
-stability-pool manager's, for the harvest cut; and each stability pool's, for early-withdrawal fees,
-fixed when the pool is initialised. Passive recipients; they hold no authority.
+stability-pool manager's, for the harvest and rebalance cuts and the part of a harvest bounty above
+its ceiling; and each stability pool's, for early-withdrawal fees, fixed when the pool is
+initialised. Passive recipients; they hold no authority.
 
 ### 3.3 Trust relationships
 
@@ -817,8 +821,8 @@ Acceptance criteria:
 2. It is priced at the **middle** of the price band: the pool is the backstop, forced to trade, so it
    is not charged the spread a user who chooses to trade pays. Anchor is exchanged at par, and sail
    is minted at its own price.
-3. Proceeds, less the keeper's bounty, are credited to the pool's depositors in proportion to
-   holdings.
+3. Proceeds, less the keeper's bounty and the fee receiver's cut, are credited to the pool's
+   depositors in proportion to holdings.
 4. A rebalance may reduce the pool only to its floor, never below — every depositor retains a share
    of the minimum.
 5. Where a pool's proportional share of a rebalance exceeds what it can absorb, the shortfall moves
@@ -881,7 +885,8 @@ Acceptance criteria:
 
 Acceptance criteria:
 1. Rebalancing and harvesting are **callable by anyone**, with no allowlist.
-2. Each pays a configurable bounty, taken as a ratio of the value the call moves.
+2. Each pays a configurable bounty, taken as a ratio of the value the call moves, up to a
+   configurable ceiling.
 3. The keeper nominates the bounty recipient, so bots can separate the calling address from the
    receiving one.
 4. A minimum acceptable bounty may be specified, so a call that would be unprofitable reverts rather
@@ -1361,6 +1366,7 @@ sequenceDiagram
     participant M as Minter
     participant PC as Collateral pool
     participant PL as Leveraged pool
+    participant F as Fee receiver
     participant YV as Yield vaults
 
     K->>SPM: rebalance(bountyReceiver, minLiquidated)
@@ -1376,7 +1382,8 @@ sequenceDiagram
         SPM->>PL: sweep anchor tokens
         SPM->>M: freeRedeemPeggedToken(all, 0) — zero fee, middle price
         M-->>SPM: wrapped collateral
-        SPM->>K: bounty (a share of each payment)
+        SPM->>K: bounty (a share of each payment,<br/>within its pool's share of the ceiling)
+        SPM->>F: cut (a share of each payment)
         SPM->>PC: its share of the collateral + notifyLiquidation(collateral)
         SPM->>PL: its share of the collateral + notifyLiquidation(collateral)
     end
@@ -1388,7 +1395,8 @@ sequenceDiagram
         SPM->>PL: sweep anchor tokens
         SPM->>M: freeRedeemPeggedToken(both legs) — zero fee, middle price
         M-->>SPM: wrapped collateral + sail tokens
-        SPM->>K: bounty (a share of each payment)
+        SPM->>K: bounty (a share of each payment,<br/>within its pool's share of the ceiling)
+        SPM->>F: cut (a share of each payment)
         SPM->>PC: remaining wrapped collateral + notifyLiquidation(collateral)
         SPM->>PL: remaining sail tokens + notifyLiquidation(sail)
     end
@@ -1400,7 +1408,7 @@ sequenceDiagram
 
 **Outcome.** Anchor supply falls; the collateral ratio rises to the threshold, or as close as the
 pools' combined capacity allows. Depositors' balances shrink and they receive the proceeds. The
-keeper is paid.
+keeper is paid, and the fee receiver takes its cut.
 
 **Notable properties.**
 - **The split is fitted, not merely proportional.** Each leg starts proportional to the pools'
@@ -1419,6 +1427,14 @@ keeper is paid.
   allowing one wei of backing, so it cannot stop a hair short of the leverage floor and strand step 2.
 - **The keeper's bounty and minimum cover both steps**: the bounty is its ratio of every payment, in
   that payment's token, and `minLiquidated` is judged against the anchor taken in both steps together.
+- **The bounty has one ceiling for the whole rebalance**, an amount of wrapped collateral. It is
+  shared between the pools by what each has had deposited when the rebalance starts, and each pool's
+  payments draw on its own share: a payment in wrapped collateral counts as itself, a payment in sail
+  as the wrapped collateral the pool's anchor would have redeemed for. So the bounties of all the
+  payments together never exceed the ceiling, and a pool's unused share does not pass to the other.
+  What the ceiling withholds from the keeper stays with the pool. A ceiling of zero is none.
+- **The cut is its ratio of every payment**, in that payment's token, paid to the fee receiver. The
+  ceiling does not bound it. The pool receives the payment less the bounty and the cut.
 - **Two capacity bounds apply per leg** — how much loss the pool may absorb before reaching its floor,
   and how much reward its accounting can credit at once. Excess is deferred to a later call rather
   than overflowing.
@@ -1461,7 +1477,7 @@ sequenceDiagram
     note over SPM: each pool streams its owed up to<br/>one period's reward capacity —<br/>the rest stays owed to that pool
     end
 
-    SPM->>SPM: bounty and cut = exact shares of what is actually distributed
+    SPM->>SPM: bounty and cut = exact shares of what is actually distributed<br/>bounty above the ceiling: the excess joins the cut
     alt bounty below the keeper's minimum
         SPM-->>K: revert
     end
@@ -1489,6 +1505,10 @@ moved.
   retroactively earn a share of a backlog.
 - **Bounty and cut are taken on value actually distributed**, not on the owed backlog. A keeper's
   reward always matches the yield its call consumed.
+- **The bounty has a ceiling**, an amount of wrapped collateral. A harvest pays its caller at most the
+  ceiling, and the rest of the bounty's share goes to the fee receiver with the cut, so what the pools
+  are streamed is as it would be without one. The keeper's minimum is judged against the bounty paid.
+  A ceiling of zero is none.
 - **Every party takes its own floored share.** No party is handed another's rounding shortfall; the
   remainder stays un-owed and is reconsidered on the next call.
 - If the surplus *shrinks* — a fall in the wrapped asset's rate — each pool's owed is written down
@@ -1592,11 +1612,11 @@ flowchart TD
     Start(["Keeper polls"]) --> Q1{"collateral ratio<br/>above the peg and below<br/>the rebalance threshold?"}
     Q1 -->|yes| RB["rebalance(bountyReceiver, minLiquidated)"]
     Q1 -->|no| Q2{"harvestable<br/>yield accrued?"}
-    RB --> PAY1["paid: a share of the<br/>liquidation proceeds"]
+    RB --> PAY1["paid: a share of the<br/>liquidation proceeds,<br/>within a ceiling"]
     PAY1 --> CMP
     Q2 -->|yes| HV["harvest(bountyReceiver, minBounty)"]
     Q2 -->|no| Wait(["wait"])
-    HV --> PAY2["paid: a share of the<br/>gross distributed"]
+    HV --> PAY2["paid: a share of the<br/>gross distributed,<br/>within a ceiling"]
     PAY2 --> CMP["compound() on every<br/>registered yield vault<br/><i>automatic tail step</i>"]
     CMP --> Wait
     Wait --> Start
@@ -1622,7 +1642,7 @@ simulating.
 |---|---|
 | **Trigger** | Collateral ratio above the peg and strictly below the configured rebalance threshold |
 | **Who may call** | Anyone |
-| **Pays** | A configured ratio of every payment the rebalance makes, in that payment's token, to a nominated receiver |
+| **Pays** | A configured ratio of every payment the rebalance makes, in that payment's token, to a nominated receiver, within a configured ceiling for the whole rebalance |
 | **Refuses** | Reverts with a specific error if the ratio is *not* below the threshold, or is at or below the peg — never silently no-ops |
 | **Cadence** | Event-driven: whenever the collateral price falls far enough |
 
@@ -1636,7 +1656,9 @@ the anchor token depegs — and at or below the peg no rebalance can help, so a 
 the market the window in which the pools could have acted.
 
 **Why this is unlikely to stall.** The bounty is paid in the same assets the rebalance releases, and
-rebalancing is most profitable exactly when it is most needed. The failure mode that matters is not
+rebalancing is most profitable exactly when it is most needed, up to the bounty's ceiling. The
+ceiling caps what one call pays, not whether a call pays: a ceiling set well above the gas a
+rebalance costs removes windfalls without removing the incentive. The failure mode that matters is not
 "no keeper is interested" but "no keeper can transact" — a network-wide congestion or censorship
 event — which no in-protocol mechanism can fix.
 
@@ -1650,7 +1672,7 @@ A keeper seeing the ratio still below threshold after a successful rebalance sho
 |---|---|
 | **Trigger** | Distributable yield has accrued in the Minter |
 | **Who may call** | Anyone |
-| **Pays** | A configured ratio of the gross **actually distributed** by that call |
+| **Pays** | A configured ratio of the gross **actually distributed** by that call, up to a configured ceiling |
 | **Refuses** | Reverts if nothing is fairly distributable, or if the bounty would be below the caller's minimum |
 | **Cadence** | Discretionary — the yield accrues continuously and keeps |
 
@@ -2046,24 +2068,30 @@ no funding.
 Keeper pay is structured differently from user fees — it is a share of value the keeper's own call
 released, never a charge on a third party.
 
-| | Rebalance bounty | Harvest bounty | Harvest cut |
-|---|---|---|---|
-| **Paid to** | Whoever triggers it (nominated receiver) | Whoever triggers it (nominated receiver) | The fee receiver |
-| **Taken from** | Each leg's liquidation proceeds | The gross actually distributed | The gross actually distributed |
-| **Paid in** | Wrapped collateral and sail tokens | Wrapped collateral | Wrapped collateral |
-| **Bound** | ≤ 100% | Bounty + cut ≤ 100%, **validated as a pair** | as bounty |
-| **Default** | 0 | 0 | 0 |
+| | Rebalance bounty | Rebalance cut | Harvest bounty | Harvest cut |
+|---|---|---|---|---|
+| **Paid to** | Whoever triggers it (nominated receiver) | The fee receiver | Whoever triggers it (nominated receiver) | The fee receiver |
+| **Taken from** | Each payment of the rebalance | Each payment of the rebalance | The gross actually distributed | The gross actually distributed, with the bounty's share above its ceiling |
+| **Paid in** | Wrapped collateral and sail tokens | Wrapped collateral and sail tokens | Wrapped collateral | Wrapped collateral |
+| **Ceiling** | One per rebalance, in wrapped collateral, shared between the pools; what it withholds stays with the pool | None | One per harvest, in wrapped collateral; what it withholds goes to the fee receiver | None |
+| **Bound** | Bounty + cut ≤ 100%, **validated as a pair** | as bounty | Bounty + cut ≤ 100%, **validated as a pair** | as bounty |
+| **Default** | 0 | 0 | 0 | 0 |
 
-Three properties are worth drawing out:
+A ceiling of zero is none. Four properties are worth drawing out:
 
 - **The bounty is taken on value actually moved, never on a backlog.** A keeper's reward always
   matches the yield its call consumed, so a long quiet period does not create an oversized payout
   for the first caller afterwards.
-- **The harvest bounty and cut are set as a pair, and can only be set as a pair.** What a stability
-  pool receives is the residual the two leave, so a pair summing above 100% describes a split that
-  does not exist. Setting them one at a time could only reject such a pair after the fact; setting
-  them together makes it unrepresentable, and lets any valid pair be reached in one call from any
-  other.
+- **A ceiling fixes the most one call pays, whatever its size.** It is an amount of wrapped
+  collateral, set by the owner, so it holds its value only as long as the collateral's price does,
+  and the owner sets it again when that price moves far. For example, the deploy config sets the
+  harvest's to a hundred and the rebalance's to two hundred times a configured amount of wrapped
+  collateral worth about a dollar (`ConfigStabilityPoolManager`, `aboutADollarInWrappedCollateral`).
+- **Each action's bounty ratio, bounty ceiling and cut ratio are set together, and only together.**
+  What a stability pool receives is the residual the bounty and the cut leave, so a pair summing above
+  100% describes a split that does not exist. Setting them one at a time could only reject such a
+  pair after the fact; setting them together makes it unrepresentable, and lets any valid terms be
+  reached in one call from any other.
 - **Every party takes its own floored share.** The bounty, the cut, each pool's net and the
   treasury's residual are each floored independently. Nobody is handed another party's rounding
   remainder; what is left over stays undistributed and is reconsidered on the next call.
@@ -2377,7 +2405,7 @@ The only case where a second call succeeds is when the first was capacity-bound 
 the target — in which case the second call performs genuine, needed work.
 
 The bounty is a share of proceeds actually released, so there is no way to be paid for a call that
-moves nothing.
+moves nothing; and it is bounded by its ceiling, so no call, however large, pays more than that.
 
 ### 9.6 Draining the subsidy
 
@@ -2538,7 +2566,8 @@ stalls, so depositors earn nothing, though nothing is lost and the collateral ra
 rather than overstated in the meantime.
 
 **Residual risk.** Rebalancing is the one that matters. Its bounty is denominated in the assets it
-releases and is most attractive exactly when most needed, so economic stall is unlikely; the real
+releases and is most attractive exactly when most needed, up to its ceiling, so economic stall is
+unlikely while the ceiling stays well above a rebalance's gas cost; the real
 scenario is an inability to transact at all — network congestion or censorship — which no
 in-protocol mechanism addresses.
 
@@ -2551,7 +2580,7 @@ in-protocol mechanism addresses.
 | Flash-loan band traversal | Both ratio-lowering actions disallowed before the subsidy region; slice pricing | Floor-above-subsidies is calibration, not validated |
 | Rebalance timing — deposit before | Pro-rata dilution, exit fee, subsidies compete | Dilution of incumbent depositors — small, bounded |
 | Rebalance timing — withdraw before | Withdrawal window prices the exit; compounding restores the stayer | **Permanent harvest-share gap in the leveraged pool** |
-| Rebalance griefing | Threshold check; bounty only on real proceeds | None material |
+| Rebalance griefing | Threshold check; bounty only on real proceeds, within its ceiling | None material |
 | Subsidy draining | Legs priced against each other; reserve best-effort | Reserve exhaustion under legitimate use |
 | Window gaming | Withdraw clears request; deposit cancels window | Accepted by design — a fee, not a lock |
 | Donation / first depositor | **Structurally absent** — explicit ledger, no share price | None |

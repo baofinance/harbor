@@ -234,8 +234,9 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
     /// @dev The pending upgrade, as production will make it: the minter to Minter_v3, and with it the manager to
     ///      StabilityPoolManager_v2 and both pools to StabilityPool_v3 - a rebalance needs all four, so
     ///      `_upgradeMarketToV3` moves them together, in place, with the holder capture at the exploit's block. The
-    ///      manager keeps its rebalance terms, so an attacker meets the same threshold and earns the same bounty as on
-    ///      chain. The `V3Rule` must be installed.
+    ///      manager keeps its rebalance threshold, so an attacker meets the same threshold as on chain, and is paid the
+    ///      rebalance bounty the market config gives: its ratio of each payment, within its ceiling. The `V3Rule` must
+    ///      be installed.
     function _upgradeToMinterV3() internal {
         assertEq(overrideLabel(), "_v3", "the V3 rule is installed");
         _upgradeMarketToV3(exploitedMarket, _captureDirectory());

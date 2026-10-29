@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
@@ -70,7 +71,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
                 minter = _concat(minter, _compensationExpectations(compensated[c], before));
             }
             _write("pre", minterKey(markets[i]), minter);
-            _write("pre", stabilityPoolManagerKey(markets[i]), _managerExpectations());
+            _write("pre", stabilityPoolManagerKey(markets[i]), _managerExpectations(markets[i]));
             _writePool(markets[i], StabilityPoolType.Collateral);
             _writePool(markets[i], StabilityPoolType.Leveraged);
         }
@@ -284,9 +285,13 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             );
     }
 
-    /// @dev The manager runs StabilityPoolManager_v2, which starts with no yield vault.
-    function _managerExpectations() private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
-        expectations = new CaptureExpectationsLib.Expectation[](2);
+    /// @dev The manager runs StabilityPoolManager_v2, which starts with no yield vault, and holds each action's bounty
+    ///      ratio, bounty ceiling and cut ratio as `market` gives them.
+    function _managerExpectations(
+        Config_MinterMarket market
+    ) private view returns (CaptureExpectationsLib.Expectation[] memory expectations) {
+        IHarborConfig config = IHarborConfig(address(market));
+        expectations = new CaptureExpectationsLib.Expectation[](8);
         expectations[0] = CaptureExpectationsLib.Expectation({
             key: "manager_reportsStabilityPoolManager_v2",
             kind: CaptureExpectationsLib.Kind.Value,
@@ -301,6 +306,33 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             bound: 0,
             reason: "StabilityPoolManager_v2 adds yield vaults; none is registered by the upgrade"
         });
+        expectations[2] = _configured("manager_rebalanceBountyRatio", config.rebalanceBountyRatio(), "rebalance");
+        expectations[3] = _configured("manager_rebalanceBountyCeiling", config.rebalanceBountyCeiling(), "rebalance");
+        expectations[4] = _configured("manager_rebalanceCutRatio", config.rebalanceCutRatio(), "rebalance");
+        expectations[5] = _configured("manager_harvestBountyRatio", config.harvestBountyRatio(), "harvest");
+        expectations[6] = _configured("manager_harvestBountyCeiling", config.harvestBountyCeiling(), "harvest");
+        expectations[7] = _configured("manager_harvestCutRatio", config.harvestCutRatio(), "harvest");
+    }
+
+    /// @dev `key` reads `value`, which the market config gives for one of `action`'s terms: the batch sets that
+    ///      action's bounty ratio, bounty ceiling and cut ratio to the config's after the manager's upgrade.
+    function _configured(
+        string memory key,
+        uint256 value,
+        string memory action
+    ) private pure returns (CaptureExpectationsLib.Expectation memory) {
+        return
+            CaptureExpectationsLib.Expectation({
+                key: key,
+                kind: CaptureExpectationsLib.Kind.Value,
+                value: vm.toString(value),
+                bound: 0,
+                reason: string.concat(
+                    "its batch sets the ",
+                    action,
+                    "'s bounty ratio, bounty ceiling and cut ratio to the market config's"
+                )
+            });
     }
 
     /// @dev Write the pool's expected-after records, pre and post. Its ledger gap - the supply less what the captured

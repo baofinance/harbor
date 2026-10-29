@@ -15,6 +15,7 @@ import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
@@ -49,10 +50,38 @@ contract ConfigMarket_MCAP_fxUSD_delayASecondLonger is ConfigMarket_MCAP_fxUSD_m
     }
 }
 
+/// @dev MCAP::fxUSD as production configures it, with harvest and rebalance terms unlike any its live manager holds.
+contract ConfigMarket_MCAP_fxUSD_otherManagerTerms is ConfigMarket_MCAP_fxUSD_mainnet {
+    function rebalanceBountyRatio() public pure override returns (uint256) {
+        return 0.02 ether;
+    }
+
+    function rebalanceBountyCeiling() public pure override returns (uint256) {
+        return 7 ether;
+    }
+
+    function rebalanceCutRatio() public pure override returns (uint256) {
+        return 0.03 ether;
+    }
+
+    function harvestBountyRatio() public pure override returns (uint256) {
+        return 0.04 ether;
+    }
+
+    function harvestBountyCeiling() public pure override returns (uint256) {
+        return 5 ether;
+    }
+
+    function harvestCutRatio() public pure override returns (uint256) {
+        return 0.05 ether;
+    }
+}
+
 /// @notice The shared market upgrade - read each market's inputs, then `UpgradeMarketToV3.upgradeMarketsToV3` - on the
 ///         live MCAP::fxUSD market at the block of a committed holder capture: deployed and never used, so its pools
 ///         are empty and the capture lists no holders. It checks the minter's config, which the upgrade loads again
-///         through Minter_v3's loader, and what the upgrade refuses: a pool implementation that would not keep the live
+///         through Minter_v3's loader, the manager's terms, which it sets to the market config's, and what the upgrade
+///         refuses: a pool implementation that would not keep the live
 ///         pool's floor or withdrawal window, and a capture that misses a holder.
 contract UpgradeMarketToV3Test is Test {
     string internal constant CAPTURE = "test/fixtures/holders-25272609/";
@@ -84,6 +113,45 @@ contract UpgradeMarketToV3Test is Test {
 
         assertNotEq(vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT), implementationBefore, "the minter is upgraded");
         assertEq(keccak256(abi.encode(IMinter(minter).config())), keccak256(abi.encode(stored)), "the config is kept");
+    }
+
+    /// The upgrade sets the manager's harvest and rebalance terms to what the market config gives - each action's
+    /// bounty ratio, bounty ceiling and cut ratio, none of which the live manager holds - and keeps its rebalance
+    /// threshold and fee receiver.
+    function test_upgradeSetsTheManagersTermsToTheMarketConfigs() public {
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_MCAP_fxUSD_otherManagerTerms();
+        IHarborConfig config = IHarborConfig(address(markets[0]));
+        address manager = deployRun.stabilityPoolManagerAddress(markets[0]);
+        assertNotEq(
+            IStabilityPoolManager(manager).rebalanceBountyRatio(),
+            config.rebalanceBountyRatio(),
+            "precondition: the manager holds another rebalance bounty ratio"
+        );
+        assertNotEq(
+            IStabilityPoolManager(manager).harvestBountyRatio(),
+            config.harvestBountyRatio(),
+            "precondition: and another harvest bounty ratio"
+        );
+        assertNotEq(
+            IStabilityPoolManager(manager).harvestCutRatio(),
+            config.harvestCutRatio(),
+            "precondition: and another harvest cut ratio"
+        );
+        uint256 threshold = IStabilityPoolManager(manager).rebalanceThreshold();
+        address feeReceiver = IStabilityPoolManager(manager).feeReceiver();
+
+        new MarketUpgradeRun(markets, CAPTURE).run("harbor_v1");
+
+        IStabilityPoolManager_v2 upgraded = IStabilityPoolManager_v2(manager);
+        assertEq(upgraded.rebalanceBountyRatio(), config.rebalanceBountyRatio(), "the rebalance bounty ratio");
+        assertEq(upgraded.rebalanceBountyCeiling(), config.rebalanceBountyCeiling(), "the rebalance bounty ceiling");
+        assertEq(upgraded.rebalanceCutRatio(), config.rebalanceCutRatio(), "the rebalance cut ratio");
+        assertEq(upgraded.harvestBountyRatio(), config.harvestBountyRatio(), "the harvest bounty ratio");
+        assertEq(upgraded.harvestBountyCeiling(), config.harvestBountyCeiling(), "the harvest bounty ceiling");
+        assertEq(upgraded.harvestCutRatio(), config.harvestCutRatio(), "the harvest cut ratio");
+        assertEq(upgraded.rebalanceThreshold(), threshold, "the rebalance threshold is kept");
+        assertEq(upgraded.feeReceiver(), feeReceiver, "the fee receiver is kept");
     }
 
     /// A config Minter_v3's loader refuses - a subsidy in redeem pegged's highest band, which Minter_v2 accepts - reverts
