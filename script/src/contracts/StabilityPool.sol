@@ -52,7 +52,7 @@ abstract contract StabilityPool is HarborDeployer {
                 addresses.pegged,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.aboutADollar(),
+                cfg.aboutADollarInPegged(),
                 tokenName,
                 tokenSymbol
             )

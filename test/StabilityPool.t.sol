@@ -196,7 +196,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
                 peggedToken,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
-                marketConfig.aboutADollar(),
+                marketConfig.aboutADollarInPegged(),
                 "Test SP",
                 "tSP"
             )
@@ -209,7 +209,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         // must be the construction, not these reads.
         uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
         uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
-        uint256 minTotalAssetSupply = marketConfig.aboutADollar();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollarInPegged();
 
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
@@ -232,7 +232,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         // must be the construction, not these reads.
         uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
         uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
-        uint256 minTotalAssetSupply = marketConfig.aboutADollar();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollarInPegged();
 
         vm.expectRevert(Token.ZeroAddress.selector);
         new StabilityPool_v3(
@@ -252,7 +252,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         // must be the construction, not these reads.
         uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
         uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
-        uint256 minTotalAssetSupply = marketConfig.aboutADollar();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollarInPegged();
 
         vm.expectRevert(Token.ZeroAddress.selector);
         new StabilityPool_v3(

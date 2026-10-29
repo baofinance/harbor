@@ -11,7 +11,7 @@ contract ConfigPeg_SILVER is ConfigPeg {
         return "SILVER";
     }
 
-    function aboutADollar() public pure virtual override returns (uint256) {
+    function aboutADollarInPegged() public pure virtual override returns (uint256) {
         return 0.01e18;
     }
 }

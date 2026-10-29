@@ -62,12 +62,24 @@ contract TestMinterMarketConfig is ConfigMarket_BTC_stETH_mainnet {
         return 0;
     }
 
+    /// @notice The manager's bounty ceilings the suites were written against: none.
+    /// @dev Production caps a harvest's bounty at a hundred dollars' worth of wrapped collateral and a rebalance's at
+    ///      two hundred. The suites that set a bounty ratio expect the ratio's whole slice, which a production ceiling
+    ///      would cut; the suites that test the ceilings set their own with `updateBountyCeilings`.
+    function harvestBountyCeiling() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function rebalanceBountyCeiling() public pure override returns (uint256) {
+        return 0;
+    }
+
     /// @notice The stability-pool supply floor the suites were written against.
     /// @dev The one value where production's BTC setting (1e13) would genuinely change what is tested rather
     ///      than merely rescale it: this floor gates every deposit and withdrawal — a deposit must leave the
     ///      total at zero or at or above it — and 1e13 is 100,000x smaller, so the boundary cases the suites
     ///      drive would stop being boundaries at all.
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1 ether;
     }
 }

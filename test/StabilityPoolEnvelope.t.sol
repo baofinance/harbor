@@ -243,18 +243,18 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     // ─── config integrity (layer 1: config sources must agree; no deploy, no mocks) ───
 
-    /// @notice The peg and market configs paired in the deploy must AGREE on aboutADollar, the StabilityPool's floor.
-    /// The stability pool deploy reads it from the MARKET config, so an override placed only on the peg is silently ignored and the
-    /// deployed floor is not the intended one - which is exactly how the floorHuge variant deployed the base 2e14
-    /// rather than its intended 1e24 (the override was on the peg alone). Asserting the two sources cannot diverge
-    /// catches an override on the wrong config object, deploy-free and mock-free.
-    function test_configIntegrity_aboutADollarPegMatchesMarket() public {
+    /// @notice The peg and market configs paired in the deploy must AGREE on aboutADollarInPegged, the StabilityPool's
+    /// floor. The stability pool deploy reads it from the MARKET config, so an override placed only on the peg is silently
+    /// ignored and the deployed floor is not the intended one - which is exactly how the floorHuge variant deployed the
+    /// base 2e14 rather than its intended 1e24 (the override was on the peg alone). Asserting the two sources cannot
+    /// diverge catches an override on the wrong config object, deploy-free and mock-free.
+    function test_configIntegrity_aboutADollarInPeggedPegMatchesMarket() public {
         (ConfigPeg peg, Config_MinterMarket[] memory markets) = createETHMintersConfig();
         for (uint256 i = 0; i < markets.length; i++) {
             assertEq(
-                IHarborConfig(address(markets[i])).aboutADollar(),
-                peg.aboutADollar(),
-                "market aboutADollar diverges from the peg's - an override lands on a config the stability pool deploy ignores"
+                IHarborConfig(address(markets[i])).aboutADollarInPegged(),
+                peg.aboutADollarInPegged(),
+                "market aboutADollarInPegged diverges from the peg's - an override lands on a config the stability pool deploy ignores"
             );
         }
     }
@@ -271,12 +271,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         assertEq(
             IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
-            cfg.aboutADollar(),
+            cfg.aboutADollarInPegged(),
             "deployed supply floor is not the configured one"
         );
         assertEq(
             IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY(),
-            _expectedMaxTotalAssetSupply(cfg.aboutADollar()),
+            _expectedMaxTotalAssetSupply(cfg.aboutADollarInPegged()),
             "deployed supply ceiling is not MIN * FACTOR_PRECISION (saturated at the supply field)"
         );
         (uint256 startDelay, uint256 endWindow) = IStabilityPool_v3(stabilityPool).getWithdrawalWindow();
@@ -1560,10 +1560,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         }
     }
 
-    /// @notice Each harvest, the keeper bounty and the pools' net share are exactly their ratios of what left the
-    /// minter: `bounty == bountyRatio × (harvestable decrease)` and `netToPools == residualRatio × (harvestable
-    /// decrease)`. So a bounty receiver is never short-changed or over-paid relative to the harvestable consumed, and
-    /// the cut (the remainder) is proportional too. Checked at a normal harvest AND at the deferred corner.
+    /// @notice Each harvest, the keeper bounty is its ratio of what left the minter up to the manager's bounty ceiling,
+    /// and the pools' net share is exactly its ratio: `bounty == min(bountyRatio × (harvestable decrease), ceiling)` and
+    /// `netToPools == residualRatio × (harvestable decrease)`. So a bounty receiver is never short-changed or over-paid
+    /// relative to the harvestable consumed, and the cut (the remainder, with what the ceiling withheld) takes the rest.
+    /// Checked at a normal harvest AND at the deferred corner; under the production config the deferred corner's
+    /// harvest is large enough for the ceiling to bind.
     function test_harvest_bountyMatchesHarvestableDecrease() public {
         uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio();
         uint256 cutRatio = IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
@@ -1602,7 +1604,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// floor(drop * r) + 2]. Where the pools cap, each net IS its cap and the gross is floored back up from it, so the
     /// nets sit up to a wei above their share of the gross: the nets' band is unchanged and the bounty's widens by a wei
     /// below. (For a bounty ratio under 1/3, and a residual over 1/2 or none - with none the nets are nothing, and do not
-    /// floor.) Single external call under the prank (the harvest); balances read outside it.
+    /// floor.) The manager's bounty ceiling then caps the bounty: it is paid the smaller of its ratio's slice and the
+    /// ceiling, so each end of the bounty's band is the smaller of the two, and the nets are untouched - the withheld
+    /// part goes to the cut receiver. Single external call under the prank (the harvest); balances read outside it.
     function _assertSkimMatchesHarvestableDrop(
         address keeper,
         uint256 bountyRatio,
@@ -1610,6 +1614,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         bool poolsCap
     ) internal {
         address token = wrappedCollateral;
+        uint256 ceiling = IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyCeiling();
+        if (ceiling == 0) {
+            ceiling = type(uint256).max; // a ceiling of zero is none
+        }
         uint256 harvestableBefore = IMinter(minter).harvestable();
         uint256 keeperBefore = IERC20(token).balanceOf(keeper);
         uint256 poolsBefore = IERC20(token).balanceOf(stabilityPool) + IERC20(token).balanceOf(stabilityPoolLeveraged);
@@ -1623,10 +1631,14 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         uint256 flooredBounty = Math.mulDiv(drop, bountyRatio, 1e18);
         assertGe(
             bounty,
-            poolsCap && flooredBounty > 0 ? flooredBounty - 1 : flooredBounty,
-            "bounty == bountyRatio x harvestable decrease, to the floors' wei below"
+            Math.min(poolsCap && flooredBounty > 0 ? flooredBounty - 1 : flooredBounty, ceiling),
+            "bounty == bountyRatio x harvestable decrease up to the ceiling, to the floors' wei below"
         );
-        assertLe(bounty, flooredBounty + 1, "bounty == bountyRatio x harvestable decrease, to a wei above");
+        assertLe(
+            bounty,
+            Math.min(flooredBounty + 1, ceiling),
+            "bounty == bountyRatio x harvestable decrease up to the ceiling, to a wei above"
+        );
         uint256 flooredNet = Math.mulDiv(drop, residualRatio, 1e18);
         assertGe(netToPools, flooredNet, "net to pools == residualRatio x harvestable decrease, never below");
         assertLe(netToPools, flooredNet + 2, "net to pools == residualRatio x harvestable decrease, to two wei above");
@@ -2296,11 +2308,11 @@ contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
 // break is attributed to the config that produced it ───
 
 /// @notice ETH peg with a huge supply floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions
-/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme. aboutADollar is
-/// carried on BOTH this peg and its market (below) - the stability pool deploy reads the MARKET, and the config-integrity test
+/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme. aboutADollarInPegged
+/// is carried on BOTH this peg and its market (below) - the stability pool deploy reads the MARKET, and the config-integrity test
 /// asserts the two agree so an override can never again land on a config object the deploy ignores.
 contract ConfigPeg_ETH_floorHuge is ConfigPeg_ETH {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e24;
     }
 }
@@ -2327,7 +2339,7 @@ contract ConfigMarket_ETH_fxUSD_rebalanceThreshold105 is ConfigMarket_ETH_fxUSD_
 /// config-integrity test now forbids that). A large floor keeps the ceiling MAX = MIN * FACTOR_PRECISION saturated at
 /// the field width, so the reward-integral cap never binds here - the opposite corner from the reachable-cap markets.
 contract ConfigMarket_ETH_fxUSD_floorHuge is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e24;
     }
 }
@@ -2403,7 +2415,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD_testCut is StabilityPoolEnvelopeBase {
     }
 }
 
-// An aboutADollar=1-wei envelope variant is intentionally ABSENT: MAX = MIN * FACTOR_PRECISION ties the supply ceiling to
+// An aboutADollarInPegged=1-wei envelope variant is intentionally ABSENT: MAX = MIN * FACTOR_PRECISION ties the supply ceiling to
 // the floor, so a 1-wei MIN caps the whole pool at ~$1 and the base suite's realistic-pool tests (rebalance, harvest,
 // max-users, the field-width corners) cannot run. A low-floor deploy variant that also runs those tests cannot exist;
 // the MIN=1 cap/floor behaviour is instead pinned by the deterministic mock tests in StabilityPoolLedgerGap.
@@ -2463,13 +2475,13 @@ contract StabilityPoolEnvelope_ETH_fxUSD_rebalance105 is StabilityPoolEnvelopeBa
 // are invented for future/hypothetical markets ───
 
 contract ConfigPeg_ETH_min1e13 is ConfigPeg_ETH {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e13;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e13 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e13;
     }
 }
@@ -2493,13 +2505,13 @@ contract StabilityPoolEnvelope_btcScale is StabilityPoolEnvelopeBase {
 }
 
 contract ConfigPeg_ETH_min1e27 is ConfigPeg_ETH {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e27;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e27 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e27;
     }
 }
@@ -2551,13 +2563,13 @@ contract StabilityPoolEnvelope_hyperCollateral is StabilityPoolEnvelopeBase {
 }
 
 contract ConfigPeg_ETH_min1e18 is ConfigPeg_ETH {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e18;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e18 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e18;
     }
 }
@@ -2593,13 +2605,13 @@ contract StabilityPoolEnvelope_ethScale is StabilityPoolEnvelopeBase {
 }
 
 contract ConfigPeg_ETH_min1e9 is ConfigPeg_ETH {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e9;
     }
 }
 
 contract ConfigMarket_ETH_fxUSD_min1e9 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
-    function aboutADollar() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e9;
     }
 }

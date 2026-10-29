@@ -11,7 +11,9 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 ///      Mutability rules:
 ///      - `wrappedCollateralToken()` and `minterConfig()` are `view` (not `pure`) so test subclasses
 ///        can return immutable constructor arguments.
-///      - SP/SPM functions are `pure` — they return compile-time constants, never constructor state.
+///      - SP/SPM functions are `pure` — they return compile-time constants, never constructor state - except the
+///        two bounty ceilings, which are `view`: each is computed from `aboutADollarInWrappedCollateral()`, read
+///        through this interface, so a test config may compute it.
 interface IHarborConfig {
     // ========== MARKET IDENTITY ==========
 
@@ -22,6 +24,12 @@ interface IHarborConfig {
 
     function wrappedCollateralToken() external view returns (address);
 
+    /// @notice About a dollar's worth of the wrapped collateral token - the number of its tokens that make about a
+    ///         dollar, stated when the config is written, never read from a price. It is the unit the stability pool
+    ///         manager's bounty ceilings are counted in. Approximate by design: it is revised, and the ceilings
+    ///         re-applied, when the price has moved far from it.
+    function aboutADollarInWrappedCollateral() external view returns (uint256);
+
     // ========== MINTER ==========
 
     /// @dev Declared `view` (not `pure`) so test subclasses returning immutable addresses compile.
@@ -29,7 +37,9 @@ interface IHarborConfig {
 
     // ========== PEG ==========
 
-    function aboutADollar() external view returns (uint256);
+    /// @notice About a dollar's worth of the pegged token - the number of pegged tokens that make about a dollar,
+    ///         stated when the config is written. See `ConfigPeg.aboutADollarInPegged`.
+    function aboutADollarInPegged() external view returns (uint256);
 
     // ========== STABILITY POOL ==========
 
@@ -43,4 +53,9 @@ interface IHarborConfig {
     function rebalanceBountyRatio() external pure returns (uint256);
     function harvestBountyRatio() external pure returns (uint256);
     function harvestCutRatio() external pure returns (uint256);
+    /// @notice The most a harvest pays its caller, in wrapped collateral; zero is no ceiling.
+    function harvestBountyCeiling() external view returns (uint256);
+    /// @notice The most a rebalance pays its caller in all, in wrapped collateral - a payment in leveraged tokens
+    ///         counted as the collateral they were minted for; zero is no ceiling.
+    function rebalanceBountyCeiling() external view returns (uint256);
 }

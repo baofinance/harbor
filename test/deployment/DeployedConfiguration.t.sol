@@ -27,8 +27,8 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
         cfg = IHarborConfig(address(market));
     }
 
-    /// The StabilityPoolManager's four operating ratios and fee receiver are set by the deploy, from the
-    /// market config and the deployer's treasury.
+    /// The StabilityPoolManager's four operating ratios, two bounty ceilings and fee receiver are set by the deploy,
+    /// from the market config and the deployer's treasury.
     function test_deployedStabilityPoolManagerIsConfiguredFromMarketConfig() public view {
         assertEq(
             IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
@@ -49,6 +49,21 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
             IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio(),
             cfg.harvestCutRatio(),
             "harvestCutRatio"
+        );
+        assertGt(
+            cfg.harvestBountyCeiling(),
+            0,
+            "the production config sets a ceiling, so the check below is not vacuous"
+        );
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyCeiling(),
+            cfg.harvestBountyCeiling(),
+            "harvestBountyCeiling"
+        );
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyCeiling(),
+            cfg.rebalanceBountyCeiling(),
+            "rebalanceBountyCeiling"
         );
         assertEq(IStabilityPoolManager_v2(stabilityPoolManager).feeReceiver(), deployRun.treasury(), "feeReceiver");
     }

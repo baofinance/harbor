@@ -190,7 +190,7 @@ function deployStabilityPoolImplementation(
             minter_,
             cfg.stabilityPoolWithdrawalDelay(),
             cfg.stabilityPoolWithdrawalPeriod(),
-            cfg.aboutADollar(),
+            cfg.aboutADollarInPegged(),
             tokenName,
             tokenSymbol
         )
@@ -396,7 +396,7 @@ function deployStabilityPoolImplementation(/* …signature unchanged… */)
     IHarborConfig cfg = IHarborConfig(address(marketConfig_));
     impl = MockStabilityPoolDeploy_v1.newMockStabilityPool(
         minter_,
-        cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.aboutADollar(),
+        cfg.stabilityPoolWithdrawalDelay(), cfg.stabilityPoolWithdrawalPeriod(), cfg.aboutADollarInPegged(),
         tokenName, tokenSymbol
     );
     _recordImplementation(

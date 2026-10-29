@@ -17,4 +17,9 @@ abstract contract ConfigCollateral_stETH_mainnet is ConfigChain_mainnet {
     function collateral() public pure virtual returns (string memory) {
         return "stETH";
     }
+
+    /// @notice About a dollar's worth of wstETH - see `IHarborConfig.aboutADollarInWrappedCollateral`.
+    function aboutADollarInWrappedCollateral() public pure virtual returns (uint256) {
+        return 3e14;
+    }
 }

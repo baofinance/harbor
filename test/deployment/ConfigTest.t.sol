@@ -10,6 +10,8 @@ import {ConfigMarket_GOLD_fxUSD_mainnet} from "@harbor-script/config/markets/Con
 import {ConfigMarket_GOLD_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol";
 import {ConfigMarket_EUR_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
 import {ConfigMarket_EUR_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 
 contract ConfigTest is Test {
     using MinterMarketConfigLib for Config_MinterMarket;
@@ -51,6 +53,29 @@ contract ConfigTest is Test {
     function test_market_EUR_stETH() public {
         Config_MinterMarket config = new ConfigMarket_EUR_stETH_mainnet();
         assertEq(config.salt(), "EUR::stETH");
+    }
+
+    /// Every production market's bounty ceilings are a hundred and two hundred dollars' worth of its wrapped
+    /// collateral, by the collateral's "about a dollar" unit - the number the config states in place of a price.
+    function test_everyMarketsBountyCeilingsAreAHundredAndTwoHundredDollars() public {
+        Config_MinterMarket[] memory markets = allMintersConfig();
+        assertGt(markets.length, 1, "fixture: more than one market");
+        for (uint256 i = 0; i < markets.length; i++) {
+            IHarborConfig cfg = IHarborConfig(address(markets[i]));
+            string memory market = markets[i].salt();
+            uint256 dollarOfCollateral = cfg.aboutADollarInWrappedCollateral();
+            assertGt(dollarOfCollateral, 0, string.concat(market, ": the collateral states its dollar unit"));
+            assertEq(
+                cfg.harvestBountyCeiling(),
+                100 * dollarOfCollateral,
+                string.concat(market, ": a harvest's ceiling is a hundred dollars' worth")
+            );
+            assertEq(
+                cfg.rebalanceBountyCeiling(),
+                200 * dollarOfCollateral,
+                string.concat(market, ": a rebalance's ceiling is two hundred dollars' worth")
+            );
+        }
     }
 
     /// @notice Example of how deployment scripts should instantiate and use configs.

@@ -448,7 +448,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
                 peggedToken,
                 marketConfig.stabilityPoolWithdrawalDelay(),
                 marketConfig.stabilityPoolWithdrawalPeriod(),
-                marketConfig.aboutADollar(),
+                marketConfig.aboutADollarInPegged(),
                 "Test SP",
                 "tSP"
             )

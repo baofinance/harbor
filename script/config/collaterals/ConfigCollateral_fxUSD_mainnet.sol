@@ -17,4 +17,9 @@ abstract contract ConfigCollateral_fxUSD_mainnet is ConfigChain_mainnet {
     function collateral() public pure virtual returns (string memory) {
         return "fxUSD";
     }
+
+    /// @notice About a dollar's worth of fxSAVE - see `IHarborConfig.aboutADollarInWrappedCollateral`.
+    function aboutADollarInWrappedCollateral() public pure virtual returns (uint256) {
+        return 1e18;
+    }
 }

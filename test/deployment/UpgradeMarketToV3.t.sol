@@ -37,8 +37,8 @@ import {MarketVerification} from "@harbor-test/harness/MarketVerification.sol";
 
 /// @dev MCAP::fxUSD as production configures it, with a floor a wei above its live pools'.
 contract ConfigMarket_MCAP_fxUSD_floorAWeiHigher is ConfigMarket_MCAP_fxUSD_mainnet {
-    function aboutADollar() public pure override returns (uint256) {
-        return super.aboutADollar() + 1;
+    function aboutADollarInPegged() public pure override returns (uint256) {
+        return super.aboutADollarInPegged() + 1;
     }
 }
 
@@ -119,7 +119,7 @@ contract UpgradeMarketToV3Test is Test {
         string memory key = deployRun.stabilityPoolKey(markets[0], HarborDeployer.StabilityPoolType.Collateral);
         address pool = deployRun.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral);
         uint256 liveFloor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
-        uint256 newFloor = IHarborConfig(address(markets[0])).aboutADollar();
+        uint256 newFloor = IHarborConfig(address(markets[0])).aboutADollarInPegged();
         assertEq(newFloor, liveFloor + 1, "precondition: the live floor is the production config's");
         MarketUpgradeRun refused = new MarketUpgradeRun(markets, CAPTURE);
         bytes32 implementationBefore = vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT);

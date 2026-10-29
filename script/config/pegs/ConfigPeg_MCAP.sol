@@ -11,7 +11,7 @@ contract ConfigPeg_MCAP is ConfigPeg {
         return "MCAP";
     }
 
-    function aboutADollar() public pure virtual override returns (uint256) {
+    function aboutADollarInPegged() public pure virtual override returns (uint256) {
         return 0.5e18;
     }
 }

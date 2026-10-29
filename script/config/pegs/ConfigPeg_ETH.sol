@@ -11,7 +11,7 @@ contract ConfigPeg_ETH is ConfigPeg {
         return "ETH";
     }
 
-    function aboutADollar() public pure virtual override returns (uint256) {
+    function aboutADollarInPegged() public pure virtual override returns (uint256) {
         return 2e14;
     }
 }

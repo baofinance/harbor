@@ -7,7 +7,8 @@ import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/Conf
 /// yield and rewards flow to depositors - a suite measuring the pool mechanics, as the envelope's conservation and
 /// read-back assertions do, is then not perturbed by a keeper bounty or a protocol cut. A test-only variant of the
 /// production market, changed through the deployment config (the config-axis approach) rather than an imperative
-/// setter in setUp.
+/// setter in setUp. The bounty ceilings are none as well, so a variant that sets one bounty ratio back is paid that
+/// ratio's whole slice: it stretches the one parameter it names.
 contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_mainnet {
     function harvestCutRatio() public pure virtual override returns (uint256) {
         return 0;
@@ -18,6 +19,14 @@ contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_ma
     }
 
     function rebalanceBountyRatio() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function harvestBountyCeiling() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function rebalanceBountyCeiling() public pure override returns (uint256) {
         return 0;
     }
 }
