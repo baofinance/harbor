@@ -279,6 +279,37 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         );
     }
 
+    /// The two bounty ceilings are set together by the owner alone, announced, and read back; they start at zero, no
+    /// ceiling.
+    function test_updateBountyCeilings() public {
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyCeiling(),
+            0,
+            "no harvest ceiling at first"
+        );
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyCeiling(),
+            0,
+            "no rebalance ceiling at first"
+        );
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0.1 ether, 0.2 ether);
+
+        vm.startPrank(owner());
+        vm.expectEmit(stabilityPoolManager);
+        emit IStabilityPoolManager_v2.BountyCeilingsUpdated(0.1 ether, 0.2 ether);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0.1 ether, 0.2 ether);
+        vm.stopPrank();
+
+        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyCeiling(), 0.1 ether, "harvest ceiling");
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyCeiling(),
+            0.2 ether,
+            "rebalance ceiling"
+        );
+    }
+
     function test_setRebalanceCollateralRatio() public {
         // Test setting rebalance collateral ratio
         uint256 newRatio = 140 ether / 100; // 140%
@@ -1021,6 +1052,107 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             gross,
             "the floored parts plus the harvestable remainder account for the whole gross"
         );
+    }
+
+    /// The harvest bounty ceiling: where the ratio's slice of the gross exceeds the ceiling, the caller is paid the
+    /// ceiling exactly and the rest of the slice goes to the cut receiver with the cut; the pool's net and the harvest's
+    /// total are as without a ceiling.
+    function test_harvestBountyCeiling_capsTheBountyAndPaysTheRestToTheCutReceiver() public {
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
+        uint256 bountyRatio = 0.05 ether;
+        uint256 cutRatio = 0.03 ether;
+        uint256 gross = IMinter(minter).harvestable();
+        uint256 slice = (gross * bountyRatio) / 1 ether;
+        uint256 ceiling = slice / 2;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bountyRatio, cutRatio);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(ceiling, 0);
+        vm.stopPrank();
+        uint256 bountyBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
+        uint256 cutBefore = IERC20(wrappedCollateralToken).balanceOf(treasury());
+        uint256 poolBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
+
+        vm.startPrank(harvester);
+        uint256 harvested = IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
+        vm.stopPrank();
+
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(harvester) - bountyBefore,
+            ceiling,
+            "the caller is paid the ceiling"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(treasury()) - cutBefore,
+            (gross * cutRatio) / 1 ether + (slice - ceiling),
+            "the cut receiver takes the cut and what the ceiling withheld"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - poolBefore,
+            (gross * (1 ether - bountyRatio - cutRatio)) / 1 ether,
+            "the pool's net is untouched by the ceiling"
+        );
+        assertEq(
+            harvested,
+            slice + (gross * cutRatio) / 1 ether + (gross * (1 ether - bountyRatio - cutRatio)) / 1 ether,
+            "the harvest's total is as without a ceiling"
+        );
+    }
+
+    /// A ceiling above the ratio's slice, or no ceiling at all, leaves the harvest exactly as it was.
+    function test_harvestBountyCeiling_aboveTheSliceOrZero_changesNothing() public {
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
+        uint256 gross = IMinter(minter).harvestable();
+        uint256 slice = (gross * 0.05 ether) / 1 ether;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0.03 ether);
+        vm.stopPrank();
+        uint256[2] memory ceilings = [slice + 1, 0];
+        for (uint256 i = 0; i < ceilings.length; ++i) {
+            uint256 snapshot = vm.snapshotState();
+            vm.startPrank(owner());
+            IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(ceilings[i], 0);
+            vm.stopPrank();
+            uint256 bountyBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
+            uint256 cutBefore = IERC20(wrappedCollateralToken).balanceOf(treasury());
+
+            vm.startPrank(harvester);
+            IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, 0);
+            vm.stopPrank();
+
+            assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester) - bountyBefore, slice, "the whole slice");
+            assertEq(
+                IERC20(wrappedCollateralToken).balanceOf(treasury()) - cutBefore,
+                (gross * 0.03 ether) / 1 ether,
+                "the cut alone"
+            );
+            vm.revertToState(snapshot);
+        }
+    }
+
+    /// The caller's minimum is judged on the bounty the ceiling leaves, named in the refusal.
+    function test_harvestBountyCeiling_minBountyIsJudgedOnTheCappedBounty() public {
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
+        uint256 gross = IMinter(minter).harvestable();
+        uint256 ceiling = (gross * 0.05 ether) / 1 ether / 2;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0.03 ether);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(ceiling, 0);
+        vm.stopPrank();
+
+        vm.startPrank(harvester);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IStabilityPoolManager_v2.InsufficientBounty.selector,
+                wrappedCollateralToken,
+                ceiling,
+                ceiling + 1
+            )
+        );
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(harvester, ceiling + 1);
+        vm.stopPrank();
     }
 
     function test_harvestToTreasury() public {

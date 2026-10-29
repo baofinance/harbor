@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -343,5 +344,222 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 1 ether);
         // (4) --------------------------------------------------------
         assertEq(IMinter_v3(minter).collateralRatio(), beforeCR, "collateral ratio should still be 140");
+    }
+
+    /// @dev What one rebalance paid and took, from its tokens' balances and the minter's events: per pool its pegged
+    ///      given and its proceeds, the caller's bounty in each token, and each redemption the minter made.
+    struct RebalanceRecord {
+        uint256 peggedFromCollateralPool;
+        uint256 peggedFromLeveragedPool;
+        uint256 collateralToCollateralPool;
+        uint256 collateralToLeveragedPool;
+        uint256 leveragedToLeveragedPool;
+        uint256 bountyInCollateral;
+        uint256 bountyInLeveraged;
+        uint256[] redeemedPegged;
+        uint256[] redeemedCollateral;
+        uint256[] redeemedLeveraged;
+    }
+
+    /// @dev Run a rebalance and record what it did.
+    function _rebalanceRecorded() private returns (RebalanceRecord memory r) {
+        uint256[2] memory peggedBefore = [
+            IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
+            IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)
+        ];
+        uint256[2] memory collateralBefore = [
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged)
+        ];
+        uint256 leveragedBefore = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
+        uint256 bountyCollateralBefore = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver);
+        uint256 bountyLeveragedBefore = IERC20(leveragedToken).balanceOf(bountyReceiver);
+
+        vm.recordLogs();
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        r.peggedFromCollateralPool = peggedBefore[0] - IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
+        r.peggedFromLeveragedPool = peggedBefore[1] - IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
+        r.collateralToCollateralPool =
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - collateralBefore[0];
+        r.collateralToLeveragedPool =
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged) - collateralBefore[1];
+        r.leveragedToLeveragedPool = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged) - leveragedBefore;
+        r.bountyInCollateral = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver) - bountyCollateralBefore;
+        r.bountyInLeveraged = IERC20(leveragedToken).balanceOf(bountyReceiver) - bountyLeveragedBefore;
+        uint256 redemptions;
+        for (uint256 l = 0; l < logs.length; ++l) {
+            if (logs[l].emitter == minter && logs[l].topics[0] == IMinter_v3.RedeemPeggedToken.selector) {
+                ++redemptions;
+            }
+        }
+        r.redeemedPegged = new uint256[](redemptions);
+        r.redeemedCollateral = new uint256[](redemptions);
+        r.redeemedLeveraged = new uint256[](redemptions);
+        redemptions = 0;
+        for (uint256 l = 0; l < logs.length; ++l) {
+            if (logs[l].emitter == minter && logs[l].topics[0] == IMinter_v3.RedeemPeggedToken.selector) {
+                (
+                    r.redeemedPegged[redemptions],
+                    r.redeemedCollateral[redemptions],
+                    r.redeemedLeveraged[redemptions]
+                ) = abi.decode(logs[l].data, (uint256, uint256, uint256));
+                ++redemptions;
+            }
+        }
+    }
+
+    /// @dev The market at 14/11 = 1.27 - below the 1.3 threshold, above the minter's floor of about 1.0101, so one
+    ///      step by both legs - with `user1`'s two price-worths of pegged deposited 3 : 1 between the pools, and the
+    ///      keeper paid 1% of each leg's proceeds.
+    function _setUpBothPoolsThreeToOne() private {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(9 ether, 3 ether); // collateral ratio 12/9 = 1.33
+        setUp_collateral(2 ether, 0 ether, user1); // 14/11 = 1.27
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit((3 * price) / 2, user1, 0);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(price / 2, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0.01 ether);
+        vm.stopPrank();
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "fixture: the market sells leverage, so one step");
+    }
+
+    /// The rebalance bounty ceiling is shared between the pools by the pegged each holds when the rebalance starts:
+    /// with deposits of 3 : 1 the collateral pool's leg is capped at three quarters of it and the leveraged pool's at
+    /// one quarter, the leveraged leg's quarter turned into leveraged tokens at the rate the rebalance paid - the
+    /// collateral its pegged would have redeemed for over the leveraged minted for it. Each pool receives its proceeds
+    /// less its bounty, and the ceiling changes no leg's size.
+    function test_rebalanceBountyCeiling_isSharedByThePoolsPegged() public {
+        _setUpBothPoolsThreeToOne();
+        uint256 snapshot = vm.snapshotState();
+        RebalanceRecord memory uncapped = _rebalanceRecorded();
+        vm.revertToState(snapshot);
+        assertEq(uncapped.redeemedPegged.length, 1, "precondition: both legs in one step");
+        // What the leveraged pool's pegged would redeem for in collateral, at the state the rebalance redeems it in -
+        // the sweep moves no collateral, so the market the rebalance prices at is the one here.
+        (uint256 leveragedAsCollateral, ) = IMinter_v3(minter).freeRedeemDryRun(uncapped.peggedFromLeveragedPool, 0);
+        uint256 ceiling = 0.004 ether;
+        uint256 collateralLegCap = Math.mulDiv(ceiling, 3, 4);
+        uint256 leveragedLegCap = Math.mulDiv(
+            Math.mulDiv(ceiling, 1, 4),
+            uncapped.redeemedLeveraged[0],
+            leveragedAsCollateral
+        );
+        assertGt(
+            uncapped.bountyInCollateral,
+            collateralLegCap,
+            "precondition: the collateral leg's slice exceeds its cap"
+        );
+        assertGt(
+            uncapped.bountyInLeveraged,
+            leveragedLegCap,
+            "precondition: the leveraged leg's slice exceeds its cap"
+        );
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, ceiling);
+        vm.stopPrank();
+
+        RebalanceRecord memory r = _rebalanceRecorded();
+
+        assertEq(r.peggedFromCollateralPool, uncapped.peggedFromCollateralPool, "the ceiling changes no leg's size");
+        assertEq(r.peggedFromLeveragedPool, uncapped.peggedFromLeveragedPool, "nor the other's");
+        assertEq(
+            r.bountyInCollateral,
+            collateralLegCap,
+            "the collateral pool's leg pays three quarters of the ceiling"
+        );
+        assertEq(
+            r.bountyInLeveraged,
+            leveragedLegCap,
+            "the leveraged pool's leg pays its quarter, in leveraged tokens at the rate the rebalance paid"
+        );
+        assertEq(
+            r.collateralToCollateralPool,
+            r.redeemedCollateral[0] - r.bountyInCollateral,
+            "the collateral pool receives its proceeds less its bounty"
+        );
+        assertEq(
+            r.leveragedToLeveragedPool,
+            r.redeemedLeveraged[0] - r.bountyInLeveraged,
+            "the leveraged pool receives its proceeds less its bounty"
+        );
+    }
+
+    /// A pool's share of the ceiling is one budget across both tokens it may be paid in. Below the minter's floor the
+    /// leveraged pool's pegged first takes the collateral route, paid in wrapped collateral, then converts into
+    /// leveraged tokens: the first leg spends part of the budget and the second is capped at what it left, turned into
+    /// leveraged tokens at the rate that leg paid. Only the leveraged pool holds pegged, so the budget is the whole
+    /// ceiling.
+    function test_rebalanceBountyCeiling_isOneBudgetAcrossAPoolsTokens() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(10 ether, 0.08 ether, user1); // 10.08/10 = 1.008: above the peg, below the floor of ~1.0101
+        assertGt(IMinter_v3(minter).collateralRatio(), 1 ether, "fixture: above the peg");
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "fixture: below the floor, so two steps");
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(5 * price, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0.01 ether);
+        vm.stopPrank();
+        uint256 snapshot = vm.snapshotState();
+        RebalanceRecord memory uncapped = _rebalanceRecorded();
+        vm.revertToState(snapshot);
+        assertEq(uncapped.redeemedPegged.length, 2, "precondition: two steps, to the floor then to the threshold");
+        assertGt(uncapped.bountyInCollateral, 0, "precondition: the first step pays in wrapped collateral");
+        assertGt(uncapped.bountyInLeveraged, 0, "precondition: the second step pays in leveraged tokens");
+        // What the second step's pegged redeems for in collateral. Above the peg that is the pegged's face value at
+        // the oracle's price, whatever the collateral ratio, so the figure here is the one the rebalance sees after
+        // its first step.
+        (uint256 secondLegAsCollateral, ) = IMinter_v3(minter).freeRedeemDryRun(uncapped.redeemedPegged[1], 0);
+        // A ceiling the first leg does not reach, which the second then exceeds: the first leg's bounty plus half of
+        // what the second's is worth in collateral.
+        uint256 ceiling = uncapped.bountyInCollateral +
+            Math.mulDiv(uncapped.bountyInLeveraged, secondLegAsCollateral, uncapped.redeemedLeveraged[1]) / 2;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, ceiling);
+        vm.stopPrank();
+
+        RebalanceRecord memory r = _rebalanceRecorded();
+
+        assertEq(r.redeemedPegged.length, 2, "two steps still");
+        assertEq(r.redeemedPegged[0], uncapped.redeemedPegged[0], "the ceiling changes no leg's size");
+        assertEq(r.redeemedPegged[1], uncapped.redeemedPegged[1], "nor the second step's");
+        assertEq(r.bountyInCollateral, uncapped.bountyInCollateral, "the first leg is under the budget: uncapped");
+        assertEq(
+            r.bountyInLeveraged,
+            Math.mulDiv(ceiling - r.bountyInCollateral, r.redeemedLeveraged[1], secondLegAsCollateral),
+            "the second leg is capped at what the first left, in leveraged tokens at the rate it paid"
+        );
+        assertEq(
+            r.leveragedToLeveragedPool,
+            r.redeemedLeveraged[1] - r.bountyInLeveraged,
+            "the pool receives the second step's proceeds less its bounty"
+        );
+    }
+
+    /// A rebalance ceiling of zero is no ceiling, set so after one was set: every leg pays its ratio's slice.
+    function test_rebalanceBountyCeiling_zeroCapsNothing() public {
+        _setUpBothPoolsThreeToOne();
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, 0.004 ether);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, 0);
+        vm.stopPrank();
+
+        RebalanceRecord memory r = _rebalanceRecorded();
+
+        assertEq(r.redeemedPegged.length, 1, "both legs in one step");
+        assertEq(
+            r.bountyInCollateral,
+            (r.redeemedCollateral[0] * 0.01 ether) / 1 ether,
+            "the collateral pool's leg pays its whole slice"
+        );
+        assertEq(
+            r.bountyInLeveraged,
+            (r.redeemedLeveraged[0] * 0.01 ether) / 1 ether,
+            "the leveraged pool's leg pays its whole slice"
+        );
     }
 }

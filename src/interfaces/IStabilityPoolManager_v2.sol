@@ -17,6 +17,11 @@ interface IStabilityPoolManager_v2 {
     event HarvestBountyUpdated(uint256 harvestBountyRatio);
     event HarvestCutUpdated(uint256 harvestCutRatio);
     event RebalanceThresholdUpdated(uint256 collateralRatio);
+    /// @notice Emitted when the bounty ceilings are set.
+    /// @param harvestBountyCeiling The most a harvest pays its caller, in wrapped collateral; zero is no ceiling.
+    /// @param rebalanceBountyCeiling The most a rebalance pays its caller in all, measured in wrapped collateral; zero
+    ///        is no ceiling.
+    event BountyCeilingsUpdated(uint256 harvestBountyCeiling, uint256 rebalanceBountyCeiling);
 
     /// @notice Emitted when liquidation happens.
     /// @param liquidated The amount of asset liquidated.
@@ -82,6 +87,14 @@ interface IStabilityPoolManager_v2 {
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
     function rebalanceBountyRatio() external view returns (uint256 rebalanceBountyRatio_);
+    /// @notice The most a harvest pays its caller, in wrapped collateral: the bounty ratio's slice of the gross up to
+    ///         this, the rest of the slice going to the cut receiver. Zero is no ceiling.
+    function harvestBountyCeiling() external view returns (uint256);
+    /// @notice The most a rebalance pays its caller in all, measured in wrapped collateral - a payment in leveraged
+    ///         tokens counted as the collateral those tokens were minted for. Shared between the two pools by the
+    ///         pegged each holds when the rebalance starts, each pool's legs drawing on its share; what a leg does not
+    ///         pay the caller stays with the pool. Zero is no ceiling.
+    function rebalanceBountyCeiling() external view returns (uint256);
     /// @notice Returns the collateral ratio at which rebalancing should occur
     /// @return The rebalance collateral ratio
     function rebalanceThreshold() external view returns (uint256);
@@ -92,7 +105,8 @@ interface IStabilityPoolManager_v2 {
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
     /// @notice Lift the collateral ratio to the rebalance threshold with the stability pools' pegged, in up to two
-    ///         steps, and pay the pools - and `bountyReceiver` its bounty ratio of every payment - for what they give.
+    ///         steps, and pay the pools - and `bountyReceiver` its bounty ratio of every payment, within
+    ///         `rebalanceBountyCeiling` - for what they give.
     ///         Where the minter sells leverage, one step by both legs: the collateral pool's pegged redeemed for
     ///         collateral, the leveraged pool's converted into leveraged tokens. Where it sells none - below its
     ///         floor, `IMinter_v3.MINIMUM_COLLATERAL_RATIO` - first both pools' pegged by the collateral route, pro
@@ -109,7 +123,9 @@ interface IStabilityPoolManager_v2 {
 
     /// @notice Harvests tokens to stability pools and returns the total amount harvested. New yield is split between the
     ///         pools by their supplies - what has been deposited, never the pegged they hold - and goes to the treasury
-    ///         when neither has a deposit.
+    ///         when neither has a deposit. `bountyReceiver` is paid the bounty ratio's slice of the gross up to
+    ///         `harvestBountyCeiling`, the rest of the slice going to the cut receiver; `minBounty` is judged on what
+    ///         is paid.
     function harvest(address bountyReceiver, uint256 minBounty) external returns (uint256 harvestedAmount);
 
     /*//////////////////////////////////////////////////////////////
@@ -132,4 +148,10 @@ interface IStabilityPoolManager_v2 {
     /// @param harvestCutRatio_ The share of the harvest gross paid to the cut receiver. The two must sum within 100%;
     ///        what is left of the gross is what is streamed to the stability pools.
     function updateHarvestRatios(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) external;
+
+    /// @notice Set the two bounty ceilings, in wrapped collateral; zero is no ceiling.
+    /// @param harvestBountyCeiling_ The most a harvest pays its caller.
+    /// @param rebalanceBountyCeiling_ The most a rebalance pays its caller in all, a leveraged payment counted as the
+    ///        collateral its tokens were minted for.
+    function updateBountyCeilings(uint256 harvestBountyCeiling_, uint256 rebalanceBountyCeiling_) external;
 }
