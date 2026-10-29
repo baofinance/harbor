@@ -16,6 +16,9 @@
 #     actual after records must not differ.
 #   Prong B (white-box): MarketsStorageCopy checks the storage the upgrade copied - each holder's reward records,
 #     each reward stream, each pool's ledger gap - against the frozen pools.
+#   Harvest: UpgradedMarketsHarvest upgrades every market as the upgrade script builds it, the compensation
+#     included, on a fork of mainnet at the block after the capture, where every price is fresh; then harvests each,
+#     and requires each holding yield to pay the harvest's caller, fee receiver and pools by its config's harvest terms.
 #
 # forge test forks anvil in memory and writes nothing back to it. run-script --broadcast --local sends the upgrade to
 # anvil and executes each market's batch as the multisig would. So one anvil session serves the whole run.
@@ -94,8 +97,8 @@ echo "  Upgrade of every live market to v3: rehearsal"
 echo "======================================================================"
 echo "  Salt:           $SALT"
 
-# The records of an earlier run would hide one this run fails to write.
-rm -rf "$OUT/before" "$OUT/after" "$OUT/expected-after" "$OUT/compare"
+# The records and logs of an earlier run would hide one this run fails to write.
+rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # The expected-after records are built by this library; its own tests run first, before anything is forked.
@@ -113,6 +116,14 @@ echo "Native settings: each upgraded market holds the settings a native deploy s
 set +e
 campaign_test native-settings.log UpgradedMarketsMatchANativeDeploy --rpc-url mainnet
 native_status=$?
+set -e
+
+# Independent of the rehearsal below too.
+echo ""
+echo "Harvest: each upgraded market harvests at its config's terms..."
+set +e
+campaign_test harvest.log UpgradedMarketsHarvest --rpc-url mainnet
+harvest_status=$?
 set -e
 
 prompt "Start a fresh anvil fork of the chain's head:  script/anvil --block latest"
@@ -187,7 +198,12 @@ if [[ "$native_status" -eq 0 ]]; then
 else
   echo "  ❌ FAIL: an upgraded market's settings differ from a native deploy's - see $OUT/native-settings.log"
 fi
-if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 ]]; then
+if [[ "$harvest_status" -eq 0 ]]; then
+  echo "  ✅ PASS: every upgraded market harvests at its config's terms"
+else
+  echo "  ❌ FAIL: an upgraded market did not harvest at its config's terms - see $OUT/harvest.log"
+fi
+if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 || "$harvest_status" -ne 0 ]]; then
   exit 1
 fi
 exit 0

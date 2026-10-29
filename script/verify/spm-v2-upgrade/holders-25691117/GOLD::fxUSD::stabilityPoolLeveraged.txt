@@ -1,6 +1,0 @@
-# Holders: GOLD::fxUSD::stabilityPoolLeveraged
-# address: 0x5bDED171f1c08B903b466593B0E022F9FdE8399c
-# to-block: 25691117
-# source: UserDepositChange owners (Etherscan), blocks 24049000-25691117
-0xb9ab9578a34a05c86124c399735fdE44dEc80E7F
-0xF1e73F7d7656b9b00d970b58aaB3Bb19b5518060

@@ -13,8 +13,7 @@ abstract contract ConfigStabilityPoolManager {
         return 5e15;
     }
 
-    /// @notice The share of each rebalance payment taken to the cut receiver: none. The manager can take one; the
-    ///         markets are configured without it.
+    /// @notice The share of each rebalance payment taken to the cut receiver, in the payment's token.
     function rebalanceCutRatio() public pure virtual returns (uint256) {
         return 5e15;
     }

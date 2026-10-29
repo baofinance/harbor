@@ -225,8 +225,9 @@ broken library fails the run before anything is forked. It then runs `FrozenMark
 reads, at the end of the capture's block, is the state it runs on - the pause changed only which implementation each
 minter and pool runs. It then runs
 `UpgradedMarketsMatchANativeDeploy`: each upgraded market holds the settings a native deploy sets (see
-[Settings against a native deploy](#settings-against-a-native-deploy)). It then asks you to start anvil
-(`script/anvil --block latest`), and:
+[Settings against a native deploy](#settings-against-a-native-deploy)); and `UpgradedMarketsHarvest`: each upgraded
+market harvests at its config's terms (see [Harvest after the upgrade](#harvest-after-the-upgrade)). It then asks you
+to start anvil (`script/anvil --block latest`), and:
 
 1. copies `deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the
    deployed addresses;
@@ -241,14 +242,14 @@ minter and pool runs. It then runs
    the capture's block the oracle the deploy predicts for each market;
 7. sorts the keys of each record and diffs the expected after against the after. Any difference fails the run.
 
-The native-settings check and the rehearsal are independent: the runner runs both, reports each, and fails if either
-failed.
+The native-settings check, the harvest check and the records' comparison are independent: the runner runs all three,
+reports each, and fails if any failed.
 
 `forge test` forks anvil in memory and writes nothing back, so one anvil session serves the whole run. Both captures
 are warped to the same time, 12,000 seconds after anvil's head, so the reward streams and withdrawal windows read alike.
 
 Each step's output is kept in `tmp/v3-upgrade/*.log`, and the records in `tmp/v3-upgrade/{before,after,expected-after}/`.
-The runner needs `MAINNET_RPC_URL`, archival at the capture's block.
+The runner empties `tmp/v3-upgrade/` when it starts. It needs `MAINNET_RPC_URL`, archival at the capture's block.
 
 ### What is recorded
 
@@ -334,6 +335,25 @@ shift of the stream the migration folded; its claimed is copied; every other hol
 
 It fails unless at least one reward record had data to compare.
 
+### Harvest after the upgrade
+
+The records compare what each contract reads. `UpgradedMarketsHarvest` checks what a market does when a keeper
+harvests it, on the state the upgrade leaves. It forks mainnet at the block after the capture and upgrades every market
+there as the upgrade script builds the upgrade, the compensation included, executing each batch as the multisig. A
+harvest reads the price oracle, and at that block every answer is as fresh as mainnet keeps it. Anvil holds each answer
+from its fork while its clock runs on, so an hourly answer can go stale during a rehearsal.
+
+For every market holding harvestable yield:
+
+- the harvest succeeds;
+- its caller is paid the config's harvest bounty ratio of the harvest, within the floors' wei, or the config's bounty
+  ceiling where that is lower;
+- the whole harvest goes to the caller, the fee receiver and the pools - or only to the caller and the fee receiver
+  where the pools hold no deposits, as GOLD::stETH's hold none at the capture;
+- the minter's harvestable falls by what is harvested.
+
+A market holding none must say so (`NoHarvestable`). The check fails unless at least one market harvests.
+
 ### Settings against a native deploy
 
 The records compare each market with itself before the upgrade. `UpgradedMarketsMatchANativeDeploy` compares it with a
@@ -364,4 +384,5 @@ address the deploy grants none is not seen.
 - `test/deployment/UpgradeMarketToV3.t.sol` - the upgrade's tests
 - `script/verify/v3-upgrade/` - the rehearsal: `run-upgrade-rehearsal`, `CaptureExpectations.t.sol`,
   `FrozenMarketsReadPoint.t.sol`, `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`,
-  `MarketSettings.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`
+  `MarketSettings.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`,
+  `UpgradedMarketsHarvest.t.sol`

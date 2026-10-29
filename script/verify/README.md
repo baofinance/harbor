@@ -25,16 +25,6 @@ StabilityPoolManager_v2, by `script/Upgrade_MarketsToV3_mainnet.s.sol`, and its 
 (`run-upgrade-rehearsal`). The runbook, what the upgrade changes and how the rehearsal checks it:
 [v3-upgrade/README.md](v3-upgrade/README.md).
 
-### [spm-v2-upgrade/](spm-v2-upgrade/)
-
-StabilityPoolManager v1→v2 upgrade verification, on a mainnet fork at a pinned block: each market is upgraded by the
-upgrade script's own function, from the holder capture at that block (`holders-25691117/`).
-
-- `StabilityPoolManagerUpgradeTest.t.sol` — upgrades every live market and asserts the manager's configuration
-  survives, its reported interface becomes v2's, and harvest still works on the inherited state
-- `run-upgrade-test-StabilityPoolManager_v2` — runs it (needs `MAINNET_RPC_URL`)
-- [upgrade-StabilityPoolManager_v2.md](spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md)
-
 ### [sp-v3-reward-divisor-migration/](sp-v3-reward-divisor-migration/)
 
 StabilityPool v2→v3 pre-flight: whether every deployed pool can migrate through `StabilityPool_v3_Upgrader` with a

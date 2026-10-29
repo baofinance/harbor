@@ -303,7 +303,9 @@ script does not upgrade anything — it calls `updateHarvestCutRatio` on the *ex
 and running while v1 is live is precisely its purpose. A precondition on when something must happen
 was read as evidence about whether it had. It had:
 `script/verify/spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md` records both MCAP markets repaired
-at mainnet block **25691117**, with all eleven then holding 1e16 / 99e16.
+at mainnet block **25691117**, with all eleven then holding 1e16 / 99e16. Its campaign, superseded by
+the v3 upgrade's rehearsal, was removed on 2026-10-29; the record is read with
+`git show 82bee0b9:script/verify/spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md`.
 
 So: look for the record of the action, not for state that would be consistent with it. A runbook
 naming a block beats any inference from surrounding deployment state.
@@ -363,7 +365,7 @@ upgrade it must precede.
 | id | location | finding | status |
 |---|---|---|---|
 | `e5c2d779` | `UpdateVolatility_OGPlus.s.sol:60` | GOLD-fxUSD is labelled `updateConfig(105 month1)` but encodes `ConfigPriceVolatility_115` | ✅ **won't-fix** — the finding is correct: the label was copied from the EUR-fxUSD entry above it, and the paired threshold on line 63 is `115e16`, so the label is the only thing saying 105. But the batch has already been signed and executed — `deployments/mainnet/batch/UpdateVolatility_OGPlus_2026-01-15T21:56:04Z.json` is tracked, and is the record of what was approved — so the label has been read for the last time. Correcting it now would edit that record rather than anything a signer will see |
-| `e9e7093e` | `UpdateHarvestCut_MCAP.s.sol:27,35` | Both queue entries carry the identical description `updateHarvestCutRatio(configured)` | ✅ **won't-fix** — the finding is correct: the decoded batch showed two identical labels against two different managers, so a signer could not tell MCAP::fxUSD from MCAP::stETH. But the batch **has** executed — `script/verify/spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md` records both markets repaired by this script at mainnet block **25691117**, all eleven markets now holding 1e16 / 99e16 — so the labels have been read for the last time, and the same reasoning applies as to `e5c2d779` |
+| `e9e7093e` | `UpdateHarvestCut_MCAP.s.sol:27,35` | Both queue entries carry the identical description `updateHarvestCutRatio(configured)` | ✅ **won't-fix** — the finding is correct: the decoded batch showed two identical labels against two different managers, so a signer could not tell MCAP::fxUSD from MCAP::stETH. But the batch **has** executed — `script/verify/spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md` (removed with its campaign; in git at `82bee0b9`) records both markets repaired by this script at mainnet block **25691117**, all eleven markets now holding 1e16 / 99e16 — so the labels have been read for the last time, and the same reasoning applies as to `e5c2d779` |
 | `389b2d60` | `UpdateHarvestCut_MCAP.s.sol:18` | The run instruction names `./script/safe-batch`, which does not exist | ✅ **won't-fix** — confirmed, and CodeRabbit's replacement is wrong too: it proposes `run-script`, but this contract implements `build()` and queues a batch. Moot either way, the script having executed at block 25691117. Two sibling scripts spell the runner wrongly as well — `UpdateVolatility_OGPlus.s.sol:15` repeats `safe-batch`, `UpdateVolatility_test3_SILVER.s.sol:13` invents `generate-safe-batch` — and all three have run, so the wrong name has misdirected nobody. Worth correcting only if one of them is ever used as a template |
 
 ## doc — this audit file (3)

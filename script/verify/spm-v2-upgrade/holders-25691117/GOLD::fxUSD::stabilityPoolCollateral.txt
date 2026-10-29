@@ -1,5 +1,0 @@
-# Holders: GOLD::fxUSD::stabilityPoolCollateral
-# address: 0xC1EF32d4B959F2200efDeDdedadA226461d14DaC
-# to-block: 25691117
-# source: UserDepositChange owners (Etherscan), blocks 24049000-25691117
-0x1a9152528AEFbcD9E5df4E0770f4F510e7056913
