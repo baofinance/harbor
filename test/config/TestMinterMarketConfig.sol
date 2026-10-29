@@ -45,12 +45,17 @@ contract TestMinterMarketConfig is ConfigMarket_BTC_stETH_mainnet {
 
     /// @notice The manager's harvest and rebalance ratios the suites were written against: none of them.
     /// @dev Production charges a 1% rebalance bounty, a 1% harvest bounty and takes a 99% cut. The suites
-    ///      that care about ratios set their own with `updateHarvestRatios`, so those paths stay covered;
+    ///      that care about ratios set their own with `updateHarvestConfig` and `updateRebalanceConfig`, so those
+    ///      paths stay covered;
     ///      what these override is the DEFAULT, which the suites assume takes nothing. Leaving production's
     ///      99% cut in place would not merely renumber them — it would send almost the whole harvest to the
     ///      fee receiver, so a test asserting how a harvest divides between pools would have nothing to
     ///      divide.
     function rebalanceBountyRatio() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function rebalanceCutRatio() public pure override returns (uint256) {
         return 0;
     }
 
@@ -65,7 +70,8 @@ contract TestMinterMarketConfig is ConfigMarket_BTC_stETH_mainnet {
     /// @notice The manager's bounty ceilings the suites were written against: none.
     /// @dev Production caps a harvest's bounty at a hundred dollars' worth of wrapped collateral and a rebalance's at
     ///      two hundred. The suites that set a bounty ratio expect the ratio's whole slice, which a production ceiling
-    ///      would cut; the suites that test the ceilings set their own with `updateBountyCeilings`.
+    ///      would cut; the suites that test the ceilings set their own with `updateHarvestConfig` and
+    ///      `updateRebalanceConfig`.
     function harvestBountyCeiling() public pure override returns (uint256) {
         return 0;
     }

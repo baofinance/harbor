@@ -150,12 +150,13 @@ sweeping nothing, so the owed ledger is rolled back rather than left mutated.
 | Cut | 5–20% | Fee receiver / treasury |
 | Remainder | the rest | Stability pools, into a 7-day vesting stream |
 
-Both ratios default to 0 and are set together by the owner — they are validated as a **pair**,
+Both ratios default to 0 and are set together by the owner, with the bounty's ceiling — the most a
+harvest pays its caller, in wrapped collateral, zero for none. The ratios are validated as a **pair**,
 because what a pool is streamed is the residual the two leave, so a pair summing above 100% describes
 a split that does not exist:
 
 ```solidity
-stabilityPoolManager.updateHarvestRatios(0.05 ether, 0.1 ether); // 5% bounty, 10% cut
+stabilityPoolManager.updateHarvestConfig(0.05 ether, 0, 0.1 ether); // 5% bounty, no ceiling, 10% cut
 ```
 
 ### Linear vesting

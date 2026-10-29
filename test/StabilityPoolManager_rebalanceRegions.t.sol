@@ -156,7 +156,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
 
     function _setRebalanceBountyRatio() private {
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(REBALANCE_BOUNTY_RATIO);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, 0, 0);
         vm.stopPrank();
     }
 
@@ -520,7 +520,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     function test_theKeeperIsPaidItsBountyOnBothSteps() public {
         uint256 bountyRatio = 0.02 ether;
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(bountyRatio, 0, 0);
         vm.stopPrank();
         _fillPools(3_000, 6_000);
         marketActions.setCollateralRatioByPrice(_insideTheBand());

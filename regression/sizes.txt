@@ -1,16 +1,16 @@
 | Contract                          |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |-----------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
-| ConfigMarket_BTC_fxUSD_mainnet    |              6,291 |               18,285 |               6,319 |    1,321,390 |            132.14 |
-| ConfigMarket_BTC_stETH_mainnet    |              6,317 |               18,259 |               6,345 |    1,326,850 |            132.69 |
-| ConfigMarket_ETH_fxUSD_mainnet    |              6,291 |               18,285 |               6,319 |    1,321,390 |            132.14 |
-| ConfigMarket_EUR_fxUSD_mainnet    |              6,293 |               18,283 |               6,321 |    1,321,810 |            132.18 |
-| ConfigMarket_EUR_stETH_mainnet    |              6,319 |               18,257 |               6,347 |    1,327,270 |            132.73 |
-| ConfigMarket_GOLD_fxUSD_mainnet   |              6,295 |               18,281 |               6,323 |    1,322,230 |            132.22 |
-| ConfigMarket_GOLD_stETH_mainnet   |              6,321 |               18,255 |               6,349 |    1,327,690 |            132.77 |
-| ConfigMarket_MCAP_fxUSD_mainnet   |              6,297 |               18,279 |               6,325 |    1,322,650 |            132.27 |
-| ConfigMarket_MCAP_stETH_mainnet   |              6,323 |               18,253 |               6,351 |    1,328,110 |            132.81 |
-| ConfigMarket_SILVER_fxUSD_mainnet |              6,291 |               18,285 |               6,319 |    1,321,390 |            132.14 |
-| ConfigMarket_SILVER_stETH_mainnet |              6,317 |               18,259 |               6,345 |    1,326,850 |            132.69 |
+| ConfigMarket_BTC_fxUSD_mainnet    |              6,705 |               17,871 |               6,733 |    1,408,330 |            140.83 |
+| ConfigMarket_BTC_stETH_mainnet    |              6,730 |               17,846 |               6,758 |    1,413,580 |            141.36 |
+| ConfigMarket_ETH_fxUSD_mainnet    |              6,705 |               17,871 |               6,733 |    1,408,330 |            140.83 |
+| ConfigMarket_EUR_fxUSD_mainnet    |              6,693 |               17,883 |               6,721 |    1,405,810 |            140.58 |
+| ConfigMarket_EUR_stETH_mainnet    |              6,732 |               17,844 |               6,760 |    1,414,000 |            141.40 |
+| ConfigMarket_GOLD_fxUSD_mainnet   |              6,709 |               17,867 |               6,737 |    1,409,170 |            140.92 |
+| ConfigMarket_GOLD_stETH_mainnet   |              6,734 |               17,842 |               6,762 |    1,414,420 |            141.44 |
+| ConfigMarket_MCAP_fxUSD_mainnet   |              6,711 |               17,865 |               6,739 |    1,409,590 |            140.96 |
+| ConfigMarket_MCAP_stETH_mainnet   |              6,736 |               17,840 |               6,764 |    1,414,840 |            141.48 |
+| ConfigMarket_SILVER_fxUSD_mainnet |              6,705 |               17,871 |               6,733 |    1,408,330 |            140.83 |
+| ConfigMarket_SILVER_stETH_mainnet |              6,730 |               17,846 |               6,758 |    1,413,580 |            141.36 |
 | ConfigPeg_BTC                     |                755 |               23,821 |                 783 |      158,830 |             15.88 |
 | ConfigPeg_ETH                     |                755 |               23,821 |                 783 |      158,830 |             15.88 |
 | ConfigPeg_EUR                     |                757 |               23,819 |                 785 |      159,250 |             15.93 |
@@ -47,7 +47,7 @@
 | ReservePool_v1                    |              4,573 |               20,003 |               4,822 |      962,820 |             96.28 |
 | ReservePool_v2                    |              4,776 |               19,800 |               5,025 |    1,005,450 |            100.55 |
 | StabilityPoolManager_v1           |             11,032 |               13,544 |              12,880 |    2,335,200 |            233.52 |
-| StabilityPoolManager_v2           |             17,270 |                7,306 |              18,331 |    3,637,310 |            363.73 |
+| StabilityPoolManager_v2           |             17,493 |                7,083 |              18,554 |    3,684,140 |            368.41 |
 | StabilityPool_v2                  |             20,642 |                3,934 |              22,510 |    4,353,500 |            435.35 |
 | StabilityPool_v3                  |             24,286 |                  290 |              25,917 |    5,116,370 |            511.64 |
 | StabilityPool_v3_Upgrader         |              4,249 |               20,327 |               4,850 |      898,300 |             89.83 |

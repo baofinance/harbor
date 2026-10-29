@@ -51,9 +51,9 @@ abstract contract StabilityPoolManager is HarborDeployer {
     ///      place that splits those values across constructor, `initialize` calldata and setters.
     ///      The ratios stay setters on the contract deliberately: they are tuned on live markets by
     ///      multisig batch (see `script/UpdateVolatility_*.s.sol`). What changes here is only that the
-    ///      deploy stack no longer performs the configuration. The harvest bounty and cut are set as one
-    ///      pair, which is the only way to set either - see `updateHarvestRatios`. The two bounty ceilings are
-    ///      set together, from the config's dollar unit of wrapped collateral.
+    ///      deploy stack no longer performs the configuration. Each action's bounty ratio, bounty ceiling and
+    ///      cut ratio are set by one call, which is the only way to set any of them - see `updateHarvestConfig`
+    ///      and `updateRebalanceConfig`.
     function deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig
@@ -69,9 +69,16 @@ abstract contract StabilityPoolManager is HarborDeployer {
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
 
         IStabilityPoolManager_v2(proxy).updateRebalanceThreshold(cfg.rebalanceThreshold());
-        IStabilityPoolManager_v2(proxy).updateRebalanceBountyRatio(cfg.rebalanceBountyRatio());
-        IStabilityPoolManager_v2(proxy).updateHarvestRatios(cfg.harvestBountyRatio(), cfg.harvestCutRatio());
-        IStabilityPoolManager_v2(proxy).updateBountyCeilings(cfg.harvestBountyCeiling(), cfg.rebalanceBountyCeiling());
+        IStabilityPoolManager_v2(proxy).updateRebalanceConfig(
+            cfg.rebalanceBountyRatio(),
+            cfg.rebalanceBountyCeiling(),
+            cfg.rebalanceCutRatio()
+        );
+        IStabilityPoolManager_v2(proxy).updateHarvestConfig(
+            cfg.harvestBountyRatio(),
+            cfg.harvestBountyCeiling(),
+            cfg.harvestCutRatio()
+        );
         IStabilityPoolManager_v2(proxy).updateFeeReceiver(treasury());
     }
 }

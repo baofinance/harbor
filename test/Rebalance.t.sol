@@ -347,7 +347,8 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
     }
 
     /// @dev What one rebalance paid and took, from its tokens' balances and the minter's events: per pool its pegged
-    ///      given and its proceeds, the caller's bounty in each token, and each redemption the minter made.
+    ///      given and its proceeds, the caller's bounty and the cut receiver's cut in each token, and each redemption
+    ///      the minter made.
     struct RebalanceRecord {
         uint256 peggedFromCollateralPool;
         uint256 peggedFromLeveragedPool;
@@ -356,10 +357,15 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         uint256 leveragedToLeveragedPool;
         uint256 bountyInCollateral;
         uint256 bountyInLeveraged;
+        uint256 cutInCollateral;
+        uint256 cutInLeveraged;
         uint256[] redeemedPegged;
         uint256[] redeemedCollateral;
         uint256[] redeemedLeveraged;
     }
+
+    /// @dev The keeper's share of each rebalance payment in the tests that set one.
+    uint256 private constant REBALANCE_BOUNTY_RATIO = 0.01 ether;
 
     /// @dev Run a rebalance and record what it did.
     function _rebalanceRecorded() private returns (RebalanceRecord memory r) {
@@ -367,13 +373,18 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
             IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
             IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)
         ];
-        uint256[2] memory collateralBefore = [
+        uint256[3] memory poolsBefore = [
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged)
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged),
+            IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged)
         ];
-        uint256 leveragedBefore = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
-        uint256 bountyCollateralBefore = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver);
-        uint256 bountyLeveragedBefore = IERC20(leveragedToken).balanceOf(bountyReceiver);
+        address cutReceiver = IStabilityPoolManager_v2(stabilityPoolManager).feeReceiver();
+        uint256[4] memory paidBefore = [
+            IERC20(wrappedCollateralToken).balanceOf(bountyReceiver),
+            IERC20(leveragedToken).balanceOf(bountyReceiver),
+            IERC20(wrappedCollateralToken).balanceOf(cutReceiver),
+            IERC20(leveragedToken).balanceOf(cutReceiver)
+        ];
 
         vm.recordLogs();
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
@@ -382,12 +393,13 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         r.peggedFromCollateralPool = peggedBefore[0] - IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
         r.peggedFromLeveragedPool = peggedBefore[1] - IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
         r.collateralToCollateralPool =
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - collateralBefore[0];
-        r.collateralToLeveragedPool =
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged) - collateralBefore[1];
-        r.leveragedToLeveragedPool = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged) - leveragedBefore;
-        r.bountyInCollateral = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver) - bountyCollateralBefore;
-        r.bountyInLeveraged = IERC20(leveragedToken).balanceOf(bountyReceiver) - bountyLeveragedBefore;
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - poolsBefore[0];
+        r.collateralToLeveragedPool = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged) - poolsBefore[1];
+        r.leveragedToLeveragedPool = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged) - poolsBefore[2];
+        r.bountyInCollateral = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver) - paidBefore[0];
+        r.bountyInLeveraged = IERC20(leveragedToken).balanceOf(bountyReceiver) - paidBefore[1];
+        r.cutInCollateral = IERC20(wrappedCollateralToken).balanceOf(cutReceiver) - paidBefore[2];
+        r.cutInLeveraged = IERC20(leveragedToken).balanceOf(cutReceiver) - paidBefore[3];
         uint256 redemptions;
         for (uint256 l = 0; l < logs.length; ++l) {
             if (logs[l].emitter == minter && logs[l].topics[0] == IMinter_v3.RedeemPeggedToken.selector) {
@@ -422,7 +434,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(price / 2, user1, 0);
         vm.stopPrank();
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0.01 ether);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, 0, 0);
         vm.stopPrank();
         assertTrue(IMinter_v3(minter).leveragedMintable(), "fixture: the market sells leverage, so one step");
     }
@@ -459,7 +471,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
             "precondition: the leveraged leg's slice exceeds its cap"
         );
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, ceiling);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, ceiling, 0);
         vm.stopPrank();
 
         RebalanceRecord memory r = _rebalanceRecorded();
@@ -502,7 +514,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(5 * price, user1, 0);
         vm.stopPrank();
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceBountyRatio(0.01 ether);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, 0, 0);
         vm.stopPrank();
         uint256 snapshot = vm.snapshotState();
         RebalanceRecord memory uncapped = _rebalanceRecorded();
@@ -519,7 +531,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         uint256 ceiling = uncapped.bountyInCollateral +
             Math.mulDiv(uncapped.bountyInLeveraged, secondLegAsCollateral, uncapped.redeemedLeveraged[1]) / 2;
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, ceiling);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, ceiling, 0);
         vm.stopPrank();
 
         RebalanceRecord memory r = _rebalanceRecorded();
@@ -544,8 +556,8 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
     function test_rebalanceBountyCeiling_zeroCapsNothing() public {
         _setUpBothPoolsThreeToOne();
         vm.startPrank(owner());
-        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, 0.004 ether);
-        IStabilityPoolManager_v2(stabilityPoolManager).updateBountyCeilings(0, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, 0.004 ether, 0);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, 0, 0);
         vm.stopPrank();
 
         RebalanceRecord memory r = _rebalanceRecorded();
@@ -553,13 +565,107 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         assertEq(r.redeemedPegged.length, 1, "both legs in one step");
         assertEq(
             r.bountyInCollateral,
-            (r.redeemedCollateral[0] * 0.01 ether) / 1 ether,
+            (r.redeemedCollateral[0] * REBALANCE_BOUNTY_RATIO) / 1 ether,
             "the collateral pool's leg pays its whole slice"
         );
         assertEq(
             r.bountyInLeveraged,
-            (r.redeemedLeveraged[0] * 0.01 ether) / 1 ether,
+            (r.redeemedLeveraged[0] * REBALANCE_BOUNTY_RATIO) / 1 ether,
             "the leveraged pool's leg pays its whole slice"
+        );
+    }
+
+    /// A rebalance cut pays the cut receiver its ratio of each payment, in the payment's token: the collateral pool's
+    /// in wrapped collateral and the leveraged pool's in leveraged tokens. The bounty is as without a cut, each pool
+    /// receives its proceeds less both, and the cut changes no leg's size.
+    function test_rebalanceCut_paysTheCutReceiverItsSliceOfEachPaymentInItsToken() public {
+        _setUpBothPoolsThreeToOne();
+        uint256 snapshot = vm.snapshotState();
+        RebalanceRecord memory uncut = _rebalanceRecorded();
+        vm.revertToState(snapshot);
+        uint256 cutRatio = 0.02 ether;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, 0, cutRatio);
+        vm.stopPrank();
+
+        RebalanceRecord memory r = _rebalanceRecorded();
+
+        assertEq(r.redeemedPegged.length, 1, "both legs in one step");
+        assertEq(r.peggedFromCollateralPool, uncut.peggedFromCollateralPool, "the cut changes no leg's size");
+        assertEq(r.peggedFromLeveragedPool, uncut.peggedFromLeveragedPool, "nor the other's");
+        assertEq(
+            r.cutInCollateral,
+            (r.redeemedCollateral[0] * cutRatio) / 1 ether,
+            "the collateral pool's leg pays its cut in wrapped collateral"
+        );
+        assertEq(
+            r.cutInLeveraged,
+            (r.redeemedLeveraged[0] * cutRatio) / 1 ether,
+            "the leveraged pool's leg pays its cut in leveraged tokens"
+        );
+        assertEq(r.bountyInCollateral, uncut.bountyInCollateral, "the bounty is as without a cut");
+        assertEq(r.bountyInLeveraged, uncut.bountyInLeveraged, "in both tokens");
+        assertEq(
+            r.collateralToCollateralPool,
+            r.redeemedCollateral[0] - r.bountyInCollateral - r.cutInCollateral,
+            "the collateral pool receives its proceeds less its bounty and its cut"
+        );
+        assertEq(
+            r.leveragedToLeveragedPool,
+            r.redeemedLeveraged[0] - r.bountyInLeveraged - r.cutInLeveraged,
+            "the leveraged pool receives its proceeds less its bounty and its cut"
+        );
+    }
+
+    /// The bounty ceiling bounds the bounty alone: with a ceiling that binds and a cut, each leg pays the bounty the
+    /// ceiling leaves it and its whole cut, and each pool receives its proceeds less both.
+    function test_rebalanceCut_isNotBoundedByTheBountyCeiling() public {
+        _setUpBothPoolsThreeToOne();
+        uint256 ceiling = 0.004 ether;
+        uint256 cutRatio = 0.02 ether;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, ceiling, 0);
+        vm.stopPrank();
+        uint256 snapshot = vm.snapshotState();
+        RebalanceRecord memory uncut = _rebalanceRecorded();
+        vm.revertToState(snapshot);
+        assertLt(
+            uncut.bountyInCollateral,
+            (uncut.redeemedCollateral[0] * REBALANCE_BOUNTY_RATIO) / 1 ether,
+            "precondition: the ceiling binds on the collateral pool's leg"
+        );
+        assertLt(
+            uncut.bountyInLeveraged,
+            (uncut.redeemedLeveraged[0] * REBALANCE_BOUNTY_RATIO) / 1 ether,
+            "precondition: and on the leveraged pool's"
+        );
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, ceiling, cutRatio);
+        vm.stopPrank();
+
+        RebalanceRecord memory r = _rebalanceRecorded();
+
+        assertEq(r.bountyInCollateral, uncut.bountyInCollateral, "the bounty is capped as without a cut");
+        assertEq(r.bountyInLeveraged, uncut.bountyInLeveraged, "in both tokens");
+        assertEq(
+            r.cutInCollateral,
+            (r.redeemedCollateral[0] * cutRatio) / 1 ether,
+            "the whole cut of the collateral pool's leg"
+        );
+        assertEq(
+            r.cutInLeveraged,
+            (r.redeemedLeveraged[0] * cutRatio) / 1 ether,
+            "the whole cut of the leveraged pool's leg"
+        );
+        assertEq(
+            r.collateralToCollateralPool,
+            r.redeemedCollateral[0] - r.bountyInCollateral - r.cutInCollateral,
+            "the collateral pool receives its proceeds less its bounty and its cut"
+        );
+        assertEq(
+            r.leveragedToLeveragedPool,
+            r.redeemedLeveraged[0] - r.bountyInLeveraged - r.cutInLeveraged,
+            "the leveraged pool receives its proceeds less its bounty and its cut"
         );
     }
 }

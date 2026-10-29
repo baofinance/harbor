@@ -27,8 +27,8 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
         cfg = IHarborConfig(address(market));
     }
 
-    /// The StabilityPoolManager's four operating ratios, two bounty ceilings and fee receiver are set by the deploy,
-    /// from the market config and the deployer's treasury.
+    /// The StabilityPoolManager's rebalance threshold, its two actions' bounty ratios, bounty ceilings and cut ratios,
+    /// and its fee receiver are set by the deploy, from the market config and the deployer's treasury.
     function test_deployedStabilityPoolManagerIsConfiguredFromMarketConfig() public view {
         assertEq(
             IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
@@ -64,6 +64,11 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
             IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyCeiling(),
             cfg.rebalanceBountyCeiling(),
             "rebalanceBountyCeiling"
+        );
+        assertEq(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceCutRatio(),
+            cfg.rebalanceCutRatio(),
+            "rebalanceCutRatio"
         );
         assertEq(IStabilityPoolManager_v2(stabilityPoolManager).feeReceiver(), deployRun.treasury(), "feeReceiver");
     }

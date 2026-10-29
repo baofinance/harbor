@@ -179,7 +179,7 @@ contract StabilityPoolManagerUpgradeTest is BaoTest, HarborDeployer {
         vm.stopPrank();
 
         vm.startPrank(owner);
-        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bountyRatio, cutRatio);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestConfig(bountyRatio, 0, cutRatio);
         vm.stopPrank();
 
         vm.startPrank(harvester);

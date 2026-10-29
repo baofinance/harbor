@@ -19,6 +19,12 @@ abstract contract ConfigStabilityPoolManager {
         return 99e16;
     }
 
+    /// @notice The share of each rebalance payment taken to the cut receiver: none. The manager can take one; the
+    ///         markets are configured without it.
+    function rebalanceCutRatio() public pure virtual returns (uint256) {
+        return 0;
+    }
+
     /// @notice The most a harvest pays its caller, in wrapped collateral: a hundred dollars' worth, by the collateral's
     ///         `aboutADollarInWrappedCollateral`. Zero is no ceiling.
     function harvestBountyCeiling() public view virtual returns (uint256) {

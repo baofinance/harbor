@@ -14,7 +14,7 @@ import {ConfigMarket_MCAP_stETH_mainnet} from "@harbor-script/config/markets/Con
 ///      gross, so a pair over 100% describes a split that does not exist: StabilityPoolManager_v1 underflows working
 ///      out what is left for the pools, and so would v2. Every other market already sums to exactly 100%.
 ///      Run BEFORE the StabilityPoolManager_v2 upgrade - v2 has no single-ratio setter to repair a stored pair with,
-///      only `updateHarvestRatios`, which takes both.
+///      only `updateHarvestConfig`, which takes the bounty, its ceiling and the cut together.
 ///      Run with: ./script/safe-batch UpdateHarvestCut_MCAP --salt harbor_v1
 contract UpdateHarvestCut_MCAP is Script, HarborDeployer {
     function build() internal override {

@@ -69,7 +69,7 @@ contract StabilityPoolManager_v2 is
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPoolManager
     struct StabilityPoolManagerStorage {
-        /// @notice Fixed bounty amount for rebalancing
+        /// @notice The share of each rebalance payment paid to the rebalance's caller
         uint256 rebalanceBountyRatio;
         /// @notice The collateral ratio at which rebalancing should occur
         uint256 rebalanceThreshold;
@@ -93,6 +93,8 @@ contract StabilityPoolManager_v2 is
         uint256 harvestBountyCeiling;
         /// @notice The most a rebalance pays its caller in all, measured in wrapped collateral; zero is no ceiling.
         uint256 rebalanceBountyCeiling;
+        /// @notice The share of each rebalance payment paid to the cut receiver.
+        uint256 rebalanceCutRatio;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPoolManager")) - 1)) & ~bytes32(uint256(0xff))'
@@ -226,6 +228,11 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @inheritdoc IStabilityPoolManager_v2
+    function rebalanceCutRatio() external view returns (uint256) {
+        return _getStabilityPoolManagerStorage().rebalanceCutRatio;
+    }
+
+    /// @inheritdoc IStabilityPoolManager_v2
     function harvestBountyCeiling() external view returns (uint256) {
         return _getStabilityPoolManagerStorage().harvestBountyCeiling;
     }
@@ -293,44 +300,43 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @inheritdoc IStabilityPoolManager_v2
-    function updateBountyCeilings(uint256 harvestBountyCeiling_, uint256 rebalanceBountyCeiling_) external onlyOwner {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.harvestBountyCeiling = harvestBountyCeiling_;
-        $.rebalanceBountyCeiling = rebalanceBountyCeiling_;
-        emit BountyCeilingsUpdated(harvestBountyCeiling_, rebalanceBountyCeiling_);
-    }
-
-    /// @inheritdoc IStabilityPoolManager_v2
-    function updateRebalanceBountyRatio(uint256 rebalanceRatio_) external onlyOwner {
-        if (rebalanceRatio_ > 1 ether) {
-            revert InvalidRebalanceBountyRatio(rebalanceRatio_);
-        }
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.rebalanceBountyRatio = rebalanceRatio_;
-
-        emit RebalanceBountyUpdated(rebalanceRatio_);
-    }
-
-    /// @inheritdoc IStabilityPoolManager_v2
-    function updateHarvestRatios(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) external onlyOwner {
+    function updateHarvestConfig(uint256 bountyRatio, uint256 bountyCeiling, uint256 cutRatio) external onlyOwner {
         // Each ratio is bounded on its own first, so the one that is out of range is the one reported and the sum
-        // below cannot wrap. The pair is written whole, so there is no moment at which the stored pair is a split
+        // below cannot wrap. The terms are written whole, so there is no moment at which the stored pair is a split
         // harvest cannot make.
-        if (harvestBountyRatio_ > 1 ether) {
-            revert InvalidHarvestBountyRatio(harvestBountyRatio_);
+        if (bountyRatio > 1 ether) {
+            revert InvalidHarvestBountyRatio(bountyRatio);
         }
-        if (harvestCutRatio_ > 1 ether) {
-            revert InvalidHarvestCutRatio(harvestCutRatio_);
+        if (cutRatio > 1 ether) {
+            revert InvalidHarvestCutRatio(cutRatio);
         }
-        if (harvestBountyRatio_ + harvestCutRatio_ > 1 ether) {
-            revert InvalidHarvestRatioSum(harvestBountyRatio_, harvestCutRatio_);
+        if (bountyRatio + cutRatio > 1 ether) {
+            revert InvalidHarvestRatioSum(bountyRatio, cutRatio);
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.harvestBountyRatio = harvestBountyRatio_;
-        $.harvestCutRatio = harvestCutRatio_;
+        $.harvestBountyRatio = bountyRatio;
+        $.harvestBountyCeiling = bountyCeiling;
+        $.harvestCutRatio = cutRatio;
+        emit HarvestConfigUpdated(bountyRatio, bountyCeiling, cutRatio);
+    }
 
-        emit HarvestBountyUpdated(harvestBountyRatio_);
-        emit HarvestCutUpdated(harvestCutRatio_);
+    /// @inheritdoc IStabilityPoolManager_v2
+    function updateRebalanceConfig(uint256 bountyRatio, uint256 bountyCeiling, uint256 cutRatio) external onlyOwner {
+        // Bounded as the harvest's terms are, and for the same reasons.
+        if (bountyRatio > 1 ether) {
+            revert InvalidRebalanceBountyRatio(bountyRatio);
+        }
+        if (cutRatio > 1 ether) {
+            revert InvalidRebalanceCutRatio(cutRatio);
+        }
+        if (bountyRatio + cutRatio > 1 ether) {
+            revert InvalidRebalanceRatioSum(bountyRatio, cutRatio);
+        }
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        $.rebalanceBountyRatio = bountyRatio;
+        $.rebalanceBountyCeiling = bountyCeiling;
+        $.rebalanceCutRatio = cutRatio;
+        emit RebalanceConfigUpdated(bountyRatio, bountyCeiling, cutRatio);
     }
 
     function updateFeeReceiver(address feeReceiver_) external override onlyOwner {
@@ -373,12 +379,14 @@ contract StabilityPoolManager_v2 is
         }
     }
 
-    /// @dev The terms one rebalance pays its caller on, carried through its steps: the bounty ratio, who receives the
-    ///      bounty, and each pool's remaining share of the rebalance bounty ceiling, in wrapped collateral - unbounded
+    /// @dev The terms one rebalance pays on, carried through its steps: the bounty and cut ratios, who receives each,
+    ///      and each pool's remaining share of the rebalance bounty ceiling, in wrapped collateral - unbounded
     ///      (`type(uint256).max`) where no ceiling is set. Each pool's legs draw on its own share.
-    struct BountyTerms {
-        uint256 ratio;
-        address receiver;
+    struct RebalanceTerms {
+        uint256 bountyRatio;
+        uint256 cutRatio;
+        address bountyReceiver;
+        address cutReceiver;
         uint256 collateralPoolBudget;
         uint256 leveragedPoolBudget;
     }
@@ -393,9 +401,11 @@ contract StabilityPoolManager_v2 is
             revert IERC20Errors.ERC20InvalidReceiver(bountyReceiver);
         }
         uint256 rebalanceThreshold_ = _getStabilityPoolManagerStorage().rebalanceThreshold;
-        BountyTerms memory terms = BountyTerms({
-            ratio: _getStabilityPoolManagerStorage().rebalanceBountyRatio,
-            receiver: bountyReceiver,
+        RebalanceTerms memory terms = RebalanceTerms({
+            bountyRatio: _getStabilityPoolManagerStorage().rebalanceBountyRatio,
+            cutRatio: _getStabilityPoolManagerStorage().rebalanceCutRatio,
+            bountyReceiver: bountyReceiver,
+            cutReceiver: _getStabilityPoolManagerStorage().feeReceiver,
             collateralPoolBudget: type(uint256).max,
             leveragedPoolBudget: type(uint256).max
         });
@@ -501,18 +511,19 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @dev One step of a rebalance: take `peggedFromCollateralPool` and `peggedFromLeveragedPool` from the two pools,
-    ///      redeem them, and pay each pool - and the keeper its bounty ratio of each payment, within the pool's share
-    ///      of the ceiling in `terms`. With `leveragedPoolPaidInCollateral` both pools' pegged take the collateral
-    ///      route and the collateral is shared between them in proportion to the pegged each gave up; without it the
-    ///      leveraged pool's pegged is converted and the pool is paid in leveraged tokens.
+    ///      redeem them, and pay each pool - less the keeper's bounty ratio of each payment, within the pool's share
+    ///      of the ceiling in `terms`, and the cut receiver's cut ratio of it. With `leveragedPoolPaidInCollateral`
+    ///      both pools' pegged take the collateral route and the collateral is shared between them in proportion to
+    ///      the pegged each gave up; without it the leveraged pool's pegged is converted and the pool is paid in
+    ///      leveraged tokens.
     /// @return peggedLiquidated The pegged actually taken from the two pools.
-    /// @return collateralPaid The collateral paid to the pools, after the bounty.
-    /// @return leveragedPaid The leveraged tokens paid to the leveraged pool, after the bounty.
+    /// @return collateralPaid The collateral paid to the pools, after the bounty and the cut.
+    /// @return leveragedPaid The leveraged tokens paid to the leveraged pool, after the bounty and the cut.
     function _liquidate(
         uint256 peggedFromCollateralPool,
         uint256 peggedFromLeveragedPool,
         bool leveragedPoolPaidInCollateral,
-        BountyTerms memory terms
+        RebalanceTerms memory terms
     ) private returns (uint256 peggedLiquidated, uint256 collateralPaid, uint256 leveragedPaid) {
         // Clamp each pool's share before sweeping, so the swept, redeemed and notified pegged all agree: its proceeds
         // within what its reward integral can absorb, its loss within its headroom. Pegged is burned in the redeem, so
@@ -626,27 +637,28 @@ contract StabilityPoolManager_v2 is
         taken = IERC20(PEGGED_TOKEN).balanceOf(address(this)) - peggedBefore;
     }
 
-    /// @dev Pay `pool` for the `pegged` it gave up, out of `proceeds` of `token`: the keeper its bounty ratio, the pool
-    ///      the rest - credited to its holders at once by `notifyLiquidation`, which also writes the loss off their
-    ///      deposits. The bounty draws on the pool's budget in `terms`, its share of the rebalance bounty ceiling in
-    ///      wrapped collateral, measured as the collateral the payment stands for: `collateralRepresented` is the
-    ///      collateral `proceeds` is, or was minted for, so a bounty is worth its share of it. The bounty is cut to
-    ///      what the budget buys at that rate, and the budget falls by the worth of the bounty paid, rounded up, for
-    ///      the pool's later legs. What the cut withholds stays with the pool.
-    /// @return paid What the pool was paid, after the bounty.
+    /// @dev Pay `pool` for the `pegged` it gave up, out of `proceeds` of `token`: the keeper its bounty ratio, the cut
+    ///      receiver its cut ratio, the pool the rest - credited to its holders at once by `notifyLiquidation`, which
+    ///      also writes the loss off their deposits. The bounty alone draws on the pool's budget in `terms`, its share
+    ///      of the rebalance bounty ceiling in wrapped collateral, measured as the collateral the payment stands for:
+    ///      `collateralRepresented` is the collateral `proceeds` is, or was minted for, so a bounty is worth its share
+    ///      of it. The bounty is reduced to what the budget buys at that rate, and the budget falls by the worth of the
+    ///      bounty paid, rounded up, for the pool's later legs. What the budget withholds stays with the pool.
+    /// @return paid What the pool was paid, after the bounty and the cut.
     function _payPool(
         address pool,
         address token,
         uint256 pegged,
         uint256 proceeds,
         uint256 collateralRepresented,
-        BountyTerms memory terms
+        RebalanceTerms memory terms
     ) private returns (uint256 paid) {
         // slither-disable-next-line incorrect-equality
         if (pegged == 0) {
             return 0;
         }
-        uint256 bounty = (proceeds * terms.ratio) / 1 ether;
+        uint256 bounty = (proceeds * terms.bountyRatio) / 1 ether;
+        uint256 cut = (proceeds * terms.cutRatio) / 1 ether;
         bool collateralPool = pool == _STABILITY_POOL_COLLATERAL;
         uint256 budget = collateralPool ? terms.collateralPoolBudget : terms.leveragedPoolBudget;
         // A payment that stands for less than a wei of collateral has no measure against the budget, and cannot exceed
@@ -663,8 +675,11 @@ contract StabilityPoolManager_v2 is
                 terms.leveragedPoolBudget = budget;
             }
         }
-        paid = proceeds - bounty;
-        IERC20(token).safeTransfer(terms.receiver, bounty);
+        paid = proceeds - bounty - cut;
+        IERC20(token).safeTransfer(terms.bountyReceiver, bounty);
+        if (cut > 0) {
+            IERC20(token).safeTransfer(terms.cutReceiver, cut);
+        }
         IERC20(token).safeTransfer(pool, paid);
         IStabilityPool_v3(pool).notifyLiquidation(token, pegged, paid);
     }

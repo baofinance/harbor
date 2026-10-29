@@ -51,6 +51,7 @@ interface IHarborConfig {
 
     function rebalanceThreshold() external pure returns (uint256);
     function rebalanceBountyRatio() external pure returns (uint256);
+    function rebalanceCutRatio() external pure returns (uint256);
     function harvestBountyRatio() external pure returns (uint256);
     function harvestCutRatio() external pure returns (uint256);
     /// @notice The most a harvest pays its caller, in wrapped collateral; zero is no ceiling.

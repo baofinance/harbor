@@ -113,10 +113,11 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         // before this, and the 0.01 was the bounty, not the rule.
         if (bytes(overrideLabel()).length > 0) {
             _upgradeMarketToV3(config, string.concat("test/fixtures/holders-", vm.toString(FORK_BLOCK), "/"));
-            // The upgraded manager is v2, which sets the two harvest ratios as one pair.
+            // The upgraded manager is v2, which sets each action's bounty ratio, bounty ceiling and cut ratio in one
+            // call.
             vm.startPrank(IBaoOwnable(market.manager).owner());
-            IStabilityPoolManager_v2(market.manager).updateRebalanceBountyRatio(0);
-            IStabilityPoolManager_v2(market.manager).updateHarvestRatios(0, 0);
+            IStabilityPoolManager_v2(market.manager).updateRebalanceConfig(0, 0, 0);
+            IStabilityPoolManager_v2(market.manager).updateHarvestConfig(0, 0, 0);
             vm.stopPrank();
         } else {
             // The deployed manager is v1, whose interface this is.
