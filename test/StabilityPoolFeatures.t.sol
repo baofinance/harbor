@@ -11,6 +11,7 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 
 contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     function test_withdraw_beforeStart_chargedFee() public {
@@ -82,6 +83,11 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         );
         assertEq(clearedStart, 0);
         assertEq(clearedEnd, 0);
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            0,
+            "the request's fee-free amount is cleared with it"
+        );
     }
 
     function test_withdraw_exemptFeeRole_noFee_beforeStart() public {
@@ -172,122 +178,254 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.stopPrank();
     }
 
-    function test_deposit_afterWindow_doesNotCancelRequest() public {
+    // ═══════════════════════════════════════════════════════════════════════
+    // The amount a withdrawal request makes fee-free
+    // ═══════════════════════════════════════════════════════════════════════
+    // In each test user2 keeps a stake of its own, so no withdrawal reaches the pool's floor and is capped.
+
+    // A request's fee-free amount is the requester's balance when it is made; with no request it is nothing.
+    function test_requestWithdrawal_makesTheBalanceFeeFree() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(1 ether, 0 ether, user1);
-        deal(peggedToken, user1, 10 * price);
+        deal(peggedToken, user1, 5 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
+        vm.stopPrank();
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            0,
+            "nothing is fee-free before a request"
+        );
+
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            5 * price,
+            "the balance at the request is fee-free"
+        );
+    }
+
+    // A request makes fee-free the balance held when it is made: withdrawn inside the window, that amount pays no fee,
+    // even when more has arrived since.
+    function test_withdraw_inTheWindow_upToTheFeeFreeAmount_paysNoFee() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        deal(peggedToken, user2, 5 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
+        vm.stopPrank();
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
+
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, 5 * price, "the fee-free amount is paid in full");
+        assertEq(IERC20(peggedToken).balanceOf(treasury()), feeReceiverBefore, "no fee");
+    }
+
+    // Inside the window, a withdrawal above the fee-free amount pays the fee on the excess alone: exactly the configured
+    // share of it.
+    function test_withdraw_inTheWindow_paysTheFeeOnlyOnTheExcess() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 2 * price);
+        deal(peggedToken, user2, 5 * price);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
+        vm.stopPrank();
+        uint256 gross = 4 * price;
+        uint256 fee = ((gross - 2 * price) * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) /
+            1 ether;
+        assertGt(fee, 0, "the excess is large enough to pay a fee");
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
+
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(gross, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, gross - fee, "the payment is the gross less the fee on the excess");
+        assertEq(IERC20(peggedToken).balanceOf(treasury()) - feeReceiverBefore, fee, "the fee is on the excess alone");
+    }
+
+    // A deposit naming an account whose window is open is not covered by its request: withdrawn in that window, the
+    // deposited amount pays the fee.
+    function test_depositNamingAWindowHolder_staysSubjectToTheFee() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 1 * price);
+        deal(peggedToken, user2, 6 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(4 * price, user1, 0);
+        vm.stopPrank();
+        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
+
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, 5 * price - fee, "the deposited amount pays the fee");
+        assertEq(IERC20(peggedToken).balanceOf(treasury()) - feeReceiverBefore, fee, "the fee reaches the fee address");
+    }
+
+    // Pool shares transferred to an account whose window is open are not covered by its request: withdrawn in that
+    // window, they pay the fee.
+    function test_transferIn_staysSubjectToTheFee() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 1 * price);
+        deal(peggedToken, user2, 6 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(6 * price, user2, 0);
+        IERC20(stabilityPoolCollateral).transfer(user1, 4 * price);
+        vm.stopPrank();
+        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, 5 * price - fee, "the transferred shares pay the fee");
+    }
+
+    // A transfer out lowers the fee-free amount to the balance left, and shares transferred back do not restore it:
+    // withdrawn in the window, they pay the fee.
+    function test_transferOutAndBack_doesNotRestoreTheFeeFreeAmount() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        deal(peggedToken, user2, 2 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+        vm.startPrank(user1);
+        IERC20(stabilityPoolCollateral).transfer(user2, 4 * price);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IERC20(stabilityPoolCollateral).transfer(user1, 4 * price);
+        vm.stopPrank();
+        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, 5 * price - fee, "the shares that came back pay the fee");
+    }
+
+    // A loss shrinks the fee-free amount exactly as it shrinks the balance: after a loss and a top-up, withdrawing the
+    // whole balance in the window pays the fee on the top-up alone.
+    function test_loss_shrinksTheFeeFreeAmountWithTheBalance() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        deal(peggedToken, user2, 8 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user2, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+        StabilityPoolActions collateralPoolActions = new StabilityPoolActions(stabilityPoolCollateral, rebalancer);
+        collateralPoolActions.liquidate(wrappedCollateralToken, 4 * price, 0);
+        uint256 balanceAfterLoss = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        assertLt(balanceAfterLoss, 5 * price, "the loss reached user1");
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
+        vm.stopPrank();
+        uint256 gross = balanceAfterLoss + 3 * price;
+        uint256 fee = (3 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(gross, user1, 0);
+        vm.stopPrank();
+
+        assertEq(paid, gross - fee, "the fee is on the top-up alone");
+    }
+
+    // A deposit leaves its sender's withdrawal request as it was, and is not covered by it: withdrawn in the window,
+    // the deposited amount pays the fee.
+    function test_deposit_leavesTheSendersRequestOpen() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        deal(peggedToken, user2, 2 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
         (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        vm.warp(end + 1); // after window end
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
         vm.stopPrank();
-        (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start2, start);
-        assertEq(end2, end);
+
+        (uint64 startAfter, uint64 endAfter) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        assertEq(startAfter, start, "the request keeps its start");
+        assertEq(endAfter, end, "the request keeps its end");
+        uint256 fee = (3 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
+        vm.stopPrank();
+        assertEq(paid, 5 * price - fee, "the deposit pays the fee");
     }
 
-    function test_deposit_duringWindow_cancelsRequest() public {
+    // A second request replaces the first, its window and its fee-free amount alike: it covers the balance held when
+    // it is made.
+    function test_requestWithdrawal_again_recordsTheNewBalance() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(1 ether, 0 ether, user1);
-        deal(peggedToken, user1, 10 * price);
-        vm.startPrank(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
-        vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        vm.warp(start + 1);
-
-        // Deposit during window should cancel request: zeroed, and said so
-        vm.startPrank(user1);
-        vm.expectEmit(stabilityPoolCollateral);
-        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
-        vm.stopPrank();
-        (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start2, 0, "the request is cancelled: no start");
-        assertEq(end2, 0, "the request is cancelled: no end");
-    }
-
-    // The window's last second still counts as unended: a deposit at exactly `end` cancels the request too.
-    function test_deposit_atTheWindowsEnd_cancelsTheRequest() public {
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        setUp_collateral(1 ether, 0 ether, user1);
-        deal(peggedToken, user1, 10 * price);
-        vm.startPrank(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
-        vm.stopPrank();
-        (, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        vm.warp(end);
-
-        vm.startPrank(user1);
-        vm.expectEmit(stabilityPoolCollateral);
-        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
-        vm.stopPrank();
-        (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start2, 0, "the request is cancelled: no start");
-        assertEq(end2, 0, "the request is cancelled: no end");
-    }
-
-    // The request a deposit cancels is its sender's: a deposit made for another account cancels the payer's request and
-    // leaves the receiver's window running.
-    function test_deposit_forAnother_cancelsTheSendersRequest_notTheReceivers() public {
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        setUp_collateral(1 ether, 0 ether, user1);
-        deal(peggedToken, user1, 10 * price);
-        deal(peggedToken, user2, 10 * price);
+        deal(peggedToken, user1, 2 * price);
+        deal(peggedToken, user2, 5 * price);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
         vm.startPrank(user2);
-        IERC20(peggedToken).approve(stabilityPoolCollateral, 10 * price);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
         vm.stopPrank();
-        (uint64 receiverStart, uint64 receiverEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
-            user2
-        );
-        vm.warp(receiverStart + 1);
+        _beginWithdrawal(user1);
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
 
         vm.startPrank(user1);
-        vm.expectEmit(stabilityPoolCollateral);
-        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user2, 0);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
         vm.stopPrank();
-        (uint64 senderStart, uint64 senderEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(senderStart, 0, "the sender's request is cancelled: no start");
-        assertEq(senderEnd, 0, "the sender's request is cancelled: no end");
-        (uint64 receiverStart2, uint64 receiverEnd2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
-            user2
-        );
-        assertEq(receiverStart2, receiverStart, "the receiver's request keeps its start");
-        assertEq(receiverEnd2, receiverEnd, "the receiver's request keeps its end");
-    }
 
-    function test_deposit_beforeWindow_cancelsRequest() public {
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        setUp_collateral(1 ether, 0 ether, user1);
-        deal(peggedToken, user1, 10 * price);
-        vm.startPrank(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
-        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
-        vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        vm.warp(start - 10); // before start
-
-        // Deposit before window should also cancel request (since it's before end): zeroed, and said so
-        vm.startPrank(user1);
-        vm.expectEmit(stabilityPoolCollateral);
-        emit IStabilityPool_v3.WithdrawalRequestCancelled(user1);
-        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
-        vm.stopPrank();
-        (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start2, 0, "the request is cancelled: no start");
-        assertEq(end2, 0, "the request is cancelled: no end");
+        assertEq(paid, 5 * price, "the second request covers the whole balance it saw");
+        assertEq(IERC20(peggedToken).balanceOf(treasury()), feeReceiverBefore, "no fee");
     }
 
     function test_getters_returnConfiguredValues() public view {

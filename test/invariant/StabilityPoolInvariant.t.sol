@@ -17,8 +17,8 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice Stateful fuzz handler for the StabilityPool. Each external function is one bounded
-/// action the invariant fuzzer can sequence: deposit / windowed and immediate (fee) withdrawal /
-/// share transfer / reward claim / liquidation / reward deposit / time warp / checkpoint. Every
+/// action the invariant fuzzer can sequence: deposit / withdrawal request / windowed and immediate (fee)
+/// withdrawal / share transfer / reward claim / liquidation / reward deposit / time warp / checkpoint. Every
 /// action bounds its inputs so it cannot revert (fail-on-revert is enabled in the test contract),
 /// records the ghost accounting the invariants check against, and runs the claimable-monotonicity
 /// probe across all actors.
@@ -60,6 +60,9 @@ contract StabilityPoolInvariantHandler is Test {
     /// freshness: a stored dust share can floor to a zero balance yet still accrue, so the
     /// exact-equality retroactivity probe only applies to accounts that never held shares.
     mapping(address => bool) public everHeldShares;
+    /// @notice The least balance each actor has held since its last withdrawal request: the most that request may make
+    /// fee-free, since what arrives after it never becomes fee-free.
+    mapping(address => uint256) public leastBalanceSinceRequest;
 
     mapping(address => mapping(address => uint256)) internal _lastClaimable; // actor => token => amount
 
@@ -152,11 +155,22 @@ contract StabilityPoolInvariantHandler is Test {
         vm.startPrank(actor);
         IStabilityPool_v3(POOL).requestWithdrawal();
         vm.stopPrank();
+        leastBalanceSinceRequest[actor] = IERC20(POOL).balanceOf(actor);
         (uint64 start, ) = IStabilityPool_v3(POOL).getWithdrawalRequest(actor);
         vm.warp(start);
         vm.startPrank(actor);
         IStabilityPool_v3(POOL).withdraw(amount, actor, 0);
         vm.stopPrank();
+        _afterAction(address(0));
+    }
+
+    /// @notice Request a withdrawal and leave it open, so the deposits, transfers and losses that follow meet it.
+    function requestWithdrawal(uint256 actorSeed) external {
+        address actor = _actors[actorSeed % _actors.length];
+        vm.startPrank(actor);
+        IStabilityPool_v3(POOL).requestWithdrawal();
+        vm.stopPrank();
+        leastBalanceSinceRequest[actor] = IERC20(POOL).balanceOf(actor);
         _afterAction(address(0));
     }
 
@@ -306,6 +320,10 @@ contract StabilityPoolInvariantHandler is Test {
         }
         for (uint256 a = 0; a < _actors.length; a++) {
             address actor = _actors[a];
+            uint256 balance = IERC20(POOL).balanceOf(actor);
+            if (balance < leastBalanceSinceRequest[actor]) {
+                leastBalanceSinceRequest[actor] = balance;
+            }
             uint256[] memory current = IClaimReward(POOL).claimable(actor, _rewardTokens);
             for (uint256 t = 0; t < _rewardTokens.length; t++) {
                 address token = _rewardTokens[t];
@@ -323,9 +341,6 @@ contract StabilityPoolInvariantHandler is Test {
 /// (the stateless single-operation space is covered by the Minter fee-range fuzzers). Tolerances
 /// are derived from the pool's arithmetic, not guessed: 1 wei per truncating division, plus the
 /// bounded loss over-application error.
-/// forge-config: default.invariant.runs = 64
-/// forge-config: default.invariant.depth = 128
-/// forge-config: default.invariant.fail_on_revert = true
 contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPoolConservation {
     StabilityPoolInvariantHandler internal handler;
 
@@ -356,7 +371,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         // outer sender is irrelevant — pin it to one address.
         targetSender(makeAddr("invariantSender"));
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](9);
+        bytes4[] memory selectors = new bytes4[](10);
         selectors[0] = StabilityPoolInvariantHandler.deposit.selector;
         selectors[1] = StabilityPoolInvariantHandler.withdrawWindowed.selector;
         selectors[2] = StabilityPoolInvariantHandler.withdrawImmediate.selector;
@@ -366,6 +381,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         selectors[6] = StabilityPoolInvariantHandler.depositRewardToken.selector;
         selectors[7] = StabilityPoolInvariantHandler.warpTime.selector;
         selectors[8] = StabilityPoolInvariantHandler.checkpointActor.selector;
+        selectors[9] = StabilityPoolInvariantHandler.requestWithdrawal.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
@@ -385,6 +401,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         _checkDivisorFloor();
         _checkNoRetroactiveReward();
         _checkStabilityPoolSolvent();
+        _checkFeeFreeWithinLeastBalance();
     }
 
     /// The extreme the independently drawn proceeds make reachable, pinned outside the fuzzer's luck: a liquidation
@@ -479,6 +496,21 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// LAST claimer's claim can revert for want of a few wei).
     function _checkStabilityPoolSolvent() private view {
         _assertStabilityPoolSolvent(stabilityPoolCollateral, _actorsArray(), _ghosts());
+    }
+
+    /// @notice No actor's fee-free amount exceeds the least balance it has held since its request: money that arrives
+    /// after a request, by deposit or transfer, never becomes fee-free under it. Tolerance, derived: the fee-free amount
+    /// compounds the request's copy of the balance record in one floored step, while the balance is floored again at
+    /// every checkpoint since, each losing under 1 wei; at most 2 checkpoints per handler call.
+    function _checkFeeFreeWithinLeastBalance() private view {
+        for (uint256 a = 0; a < handler.actorCount(); a++) {
+            address actor = handler.actorAt(a);
+            assertLe(
+                IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(actor),
+                handler.leastBalanceSinceRequest(actor) + 2 * handler.calls(),
+                "a fee-free amount exceeds the least balance held since its request"
+            );
+        }
     }
 
     /// @dev The handler's reward-token list as a memory array, for the vector claim views.

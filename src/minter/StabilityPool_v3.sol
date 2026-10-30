@@ -134,12 +134,22 @@ contract StabilityPool_v3 is
     ///      uint128 (max ~3.4e38, ~3.4e20 whole tokens) now covers the protocol's amount envelope with wide headroom.
     /// @param product The encoding product data, see the comments of `DecrementalFloatingPoint_v2`.
     /// @param amount The amount of token currently held.
-    /// @param updatedAt The timestamp when the struct is updated.
+    /// @param updatedAt The timestamp when the total supply, or a history row, is recorded. v3 does not update it in an
+    ///        account's record, which keeps what v2 last wrote.
     /// @custom:bao-retyped-from amount uint104
     struct TokenBalance {
         uint128 product;
         uint128 amount; // This has to store 1e36
         uint40 updatedAt; // this is in the second slot
+    }
+
+    /// @dev The part of an account's balance its withdrawal request makes fee-free, held as the amount and product of
+    ///      the account's balance record, so `_getCompoundedBalance` compounds it exactly as it does that balance.
+    /// @param product The product the amount was taken at, see the comments of `DecrementalFloatingPoint_v2`.
+    /// @param amount The fee-free amount at that product.
+    struct FeeFreeBalance {
+        uint128 product;
+        uint128 amount;
     }
 
     /// @dev The withdrawal request window for an account
@@ -184,6 +194,7 @@ contract StabilityPool_v3 is
 
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
     /// @custom:bao-added rewardDivisorGap
+    /// @custom:bao-added withdrawalFeeFree
     struct StabilityPoolStorage {
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
@@ -208,6 +219,10 @@ contract StabilityPool_v3 is
         /// the divisor by the same amount, leaving the gap unchanged. Being always at the current product, it needs
         /// no product field.
         int256 rewardDivisorGap;
+        /// @dev Mapping from account to the part of its balance its withdrawal request makes fee-free, taken from its
+        /// balance record when it requested. A transfer out lowers it to the balance left; nothing raises it. Empty
+        /// with no request.
+        mapping(address => FeeFreeBalance) withdrawalFeeFree;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -371,6 +386,17 @@ contract StabilityPool_v3 is
     }
 
     /// @inheritdoc IStabilityPool_v3
+    /// @dev The fee-free record compounds from the product it was copied at, the balance from its last checkpoint, so
+    ///      the two can differ by a rounding: the cap keeps the amount within the balance.
+    function getWithdrawalFeeFreeAmount(address account) external view returns (uint256 amount) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        FeeFreeBalance storage feeFree = $.withdrawalFeeFree[account];
+        amount = _getCompoundedBalance(feeFree.amount, feeFree.product, $.totalAssetSupply.product);
+        uint256 balance = balanceOf(account);
+        amount = amount < balance ? amount : balance;
+    }
+
+    /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the current early withdrawal fee ratio (scaled by 1e18).
     function getEarlyWithdrawalFee() external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -414,13 +440,6 @@ contract StabilityPool_v3 is
 
         // Required for ERC20 compatibility - we're actually minting ourselves
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // If depositing before the end of a valid withdrawal window, cancel the request
-        WithdrawalRequest memory request = $.withdrawalRequests[sender];
-        if (request.start != 0 && request.end > request.start && block.timestamp <= request.end) {
-            $.withdrawalRequests[sender] = WithdrawalRequest({start: 0, end: 0});
-            emit WithdrawalRequestCancelled(sender);
-        }
 
         // Emit deposit event for off-chain indexers and auditing
         emit Deposit(sender, receiver, assetsDeposited);
@@ -502,7 +521,8 @@ contract StabilityPool_v3 is
 
         // Determine fee policy
         // - If no request: fee applies
-        // - If request exists: fee applies outside [start, end]; no fee during window
+        // - If request exists: fee applies outside [start, end]; during the window it applies only to what exceeds the
+        //   request's fee-free amount
         uint256 feeAmount = 0;
         bool hasRequest = (request.start != 0 && request.end > request.start);
         bool inWindow = hasRequest && block.timestamp >= request.start && block.timestamp <= request.end;
@@ -522,9 +542,17 @@ contract StabilityPool_v3 is
 
         // Charge the early-withdrawal fee on the ACTUAL (capped) outflow - clamp-then-fee - so the fee is a true
         // percentage of what leaves the pool, carved out of the outflow so the total leaving stays within the cap.
-        if (!inWindow && !isExempt) {
-            feeAmount = (assetsWithdrawn * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
-            assetsWithdrawn -= feeAmount;
+        // During the window the outflow up to the fee-free amount pays nothing, so the fee is on the excess alone.
+        if (!isExempt) {
+            uint256 feeFree = 0;
+            if (inWindow) {
+                FeeFreeBalance storage feeFreeBalance = $.withdrawalFeeFree[sender];
+                feeFree = _getCompoundedBalance(feeFreeBalance.amount, feeFreeBalance.product, supply.product);
+            }
+            if (assetsWithdrawn > feeFree) {
+                feeAmount = ((assetsWithdrawn - feeFree) * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
+                assetsWithdrawn -= feeAmount;
+            }
         }
 
         // Validate the FINAL amount leaving, after the fee and the floor cap: zero means nothing can be withdrawn (a
@@ -537,9 +565,10 @@ contract StabilityPool_v3 is
             revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
 
-        // Close any existing withdrawal request after successful withdrawal
+        // Close any existing withdrawal request after successful withdrawal, and with it its fee-free amount
         if (hasRequest) {
             $.withdrawalRequests[sender] = WithdrawalRequest({start: 0, end: 0});
+            delete $.withdrawalFeeFree[sender];
             emit WithdrawalRequestUpdated(sender, request.start, 0);
         }
         emit Withdraw(sender, receiver, assetsWithdrawn);
@@ -573,12 +602,18 @@ contract StabilityPool_v3 is
     /// @inheritdoc IStabilityPool_v3
     /// @notice Creates or updates the withdrawal request window for msg.sender.
     /// @dev Window is [start, end] where start = now + WITHDRAWAL_START_DELAY and end = start + WITHDRAWAL_END_WINDOW.
+    ///      The fee-free amount takes the amount and product of the sender's balance record, so it equals the balance
+    ///      now and compounds with it from here.
     function requestWithdrawal() external nonReentrant {
         address sender = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         uint64 start = uint64(block.timestamp + WITHDRAWAL_START_DELAY);
         uint64 end = uint64(start + WITHDRAWAL_END_WINDOW);
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
+        TokenBalance storage balance = $.assetBalances[sender];
+        FeeFreeBalance storage feeFree = $.withdrawalFeeFree[sender];
+        feeFree.amount = balance.amount;
+        feeFree.product = balance.product;
         emit WithdrawalRequested(sender, start, end);
     }
 
@@ -595,13 +630,13 @@ contract StabilityPool_v3 is
 
         if (account != address(0)) {
             TokenBalance memory supply = $.totalAssetSupply;
-            TokenBalance memory balance = $.assetBalances[account];
+            TokenBalance storage balance = $.assetBalances[account];
             uint128 newBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product).toUint128();
             if (newBalance != balance.amount) {
                 emit UserDepositChange(account, newBalance, balance.amount - newBalance);
             }
-            balance = TokenBalance({amount: newBalance, product: supply.product, updatedAt: uint40(block.timestamp)});
-            $.assetBalances[account] = balance;
+            balance.amount = newBalance;
+            balance.product = supply.product;
         }
     }
 
@@ -879,11 +914,16 @@ contract StabilityPool_v3 is
         }
         $.assetBalances[from] = fromBalance;
 
-        TokenBalance memory toBalance = $.assetBalances[to];
+        // The sender's fee-free amount never exceeds what it still holds: above it, it becomes the balance left.
+        FeeFreeBalance storage feeFree = $.withdrawalFeeFree[from];
+        if (_getCompoundedBalance(feeFree.amount, feeFree.product, fromBalance.product) > fromBalance.amount) {
+            feeFree.amount = fromBalance.amount;
+            feeFree.product = fromBalance.product;
+        }
+
+        TokenBalance storage toBalance = $.assetBalances[to];
         toBalance.amount = (uint256(toBalance.amount) + amount).toUint128();
         toBalance.product = $.totalAssetSupply.product;
-        toBalance.updatedAt = uint40(block.timestamp);
-        $.assetBalances[to] = toBalance;
 
         emit Transfer(from, to, amount);
     }

@@ -568,7 +568,6 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
     /// The same integral with a reserve too small for every subsidy: the steps exhaust it, each slice and each step
     /// receiving what its dry run forecasts from what is left.
-    /// forge-config: default.fuzz.runs = 50
     function test_mintLeveragedFeesAreIntegralWithPartialReserve(uint256 reserve) public {
         reserve = bound(reserve, 0, 24e15 - 1);
         // add to reserve pool
@@ -920,7 +919,6 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
     /// The same integral with a reserve too small for every subsidy: the steps exhaust it, each slice and each step
     /// receiving what its dry run forecasts from what is left.
-    /// forge-config: default.fuzz.runs = 50
     function test_redeemPeggedFeesAreIntegralsWithPartialReserve(uint256 reserve) public {
         reserve = bound(reserve, 0, 283e15 - 1);
         // add to reserve pool

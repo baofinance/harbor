@@ -913,8 +913,9 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     // 8. MidWithdrawal — withdrawal request on v2, complete on v3
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Tests that a pending withdrawal request initiated on v2 survives
-    ///         the upgrade and can be completed on v3 with correct amounts.
+    /// @notice A withdrawal request made on v2 keeps its window through the upgrade, but makes nothing fee-free: v2
+    ///         recorded no amount with it. Withdrawn in that window on v3, the amount pays the fee, and the balance and
+    ///         the rewards carry through the upgrade unchanged.
     function test_upgradeFromV2_MidWithdrawal() public {
         // Build state on v2: deposit and earn rewards
         _deposit(user1, 100 ether);
@@ -946,6 +947,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         (uint64 startOnV3, uint64 endOnV3) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertEq(startOnV3, startOnV2, "Withdrawal start preserved");
         assertEq(endOnV3, endOnV2, "Withdrawal end preserved");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            0,
+            "a request carried from v2 makes nothing fee-free"
+        );
 
         // Verify balances and claimable preserved
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balanceOnV2, "Balance preserved");
@@ -960,14 +966,16 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "Collateral claimable preserved"
         );
 
-        // Warp into withdrawal window and complete withdrawal on v3
+        // Warp into withdrawal window and complete withdrawal on v3: inside the window, but nothing is fee-free
         vm.warp(startOnV3 + 1);
+        uint256 fee = (50 ether * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        assertGt(fee, 0, "fixture: the pool charges a fee");
         uint256 peggedBefore = IERC20(peggedToken).balanceOf(user1);
         vm.startPrank(user1);
         uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(50 ether, user1, 0);
         vm.stopPrank();
-        assertEq(withdrawn, 50 ether, "Withdraw correct amount on v3");
-        assertEq(IERC20(peggedToken).balanceOf(user1) - peggedBefore, 50 ether, "Pegged tokens received");
+        assertEq(withdrawn, 50 ether - fee, "the withdrawal in the carried window pays the fee");
+        assertEq(IERC20(peggedToken).balanceOf(user1) - peggedBefore, 50 ether - fee, "Pegged tokens received");
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user1),
             balanceOnV2 - 50 ether,
@@ -1363,9 +1371,43 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         );
         assertEq(uint128(userWord), uint128(supplyWord), "product snapshot equals the supply product");
         assertEq(
-            uint256(uint40(uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(_mappedSlot(user1, 2)) + 1))))),
-            block.timestamp,
-            "updatedAt occupies its own slot untouched by the widened amount"
+            vm.load(stabilityPoolCollateral, bytes32(uint256(_mappedSlot(user1, 2)) + 1)),
+            before[3],
+            "updatedAt keeps its own slot as v2 wrote it, untouched by the widened amount"
         );
+    }
+
+    /// @notice v3 keeps no time on an account's balance record: after the upgrade, a deposit, a transfer and a
+    /// withdrawal leave each account's `updatedAt` as v2 last wrote it.
+    function test_upgradeFromV2_accountsKeepTheUpdatedAtV2Wrote() public {
+        _deposit(user1, 100 ether);
+        vm.warp(block.timestamp + 1 hours);
+        _deposit(user2, 100 ether);
+        vm.warp(block.timestamp + 1 days);
+        bytes32 updatedAtSlot1 = bytes32(uint256(_mappedSlot(user1, 2)) + 1);
+        bytes32 updatedAtSlot2 = bytes32(uint256(_mappedSlot(user2, 2)) + 1);
+        bytes32 updatedAt1 = vm.load(stabilityPoolCollateral, updatedAtSlot1);
+        bytes32 updatedAt2 = vm.load(stabilityPoolCollateral, updatedAtSlot2);
+        // Each was written by its deposit on v2, before now, so a write by v3 would change it.
+        assertGt(uint256(updatedAt1), 0, "fixture: v2 wrote user1's updatedAt");
+        assertLt(uint256(updatedAt1), block.timestamp, "fixture: user1's updatedAt is before now");
+        assertGt(uint256(updatedAt2), 0, "fixture: v2 wrote user2's updatedAt");
+        assertLt(uint256(updatedAt2), block.timestamp, "fixture: user2's updatedAt is before now");
+
+        _upgradeToV3();
+
+        _deposit(user1, 10 ether);
+        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot1), updatedAt1, "a deposit leaves its receiver's");
+
+        vm.startPrank(user1);
+        IERC20(stabilityPoolCollateral).transfer(user2, 5 ether);
+        vm.stopPrank();
+        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot1), updatedAt1, "a transfer leaves its sender's");
+        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot2), updatedAt2, "a transfer leaves its receiver's");
+
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(1 ether, user2, 0);
+        vm.stopPrank();
+        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot2), updatedAt2, "a withdrawal leaves its sender's");
     }
 }

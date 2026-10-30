@@ -69,10 +69,6 @@ interface IStabilityPool_v3 {
     /// @param end Always 0: the request is cleared.
     event WithdrawalRequestUpdated(address indexed owner, uint64 start, uint64 end);
 
-    /// @notice Emitted when a deposit by the account cancels its request.
-    /// @param owner The account.
-    event WithdrawalRequestCancelled(address indexed owner);
-
     /// @notice Emitted when a withdrawal pays the early-withdrawal fee.
     /// @param owner The account withdrawing.
     /// @param amount The fee, paid to the fee address.
@@ -174,6 +170,12 @@ interface IStabilityPool_v3 {
     /// @return end The last timestamp at which a withdrawal pays no fee.
     function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end);
 
+    /// @notice The part of an account's balance its withdrawal request makes fee-free; 0 when it has none. A
+    ///         withdrawal pays no fee on it inside the request's window, and the fee on the rest.
+    /// @dev The balance when the request was made, reduced by the losses since as the balance is, and by each transfer
+    ///      out to the balance left; never more than the balance. A deposit or a transfer in does not raise it.
+    function getWithdrawalFeeFreeAmount(address account) external view returns (uint256 amount);
+
     /// @notice The current early withdrawal fee ratio (scaled by 1e18)
     function getEarlyWithdrawalFee() external view returns (uint256);
 
@@ -201,9 +203,8 @@ interface IStabilityPool_v3 {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Deposit pegged, crediting `receiver` one-for-one.
-    /// @dev Reverts if the total it leaves is below `MIN_TOTAL_ASSET_SUPPLY` or above `MAX_TOTAL_ASSET_SUPPLY`. A
-    ///      deposit by an account whose withdrawal request has not ended - before its window opens, or during it -
-    ///      cancels that request.
+    /// @dev Reverts if the total it leaves is below `MIN_TOTAL_ASSET_SUPPLY` or above `MAX_TOTAL_ASSET_SUPPLY`. It
+    ///      leaves every withdrawal request as it is: the amount deposited is not fee-free under any of them.
     /// @param assetAmount The pegged to deposit, or `type(uint256).max` for the caller's whole balance.
     /// @param receiver The account credited.
     /// @param minAmount The least the caller accepts being credited.
@@ -219,7 +220,8 @@ interface IStabilityPool_v3 {
     /// - A request is not needed. The window decides whether the early-withdrawal fee applies:
     ///   - with no request, before the window's start, or after its end, the fee applies, unless the caller holds
     ///     `EXEMPT_WITHDRAWAL_FEE_ROLE`;
-    ///   - during [start, end], both ends included, no fee applies.
+    ///   - during [start, end], both ends included, the fee applies only to what exceeds the request's fee-free amount
+    ///     (see `getWithdrawalFeeFreeAmount`).
     /// - The amount leaving is capped at the headroom above `MIN_TOTAL_ASSET_SUPPLY`, and the fee is taken out of it.
     /// - A successful withdrawal clears the caller's request (start and end zeroed).
     /// @param assetAmount The pegged to withdraw, or `type(uint256).max` for the whole balance.
@@ -232,9 +234,10 @@ interface IStabilityPool_v3 {
         uint256 minAmount
     ) external returns (uint256 assetsWithdrawn);
 
-    /// @notice Open a fee-free withdrawal window for the caller, replacing any request it has.
+    /// @notice Open a fee-free withdrawal window for the caller's balance as it is now, replacing any request it has.
     /// @dev The window is [now + startDelay, now + startDelay + endWindow] (see `getWithdrawalWindow`).
-    /// - A deposit by the caller before the window ends - before it opens, or during it - cancels the request.
+    /// - The request makes fee-free the caller's balance now, and nothing it receives later (see
+    ///   `getWithdrawalFeeFreeAmount`).
     /// - A successful withdrawal clears it.
     function requestWithdrawal() external;
 
