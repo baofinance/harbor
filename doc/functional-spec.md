@@ -843,13 +843,15 @@ was deposited. This is the risk the yield pays for.*
 
 Acceptance criteria:
 1. Requesting a withdrawal opens a **fee-free window**, beginning after a configured delay and
-   lasting a configured duration.
-2. Withdrawal during that window incurs no early-withdrawal fee.
+   lasting a configured duration. The balance held at that moment becomes the request's **fee-free
+   amount**.
+2. Withdrawal during that window incurs no early-withdrawal fee on the fee-free amount, and the fee on
+   anything above it.
 3. Withdrawal is **always permitted** — before the window, after it, or with no request at all — but
    incurs the early-withdrawal fee outside the window. Funds are never locked.
 4. A successful withdrawal clears the request immediately.
-5. Depositing during an open window cancels the request, so a window cannot be held open
-   indefinitely while topping up.
+5. Nothing raises the fee-free amount. Money that arrives later, by a deposit or a share transfer,
+   pays the fee if it leaves early. A deposit leaves the request as it is.
 6. Designated addresses may be exempted from the early-withdrawal fee, so protocol-internal exits
    (the yield layer's) are not penalised.
 7. A minimum acceptable amount may be specified, protecting against a fee change landing first.
@@ -1291,27 +1293,26 @@ sequenceDiagram
     P->>P: checkpoint the receiver's accrued rewards
     P->>P: check resulting total is within floor and ceiling
     P-->>U: rebasing balance credited
-    note over P: an open withdrawal request<br/>is cancelled by this deposit
+    note over P: a withdrawal request stays as it is,<br/>and does not cover this deposit
     end
 
     rect rgb(243, 232, 253)
     note over U,P: Requesting the fee-free window
     U->>P: requestWithdrawal()
-    note over P: window opens at now + delay<br/>and lasts for the configured duration
+    note over P: window opens at now + delay<br/>and lasts for the configured duration<br/>the balance now is the fee-free amount
     end
 
     rect rgb(233, 245, 238)
     note over U,F: Withdrawal — always permitted
     U->>P: withdraw(amount, receiver, minAmount)
-    alt inside the window
+    alt holder is fee-exempt
         P-->>U: full amount, no fee
+    else inside the window
+        P->>F: early-withdrawal fee on what exceeds the fee-free amount
+        P-->>U: amount less that fee
     else outside the window, or no request
-        alt holder is fee-exempt
-            P-->>U: full amount, no fee
-        else
-            P->>F: early-withdrawal fee
-            P-->>U: amount less the fee
-        end
+        P->>F: early-withdrawal fee
+        P-->>U: amount less the fee
     end
     P->>P: clear the request
     end
@@ -1323,7 +1324,9 @@ to absorb a liquidation.
 **Notable properties.**
 - **Funds are never locked.** The window governs whether a *fee* applies, not whether withdrawal is
   possible. A depositor who never requests a window can still leave at any time, paying the fee.
-- Depositing during an open window **cancels** it — a window cannot be kept open while adding funds.
+- A request makes fee-free **only the balance held when it is made** (§6.6). Money that arrives later,
+  by a deposit or a share transfer, pays the fee if it leaves early, whichever account holds the
+  window. A deposit leaves the request as it is.
 - The floor is enforced on the *resulting total*, symmetrically for deposit and withdraw.
 - Balances rebase on liquidation; **allowances do not**. An approval granted before a rebase
   represents a larger fraction of the reduced balance afterwards. Granting an unlimited approval is
@@ -1766,8 +1769,19 @@ The window governs **whether a fee applies, never whether withdrawal is possible
 lock-up: a depositor with no request, or one whose window has passed, may still withdraw at any
 time by paying the early-withdrawal fee. Missing a window costs a fee, never access.
 
-Two rules stop the window being gamed: a successful withdrawal clears the request immediately, and
-a deposit made during an open window cancels it — so a window cannot be held open while topping up.
+A request makes fee-free **only the balance held when it is made**: its **fee-free amount**. Inside
+the window a withdrawal pays no fee on that amount, and the fee on anything above it. The amount falls
+with the pool's losses exactly as the balance does, and never exceeds the balance. A new request
+replaces the old one, and records the balance afresh.
+
+Three rules keep the window to the notice it buys:
+
+- **Nothing raises the fee-free amount.** Money that arrives later, by a deposit or a share transfer,
+  pays the fee if it leaves early, whichever account holds the window. A deposit leaves every request
+  as it is, so no one can change another account's request.
+- **A transfer out lowers it** to the balance left, so shares sent out and back pay the fee.
+- **A successful withdrawal clears the request**, and its fee-free amount, immediately. What remains
+  needs a new request.
 
 ### 6.7 Collateral yield accrual (external)
 
@@ -2102,8 +2116,9 @@ The stability pools carry one further incentive, aimed at a different problem: a
 useful if it is still there when needed, so depositors are encouraged to leave **predictably**
 rather than suddenly.
 
-- Requesting a withdrawal opens a fee-free window after a delay.
-- Withdrawing inside the window is free; outside it, or with no request at all, costs the fee.
+- Requesting a withdrawal opens a fee-free window after a delay, for the balance held at that moment.
+- Withdrawing that balance inside the window is free. Anything above it, a withdrawal outside the
+  window, or one with no request at all, costs the fee.
 - The fee goes to the fee receiver, and is kept below 100% by validation: at 100% a withdrawal outside
   the window would leave its receiver nothing and be refused, which would make the window a lock.
 - Designated addresses are **exempt** — protocol-internal exits, such as the yield layer's, are not
@@ -2338,8 +2353,9 @@ any width, since a direct redeem pays out at the band's high end, so near the re
 there is a real edge. Four things bound it:
 
 - The depositor is liquidated only **pro-rata**, so a late entrant dilutes their own capture.
-- Exiting afterwards costs the **early-withdrawal fee** unless a window was opened in advance —
-  which requires committing before the opportunity was visible.
+- Exiting afterwards costs the **early-withdrawal fee**. A window opened in advance does not cover the
+  new deposit, only the balance held when it was requested (§6.6). It does let that older balance
+  leave free, the limit §9.7 accepts.
 - Deeper into stress the alternative improves: **direct redemption is subsidised** (−5%, −10%),
   which can beat zero-fee liquidation outright.
 - The deposit must satisfy the pool's minimum.
@@ -2367,7 +2383,7 @@ Two mechanisms work against it:
 
 - **The withdrawal window.** Leaving on short notice, outside an open window, costs the
   early-withdrawal fee. Opening a window requires committing before the opportunity was visible, and
-  a deposit during an open window cancels it (§6.6). This is what the window is *for* — it prices
+  it covers only the balance held at that moment (§6.6). This is what the window is *for* — it prices
   exactly this manoeuvre.
 - **Compounding restores the stayer.** For the collateral pool, the stayer's liquidation proceeds are
   wrapped collateral, which the yield layer can convert back into anchor tokens and redeposit —
@@ -2429,13 +2445,21 @@ subsidy only accelerates.
 to buy.
 
 **How far it gets.** A diligent depositor can re-request as each window lapses and be eligible much
-of the time. Two rules limit rather than prevent this: a withdrawal **clears** the request, so
-another full delay must elapse before the next fee-free exit; and a deposit during an open window
-**cancels** it, so a window cannot be held open while topping up.
+of the time. Two rules limit what that buys: a withdrawal **clears** the request, so another full
+delay must elapse before the next fee-free exit; and a request covers **only the balance held when it
+is made**, so a window kept open frees the stake that gave notice and nothing that arrives later, by
+a deposit or a share transfer, whichever account holds the window.
 
 **Residual risk.** Accepted by design. The fee is avoidable by an attentive depositor, and that is
 the intended shape: the mechanism buys *notice*, not lock-up, and it prices sudden exit rather than
 denying it (§7.8). A depositor who plans ahead is exactly the depositor the mechanism wants.
+
+One limit remains. A depositor whose stake has given notice can deposit fresh money just before a
+rebalance, then withdraw the noticed stake fee-free just after. The fresh money stays in the pool, so
+neither move pays the fee, and the depositor's exposure to that rebalance rises by up to the stake
+that gave notice. A window set in advance cannot close this. Only a fee that depends on the market's
+state at the exit can: [doc/ideas/rebalance-fairness.md](ideas/rebalance-fairness.md) §5A analyses
+one, which is neither implemented nor scheduled.
 
 ### 9.8 Donation and first-depositor inflation
 
@@ -2582,7 +2606,7 @@ in-protocol mechanism addresses.
 | Rebalance timing — withdraw before | Withdrawal window prices the exit; compounding restores the stayer | **Permanent harvest-share gap in the leveraged pool** |
 | Rebalance griefing | Threshold check; bounty only on real proceeds, within its ceiling | None material |
 | Subsidy draining | Legs priced against each other; reserve best-effort | Reserve exhaustion under legitimate use |
-| Window gaming | Withdraw clears request; deposit cancels window | Accepted by design — a fee, not a lock |
+| Window gaming | Withdraw clears request; a request covers only the balance held when it is made | Accepted by design — a fee, not a lock |
 | Donation / first depositor | **Structurally absent** — explicit ledger, no share price | None |
 | Reward-integral overflow | Capped and deferred, floor bounds the divisor | Deferral latency only |
 | Hostile governance | Config validation; **upgrade unbounded** | **Root trust assumption** |
@@ -2863,7 +2887,8 @@ document, the section is given.
 | **Owed ledger** | Per-pool record of harvested yield allocated but not yet streamed. Never re-split between pools (§5.7, H2) |
 | **Bounty** | A keeper's share of the value its own call released (§7.7) |
 | **Cut** | The fee receiver's share of a harvest (§7.7) |
-| **Early-withdrawal fee** | Charged on a stability-pool withdrawal outside an open window. A fee, never a lock (§7.8) |
+| **Early-withdrawal fee** | Charged on a stability-pool withdrawal outside an open window, and inside one on what exceeds its fee-free amount. A fee, never a lock (§7.8) |
+| **Fee-free amount** | What a withdrawal request covers: the balance held when it was made, reduced by losses and transfers out since, and never more than the balance (§6.6) |
 
 ### Operations
 

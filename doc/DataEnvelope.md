@@ -78,7 +78,7 @@ the range leveraged mints are driven across, with nothing in the sweep to change
 
 Its five operations — **deposit, withdraw, harvest, rebalance, claim** — are each driven from dust
 to past the supply cap. What they read and write is the **ledger**: the `TokenBalance` struct —
-`{ uint128 product, uint128 amount, uint40 updatedAt }` — used for the pool total `totalAssetSupply`
+`{ uint128 product, uint128 amount, uint40 unusedInV3 }` — used for the pool total `totalAssetSupply`
 and each depositor's `assetBalances[user]`:
 
 | Term | Code variable | Capacity (tokens) |

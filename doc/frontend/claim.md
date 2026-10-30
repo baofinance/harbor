@@ -193,7 +193,7 @@ const remainder = totalAmount % BigInt(targetPools.length);
 
 **Proportional split (by existing deposit size):**
 ```typescript
-const balances = await Promise.all(targetPools.map(p => pool.assetBalanceOf(userAddress)));
+const balances = await Promise.all(targetPools.map(p => pool.balanceOf(userAddress)));
 const totalBalance = balances.reduce((sum, b) => sum + b, 0n);
 // proportion = (totalAmount * balance) / totalBalance for each pool
 ```
@@ -204,7 +204,7 @@ const totalBalance = balances.reduce((sum, b) => sum + b, 0n);
 
 ### "No claimable rewards" (`claimable()` returns 0)
 
-- Check user has deposits: `assetBalanceOf(userAddress)`
+- Check user has deposits: `balanceOf(userAddress)`
 - Check if rewards have been deposited to the pool
 - Verify rewards are not still vesting (check `rewardData()`)
 - Verify the correct pool address

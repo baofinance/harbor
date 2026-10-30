@@ -511,7 +511,8 @@ contract MarketsCapture is Test, HarborDeployer {
             vm.serializeString(objectKey, string.concat(prefix, "_full_allClaimableZero"), allZero ? "true" : "false");
         }
 
-        // 16. Withdraw for test user (request, warp into window, withdraw)
+        // 16. Withdraw for test user (request, warp into window, withdraw), recording what it receives, so a fee on a
+        //     withdrawal its request covers would show
         vm.startPrank(testUser);
         IStabilityPool_v3(proxy).requestWithdrawal();
         vm.stopPrank();
@@ -523,10 +524,19 @@ contract MarketsCapture is Test, HarborDeployer {
             }
         }
 
-        uint256 withdrawAmount = IStabilityPool_v3(proxy).assetBalanceOf(testUser) / 2;
-        vm.startPrank(testUser);
-        IStabilityPool_v3(proxy).withdraw(withdrawAmount, testUser, 0);
-        vm.stopPrank();
-        _serializeUint(objectKey, string.concat(prefix, "_withdraw_amount"), withdrawAmount);
+        {
+            address assetToken = IStabilityPool_v3(proxy).ASSET_TOKEN();
+            uint256 withdrawAmount = IStabilityPool_v3(proxy).assetBalanceOf(testUser) / 2;
+            uint256 heldBefore = IERC20(assetToken).balanceOf(testUser);
+            vm.startPrank(testUser);
+            IStabilityPool_v3(proxy).withdraw(withdrawAmount, testUser, 0);
+            vm.stopPrank();
+            _serializeUint(objectKey, string.concat(prefix, "_withdraw_amount"), withdrawAmount);
+            _serializeUint(
+                objectKey,
+                string.concat(prefix, "_withdraw_received"),
+                IERC20(assetToken).balanceOf(testUser) - heldBefore
+            );
+        }
     }
 }

@@ -211,7 +211,7 @@ contract StabilityPool_v3 is
     struct StabilityPoolStorage {
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
-        /// @dev Mapping account address to TokenBalance struct. Accessed via assetBalanceOf
+        /// @dev Mapping account address to TokenBalance struct. Accessed via balanceOf
         mapping(address => TokenBalance) assetBalances;
         /// @notice Mapping from index to history totalSupply.
         /// If there are multiple updates at the same timestamp, only the last one will be recorded.
@@ -363,8 +363,7 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IStabilityPool_v3
     function totalAssetSupply() external view returns (uint256 totalSupply_) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        totalSupply_ = $.totalAssetSupply.amount;
+        totalSupply_ = totalSupply();
     }
 
     /// @inheritdoc IStabilityPool_v3
@@ -378,9 +377,7 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IStabilityPool_v3
     function assetBalanceOf(address account) external view returns (uint256 amount) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance storage balance = $.assetBalances[account];
-        amount = _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
+        amount = balanceOf(account);
     }
 
     /// @inheritdoc IStabilityPool_v3
@@ -876,11 +873,8 @@ contract StabilityPool_v3 is
     ///      this override is the sole source of truth.
     function balanceOf(address account) public view override returns (uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        amount = _getCompoundedBalance(
-            $.assetBalances[account].amount,
-            $.assetBalances[account].product,
-            $.totalAssetSupply.product
-        );
+        TokenBalance storage balance = $.assetBalances[account];
+        amount = _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
     }
 
     function totalSupply() public view override returns (uint256 totalSupply_) {

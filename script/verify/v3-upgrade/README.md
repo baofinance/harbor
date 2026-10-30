@@ -126,6 +126,10 @@ each batch does is under [Each market's batch](#each-markets-batch), item 4. Bef
   cost.
 - Executing a market's batch moves its minter, pools and manager off the pause implementation onto v3: **that market is
   live again at once**.
+- Tell the market's depositors how its pools now treat a withdrawal request. A request makes fee-free only the balance
+  held when it is made, and what arrives later pays the fee if it leaves early. A deposit no longer cancels a request.
+  A request made before the pause makes nothing fee-free, and its window has ended anyway, so a depositor who wants to
+  leave without the fee makes a new one.
 - No call in a batch reads a live price: BTC::stETH's and EUR::stETH's batches price the compensation at the capture
   block's reading, held still in a `FrozenPriceOracle`; every other batch reads none.
 
@@ -199,8 +203,10 @@ or withdrawal window.
 | Each reward token's stream moves to a new, wider mapping (queued 96 to 256 bits, rate 80 to 128); the old `rewardDataUNUSED` stays where it was | The pool upgrader copies each active token's stream. No pool has ever unregistered a reward token, so the active tokens are all of them | `MarketsStorageCopy`: each stream equal; `MarketsCapture`: the stream views |
 | Each holder's reward record moves to a new, wider mapping (pending and claimed 128 to 256 bits), from `userRewardSnapshotV2NOTUSED` to `userRewardSnapshot` | The pool upgrader copies the record of every holder in the capture - why the capture must be complete | `MarketsStorageCopy`: every record field by field |
 | v2's fallback to the older v1 holder records is gone | Nothing is copied from the v1 records | `MarketsCapture`: a holder still relying on v1 data would read a different claimable or claimed |
-| The supply amount is widened in place (104 to 128 bits) | No copy is needed | `yarn validate` |
+| The amount of every balance record - an account's, the supply's, a history row's - is widened in place (104 to 128 bits) | No copy is needed | `yarn validate` |
+| v2's `TokenBalance` becomes two structs with its layout: `TokenBalance` for an account's record and the supply's, its time renamed `unusedInV3`, which v3 never reads or writes; `TimestampedBalance` for a history row, whose time stays live | No copy is needed: the bytes stay where they are | `yarn validate` |
 | The reward-divisor gap, `rewardDivisorGap`, is added | The pool upgrader writes it: the supply less what the captured holders hold | `MarketsStorageCopy`: the gap written; `MarketsCapture`: the reward divisor |
+| The fee-free amount of a withdrawal request, `withdrawalFeeFree`, is added | The pool upgrader writes nothing, so it starts empty and a request carried from v2 makes nothing fee-free | `MarketsStorageCopy`: every captured holder's is zero; `MarketsCapture`: what a holder receives from a withdrawal its request covers |
 
 ## How the rehearsal checks the upgrade
 
@@ -254,8 +260,9 @@ The runner empties `tmp/v3-upgrade/` when it starts. It needs `MAINNET_RPC_URL`,
 ### What is recorded
 
 `MarketsCapture` writes one record per contract, named by its salt key: `pre/` holds its state; for a pool, `post/`
-holds its behaviour under the same interactions - a deposit, a reward deposited and streamed, claims, a withdrawal -
-and its state after them. Every interaction must succeed: one that reverts fails the capture. A contract's state is
+holds its behaviour under the same interactions - a deposit, a reward deposited and streamed, claims, a withdrawal
+inside the window of a request made just before it, with what the holder receives - and its state after them. Every
+interaction must succeed: one that reverts fails the capture. A contract's state is
 its settings - what a deploy writes, read by `MarketSettings.sol` - and its holdings - what holders' actions write.
 
 - **Minter**: owner, config, the backing it records, its pegged and leveraged supply, the wrapped collateral it holds,
@@ -324,7 +331,8 @@ after value lies within 2 wei per fold of the before value moved by the shift.
 - each captured holder's reward record for each reward token - pending, claimed, timestamp, integral - in its V2
   layout at the capture's block, against its V3 record after the upgrade;
 - each reward token's stream;
-- the ledger gap the upgrade wrote, against the pool's supply less what the captured holders held.
+- the ledger gap the upgrade wrote, against the pool's supply less what the captured holders held;
+- each captured holder's fee-free amount, which must be zero: the upgrade writes none.
 
 A pool whose migration takes rewards back (the compensation's deductions, read from the incident's files) is checked
 for what that migration does instead: every stream's last update, and the timestamp of every record of each holder a

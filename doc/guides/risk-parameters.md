@@ -44,6 +44,11 @@ Monitor `collateralRatio()` vs `rebalanceThreshold()` continuously to ensure ade
 | `WITHDRAWAL_END_WINDOW` | 24-48 hours | Provides reasonable fee-free withdrawal window |
 | `MAX_EARLY_WITHDRAWAL_FEE` | 5-10% (0.05e18 - 0.10e18) | Discourages panic exits without being unfair |
 
+A request makes fee-free only the balance held when it is made. So `WITHDRAWAL_END_WINDOW` sets how long a depositor's
+noticed stake may leave free, not how much can pass through the window: money deposited or transferred in while it is
+open pays the fee if it leaves early. The one limit is in
+[the functional specification, §9.7](../functional-spec.md#97-withdrawal-window-gaming).
+
 ## Oracle Constraints
 
 **Set in constructor (immutable) on `StakedETHWrappedPriceOracle`:**

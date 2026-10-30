@@ -5,13 +5,16 @@
 ### Read Functions
 
 ```solidity
-function assetBalanceOf(address account) external view returns (uint256);
-function totalAssetSupply() external view returns (uint256);
+function balanceOf(address account) external view returns (uint256);      // the balance, after the pool's losses
+function totalSupply() external view returns (uint256);                   // the pool's total
+function assetBalanceOf(address account) external view returns (uint256); // v2's name for balanceOf
+function totalAssetSupply() external view returns (uint256);              // v2's name for totalSupply
 function ASSET_TOKEN() external view returns (address);
 function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the floor
 function MAX_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the ceiling
 function maxAssetLoss() external view returns (uint256);           // the headroom above the floor: supply - floor, or 0
 function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end);
+function getWithdrawalFeeFreeAmount(address account) external view returns (uint256); // what the request covers now
 function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
 function getEarlyWithdrawalFee() external view returns (uint256);
 function getFeeAddress() external view returns (address);
@@ -41,13 +44,14 @@ Every claim pays the caller; there is no claim on another account's behalf.
 
 ```typescript
 const STABILITY_POOL_ABI = [
-  "function assetBalanceOf(address) view returns (uint256)",
-  "function totalAssetSupply() view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+  "function totalSupply() view returns (uint256)",
   "function ASSET_TOKEN() view returns (address)",
   "function MIN_TOTAL_ASSET_SUPPLY() view returns (uint256)",
   "function MAX_TOTAL_ASSET_SUPPLY() view returns (uint256)",
   "function maxAssetLoss() view returns (uint256)",
   "function getWithdrawalRequest(address) view returns (uint64, uint64)",
+  "function getWithdrawalFeeFreeAmount(address) view returns (uint256)",
   "function getWithdrawalWindow() view returns (uint64, uint64)",
   "function getEarlyWithdrawalFee() view returns (uint256)",
   "function EXEMPT_WITHDRAWAL_FEE_ROLE() view returns (uint256)",
@@ -105,7 +109,7 @@ async function checkDepositPrerequisites(
 
   const floor = await pool.MIN_TOTAL_ASSET_SUPPLY();
   const ceiling = await pool.MAX_TOTAL_ASSET_SUPPLY();
-  const totalAfter = (await pool.totalAssetSupply()) + amount;
+  const totalAfter = (await pool.totalSupply()) + amount;
   const userBalance = await assetToken.balanceOf(userAddress);
   const allowance = await assetToken.allowance(userAddress, poolAddress);
 
@@ -129,11 +133,10 @@ const maxUint256 = BigInt("0xfffffffffffffffffffffffffffffffffffffffffffffffffff
 await pool.deposit(maxUint256, receiver, BigInt(0));
 ```
 
-### Important: a deposit cancels the depositor's withdrawal request.
+### Important: a withdrawal request does not cover a later deposit.
 
-A deposit cancels the caller's request if its window has not yet ended - whether the window is still waiting to open or
-is open now. A request whose window has already ended is left as it is. The request cancelled is the caller's, not the
-receiver's.
+A deposit leaves every withdrawal request as it is: the caller's and the receiver's. It adds nothing to a request's
+fee-free amount, so the money deposited pays the early-withdrawal fee if it leaves before a later request covers it.
 
 ### Error Messages
 
@@ -158,8 +161,8 @@ const DEPOSIT_ERROR_MESSAGES: Record<string, string> = {
 ```typescript
 async function getStabilityPoolDeposit(poolAddress: string, userAddress: string, provider: any) {
   const pool = new Contract(poolAddress, STABILITY_POOL_ABI, provider);
-  const balance = await pool.assetBalanceOf(userAddress);
-  const totalSupply = await pool.totalAssetSupply();
+  const balance = await pool.balanceOf(userAddress);
+  const totalSupply = await pool.totalSupply();
   const [start, end] = await pool.getWithdrawalRequest(userAddress);
 
   return {
@@ -226,25 +229,31 @@ function calculateEstimatedStabilityPoolMarks(deposit: StabilityPoolDeposit): nu
 
 ### How the Withdrawal Window Works
 
-1. User calls `requestWithdrawal()` to create a request
+1. User calls `requestWithdrawal()` to create a request. The balance at that moment becomes its fee-free amount
 2. Wait `WITHDRAWAL_START_DELAY` seconds
 3. Fee-free window opens for `WITHDRAWAL_END_WINDOW` seconds
 4. After the window closes, the early withdrawal fee applies again
 
-`getWithdrawalWindow()` returns the two durations.
+`getWithdrawalWindow()` returns the two durations. `getWithdrawalFeeFreeAmount(account)` returns what the request covers
+now: the balance when it was made, reduced by the pool's losses and by transfers out since, and never more than the
+balance.
 
 ### Fee Rules
 
 - **Before window starts**: Early withdrawal fee applies
-- **During window [start, end]**, both ends included: No fee
+- **During window [start, end]**, both ends included: No fee up to `getWithdrawalFeeFreeAmount(account)`, and the fee on
+  anything above it
 - **After window ends**: Early withdrawal fee applies again
 - **An account holding `EXEMPT_WITHDRAWAL_FEE_ROLE`** never pays the fee
 
 ### Key Behaviors
 
-- **Depositing cancels the request**: a deposit before the window ends - before it opens or during it - cancels the
-  depositor's request
-- **Withdrawal clears the request**: After withdrawing, the request window is cleared
+- **Later money is not covered**: a deposit, or shares transferred in, leave the request and its fee-free amount as they
+  are, and pay the fee if they leave before a new request covers them
+- **A new request starts again**: it replaces the window, and records the balance at that moment as the fee-free amount
+- **A transfer out lowers the fee-free amount** to the balance left, and shares sent back do not raise it
+- **Withdrawal clears the request**: any successful withdrawal clears the window and the fee-free amount, so what remains
+  needs a new request
 - **No request needed**: Users can withdraw at any time, but will pay the fee outside the window
 - **The pool keeps its floor**: a withdrawal is capped at `maxAssetLoss()`, the headroom above the floor, so the last
   depositors cannot take the pool below it; at the floor a withdrawal reverts `WithdrawZeroAmount`
@@ -259,17 +268,20 @@ async function getWithdrawalRequestStatus(poolAddress: string, userAddress: stri
 
   const hasRequest = start > 0 && end > start;
   let status: "none" | "waiting" | "active" | "expired" = "none";
-  let canWithdrawFeeFree = false;
+  let feeFreeAmount = 0n; // what can leave without the fee right now
 
   if (hasRequest) {
     if (now < start) status = "waiting";
-    else if (now >= start && now <= end) { status = "active"; canWithdrawFeeFree = true; }
+    else if (now >= start && now <= end) {
+      status = "active";
+      feeFreeAmount = await pool.getWithdrawalFeeFreeAmount(userAddress);
+    }
     else status = "expired";
   }
 
   return {
     hasRequest, start: hasRequest ? start : null, end: hasRequest ? end : null,
-    status, canWithdrawFeeFree,
+    status, feeFreeAmount,
     timeUntilStart: hasRequest && now < start ? Number(start - now) : null,
     timeUntilEnd: hasRequest && now >= start && now <= end ? Number(end - now) : null,
   };
@@ -278,23 +290,23 @@ async function getWithdrawalRequestStatus(poolAddress: string, userAddress: stri
 
 ### Withdrawal Amount Estimate
 
-The pool first caps the amount at the headroom above its floor, then takes the fee out of the capped amount, rounding
-the fee down:
+The pool first caps the amount at the headroom above its floor, then takes the fee on what exceeds the fee-free amount
+out of the capped amount, rounding the fee down:
 
 ```typescript
 async function estimateWithdrawal(
   pool: Contract,
   userAddress: string,
   amount: bigint, // the amount asked for, at most the user's balance
-  canWithdrawFeeFree: boolean,
+  feeFreeAmount: bigint, // from getWithdrawalRequestStatus: 0 outside the window
 ) {
   const headroom = await pool.maxAssetLoss();
   const leaving = amount < headroom ? amount : headroom;
   const exempt = await pool.hasAnyRole(userAddress, await pool.EXEMPT_WITHDRAWAL_FEE_ROLE());
-  if (canWithdrawFeeFree || exempt) return { leaving, feeAmount: 0n, netAmount: leaving };
+  if (exempt || leaving <= feeFreeAmount) return { leaving, feeAmount: 0n, netAmount: leaving };
 
   const earlyWithdrawalFee = await pool.getEarlyWithdrawalFee(); // scaled by 1e18
-  const feeAmount = (leaving * earlyWithdrawalFee) / BigInt("1000000000000000000");
+  const feeAmount = ((leaving - feeFreeAmount) * earlyWithdrawalFee) / BigInt("1000000000000000000");
   return { leaving, feeAmount, netAmount: leaving - feeAmount };
 }
 ```

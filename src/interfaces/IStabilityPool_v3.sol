@@ -142,7 +142,8 @@ interface IStabilityPool_v3 {
     /// @notice The minter contract the pool is for
     function MINTER() external view returns (address minter); // solhint-disable-line func-name-mixedcase
 
-    /// @notice The pool's total supply: deposits less withdrawals and losses. The same as `totalSupply()`.
+    /// @notice The pool's total supply: deposits less withdrawals and losses. v2's name for the ERC-20's `totalSupply()`,
+    ///         which new code reads.
     function totalAssetSupply() external view returns (uint256 amount);
 
     /// @notice Entry `index` of the supply history: when it was written, and the total supply then. Every deposit,
@@ -151,7 +152,8 @@ interface IStabilityPool_v3 {
     // solhint-disable-next-line explicit-types
     function totalAssetSupplyHistory(uint index) external view returns (uint40 updatedAt, uint256 amount);
 
-    /// @notice An account's balance after the losses since its last checkpoint. The same as `balanceOf(account)`.
+    /// @notice An account's balance after the losses since its last checkpoint. v2's name for the ERC-20's
+    ///         `balanceOf(account)`, which new code reads.
     function assetBalanceOf(address account) external view returns (uint256 amount);
 
     /// @notice The loss the last loss over-applied by rounding its loss per unit up, scaled by the loss factor's

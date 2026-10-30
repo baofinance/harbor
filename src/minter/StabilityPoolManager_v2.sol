@@ -358,8 +358,8 @@ contract StabilityPoolManager_v2 is
         view
         returns (uint256 totalPoolSupply, uint256 collateralPoolSupply, uint256 leveragedPoolSupply)
     {
-        collateralPoolSupply = IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).totalAssetSupply();
-        leveragedPoolSupply = IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).totalAssetSupply();
+        collateralPoolSupply = IERC20(_STABILITY_POOL_COLLATERAL).totalSupply();
+        leveragedPoolSupply = IERC20(_STABILITY_POOL_LEVERAGED).totalSupply();
         totalPoolSupply = collateralPoolSupply + leveragedPoolSupply;
     }
 

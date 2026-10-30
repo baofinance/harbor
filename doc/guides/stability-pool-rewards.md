@@ -210,8 +210,10 @@ uint256[] memory taken   = pool.claimed(account, tokens);
 
 ## Early-withdrawal fee exemption
 
-Addresses holding `EXEMPT_WITHDRAWAL_FEE_ROLE` pay no early-withdrawal fee when withdrawing outside
-their request window. This exists so protocol-internal exits — the AutoCompounders, the HarborYield
+A withdrawal request makes fee-free only the balance held when it is made (spec §6.6). Addresses
+holding `EXEMPT_WITHDRAWAL_FEE_ROLE` pay no early-withdrawal fee wherever another account would pay
+it: outside a request's window, and inside it on what exceeds the request's fee-free amount. This
+exists so protocol-internal exits — the AutoCompounders, the HarborYield
 router — are not charged for routing through the pool, and it can be granted to a treasury or
 operations address as needed.
 

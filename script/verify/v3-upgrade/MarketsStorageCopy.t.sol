@@ -115,7 +115,8 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         vm.selectFork(upgraded);
     }
 
-    /// @dev Read the upgraded pool, and check each deducted holder's every record is settled.
+    /// @dev Read the upgraded pool, check no captured holder has a fee-free amount, and check each deducted holder's every
+    ///      record is settled.
     function _readUpgraded(
         string memory label,
         address pool,
@@ -125,6 +126,11 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         u.tokens = IMultipleRewardDistributor(pool).activeRewardTokens();
         u.copied = new StabilityPoolRewardRecordLib.RewardRecord[](holders.length * u.tokens.length);
         for (uint256 h = 0; h < holders.length; ++h) {
+            assertEq(
+                IStabilityPool_v3(pool).getWithdrawalFeeFreeAmount(holders[h]),
+                0,
+                string.concat(label, " ", vm.toString(holders[h]), ": a request carried from v2 makes nothing fee-free")
+            );
             for (uint256 t = 0; t < u.tokens.length; ++t) {
                 u.copied[h * u.tokens.length + t] = StabilityPoolRewardRecordLib.v3Record(
                     pool,

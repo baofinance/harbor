@@ -31,8 +31,8 @@ const cut = (harvestable * cutRatio) / 1e18;
 const remaining = harvestable - bounty - cut;
 
 // Pool split
-const poolCollateral = await stabilityPoolCollateral.totalAssetSupply();
-const poolLeveraged = await stabilityPoolLeveraged.totalAssetSupply();
+const poolCollateral = await stabilityPoolCollateral.totalSupply();
+const poolLeveraged = await stabilityPoolLeveraged.totalSupply();
 const toThisPool = (remaining * thisPoolSupply) / (poolCollateral + poolLeveraged);
 
 // Rate
