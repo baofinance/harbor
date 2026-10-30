@@ -72,7 +72,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | WRAPPED_COLLATERAL_TOKEN |    282 | 2.820e+02 |
 | addYieldVault            |  70630 | 7.063e+04 |
 | feeReceiver              |   2419 | 2.419e+03 |
-| harvest                  | 439752 | 4.398e+05 |
+| harvest                  | 439710 | 4.397e+05 |
 | harvestBountyCeiling     |   2347 | 2.347e+03 |
 | harvestBountyRatio       |   2370 | 2.370e+03 |
 | harvestCutRatio          |   2349 | 2.349e+03 |
@@ -81,7 +81,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | initialize               |  94276 | 9.428e+04 |
 | owner                    |   4633 | 4.633e+03 |
 | proxiableUUID            |    375 | 3.750e+02 |
-| rebalance                | 889646 | 8.896e+05 |
+| rebalance                | 889520 | 8.895e+05 |
 | rebalanceBountyCeiling   |   2346 | 2.346e+03 |
 | rebalanceBountyRatio     |   2399 | 2.399e+03 |
 | rebalanceCutRatio        |   2348 | 2.348e+03 |
@@ -114,8 +114,8 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | activeRewardTokens         |   7438 | 7.438e+03 |
 | allowance                  |   2699 | 2.699e+03 |
 | approve                    |  24420 | 2.442e+04 |
-| assetBalanceOf             |   5899 | 5.899e+03 |
-| balanceOf                  |   5910 | 5.910e+03 |
+| assetBalanceOf             |   5938 | 5.938e+03 |
+| balanceOf                  |   5918 | 5.918e+03 |
 | checkpoint                 | 144031 | 1.440e+05 |
 | claim()                    | 300288 | 3.003e+05 |
 | claimable                  |  26979 | 2.698e+04 |
