@@ -126,21 +126,34 @@ contract StabilityPool_v3 is
      * Structs *
      ***********/
 
-    /// @dev The balance layout.
+    /// @dev The balance layout of an account and of the total supply.
     ///      Binary-compatible with v2 `TokenBalance`: same field order and the same two storage slots.
     ///      `product` (uint128) fills slot-0 bytes 0-15 and
-    ///      `updatedAt` sits in slot 1 under both v2 and v3 layouts,  so widening `amount` to uint128
+    ///      the third field sits in slot 1 under both v2 and v3 layouts,  so widening `amount` to uint128
     ///      consumes only slot-0 bytes 29-31 — the zero padding the uint104 `amount` left unused.
     ///      uint128 (max ~3.4e38, ~3.4e20 whole tokens) now covers the protocol's amount envelope with wide headroom.
     /// @param product The encoding product data, see the comments of `DecrementalFloatingPoint_v2`.
     /// @param amount The amount of token currently held.
-    /// @param updatedAt The timestamp when the total supply, or a history row, is recorded. v3 does not update it in an
-    ///        account's record, which keeps what v2 last wrote.
+    /// @param unusedInV3 v2's `updatedAt`, which v3 never reads or writes: it holds the time v2 last wrote, or 0. It is
+    ///        kept so that no later field is placed on those bytes.
     /// @custom:bao-retyped-from amount uint104
+    /// @custom:bao-renamed-from unusedInV3 updatedAt
     struct TokenBalance {
         uint128 product;
         uint128 amount; // This has to store 1e36
-        uint40 updatedAt; // this is in the second slot
+        uint40 unusedInV3; // this is in the second slot
+    }
+
+    /// @dev A row of the total supply's history: the supply's balance and the time it was recorded. The layout of
+    ///      v2 `TokenBalance`, which held the rows, with `amount` widened as in `TokenBalance`.
+    /// @param product The supply's product when the row was recorded.
+    /// @param amount The total supply when the row was recorded.
+    /// @param updatedAt The timestamp the row was recorded.
+    /// @custom:bao-retyped-from amount uint104
+    struct TimestampedBalance {
+        uint128 product;
+        uint128 amount;
+        uint40 updatedAt;
     }
 
     /// @dev The part of an account's balance its withdrawal request makes fee-free, held as the amount and product of
@@ -178,7 +191,7 @@ contract StabilityPool_v3 is
     // goes through `SafeCast.toUint128`, so an amount beyond the field width reverts.
     //
     // Widening uint104 -> uint128 needs NO storage migration: it consumes only the zero padding that uint104
-    // `amount` left in slot-0 bytes 29-31 (see TokenBalance above), so `product`, `updatedAt`, and every
+    // `amount` left in slot-0 bytes 29-31 (see TokenBalance above), so `product`, the slot-1 field, and every
     // member here (totalAssetSupply and each assetBalances / totalAssetSupplyHistory entry) keep their byte
     // offsets. A live v2 proxy that only ever stored `amount` <= uint104 max reads back identically as
     // uint128; a fresh deployment uses the full range from the start.
@@ -187,10 +200,10 @@ contract StabilityPool_v3 is
     // @custom:oz-retyped-from escape hatch cannot reach a field INSIDE a namespaced struct because solc does
     // not expose struct-member NatSpec (ethereum/solidity#12295, OpenZeppelin/openzeppelin-upgrades#802). So
     // the contract carries @custom:bao-upgrades-from (which OZ ignores, validating it in isolation) and the
-    // widen is declared with the struct-level @custom:bao-retyped-from on TokenBalance; `bin/validate` then
-    // runs bin/storage-successor to prove the new layout is a byte-compatible successor of v2's — the only
-    // accepted change being exactly this documented in-place widen (also proven in
-    // test/StabilityPoolStorageLayout.t.sol).
+    // widen is declared with the struct-level @custom:bao-retyped-from on TokenBalance and on
+    // TimestampedBalance; `bin/validate` then runs bin/storage-successor to prove the new layout is a
+    // byte-compatible successor of v2's, every change in it documented: this widen (also proven in
+    // test/StabilityPoolStorageLayout.t.sol), the rename of TokenBalance's slot-1 field, and the appended members.
 
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
     /// @custom:bao-added rewardDivisorGap
@@ -202,7 +215,7 @@ contract StabilityPool_v3 is
         mapping(address => TokenBalance) assetBalances;
         /// @notice Mapping from index to history totalSupply.
         /// If there are multiple updates at the same timestamp, only the last one will be recorded.
-        mapping(uint256 => TokenBalance) totalAssetSupplyHistory;
+        mapping(uint256 => TimestampedBalance) totalAssetSupplyHistory;
         uint256 totalAssetSupplyHistoryLength; // number of total supply history records
         /// @notice The address of token wrapper for liquidated base token;
         // address wrapper;
@@ -260,12 +273,12 @@ contract StabilityPool_v3 is
         }
         $.feePayment = FeePayment({feeAddress: feeAddress_, earlyWithdrawalFee: uint96(earlyWithdrawalFee_)});
 
-        TokenBalance memory initialSupply = TokenBalance({
+        TimestampedBalance memory initialSupply = TimestampedBalance({
             product: DecrementalFloatingPoint_v2.init(),
             amount: 0,
             updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
         });
-        $.totalAssetSupply = initialSupply;
+        $.totalAssetSupply.product = initialSupply.product;
         // rewardDivisorGap defaults to 0: supply == Sum(balanceOf), so the divisor (supply - 0) == supply.
         $.totalAssetSupplyHistory[0] = initialSupply;
         $.totalAssetSupplyHistoryLength = 1;
@@ -358,7 +371,7 @@ contract StabilityPool_v3 is
     // solhint-disable-next-line explicit-types
     function totalAssetSupplyHistory(uint index) external view returns (uint40 updatedAt, uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory record = $.totalAssetSupplyHistory[index];
+        TimestampedBalance memory record = $.totalAssetSupplyHistory[index];
         updatedAt = record.updatedAt;
         amount = record.amount;
     }
@@ -366,7 +379,7 @@ contract StabilityPool_v3 is
     /// @inheritdoc IStabilityPool_v3
     function assetBalanceOf(address account) external view returns (uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.assetBalances[account];
+        TokenBalance storage balance = $.assetBalances[account];
         amount = _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
     }
 
@@ -452,29 +465,27 @@ contract StabilityPool_v3 is
         // do the deposit
         // update the global record
         // Amounts beyond the balance field width revert via SafeCast.toUint128.
-        TokenBalance memory supply = $.totalAssetSupply;
-        supply.amount = (uint256(supply.amount) + assetsDeposited).toUint128();
-        supply.updatedAt = uint40(block.timestamp);
+        uint128 newSupply = (uint256($.totalAssetSupply.amount) + assetsDeposited).toUint128();
 
         // The floor is on the resulting total, not the per-deposit amount (symmetric with withdraw): an
         // established pool accepts any deposit; only a first deposit that under-fills the floor reverts. A zero
         // deposit can't reach here (Token.allOf above reverts ZeroInputBalance), so the total is always > 0.
-        if (supply.amount < MIN_TOTAL_ASSET_SUPPLY) {
-            revert DepositAmountLessThanMinimum(supply.amount, MIN_TOTAL_ASSET_SUPPLY);
+        if (newSupply < MIN_TOTAL_ASSET_SUPPLY) {
+            revert DepositAmountLessThanMinimum(newSupply, MIN_TOTAL_ASSET_SUPPLY);
         }
         // The ceiling mirrors the floor, also on the resulting total. `MAX_TOTAL_ASSET_SUPPLY == MIN * FACTOR_PRECISION`
         // is the largest supply at which a floor-capped liquidation keeps the product factor > 0; the equal case is
         // safe, so only a strict exceedance reverts.
-        if (supply.amount > MAX_TOTAL_ASSET_SUPPLY) {
-            revert DepositAmountExceedsMaximum(supply.amount, MAX_TOTAL_ASSET_SUPPLY);
+        if (newSupply > MAX_TOTAL_ASSET_SUPPLY) {
+            revert DepositAmountExceedsMaximum(newSupply, MAX_TOTAL_ASSET_SUPPLY);
         }
 
-        _recordTotalSupply(supply);
+        $.totalAssetSupply.amount = newSupply;
+        _recordTotalSupply();
 
         // update the user record
-        TokenBalance memory balance = $.assetBalances[receiver];
+        TokenBalance storage balance = $.assetBalances[receiver];
         balance.amount = (uint256(balance.amount) + assetsDeposited).toUint128();
-        $.assetBalances[receiver] = balance;
         emit UserDepositChange(receiver, balance.amount, 0);
         emit Transfer(address(0), receiver, assetsDeposited);
     }
@@ -510,7 +521,7 @@ contract StabilityPool_v3 is
         // Read any existing withdrawal request (optional)
         WithdrawalRequest memory request = $.withdrawalRequests[sender];
 
-        TokenBalance memory balance = $.assetBalances[sender];
+        TokenBalance storage balance = $.assetBalances[sender];
         if (assetAmount == type(uint256).max) {
             assetsWithdrawn = balance.amount;
         } else if (assetAmount > balance.amount) {
@@ -537,7 +548,7 @@ contract StabilityPool_v3 is
         // `_accumulateReward`'s `totalShare == 0` guard queue the reward. Draining to zero would instead carry a
         // surviving negative gap into the empty pool, where the divisor reads `-gap`: a live sub-floor divisor that
         // silently defeats the reward-integral cap `_depositRewardCap` sizes against `_minTotalShare()`.
-        TokenBalance memory supply = $.totalAssetSupply;
+        TokenBalance storage supply = $.totalAssetSupply;
         assetsWithdrawn = _capToFloor(assetsWithdrawn);
 
         // Charge the early-withdrawal fee on the ACTUAL (capped) outflow - clamp-then-fee - so the fee is a true
@@ -576,15 +587,13 @@ contract StabilityPool_v3 is
         // Debit supply. The cap above keeps the outflow within supply - MIN; toUint128 bounds the field width.
         uint256 supplyBefore = supply.amount; // supply before this debit, to cap the balance below
         supply.amount = (uint256(supply.amount) - (assetsWithdrawn + feeAmount)).toUint128();
-        supply.updatedAt = uint40(block.timestamp);
-        _recordTotalSupply(supply);
+        _recordTotalSupply();
 
         // Debit the balance, capped at supply. A compounded balance can exceed the pool's total by the loss-
         // accounting rounding, and that excess is not backed by assets; capping keeps Sum(balanceOf) within
         // supply. The cap only lowers a balance that exceeds supply — a balance within supply is debited unchanged.
         uint256 effectiveBalance = balance.amount <= supplyBefore ? balance.amount : supplyBefore;
         balance.amount = (effectiveBalance - (assetsWithdrawn + feeAmount)).toUint128();
-        $.assetBalances[sender] = balance;
 
         emit UserDepositChange(sender, balance.amount, 0);
         // The shares burned are the whole outflow, fee included: what the total supply fell by above.
@@ -629,7 +638,7 @@ contract StabilityPool_v3 is
         super._checkpoint(account);
 
         if (account != address(0)) {
-            TokenBalance memory supply = $.totalAssetSupply;
+            TokenBalance storage supply = $.totalAssetSupply;
             TokenBalance storage balance = $.assetBalances[account];
             uint128 newBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product).toUint128();
             if (newBalance != balance.amount) {
@@ -659,7 +668,7 @@ contract StabilityPool_v3 is
     /// truncation is unreachable for a live divisor: SCALE_FACTOR^8 is 1e72 while every amount is uint128 (< 1e39).
     function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory supply = $.totalAssetSupply;
+        TokenBalance storage supply = $.totalAssetSupply;
         currentProd = supply.product;
         // supply - gap; the invariant above keeps this >= Sum(balanceOf) >= 0. SafeCast enforces that rather than
         // assuming it: a negative divisor would otherwise wrap to ~2^256 and silently floor every reward to zero.
@@ -684,7 +693,7 @@ contract StabilityPool_v3 is
         address account
     ) internal view virtual override returns (uint128 previousProd, uint256 share) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.assetBalances[account];
+        TokenBalance storage balance = $.assetBalances[account];
         previousProd = balance.product;
         share = balance.amount;
     }
@@ -694,7 +703,7 @@ contract StabilityPool_v3 is
     /// @return The loss applied: `loss` capped at the headroom above the floor, 0 when the pool is at it.
     function _notifyLoss(uint256 loss) internal returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory supply = $.totalAssetSupply;
+        TokenBalance storage supply = $.totalAssetSupply;
         // Cap the loss so the supply is written down no further than the floor - the same cap the rebalance sweep
         // applies to the pegged it removes (see _capToFloor), keeping pegged retained and supply owed in lock-step.
         loss = _capToFloor(loss);
@@ -743,7 +752,6 @@ contract StabilityPool_v3 is
         uint128 newProductFactor = uint128(DecrementalFloatingPoint_v2.FACTOR_PRECISION) -
             uint128(assetLossPerUnitStaked);
         supply.product = supply.product.mul(newProductFactor);
-        supply.updatedAt = uint40(block.timestamp);
 
         // Rescale the divisor to the new product with the CEIL (>= the floor-rescaled balances) and store the gap
         // supply - divisor. A give-back holds the product and drops supply, so the gap goes negative; either way
@@ -751,24 +759,28 @@ contract StabilityPool_v3 is
         uint256 divisorAfter = _scaleAdjustedValueCeil(divisorBefore, supply.product, previousProduct);
         $.rewardDivisorGap = int256(uint256(supply.amount)) - SafeCast.toInt256(divisorAfter);
 
-        _recordTotalSupply(supply);
+        _recordTotalSupply();
         return loss;
     }
 
-    /// @dev Internal function to record the historical total supply.
-    /// @param supply The new total supply to record.
-    function _recordTotalSupply(TokenBalance memory supply) private {
+    /// @dev Internal function to record the total supply, as it now is, in its history at the current time.
+    function _recordTotalSupply() private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         uint256 totalSupplyHistoryLength_ = $.totalAssetSupplyHistoryLength;
+        TokenBalance storage supply = $.totalAssetSupply;
+        TimestampedBalance memory row = TimestampedBalance({
+            product: supply.product,
+            amount: supply.amount,
+            updatedAt: uint40(block.timestamp)
+        });
 
         // slither-disable-next-line incorrect-equality
-        if ($.totalAssetSupplyHistory[totalSupplyHistoryLength_ - 1].updatedAt == supply.updatedAt) {
-            $.totalAssetSupplyHistory[totalSupplyHistoryLength_ - 1] = supply;
+        if ($.totalAssetSupplyHistory[totalSupplyHistoryLength_ - 1].updatedAt == row.updatedAt) {
+            $.totalAssetSupplyHistory[totalSupplyHistoryLength_ - 1] = row;
         } else {
-            $.totalAssetSupplyHistory[totalSupplyHistoryLength_] = supply;
+            $.totalAssetSupplyHistory[totalSupplyHistoryLength_] = row;
             $.totalAssetSupplyHistoryLength = totalSupplyHistoryLength_ + 1;
         }
-        $.totalAssetSupply = supply;
     }
 
     // Rebalancing support
@@ -905,14 +917,13 @@ contract StabilityPool_v3 is
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        TokenBalance memory fromBalance = $.assetBalances[from];
+        TokenBalance storage fromBalance = $.assetBalances[from];
         if (amount > fromBalance.amount) {
             revert InsufficientBalance();
         }
         unchecked {
             fromBalance.amount = (uint256(fromBalance.amount) - amount).toUint128();
         }
-        $.assetBalances[from] = fromBalance;
 
         // The sender's fee-free amount never exceeds what it still holds: above it, it becomes the balance left.
         FeeFreeBalance storage feeFree = $.withdrawalFeeFree[from];

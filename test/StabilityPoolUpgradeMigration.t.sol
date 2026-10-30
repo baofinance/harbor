@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Vm} from "forge-std/Vm.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -1235,7 +1236,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
     /// @notice The v2 → v3 upgrade leaves every storage slot BYTE-IDENTICAL. The widened
     /// TokenBalance layout occupies the first slot's former zero padding (v2: product 16B +
-    /// amount 13B + 3B padding; v3: product 16B + amount 16B) and `updatedAt` keeps its own
+    /// amount 13B + 3B padding; v3: product 16B + amount 16B) and v2's `updatedAt` keeps its own
     /// second slot in both, so raw v2 data reads back unchanged through v3 code. Verified over
     /// rich state — a decayed product, a loaded loss-error queue, reward snapshots, a pending
     /// withdrawal request and several history rows — then exercised past the old uint104
@@ -1254,14 +1255,14 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // The slots that hold TokenBalance data plus their neighbours in the namespace, and both slots of every history
-        // row (a row is a TokenBalance: product | amount, then updatedAt).
+        // row (a row is a TimestampedBalance: product | amount, then updatedAt).
         uint256 historyLength = uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(STABILITYPOOL_STORAGE) + 4)));
         assertGt(historyLength, 2, "fixture: several history rows");
         bytes32[] memory slots = new bytes32[](10 + 2 * historyLength);
         slots[0] = STABILITYPOOL_STORAGE; // totalAssetSupply: product | amount
-        slots[1] = bytes32(uint256(STABILITYPOOL_STORAGE) + 1); // totalAssetSupply: updatedAt
+        slots[1] = bytes32(uint256(STABILITYPOOL_STORAGE) + 1); // totalAssetSupply: unusedInV3
         slots[2] = _mappedSlot(user1, 2); // assetBalances[user1]: product | amount
-        slots[3] = bytes32(uint256(_mappedSlot(user1, 2)) + 1); // assetBalances[user1]: updatedAt
+        slots[3] = bytes32(uint256(_mappedSlot(user1, 2)) + 1); // assetBalances[user1]: unusedInV3
         slots[4] = _mappedSlot(user2, 2);
         slots[5] = bytes32(uint256(_mappedSlot(user2, 2)) + 1);
         slots[6] = bytes32(uint256(STABILITYPOOL_STORAGE) + 4); // totalAssetSupplyHistoryLength
@@ -1373,41 +1374,67 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         assertEq(
             vm.load(stabilityPoolCollateral, bytes32(uint256(_mappedSlot(user1, 2)) + 1)),
             before[3],
-            "updatedAt keeps its own slot as v2 wrote it, untouched by the widened amount"
+            "unusedInV3 keeps its own slot as v2 wrote it, untouched by the widened amount"
         );
     }
 
-    /// @notice v3 keeps no time on an account's balance record: after the upgrade, a deposit, a transfer and a
-    /// withdrawal leave each account's `updatedAt` as v2 last wrote it.
-    function test_upgradeFromV2_accountsKeepTheUpdatedAtV2Wrote() public {
+    /// @dev Whether any access in `accesses` read or wrote the pool's storage at `slot`.
+    function _poolSlotAccessed(Vm.AccountAccess[] memory accesses, bytes32 slot) internal view returns (bool) {
+        for (uint256 i = 0; i < accesses.length; i++) {
+            Vm.StorageAccess[] memory storageAccesses = accesses[i].storageAccesses;
+            for (uint256 j = 0; j < storageAccesses.length; j++) {
+                if (storageAccesses[j].account == stabilityPoolCollateral && storageAccesses[j].slot == slot) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// @notice v3 never reads or writes `unusedInV3`, the second slot of an account's balance record and of the total
+    /// supply's, where v2 kept a time: after the upgrade, no deposit, transfer, withdrawal, reward deposit, claim,
+    /// liquidation or balance read touches it.
+    function test_upgradeFromV2_poolNeverTouchesTheTimeV2Left() public {
         _deposit(user1, 100 ether);
         vm.warp(block.timestamp + 1 hours);
         _deposit(user2, 100 ether);
         vm.warp(block.timestamp + 1 days);
-        bytes32 updatedAtSlot1 = bytes32(uint256(_mappedSlot(user1, 2)) + 1);
-        bytes32 updatedAtSlot2 = bytes32(uint256(_mappedSlot(user2, 2)) + 1);
-        bytes32 updatedAt1 = vm.load(stabilityPoolCollateral, updatedAtSlot1);
-        bytes32 updatedAt2 = vm.load(stabilityPoolCollateral, updatedAtSlot2);
-        // Each was written by its deposit on v2, before now, so a write by v3 would change it.
-        assertGt(uint256(updatedAt1), 0, "fixture: v2 wrote user1's updatedAt");
-        assertLt(uint256(updatedAt1), block.timestamp, "fixture: user1's updatedAt is before now");
-        assertGt(uint256(updatedAt2), 0, "fixture: v2 wrote user2's updatedAt");
-        assertLt(uint256(updatedAt2), block.timestamp, "fixture: user2's updatedAt is before now");
-
         _upgradeToV3();
+        // funded before the recording, which then holds only the pool's own calls and the liquidation's
+        deal(peggedToken, user1, 10 ether);
+        deal(steam, rewardDepositor, 1 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(steam).approve(stabilityPoolCollateral, 1 ether);
+        vm.stopPrank();
 
-        _deposit(user1, 10 ether);
-        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot1), updatedAt1, "a deposit leaves its receiver's");
-
+        vm.startStateDiffRecording();
         vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(10 ether, user1, 0);
         IERC20(stabilityPoolCollateral).transfer(user2, 5 ether);
         vm.stopPrank();
-        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot1), updatedAt1, "a transfer leaves its sender's");
-        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot2), updatedAt2, "a transfer leaves its receiver's");
-
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(1 ether, user2, 0);
         vm.stopPrank();
-        assertEq(vm.load(stabilityPoolCollateral, updatedAtSlot2), updatedAt2, "a withdrawal leaves its sender's");
+        vm.startPrank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 1 ether);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 1 hours);
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        poolActions.liquidate(wrappedCollateralToken, 30 ether, LIQUIDATION_PROCEEDS);
+        IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1);
+        IERC20(stabilityPoolCollateral).balanceOf(user2);
+        Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
+
+        bytes32[3] memory records = [STABILITYPOOL_STORAGE, _mappedSlot(user1, 2), _mappedSlot(user2, 2)];
+        for (uint256 i = 0; i < records.length; i++) {
+            // the first slot shows the record was in use, so the second's absence is not an unrecorded access
+            assertTrue(_poolSlotAccessed(accesses, records[i]), "fixture: the record's product and amount are used");
+            assertFalse(
+                _poolSlotAccessed(accesses, bytes32(uint256(records[i]) + 1)),
+                "the record's unusedInV3 is never read or written"
+            );
+        }
     }
 }

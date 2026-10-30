@@ -44,11 +44,20 @@ contract StabilityPoolV3StorageMock {
         _v2Storage().assetBalances[account] = StabilityPool_v2.TokenBalance(product, amount, updatedAt);
     }
 
+    function writeV2HistoryRow(uint256 index, uint128 product, uint104 amount, uint40 updatedAt) external {
+        _v2Storage().totalAssetSupplyHistory[index] = StabilityPool_v2.TokenBalance(product, amount, updatedAt);
+    }
+
     // ─── v3 (uint128) access ───
 
-    function readV3Balance(address account) external view returns (uint128 product, uint256 amount, uint40 updatedAt) {
+    function readV3Balance(address account) external view returns (uint128 product, uint256 amount, uint40 unusedInV3) {
         StabilityPool_v3.TokenBalance storage b = _v3Storage().assetBalances[account];
-        return (b.product, b.amount, b.updatedAt);
+        return (b.product, b.amount, b.unusedInV3);
+    }
+
+    function readV3HistoryRow(uint256 index) external view returns (uint128 product, uint256 amount, uint40 updatedAt) {
+        StabilityPool_v3.TimestampedBalance storage row = _v3Storage().totalAssetSupplyHistory[index];
+        return (row.product, row.amount, row.updatedAt);
     }
 }
 
@@ -61,16 +70,27 @@ contract StabilityPoolV3StorageTest is Test {
 
     /// @notice The zero-state upgrade. A balance written through the v2 (uint104) layout at
     /// the old boundary reads back byte-identical through the v3 (uint128) layout: product, amount and
-    /// updatedAt all preserved. Nothing is migrated; v3 simply reinterprets the same bytes.
+    /// v2's updatedAt, now unusedInV3, all preserved. Nothing is migrated; v3 simply reinterprets the same bytes.
     function test_zeroStateUpgrade_v2DataReadsIdenticalUnderV3() public {
         address user = makeAddr("upgradeUser");
 
         // what a live v2 pool held before the impl was swapped to v3
         mock.writeV2Balance(user, uint128(1e36), type(uint104).max, uint40(1_700_000_000));
 
-        (uint128 product, uint256 amount, uint40 updatedAt) = mock.readV3Balance(user);
+        (uint128 product, uint256 amount, uint40 unusedInV3) = mock.readV3Balance(user);
         assertEq(product, uint128(1e36), "product preserved across the upgrade");
         assertEq(amount, uint256(type(uint104).max), "v2 amount reads identical under v3 - no migration");
-        assertEq(updatedAt, uint40(1_700_000_000), "updatedAt preserved across the upgrade");
+        assertEq(unusedInV3, uint40(1_700_000_000), "updatedAt preserved as unusedInV3 across the upgrade");
+    }
+
+    /// @notice A history row written through the v2 layout, where rows were TokenBalances, reads back
+    /// byte-identical through v3's TimestampedBalance rows: product, amount and updatedAt all preserved.
+    function test_zeroStateUpgrade_v2HistoryRowReadsIdenticalUnderV3() public {
+        mock.writeV2HistoryRow(3, uint128(1e36), type(uint104).max, uint40(1_700_000_000));
+
+        (uint128 product, uint256 amount, uint40 updatedAt) = mock.readV3HistoryRow(3);
+        assertEq(product, uint128(1e36), "row's product preserved across the upgrade");
+        assertEq(amount, uint256(type(uint104).max), "row's v2 amount reads identical under v3");
+        assertEq(updatedAt, uint40(1_700_000_000), "row's updatedAt preserved across the upgrade");
     }
 }
