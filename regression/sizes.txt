@@ -9,8 +9,8 @@
 | ConfigMarket_GOLD_stETH_mainnet   |              6,741 |               17,835 |               6,769 |    1,415,890 |            141.59 |
 | ConfigMarket_MCAP_fxUSD_mainnet   |              6,718 |               17,858 |               6,746 |    1,411,060 |            141.11 |
 | ConfigMarket_MCAP_stETH_mainnet   |              6,743 |               17,833 |               6,771 |    1,416,310 |            141.63 |
-| ConfigMarket_SILVER_fxUSD_mainnet |              6,712 |               17,864 |               6,740 |    1,409,800 |            140.98 |
-| ConfigMarket_SILVER_stETH_mainnet |              6,737 |               17,839 |               6,765 |    1,415,050 |            141.50 |
+| ConfigMarket_SILVER_fxUSD_mainnet |              6,725 |               17,851 |               6,753 |    1,412,530 |            141.25 |
+| ConfigMarket_SILVER_stETH_mainnet |              6,750 |               17,826 |               6,778 |    1,417,780 |            141.78 |
 | ConfigPeg_BTC                     |                755 |               23,821 |                 783 |      158,830 |             15.88 |
 | ConfigPeg_ETH                     |                755 |               23,821 |                 783 |      158,830 |             15.88 |
 | ConfigPeg_EUR                     |                757 |               23,819 |                 785 |      159,250 |             15.93 |
