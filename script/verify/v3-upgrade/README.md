@@ -258,9 +258,10 @@ broken library fails the run before anything is forked. It then runs `FrozenMark
 reads, at the end of the capture's block, is the state it runs on - the pause changed only which implementation each
 minter and pool runs. A run naming a market the pause never froze skips this. It then runs
 `UpgradedMarketsMatchANativeDeploy`: each upgraded market holds the settings a native deploy sets (see
-[Settings against a native deploy](#settings-against-a-native-deploy)); and `UpgradedMarketsHarvest`: each upgraded
-market harvests at its config's terms (see [Harvest after the upgrade](#harvest-after-the-upgrade)). It then asks you
-to start anvil (`script/anvil --block latest`), and:
+[Settings against a native deploy](#settings-against-a-native-deploy)); `UpgradedMarketsHarvest`: each upgraded
+market harvests at its config's terms (see [Harvest after the upgrade](#harvest-after-the-upgrade)); and
+`UpgradedUSDMarketsOpen`: each USD market opens through its genesis and runs (see
+[A USD market opening](#a-usd-market-opening)). It then asks you to start anvil (`script/anvil --block latest`), and:
 
 1. copies `deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the
    deployed addresses;
@@ -277,8 +278,8 @@ to start anvil (`script/anvil --block latest`), and:
    the capture's block the oracle the deploy predicts for each market;
 7. sorts the keys of each record and diffs the expected after against the after. Any difference fails the run.
 
-The native-settings check, the harvest check and the records' comparison are independent: the runner runs all three,
-reports each, and fails if any failed.
+The native-settings check, the harvest check, the opening check and the records' comparison are independent: the runner
+runs all four, reports each, and fails if any failed.
 
 `forge test` forks anvil in memory and writes nothing back, so one anvil session serves the whole run. Both captures
 are warped to the same time, 12,000 seconds after anvil's head, so the reward streams and withdrawal windows read alike.
@@ -394,6 +395,28 @@ For every market holding harvestable yield:
 A market holding none must say so (`NoHarvestable`). Where a named minter holds wrapped collateral, the check fails
 unless at least one market harvests.
 
+### A USD market opening
+
+No USD market has opened. Each has a deployed `Genesis_v1` that has not ended and a minter holding nothing, so the
+records compare empty contracts with empty contracts. `UpgradedUSDMarketsOpen` does what they cannot. On a fork of
+mainnet at the chain's head, two depositors enter each genesis while its minter is still v2, and the upgrade script's own
+function upgrades the named markets, as the multisig would execute it. Then, for each USD market named but USD::wBTC:
+
+- the genesis, ended by its owner, mints what the oracle's price gives on Minter_v3, and each depositor, from before the
+  upgrade or after, claims its share, exact to the wei;
+- a deposit from before the upgrade can still be taken out until the genesis ends, and not after;
+- a retail user's mints and redemptions, of pegged and leveraged, do what their dry runs say, on the market's own oracle
+  and fee bands, and each pool takes a deposit and gives it back less its config's early-withdrawal fee, paid to its fee
+  receiver;
+- a harvest pays by its config's terms, as [Harvest after the upgrade](#harvest-after-the-upgrade) checks them, when no
+  pool holds a deposit, when both do, and when the bounty stops at the ceiling. The yield is wrapped collateral given to
+  the minter, which its `harvestable` reads as it reads a grown rate. As configured, the bounty and the cut are the whole
+  harvest, so the pools receive nothing from it.
+
+USD::wBTC is left out: its oracle cannot open it correctly at its token's 8 decimals, and
+`ConfigTest.test_theUSDwBTCOracle_failsThePriceScaleCheck` holds the exception to that fact. A run naming no other USD
+market skips these tests.
+
 ### Settings against a native deploy
 
 The records compare each market with itself before the upgrade. `UpgradedMarketsMatchANativeDeploy` compares it with a
@@ -425,4 +448,4 @@ A role granted on mainnet to an address the deploy grants none is not seen.
 - `script/verify/v3-upgrade/` - the rehearsal: `run-upgrade-rehearsal`, `CaptureExpectations.t.sol`,
   `FrozenMarketsReadPoint.t.sol`, `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`,
   `MarketSettings.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`,
-  `UpgradedMarketsHarvest.t.sol`
+  `MarketHarvestCheck.sol`, `UpgradedMarketsHarvest.t.sol`, `UpgradedUSDMarketsOpen.t.sol`

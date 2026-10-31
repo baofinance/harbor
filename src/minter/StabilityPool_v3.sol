@@ -335,21 +335,21 @@ contract StabilityPool_v3 is
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /// @inheritdoc IStabilityPool_v3
-    function updateFeeReceiver(address feeAddress_) external onlyOwner {
-        if (feeAddress_ == address(0)) {
-            revert InvalidFeeAddress(feeAddress_);
+    function updateFeeReceiver(address feeReceiver_) external onlyOwner {
+        if (feeReceiver_ == address(0)) {
+            revert InvalidFeeAddress(feeReceiver_);
         }
-        _getStabilityPoolStorage().feePayment.feeAddress = feeAddress_;
-        emit FeeAddressUpdated(feeAddress_);
+        _getStabilityPoolStorage().feePayment.feeAddress = feeReceiver_;
+        emit FeeAddressUpdated(feeReceiver_);
     }
 
     /// @inheritdoc IStabilityPool_v3
-    function updateEarlyWithdrawalFeeRatio(uint256 earlyWithdrawalFee_) external onlyOwner {
-        if (earlyWithdrawalFee_ >= _EARLY_WITHDRAWAL_FEE_LIMIT) {
-            revert InvalidFee(earlyWithdrawalFee_);
+    function updateEarlyWithdrawalFeeRatio(uint256 earlyWithdrawalFeeRatio_) external onlyOwner {
+        if (earlyWithdrawalFeeRatio_ >= _EARLY_WITHDRAWAL_FEE_LIMIT) {
+            revert InvalidFee(earlyWithdrawalFeeRatio_);
         }
-        _getStabilityPoolStorage().feePayment.earlyWithdrawalFee = uint96(earlyWithdrawalFee_);
-        emit EarlyWithdrawalFeeUpdated(earlyWithdrawalFee_);
+        _getStabilityPoolStorage().feePayment.earlyWithdrawalFee = uint96(earlyWithdrawalFeeRatio_);
+        emit EarlyWithdrawalFeeUpdated(earlyWithdrawalFeeRatio_);
     }
 
     /*************************

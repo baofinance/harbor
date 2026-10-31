@@ -265,12 +265,12 @@ interface IStabilityPool_v3 {
 
     /// @notice Change the address the early-withdrawal fees are paid to. Owner only.
     /// @dev Reverts `InvalidFeeAddress` for the zero address. Emits `FeeAddressUpdated`.
-    /// @param feeAddress_ The address that receives the fees from now on.
-    function updateFeeReceiver(address feeAddress_) external;
+    /// @param feeReceiver_ The address that receives the fees from now on.
+    function updateFeeReceiver(address feeReceiver_) external;
 
     /// @notice Change the early-withdrawal fee. Owner only.
     /// @dev Reverts `InvalidFee` for 100% (1e18) or more: a withdrawal outside the window would pay its whole amount as
     ///      fee, leave the receiver nothing and be refused, making the window a lock. Emits `EarlyWithdrawalFeeUpdated`.
-    /// @param earlyWithdrawalFee_ The fee ratio from now on, scaled by 1e18.
-    function updateEarlyWithdrawalFeeRatio(uint256 earlyWithdrawalFee_) external;
+    /// @param earlyWithdrawalFeeRatio_ The fee ratio from now on, scaled by 1e18.
+    function updateEarlyWithdrawalFeeRatio(uint256 earlyWithdrawalFeeRatio_) external;
 }

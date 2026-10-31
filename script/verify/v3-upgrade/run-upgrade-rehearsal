@@ -19,6 +19,9 @@
 #   Harvest: UpgradedMarketsHarvest upgrades the markets as the upgrade script builds it, the compensation
 #     included, on a fork of mainnet at the block after the capture, where every price is fresh; then harvests each,
 #     and requires each holding yield to pay the harvest's caller, fee receiver and pools by its config's harvest terms.
+#   Opening: UpgradedUSDMarketsOpen opens each USD market named but USD::wBTC, none of which has ever opened, through
+#     its genesis, with deposits from before the upgrade and after, then trades, deposits and harvests on it. On a fork of
+#     mainnet at the chain's head. A run naming none of those markets skips it.
 #
 # forge test forks anvil in memory and writes nothing back to it. script/upgrade --local sends the upgrade to anvil and
 # executes each market's batch as the multisig would. So one anvil session serves the whole run.
@@ -149,6 +152,14 @@ campaign_test harvest.log UpgradedMarketsHarvest --rpc-url mainnet
 harvest_status=$?
 set -e
 
+# Independent of the rehearsal below too.
+echo ""
+echo "Opening: each upgraded USD market opens through its genesis, and runs..."
+set +e
+campaign_test opening.log UpgradedUSDMarketsOpen --rpc-url mainnet
+opening_status=$?
+set -e
+
 prompt "Start a fresh anvil fork of the chain's head:  script/anvil --block latest"
 
 # The upgrade script reads the deployed addresses from the local state file, so it starts as mainnet's.
@@ -226,8 +237,13 @@ if [[ "$harvest_status" -eq 0 ]]; then
 else
   echo "  ❌ FAIL: an upgraded market did not harvest at its config's terms - see $OUT/harvest.log"
 fi
+if [[ "$opening_status" -eq 0 ]]; then
+  echo "  ✅ PASS: each USD market named but USD::wBTC opens through its genesis and runs; a run naming none skips this"
+else
+  echo "  ❌ FAIL: an upgraded USD market did not open through its genesis and run - see $OUT/opening.log"
+fi
 echo "  Covers:         $UPGRADE_PEG::$UPGRADE_COLLATERAL, and no other market"
-if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 || "$harvest_status" -ne 0 ]]; then
+if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 || "$harvest_status" -ne 0 || "$opening_status" -ne 0 ]]; then
   exit 1
 fi
 exit 0
