@@ -79,9 +79,8 @@ contract MarketSettings {
     }
 
     /// @notice A stability pool's settings, through `IStabilityPool_v3` where both versions share a view's selector: its
-    ///         owner; its early-withdrawal fee and where the fee goes; its withdrawal window, floor and asset; its reward
-    ///         period; the reward tokens it distributes and those it no longer does; and the roles the manager holds on
-    ///         it.
+    ///         owner; its floor and asset; its reward period; the reward tokens it distributes and those it no longer
+    ///         does; and the roles the manager holds on it.
     function serializePool(
         string memory objectKey,
         HarborDeployer deployment,
@@ -90,17 +89,6 @@ contract MarketSettings {
     ) external returns (string memory json) {
         address pool = deployment.stabilityPoolAddress(market, poolType);
         _vm.serializeString(objectKey, "state_owner", _vm.toString(IBaoOwnable(pool).owner()));
-        _vm.serializeString(
-            objectKey,
-            "state_earlyWithdrawalFee",
-            _vm.toString(IStabilityPool_v3(pool).getEarlyWithdrawalFee())
-        );
-        _vm.serializeString(objectKey, "state_feeAddress", _vm.toString(IStabilityPool_v3(pool).getFeeAddress()));
-        {
-            (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(pool).getWithdrawalWindow();
-            _vm.serializeString(objectKey, "state_withdrawalStartDelay", _vm.toString(uint256(startDelay)));
-            _vm.serializeString(objectKey, "state_withdrawalEndWindow", _vm.toString(uint256(endWindow)));
-        }
         _vm.serializeString(
             objectKey,
             "state_minTotalAssetSupply",
@@ -141,8 +129,23 @@ contract MarketSettings {
         );
     }
 
-    /// @notice StabilityPool_v2's own settings: the token it is paid in at a liquidation, which v3 does not name, and its
-    ///         minimum deposit, which v3 calls the floor.
+    /// @dev The settings the two versions hold under different names, under one set of keys so their records compare.
+    function _serializeFeeAndWindow(
+        string memory objectKey,
+        uint256 earlyWithdrawalFee,
+        address feeReceiver,
+        uint64 startDelay,
+        uint64 endWindow
+    ) private {
+        _vm.serializeString(objectKey, "state_earlyWithdrawalFee", _vm.toString(earlyWithdrawalFee));
+        _vm.serializeString(objectKey, "state_feeAddress", _vm.toString(feeReceiver));
+        _vm.serializeString(objectKey, "state_withdrawalStartDelay", _vm.toString(uint256(startDelay)));
+        _vm.serializeString(objectKey, "state_withdrawalEndWindow", _vm.toString(uint256(endWindow)));
+    }
+
+    /// @notice StabilityPool_v2's own settings: its early-withdrawal fee, where the fee goes and its withdrawal window,
+    ///         under v2's names for them; the token it is paid in at a liquidation, which v3 does not name; and its minimum
+    ///         deposit, which v3 calls the floor.
     function serializePoolV2(
         string memory objectKey,
         HarborDeployer deployment,
@@ -150,6 +153,14 @@ contract MarketSettings {
         HarborDeployer.StabilityPoolType poolType
     ) external returns (string memory json) {
         address pool = deployment.stabilityPoolAddress(market, poolType);
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool(pool).getWithdrawalWindow();
+        _serializeFeeAndWindow(
+            objectKey,
+            IStabilityPool(pool).getEarlyWithdrawalFee(),
+            IStabilityPool(pool).getFeeAddress(),
+            startDelay,
+            endWindow
+        );
         _vm.serializeString(
             objectKey,
             "state_liquidationToken",
@@ -158,7 +169,8 @@ contract MarketSettings {
         json = _vm.serializeString(objectKey, "state_minDeposit", _vm.toString(IStabilityPool(pool).MIN_DEPOSIT()));
     }
 
-    /// @notice StabilityPool_v3's own settings: the minter it names, which v2 does not.
+    /// @notice StabilityPool_v3's own settings: its early-withdrawal fee, where the fee goes and its withdrawal window,
+    ///         under v3's names for them; and the minter it names, which v2 does not.
     function serializePoolV3(
         string memory objectKey,
         HarborDeployer deployment,
@@ -166,6 +178,14 @@ contract MarketSettings {
         HarborDeployer.StabilityPoolType poolType
     ) external returns (string memory json) {
         address pool = deployment.stabilityPoolAddress(market, poolType);
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(pool).withdrawalWindow();
+        _serializeFeeAndWindow(
+            objectKey,
+            IStabilityPool_v3(pool).earlyWithdrawalFeeRatio(),
+            IStabilityPool_v3(pool).feeReceiver(),
+            startDelay,
+            endWindow
+        );
         json = _vm.serializeString(objectKey, "state_minter", _vm.toString(IStabilityPool_v3(pool).MINTER()));
     }
 

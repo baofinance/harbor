@@ -12,7 +12,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
@@ -60,7 +60,7 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
 
     function setUp() public {
         _setSaltPrefix("harbor_v1");
-        markets = frozenMintersConfig();
+        markets = marketsToUpgrade();
         for (uint256 i = 0; i < markets.length; ++i) {
             vm.makePersistent(address(markets[i]));
         }
@@ -71,18 +71,28 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         vm.makePersistent(address(compensation));
     }
 
-    /// @notice Every pool's reward records, streams and ledger gap were copied exactly, but for what a migration taking
-    ///         rewards back settles.
+    /// @notice Every named pool's reward records, streams and ledger gap were copied exactly, but for what a migration
+    ///         taking rewards back settles. A run whose pools list holders must find reward records with data, or the check
+    ///         compared nothing. A run whose pools list none rightly finds none.
     function test_everyPoolsStorageIsCopied() public {
         uint256 upgraded = vm.activeFork();
         uint256 frozen = vm.createFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE));
         uint256 records;
+        uint256 holders;
         for (uint256 i = 0; i < markets.length; ++i) {
             records += _checkPool(markets[i], StabilityPoolType.Collateral, upgraded, frozen);
             records += _checkPool(markets[i], StabilityPoolType.Leveraged, upgraded, frozen);
+            holders += HolderCaptureLib
+                .holders(FROZEN_MARKETS_CAPTURE, stabilityPoolKey(markets[i], StabilityPoolType.Collateral))
+                .length;
+            holders += HolderCaptureLib
+                .holders(FROZEN_MARKETS_CAPTURE, stabilityPoolKey(markets[i], StabilityPoolType.Leveraged))
+                .length;
         }
         console.log("reward records with data, compared:", records);
-        assertGt(records, 0, "no reward record had data to compare - the holder lists or the slot reads are wrong");
+        if (holders > 0) {
+            assertGt(records, 0, "no reward record had data to compare - the holder lists or the slot reads are wrong");
+        }
     }
 
     /// @dev What the upgraded pool holds: its reward tokens, each captured holder's record for each, each stream, the
@@ -127,7 +137,7 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
         u.copied = new StabilityPoolRewardRecordLib.RewardRecord[](holders.length * u.tokens.length);
         for (uint256 h = 0; h < holders.length; ++h) {
             assertEq(
-                IStabilityPool_v3(pool).getWithdrawalFeeFreeAmount(holders[h]),
+                IStabilityPool_v3(pool).withdrawalFeeFreeAmount(holders[h]),
                 0,
                 string.concat(label, " ", vm.toString(holders[h]), ": a request carried from v2 makes nothing fee-free")
             );
@@ -408,7 +418,7 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
     ///      is then reverted.
     function _rewardDivisorGap(address pool) private returns (int256 gap) {
         uint256 snapshot = vm.snapshotState();
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(pool).getWithdrawalWindow();
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(pool).withdrawalWindow();
         address exposer = address(
             new MockStabilityPool(
                 IStabilityPool_v3(pool).MINTER(),

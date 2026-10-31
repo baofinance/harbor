@@ -11,10 +11,13 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
+import {isFrozen} from "@harbor-script/src/AllMintersConfig.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {Minter} from "@harbor-script/src/contracts/Minter.sol";
 import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
@@ -27,8 +30,8 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 
 /// @notice The upgrade of live markets from Minter_v2, StabilityPool_v2 and StabilityPoolManager_v1 to the versions
 ///         this tree deploys - Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2 - in two steps that the upgrade
-///         script and the tests both run: read what each market's upgrade needs from it (`readMarketUpgradeInputs`, or
-///         `readFrozenMarketUpgradeInputs` for markets frozen by a pause), then upgrade (`upgradeMarketsToV3`).
+///         script and the tests both run: read what each market's upgrade needs from it (`readUpgradeInputs`, which reads
+///         a market a pause has frozen at the last block before the pause), then upgrade (`upgradeMarketsToV3`).
 /// @dev A market's four proxies move in one batch for the multisig, because none works beside the others' old
 ///      versions: the old manager calls a minter function Minter_v3 replaced, and the new manager calls a pool function
 ///      only StabilityPool_v3 has. Each implementation is built by the deploy's own function, from the addresses a fresh
@@ -42,10 +45,16 @@ import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_
 ///      which the upgrade alone leaves at zero, and sets each action's bounty ratio, bounty ceiling and cut ratio in
 ///      one call. The rebalance threshold and the fee receiver stay as they are.
 ///
-///      Each pool goes through `StabilityPool_v3_Upgrader`, never a plain upgrade: v3 keeps the reward streams and
-///      each holder's reward snapshot in widened storage, which the upgrader copies across, and divides rewards by what
-///      the holders hold, which needs the pool's ledger gap. Both come from a holder capture, read where the pools can
-///      no longer change. The read uses the old versions' own functions, so nothing here restates how they compute.
+///      A pool goes through `StabilityPool_v3_Upgrader` unless it is empty: v3 keeps the reward streams and each
+///      holder's reward snapshot in widened storage, which the upgrader copies across, and divides rewards by what the
+///      holders hold, which needs the pool's ledger gap. Both come from a holder capture, read where the pools can no
+///      longer change. The read uses the old versions' own functions, so nothing here restates how they compute. An empty
+///      pool - no supply, and every reward stream record zero - has none of that to copy, so it is upgraded directly. No
+///      supply alone is not enough: a pool nobody holds can still hold a stream's record.
+///
+///      A pool whose early-withdrawal fee differs from what the market config gives is moved to it straight after its
+///      upgrade, in the market's batch, so nobody withdraws at the old fee from the new implementation. The fee receiver
+///      stays as it is.
 ///
 ///      A market's batch can also put right what a fault left in it, in the same transaction as its upgrade, so nobody
 ///      acts on the market in between: rewards taken back from holders as their pool is migrated (`deductions`, paid
@@ -66,15 +75,18 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
 
     /// @notice What one pool's upgrade needs from it: the holders whose reward records the migration copies, the
     ///         ledger gap they leave - the pool's supply less what they hold, either sign - the floor and withdrawal
-    ///         window its new implementation must keep, and the rewards the migration takes back from holders, paid to
-    ///         the owner: empty for a pool with nothing to take back.
+    ///         window its new implementation must keep, its early-withdrawal fee, the rewards the migration takes back
+    ///         from holders, paid to the owner: empty for a pool with nothing to take back; and whether the pool is
+    ///         empty, with no supply and every reward stream record zero, so that it has no holders read and no migration.
     struct PoolUpgradeInput {
         address[] holders;
         int256 gap;
         uint256 minTotalAssetSupply;
         uint64 withdrawalStartDelay;
         uint64 withdrawalEndWindow;
+        uint256 earlyWithdrawalFee;
         IStabilityPool_v3_Upgrader.Deduction[] deductions;
+        bool isEmpty;
     }
 
     /// @notice One oracle reading, as `IWrappedPriceOracle.latestAnswer` gives it: the band of the collateral's price
@@ -114,6 +126,23 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
 
     /// @notice The owner's operations name a different number of accounts and mints.
     error AccountsAndMintsOfDifferentLengths(string market, uint256 accounts, uint256 mints);
+
+    /// @notice The deployment state records an implementation this upgrade would deploy, for a contract of a market in
+    ///         the run.
+    error StateRecordsTheNewImplementation(string proxy, string contractType, address implementation);
+
+    /// @notice Read what upgrading each of `markets` needs, where it must be read: markets a pause has frozen at the
+    ///         capture's block, any other on the fork selected. A run names one peg, whose markets are all frozen or none.
+    function readUpgradeInputs(
+        Config_MinterMarket[] memory markets,
+        string memory capture,
+        string memory network
+    ) internal returns (MarketUpgradeInput[] memory) {
+        return
+            isFrozen(markets[0])
+                ? readFrozenMarketUpgradeInputs(markets, capture, network)
+                : readMarketUpgradeInputs(markets, capture);
+    }
 
     /// @notice Read what upgrading each of `markets` needs, on the fork selected now: each minter's stored config, the
     ///         backing it records, the wrapped collateral it holds and the price oracle it reads, and for each pool the
@@ -189,13 +218,16 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     ///         as one batch for the multisig, the upgrade of its minter, loading the config read - through one
     ///         `Minter_v3_Upgrader`, which sets the record to zero, where the minter records backing but holds no
     ///         wrapped collateral - then, where it reads another oracle, its move to the oracle proxy the deploy
-    ///         predicts; of its two pools, through one `StabilityPool_v3_Upgrader` for every pool, with the holders,
-    ///         gap and deductions its input holds; of its manager, with its harvest and rebalance terms then set to the
+    ///         predicts; of its two pools, directly where a pool is empty, otherwise through one
+    ///         `StabilityPool_v3_Upgrader`, deployed only where a pool needs it, with the holders, gap and deductions its
+    ///         input holds, each followed by the move to its market config's fee where it holds another; of its manager, with its harvest and rebalance terms then set to the
     ///         market config's; then the owner's operations its input names, in that order. A market with operations is moved instead to a `FrozenPriceOracle` answering their reading,
     ///         deployed here, before its pools' migration, and to the oracle proxy after the operations. Every
     ///         contract deployed is recorded in the state returned and saved: the implementations under their proxies,
     ///         the upgraders and frozen oracles under `*`, so every address a batch names can be named from the state.
-    ///         Refuses a pool whose new implementation would not keep the floor or withdrawal window read.
+    ///         Refuses a pool whose new implementation would not keep the floor or withdrawal window read, and a market
+    ///         whose new implementation the state already records: executed after its first batch, a second would copy
+    ///         its pools' v2 records over the v3 ones.
     /// @dev The deployment state is made as every deploy run makes it: the state file when the run persists, a fresh
     ///      state when it does not.
     function upgradeMarketsToV3(
@@ -207,18 +239,28 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
             : DeploymentState.fresh(saltPrefix(), network);
         state.baoFactory = baoFactory();
         _reportRun(_WHAT, saltPrefix(), network);
+        for (uint256 i = 0; i < inputs.length; ++i) {
+            _refuseARecordedNewImplementation(state, inputs[i].market);
+        }
 
-        // Each upgrader upgrades a proxy away from itself in the call that runs it, so one serves every pool, and one
-        // every minter that records backing it holds none of - deployed only when a minter does. Each is recorded in
-        // the state under `*`, a one-shot serving no proxy, so a batch naming it can be read against the state.
-        address upgrader = address(new StabilityPool_v3_Upgrader(owner()));
-        _recordImplementation(
-            state,
-            "*",
-            "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol",
-            "StabilityPool_v3_Upgrader",
-            upgrader
-        );
+        // Each upgrader upgrades a proxy away from itself in the call that runs it, so one serves every pool that is not
+        // empty, and one every minter that records backing it holds none of - each deployed only when one needs it. Each
+        // is recorded in the state under `*`, a one-shot serving no proxy, so a batch naming it can be read against the
+        // state.
+        address upgrader;
+        for (uint256 i = 0; i < inputs.length; ++i) {
+            if (!inputs[i].collateralPool.isEmpty || !inputs[i].leveragedPool.isEmpty) {
+                upgrader = address(new StabilityPool_v3_Upgrader(owner()));
+                _recordImplementation(
+                    state,
+                    "*",
+                    "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol",
+                    "StabilityPool_v3_Upgrader",
+                    upgrader
+                );
+                break;
+            }
+        }
         address minterUpgrader;
         for (uint256 i = 0; i < inputs.length; ++i) {
             if (_recordsBackingItHoldsNoneOf(inputs[i])) {
@@ -424,8 +466,28 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         _reportRunComplete(_WHAT);
     }
 
-    /// @dev The `poolType` pool's input: every holder the capture lists, the ledger gap they leave, and its floor and
-    ///      withdrawal window, each read from the pool now. Refuses holders that leave a gap beyond rounding either way.
+    /// @dev Refuses `config`'s market if `state` records an implementation this upgrade deploys for one of its contracts.
+    function _refuseARecordedNewImplementation(
+        DeploymentTypes.State memory state,
+        Config_MinterMarket config
+    ) private view {
+        string memory contractsOfTheMarket = string.concat(MinterMarketConfigLib.salt(config), "::");
+        for (uint256 i = 0; i < state.implementations.length; ++i) {
+            DeploymentTypes.ImplementationRecord memory record = state.implementations[i];
+            if (
+                LibString.startsWith(record.proxy, contractsOfTheMarket) &&
+                (LibString.eq(record.contractType, "Minter_v3") ||
+                    LibString.eq(record.contractType, "StabilityPool_v3") ||
+                    LibString.eq(record.contractType, "StabilityPoolManager_v2"))
+            ) {
+                revert StateRecordsTheNewImplementation(record.proxy, record.contractType, record.implementation);
+            }
+        }
+    }
+
+    /// @dev The `poolType` pool's input, read from the pool now: its floor, withdrawal window and fee; whether it is
+    ///      empty; and, where it is not, every holder the capture lists and the ledger gap they leave. Refuses holders that
+    ///      leave a gap beyond rounding either way.
     function _readPoolUpgradeInput(
         Config_MinterMarket config,
         StabilityPoolType poolType,
@@ -434,27 +496,44 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         string memory key = stabilityPoolKey(config, poolType);
         address pool = stabilityPoolAddress(config, poolType);
 
-        input.holders = HolderCaptureLib.holders(capture, key);
-        uint256 held;
-        for (uint256 i = 0; i < input.holders.length; ++i) {
-            held += IStabilityPool(pool).assetBalanceOf(input.holders[i]);
-        }
         uint256 supply = IStabilityPool(pool).totalAssetSupply();
-        input.gap = int256(supply) - int256(held);
-        require(
-            HolderCaptureLib.classify(input.gap, supply) == HolderCaptureLib.Gap.Rounding,
-            string.concat(
-                key,
-                ": the captured holders hold ",
-                LibString.toString(held),
-                " of a supply of ",
-                LibString.toString(supply),
-                ", a gap beyond rounding"
-            )
-        );
+        input.isEmpty = supply == 0 && _hasOnlyZeroRewardStreams(pool);
+        if (!input.isEmpty) {
+            input.holders = HolderCaptureLib.holders(capture, key);
+            uint256 held;
+            for (uint256 i = 0; i < input.holders.length; ++i) {
+                held += IStabilityPool(pool).assetBalanceOf(input.holders[i]);
+            }
+            input.gap = int256(supply) - int256(held);
+            require(
+                HolderCaptureLib.classify(input.gap, supply) == HolderCaptureLib.Gap.Rounding,
+                string.concat(
+                    key,
+                    ": the captured holders hold ",
+                    LibString.toString(held),
+                    " of a supply of ",
+                    LibString.toString(supply),
+                    ", a gap beyond rounding"
+                )
+            );
+        }
 
         input.minTotalAssetSupply = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
         (input.withdrawalStartDelay, input.withdrawalEndWindow) = IStabilityPool(pool).getWithdrawalWindow();
+        input.earlyWithdrawalFee = IStabilityPool(pool).getEarlyWithdrawalFee();
+    }
+
+    /// @dev Whether every field of every reward stream record of `pool`, as StabilityPool_v2 reports them, is zero.
+    function _hasOnlyZeroRewardStreams(address pool) private view returns (bool) {
+        address[] memory tokens = IMultipleRewardDistributor(pool).activeRewardTokens();
+        for (uint256 t = 0; t < tokens.length; ++t) {
+            (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(pool)
+                .rewardData(tokens[t]);
+            if (lastUpdate != 0 || finishAt != 0 || rate != 0 || queued != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// @dev Whether the minter `input` describes records backing but holds no wrapped collateral - a retired market's
@@ -468,9 +547,10 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         return operations.peggedRedeemed > 0 || operations.leveragedRedeemed > 0 || operations.accounts.length > 0;
     }
 
-    /// @dev Queue the `poolType` pool's migration through `upgrader` to `implementation`, its new StabilityPool_v3, with
-    ///      the holders, gap and deductions `input` holds. Refuses an implementation whose floor or withdrawal window
-    ///      differs from the pool's.
+    /// @dev Queue the `poolType` pool's upgrade to `implementation`, its new StabilityPool_v3: directly where `input` says
+    ///      it is empty, otherwise its migration through `upgrader`, with the holders, gap and deductions `input` holds.
+    ///      Then the move to its market config's fee where `input` holds another. Refuses an implementation whose floor or
+    ///      withdrawal window differs from the pool's.
     function _queuePoolMigration(
         Config_MinterMarket config,
         StabilityPoolType poolType,
@@ -491,7 +571,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
                 LibString.toString(floor)
             )
         );
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(implementation).getWithdrawalWindow();
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(implementation).withdrawalWindow();
         require(
             startDelay == input.withdrawalStartDelay && endWindow == input.withdrawalEndWindow,
             string.concat(
@@ -508,26 +588,48 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
             )
         );
 
-        queue(
-            key,
-            abi.encodeCall(
-                UUPSUpgradeable.upgradeToAndCall,
-                (
-                    upgrader,
-                    abi.encodeCall(
-                        IStabilityPool_v3_Upgrader.migrateAndUpgrade,
-                        (input.gap, input.holders, input.deductions, implementation)
+        if (input.isEmpty) {
+            queue(
+                key,
+                abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implementation, "")),
+                "upgrade to StabilityPool_v3: the pool is empty, with nothing to migrate"
+            );
+        } else {
+            queue(
+                key,
+                abi.encodeCall(
+                    UUPSUpgradeable.upgradeToAndCall,
+                    (
+                        upgrader,
+                        abi.encodeCall(
+                            IStabilityPool_v3_Upgrader.migrateAndUpgrade,
+                            (input.gap, input.holders, input.deductions, implementation)
+                        )
                     )
+                ),
+                input.deductions.length == 0
+                    ? "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3"
+                    : string.concat(
+                        "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3, taking back ",
+                        LibString.toString(input.deductions.length),
+                        " rewards for the owner"
+                    )
+            );
+        }
+
+        uint256 configuredFee = IHarborConfig(address(config)).stabilityPoolEarlyWithdrawalFeeRatio();
+        if (input.earlyWithdrawalFee != configuredFee) {
+            queue(
+                key,
+                abi.encodeCall(IStabilityPool_v3.updateEarlyWithdrawalFeeRatio, (configuredFee)),
+                string.concat(
+                    "move the early-withdrawal fee from ",
+                    _scaled(input.earlyWithdrawalFee),
+                    " to the market config's ",
+                    _scaled(configuredFee)
                 )
-            ),
-            input.deductions.length == 0
-                ? "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3"
-                : string.concat(
-                    "migrate through StabilityPool_v3_Upgrader to StabilityPool_v3, taking back ",
-                    LibString.toString(input.deductions.length),
-                    " rewards for the owner"
-                )
-        );
+            );
+        }
     }
 
     /// @dev Requires the proxy named `key` at `proxy` to revert `call` with the pausers' `Paused` - BaoPauser_v1, which

@@ -497,7 +497,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function test_withdraw_emitsABurnTransferOfTheSharesLeaving() public {
         _deposit(user1, 10 ether);
         uint256 amount = 4 ether;
-        uint256 fee = (amount * IStabilityPool_v3(stabilityPool).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (amount * IStabilityPool_v3(stabilityPool).earlyWithdrawalFeeRatio()) / 1 ether;
         assertGt(fee, 0, "the fee applies outside the window, so the burn is not the payment");
         uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
 

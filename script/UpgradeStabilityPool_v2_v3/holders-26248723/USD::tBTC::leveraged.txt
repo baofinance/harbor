@@ -1,0 +1,4 @@
+# Holders: USD::tBTC::leveraged
+# address: 0x0348b423C1Fd6d426609b7dCA560398CC3e4eA1B
+# to-block: 26248723
+# source: Transfer recipients (Etherscan), blocks 24049000-26248723

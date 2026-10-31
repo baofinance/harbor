@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {Vm} from "forge-std/Vm.sol";
+import {LibString} from "@solady/utils/LibString.sol";
+
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
@@ -60,4 +63,47 @@ function allMintersConfig() returns (Config_MinterMarket[] memory markets) {
     for (uint256 i = 0; i < usd.length; ++i) {
         markets[frozen.length + i] = usd[i];
     }
+}
+
+/// @notice Whether `market` upgrades to v3 from a frozen read: whether `frozenMintersConfig` lists it.
+function isFrozen(Config_MinterMarket market) returns (bool) {
+    Config_MinterMarket[] memory frozen = frozenMintersConfig();
+    for (uint256 i = 0; i < frozen.length; ++i) {
+        if (LibString.eq(MinterMarketConfigLib.salt(frozen[i]), MinterMarketConfigLib.salt(market))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// @notice The peg production configures under `name`, with its markets: fresh config contracts on each call.
+/// @dev Reverts if no peg has that name.
+function pegNamed(string memory name) returns (ConfigPeg, Config_MinterMarket[] memory) {
+    (ConfigPeg[7] memory pegs, Config_MinterMarket[][7] memory marketsByPeg) = allPegsConfig();
+    for (uint256 i = 0; i < pegs.length; ++i) {
+        if (LibString.eq(pegs[i].key(), name)) {
+            return (pegs[i], marketsByPeg[i]);
+        }
+    }
+    revert(string.concat("Peg not found: ", name));
+}
+
+/// @notice The markets a peg and a collateral name, as a deploy's `--peg` and `--collateral` name them: `*` for every
+///         market of the peg, or one collateral's name. Naming no collateral is refused, where a deploy's filter gives
+///         no markets: an upgrade has nothing else to do.
+function marketsNamed(string memory peg, string memory collateral) returns (Config_MinterMarket[] memory) {
+    if (bytes(collateral).length == 0) {
+        revert(string.concat("No collateral named for peg: ", peg));
+    }
+    (, Config_MinterMarket[] memory markets) = pegNamed(peg);
+    return MinterMarketConfigLib.parseCollateralFilter(markets, collateral);
+}
+
+/// @notice The markets an upgrade run names, in `UPGRADE_PEG` and `UPGRADE_COLLATERAL`: `script/upgrade` and the
+///         rehearsal set them, so the script and every test of a run read the same names. Either unset is refused,
+///         naming it.
+/// @dev The environment, because `Deployer.run(string)` calls `build()` with no arguments and a test takes none.
+function marketsToUpgrade() returns (Config_MinterMarket[] memory) {
+    Vm vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    return marketsNamed(vm.envString("UPGRADE_PEG"), vm.envString("UPGRADE_COLLATERAL"));
 }

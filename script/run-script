@@ -29,7 +29,8 @@ Required:
 Options:
   --broadcast        Broadcast transactions on-chain (adds --broadcast --slow --ffi --verify)
   --account <name>   Foundry keystore account name (required for non-local broadcast)
-  --local            Use local anvil node (auto-impersonate, local state directory)
+  --local            Use local anvil node (auto-impersonate, local state directory). With no --account, the
+                     default sender is made a BaoFactory operator on that node first.
   --timestamp        Add timestamp to local state directory (requires --local)
   --resume           Resume a previous broadcast
   -m, --message      Override safe batch description (max 256 chars)
@@ -170,12 +171,22 @@ FORGE_ARGS=(--rpc-url "$RPC_URL" --fork-retries 100 --fork-retry-backoff 5000)
 # ── Account / signer ─────────────────────────────────────────────────────
 
 if [[ "$USE_LOCAL" == true ]]; then
-  FORGE_ARGS+=(--unlocked)
+  # A legacy transaction needs no fee estimate. The estimate asks anvil for a fee history with rewards, anvil passes
+  # that on to the provider for the block it forked, and the provider answers HTTP 503 for a block about 100,000 behind
+  # its head: anvil retries until the request times out, so a fork of an old block could not broadcast.
+  FORGE_ARGS+=(--unlocked --legacy)
+  FACTORY_OWNER=0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
+  cast rpc anvil_setBalance "$FACTORY_OWNER" 0xDE0B6B3A7640000 --rpc-url local
+  cast balance "$FACTORY_OWNER" --rpc-url local
   if [[ -z "$ACCOUNT" ]]; then
-    FORGE_ARGS+=(--sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+    LOCAL_SENDER=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+    FORGE_ARGS+=(--sender "$LOCAL_SENDER")
+    # BaoFactory deploys only for its owner or an operator, and only its owner can set an operator: anvil sends as the
+    # owner with no key. The allowance is a year, far longer than a local node lives; FactoryDeployer refuses a run with
+    # a day or less of its allowance left.
+    cast send --legacy --unlocked --from "$FACTORY_OWNER" --rpc-url local \
+      0xD696E56b3A054734d4C6DCBD32E11a278b0EC458 'setOperator(address,uint256)' "$LOCAL_SENDER" 31536000 >/dev/null
   fi
-  cast rpc anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0xDE0B6B3A7640000 --rpc-url local
-  cast balance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 --rpc-url local
 fi
 if [[ -n "$ACCOUNT" ]]; then
   FORGE_ARGS+=(--account "$ACCOUNT")

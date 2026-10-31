@@ -155,7 +155,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(pool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(pool).withdrawalRequest(user1);
         vm.warp(start + 1);
         vm.startPrank(user1);
         IStabilityPool_v3(pool).withdraw(withdrawAmount, user1, 0);
@@ -229,7 +229,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             vm.startPrank(user1);
             IStabilityPool_v3(pool).requestWithdrawal();
             vm.stopPrank();
-            (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(user1);
+            (uint64 start, ) = IStabilityPool_v3(pool).withdrawalRequest(user1);
             vm.warp(start + 1);
             vm.startPrank(user1);
             IStabilityPool_v3(pool).withdraw(withdrawableAmount, user1, 0);

@@ -25,7 +25,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         // Request withdrawal, then withdraw before window start
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         // Warp to just before start
         vm.warp(start - 10);
 
@@ -48,7 +48,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(start + 1);
 
         uint256 balBefore = IERC20(peggedToken).balanceOf(user1);
@@ -59,7 +59,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(user1), balBefore + withdrawn);
 
         // Window should be closed after withdrawal
-        (, uint64 newEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (, uint64 newEnd) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         assertTrue(newEnd <= start);
     }
 
@@ -71,20 +71,18 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(start + 1);
 
         // Withdraw inside window, request should be cleared
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(1 * price, user1, 0);
         vm.stopPrank();
-        (uint64 clearedStart, uint64 clearedEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
-            user1
-        );
+        (uint64 clearedStart, uint64 clearedEnd) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         assertEq(clearedStart, 0);
         assertEq(clearedEnd, 0);
         assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            IStabilityPool_v3(stabilityPoolCollateral).withdrawalFeeFreeAmount(user1),
             0,
             "the request's fee-free amount is cleared with it"
         );
@@ -110,7 +108,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(start - 10);
 
         uint256 userBefore = IERC20(peggedToken).balanceOf(user1);
@@ -167,7 +165,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(start + 1);
 
         vm.startPrank(user1);
@@ -192,7 +190,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
         vm.stopPrank();
         assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            IStabilityPool_v3(stabilityPoolCollateral).withdrawalFeeFreeAmount(user1),
             0,
             "nothing is fee-free before a request"
         );
@@ -202,7 +200,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            IStabilityPool_v3(stabilityPoolCollateral).withdrawalFeeFreeAmount(user1),
             5 * price,
             "the balance at the request is fee-free"
         );
@@ -249,7 +247,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
         vm.stopPrank();
         uint256 gross = 4 * price;
-        uint256 fee = ((gross - 2 * price) * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) /
+        uint256 fee = ((gross - 2 * price) * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) /
             1 ether;
         assertGt(fee, 0, "the excess is large enough to pay a fee");
         uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
@@ -277,7 +275,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(4 * price, user1, 0);
         vm.stopPrank();
-        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
         uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
 
         vm.startPrank(user1);
@@ -303,7 +301,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(6 * price, user2, 0);
         IERC20(stabilityPoolCollateral).transfer(user1, 4 * price);
         vm.stopPrank();
-        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
 
         vm.startPrank(user1);
         uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
@@ -332,7 +330,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.startPrank(user2);
         IERC20(stabilityPoolCollateral).transfer(user1, 4 * price);
         vm.stopPrank();
-        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (4 * price * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
 
         vm.startPrank(user1);
         uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
@@ -363,7 +361,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
         vm.stopPrank();
         uint256 gross = balanceAfterLoss + 3 * price;
-        uint256 fee = (3 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (3 * price * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
 
         vm.startPrank(user1);
         uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(gross, user1, 0);
@@ -386,16 +384,16 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user2, 0);
         vm.stopPrank();
         _beginWithdrawal(user1);
-        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
 
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * price, user1, 0);
         vm.stopPrank();
 
-        (uint64 startAfter, uint64 endAfter) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 startAfter, uint64 endAfter) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         assertEq(startAfter, start, "the request keeps its start");
         assertEq(endAfter, end, "the request keeps its end");
-        uint256 fee = (3 * price * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (3 * price * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
         vm.startPrank(user1);
         uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(5 * price, user1, 0);
         vm.stopPrank();
@@ -430,10 +428,10 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
     function test_getters_returnConfiguredValues() public view {
         assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee(),
+            IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(),
             marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()
         );
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), treasury());
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).feeReceiver(), treasury());
     }
 
     function test_withdraw_afterEnd_appliesFee() public {
@@ -444,7 +442,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(end + 1);
 
         uint256 balBefore = IERC20(peggedToken).balanceOf(user1);
@@ -468,11 +466,11 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(end + 1);
 
         uint256 gross = 1 * price;
-        uint256 fee = (gross * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (gross * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
         uint256 balanceBefore = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         uint256 receiverBefore = IERC20(peggedToken).balanceOf(user2);
@@ -491,7 +489,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(gross, user2, 0);
         vm.stopPrank();
 
-        (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start2, uint64 end2) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         assertEq(start2, 0, "the request is cleared: no start");
         assertEq(end2, 0, "the request is cleared: no end");
         assertEq(IERC20(peggedToken).balanceOf(user2) - receiverBefore, gross - fee, "the receiver is paid net of fee");
@@ -516,7 +514,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         uint256 snap = vm.snapshotState();
 
         vm.warp(start);
@@ -543,7 +541,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
         vm.stopPrank();
         uint256 gross = 1 * price;
-        uint256 paid = gross - (gross * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 paid = gross - (gross * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
 
         vm.startPrank(user1);
         vm.expectRevert(
@@ -563,7 +561,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(start - 10); // before start, fee should apply
 
         uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
@@ -593,8 +591,10 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         );
         address pool = UnsafeUpgrades.deployUUPSProxy(
             implementation,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether - 1, treasury()))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner()))
         );
+        IStabilityPool_v3(pool).updateFeeReceiver(treasury());
+        IStabilityPool_v3(pool).updateEarlyWithdrawalFeeRatio(1 ether - 1);
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(1 ether, 0 ether, user1);
         deal(peggedToken, user1, 5 * price);
@@ -641,7 +641,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // A year is the cap, not past it: a start delay and a window of exactly 365 days are accepted and kept.
     function test_constructor_withdrawalDelayAndWindowOfAYear_areAccepted() public {
         address sp = address(new StabilityPool_v3(minter, peggedToken, 365 days, 365 days, 1 ether, "Test", "T"));
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(sp).getWithdrawalWindow();
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(sp).withdrawalWindow();
         assertEq(startDelay, 365 days, "a start delay of a year is kept");
         assertEq(endWindow, 365 days, "a window of a year is kept");
     }
@@ -738,7 +738,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         uint256 clampedOutflow = supplyBefore - floor; // the outflow after the floor clamp (a partial)
-        uint256 feeRate = IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee();
+        uint256 feeRate = IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio();
         uint256 expectedFee = (clampedOutflow * feeRate) / 1 ether; // fee on the CLAMPED outflow
 
         uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
@@ -762,7 +762,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
     /// @notice The owner can change where the early-withdrawal fees go: the getter reports the new address, the change is
     ///         announced, and the next fee is paid there, not to the old address.
-    function test_updateFeeAddress_ownerSetsIt() public {
+    function test_updateFeeReceiver_ownerSetsIt() public {
         address newFeeAddress = makeAddr("newFeeAddress");
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(1 ether, 0 ether, user1);
@@ -774,14 +774,14 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.startPrank(owner());
         vm.expectEmit(stabilityPoolCollateral);
         emit IStabilityPool_v3.FeeAddressUpdated(newFeeAddress);
-        IStabilityPool_v3(stabilityPoolCollateral).updateFeeAddress(newFeeAddress);
+        IStabilityPool_v3(stabilityPoolCollateral).updateFeeReceiver(newFeeAddress);
         vm.stopPrank();
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), newFeeAddress, "the new fee address");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).feeReceiver(), newFeeAddress, "the new fee address");
 
         // A withdrawal with no request pays the fee, to the new address alone.
         uint256 oldAddressBefore = IERC20(peggedToken).balanceOf(treasury());
         uint256 amount = 1 * price;
-        uint256 expectedFee = (amount * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 expectedFee = (amount * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount, user1, 0);
         vm.stopPrank();
@@ -790,20 +790,105 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     }
 
     /// @notice Only the owner changes the fee address; anyone else is refused and the address stays.
-    function test_updateFeeAddress_notOwner_reverts() public {
-        address before = IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress();
+    function test_updateFeeReceiver_notOwner_reverts() public {
+        address before = IStabilityPool_v3(stabilityPoolCollateral).feeReceiver();
         vm.startPrank(user1);
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPool_v3(stabilityPoolCollateral).updateFeeAddress(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).updateFeeReceiver(user1);
         vm.stopPrank();
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(), before, "unchanged");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).feeReceiver(), before, "unchanged");
     }
 
-    /// @notice The zero address is refused, by the same error `initialize` gives it.
-    function test_updateFeeAddress_zero_reverts() public {
+    /// @notice The zero address is refused.
+    function test_updateFeeReceiver_zero_reverts() public {
         vm.startPrank(owner());
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFeeAddress.selector, address(0)));
-        IStabilityPool_v3(stabilityPoolCollateral).updateFeeAddress(address(0));
+        IStabilityPool_v3(stabilityPoolCollateral).updateFeeReceiver(address(0));
         vm.stopPrank();
+    }
+
+    /// @notice The owner can change the early-withdrawal fee: the getter reports it, the change is announced, and the
+    ///         next withdrawal outside a window pays the new ratio.
+    function test_updateEarlyWithdrawalFeeRatio_ownerSetsIt() public {
+        uint256 newFee = 0.2 ether;
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+        vm.stopPrank();
+
+        vm.startPrank(owner());
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.EarlyWithdrawalFeeUpdated(newFee);
+        IStabilityPool_v3(stabilityPoolCollateral).updateEarlyWithdrawalFeeRatio(newFee);
+        vm.stopPrank();
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(), newFee, "the new fee");
+
+        // A withdrawal with no request pays a fifth of what leaves the pool.
+        uint256 receiverBefore = IERC20(peggedToken).balanceOf(treasury());
+        uint256 amount = 1 * price;
+        vm.startPrank(user1);
+        uint256 paid = IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount, user1, 0);
+        vm.stopPrank();
+        assertEq(IERC20(peggedToken).balanceOf(treasury()) - receiverBefore, amount / 5, "the fee is a fifth");
+        assertEq(paid, amount - amount / 5, "the withdrawer gets the rest");
+    }
+
+    /// @notice Only the owner changes the fee; anyone else is refused and the fee stays.
+    function test_updateEarlyWithdrawalFeeRatio_notOwner_reverts() public {
+        uint256 before = IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio();
+        vm.startPrank(user1);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IStabilityPool_v3(stabilityPoolCollateral).updateEarlyWithdrawalFeeRatio(1);
+        vm.stopPrank();
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(), before, "unchanged");
+    }
+
+    /// @notice A fee of 100% or more is refused, naming it, and the fee stays: at 100% a withdrawal outside the window
+    ///         would pay its whole amount as fee, leave the receiver nothing and be refused - the window a lock.
+    function test_updateEarlyWithdrawalFeeRatio_ofAHundredPercent_reverts() public {
+        uint256 before = IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio();
+        vm.startPrank(owner());
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFee.selector, 1 ether));
+        IStabilityPool_v3(stabilityPoolCollateral).updateEarlyWithdrawalFeeRatio(1 ether);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFee.selector, 1 ether + 1));
+        IStabilityPool_v3(stabilityPoolCollateral).updateEarlyWithdrawalFeeRatio(1 ether + 1);
+        vm.stopPrank();
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(), before, "unchanged");
+    }
+
+    /// @notice The largest fee accepted is one wei below 100%, and no fee at all is accepted too.
+    function test_updateEarlyWithdrawalFeeRatio_upToJustBelowAHundredPercent_isAccepted() public {
+        vm.startPrank(owner());
+        IStabilityPool_v3(stabilityPoolCollateral).updateEarlyWithdrawalFeeRatio(1 ether - 1);
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(), 1 ether - 1, "the largest");
+        IStabilityPool_v3(stabilityPoolCollateral).updateEarlyWithdrawalFeeRatio(0);
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(), 0, "none");
+        vm.stopPrank();
+    }
+
+    /// @notice The fee setter leaves the receiver alone, and the receiver's setter leaves the fee alone: they share one
+    ///         storage slot.
+    function test_theFeeSetters_eachLeaveTheOtherValueAlone() public {
+        address receiver = IStabilityPool_v3(stabilityPoolCollateral).feeReceiver();
+        vm.startPrank(owner());
+        IStabilityPool_v3(stabilityPoolCollateral).updateEarlyWithdrawalFeeRatio(0.2 ether);
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).feeReceiver(), receiver, "the receiver stays");
+        IStabilityPool_v3(stabilityPoolCollateral).updateFeeReceiver(user1);
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(), 0.2 ether, "the fee stays");
+        vm.stopPrank();
+    }
+
+    /// @notice The deploy leaves a pool charging the fee its config states and paying the treasury, with the deployer's
+    ///         ownership handed over afterwards. This suite's config states its own fee, so the value is not a default.
+    function test_aDeployedPool_holdsTheFeeAndReceiverItsConfigStates() public view {
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(),
+            marketConfig.stabilityPoolEarlyWithdrawalFeeRatio(),
+            "the config's fee"
+        );
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).feeReceiver(), treasury(), "the treasury");
+        assertEq(IBaoOwnable(stabilityPoolCollateral).owner(), owner(), "handed over");
     }
 }

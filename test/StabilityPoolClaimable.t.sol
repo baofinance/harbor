@@ -156,7 +156,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user2);
         vm.warp(start + 1);
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
@@ -224,7 +224,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user2);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);

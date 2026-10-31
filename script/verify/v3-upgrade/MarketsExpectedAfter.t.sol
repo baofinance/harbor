@@ -10,7 +10,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
@@ -22,7 +22,7 @@ import {
 import {CompensationRun} from "@harbor-script/verify/incidents/CompensationRun.sol";
 import {CaptureExpectationsLib} from "@harbor-script/verify/v3-upgrade/CaptureExpectationsLib.sol";
 
-/// @notice What every market contract is expected to read after the upgrade, written down beforehand: for each record
+/// @notice What each named market's contracts are expected to read after the upgrade, written down beforehand: for each record
 ///         `MarketsCapture` took before, the record it must have after - each value as it was, or as an expectation
 ///         below says, with its reason. Writes tmp/v3-upgrade/expected-after/{pre,post}/{saltKey}.json, which the
 ///         runner diffs against the after record.
@@ -53,7 +53,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE)
         );
         _setSaltPrefix("harbor_v1");
-        Config_MinterMarket[] memory markets = frozenMintersConfig();
+        Config_MinterMarket[] memory markets = marketsToUpgrade();
         string[] memory files = new string[](2);
         files[0] = BTC_STETH_COMPENSATION;
         files[1] = EUR_STETH_COMPENSATION;
@@ -343,11 +343,22 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         string memory beforePre = _read("before", "pre", label);
         int256 gap = _gapOf(beforePre);
         Cuts memory cuts = _cutsIn(market, poolType, beforePre);
-        _write("pre", label, _poolExpectations(beforePre, gap, _minterNamed(market), _preRewards(label, gap, cuts)));
+        uint256 fee = IHarborConfig(address(market)).stabilityPoolEarlyWithdrawalFeeRatio();
+        _write(
+            "pre",
+            label,
+            _poolExpectations(beforePre, gap, fee, _minterNamed(market), _preRewards(label, gap, cuts))
+        );
         _write(
             "post",
             label,
-            _poolExpectations(_read("before", "post", label), gap, _minterNamed(market), _postRewards(label, gap, cuts))
+            _poolExpectations(
+                _read("before", "post", label),
+                gap,
+                fee,
+                _minterNamed(market),
+                _postRewards(label, gap, cuts)
+            )
         );
     }
 
@@ -481,10 +492,11 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     function _poolExpectations(
         string memory before,
         int256 gap,
+        uint256 fee,
         string memory minter,
         CaptureExpectationsLib.Expectation[] memory rewards
     ) private pure returns (CaptureExpectationsLib.Expectation[] memory expectations) {
-        expectations = new CaptureExpectationsLib.Expectation[](4 + rewards.length);
+        expectations = new CaptureExpectationsLib.Expectation[](5 + rewards.length);
         uint256 count;
         expectations[count++] = _removed(
             "state_liquidationToken",
@@ -507,6 +519,13 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             value: vm.toString(uint256(int256(_uint(before, "state_totalAssetSupply")) - gap)),
             bound: 0,
             reason: "StabilityPool_v3 divides rewards by the supply less the ledger gap"
+        });
+        expectations[count++] = CaptureExpectationsLib.Expectation({
+            key: "state_earlyWithdrawalFee",
+            kind: CaptureExpectationsLib.Kind.Value,
+            value: vm.toString(fee),
+            bound: 0,
+            reason: "its batch moves the pool's early-withdrawal fee to its market config's"
         });
         for (uint256 r = 0; r < rewards.length; ++r) {
             expectations[count++] = rewards[r];

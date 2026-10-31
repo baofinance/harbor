@@ -10,7 +10,7 @@ import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {
     BTC_STETH_COMPENSATION,
@@ -20,12 +20,12 @@ import {
 import {CompensationRun} from "@harbor-script/verify/incidents/CompensationRun.sol";
 
 /// @title UpgradedMarketsHarvest - the v3 upgrade's harvest check
-/// @notice Every upgraded market harvests on the state the upgrade leaves it in, at the harvest terms its market config
-///         gives: the records compare what each contract reads, and this is what it does when a keeper harvests.
+/// @notice Each named market, upgraded, harvests on the state the upgrade leaves it in, at the harvest terms its market
+///         config gives: the records compare what each contract reads, and this is what it does when a keeper harvests.
 ///
-///         On a fork of mainnet at the block after the capture, where every minter and pool is paused: the upgrade as
-///         the upgrade script builds it, the compensation included, executed as the multisig; then each market is
-///         harvested. A harvest reads the price oracle, and there every answer is as fresh as mainnet keeps it. On
+///         On a fork of mainnet at the block after the capture, where the 11 paused markets' minters and pools are paused:
+///         the upgrade as the upgrade script builds it, the compensation included, executed as the multisig; then each
+///         market is harvested. A harvest reads the price oracle, and there every answer is as fresh as mainnet keeps it. On
 ///         anvil it is not: anvil holds each answer from its fork while its clock runs on.
 contract UpgradedMarketsHarvest is BaoTest, HarborDeployer {
     Config_MinterMarket[] internal markets;
@@ -41,7 +41,7 @@ contract UpgradedMarketsHarvest is BaoTest, HarborDeployer {
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         _setSaltPrefix("harbor_v1");
-        markets = frozenMintersConfig();
+        markets = marketsToUpgrade();
         // A contract made on one fork is absent from another unless persistent: the run reads the frozen markets on
         // forks of its own.
         for (uint256 i = 0; i < markets.length; ++i) {
@@ -60,8 +60,9 @@ contract UpgradedMarketsHarvest is BaoTest, HarborDeployer {
     /// Each market holding harvestable yield harvests it at its config's terms: its caller is paid the config's bounty
     /// ratio of the harvest, or the config's bounty ceiling where that is lower; the whole harvest goes to the caller,
     /// the fee receiver and the pools; and the minter's harvestable falls by what is harvested. A market holding none
-    /// says so rather than failing some other way. At least one market must harvest, so the check cannot pass by every
-    /// market having nothing to do.
+    /// says so rather than failing some other way. Where a named minter holds wrapped collateral, at least one market
+    /// must harvest, so the check cannot pass by every market having nothing to do. A run of markets holding none rightly
+    /// harvests nothing.
     ///
     /// The bounty's band: the manager floors the bounty, `floor(G * b)`, and the cut, `floor(G * c)`, on the gross G it
     /// distributes, and a ceiling moves part of the bounty into the cut, not out of the two. The upgrade leaves no
@@ -75,10 +76,14 @@ contract UpgradedMarketsHarvest is BaoTest, HarborDeployer {
     /// `[floor(S * b / k), floor((S + m) * b / k)]` - one wei wide at the configured ratios.
     function test_everyUpgradedMarketHarvestsAtItsConfigsTerms() public {
         uint256 marketsHarvested;
+        uint256 marketsHoldingCollateral;
         for (uint256 i = 0; i < markets.length; ++i) {
             string memory name = MinterMarketConfigLib.salt(markets[i]);
             IHarborConfig config = IHarborConfig(address(markets[i]));
             address manager = stabilityPoolManagerAddress(markets[i]);
+            if (IERC20(config.wrappedCollateralToken()).balanceOf(minterAddress(markets[i])) > 0) {
+                ++marketsHoldingCollateral;
+            }
 
             // the manager's harvestable is its minter's
             uint256 harvestableBefore = IStabilityPoolManager_v2(manager).harvestable();
@@ -145,6 +150,8 @@ contract UpgradedMarketsHarvest is BaoTest, HarborDeployer {
                 marketsHarvested++;
             }
         }
-        assertGt(marketsHarvested, 0, "at least one market had yield to harvest");
+        if (marketsHoldingCollateral > 0) {
+            assertGt(marketsHarvested, 0, "at least one market had yield to harvest");
+        }
     }
 }

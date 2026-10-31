@@ -11,10 +11,11 @@ import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 import {MarketSettings} from "@harbor-script/verify/v3-upgrade/MarketSettings.sol";
@@ -22,20 +23,22 @@ import {MarketSettings} from "@harbor-script/verify/v3-upgrade/MarketSettings.so
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
 /// @title MarketsCapture - Prong A of the v3 upgrade's verification
-/// @notice Records every market's contracts - minter, both stability pools, manager - to JSON: each one's settings, read
+/// @notice Records the named markets' contracts - minter, both stability pools, manager - to JSON: each one's settings, read
 ///         by `MarketSettings`, and its holdings, and each pool's behaviour under the same interactions. Run once before
 ///         the upgrade (`VERSION=before`) and once after (`VERSION=after`); `MarketsExpectedAfter` then writes what the
 ///         after record must read, and the runner diffs the two. Every value must read the same after as before, or as
 ///         written down beforehand.
 ///
 ///         The before is taken where the markets still run - a fork of mainnet at the block of the upgrade's holder
-///         capture, `FROZEN_MARKETS_CAPTURE`, the last before the pause that froze every minter and pool - with each
-///         manager's own implementation put back (the managers were paused earlier, at block 26,241,030). The after is
+///         capture, `FROZEN_MARKETS_CAPTURE`, the last before the pause that froze the 11 paused markets' minters and pools
+///         - with each manager's own implementation put back (the managers were paused earlier, at block 26,241,030). A
+///         market that was never paused reads there as it does at the head, its manager's implementation unchanged. Were
+///         one to differ, the runner's diff would fail. The after is
 ///         taken on anvil, after the upgrade script ran there. Both are warped to the same START_TIMESTAMP, so
 ///         time-dependent values compare.
 ///
-///         Each version is read through its own form where the two differ (a pool's reward reads, the views v3 dropped
-///         or added), into the same keys.
+///         Each version is read through its own form where the two differ (a pool's reward reads, the views v3 dropped,
+///         added or renamed), into the same keys.
 ///
 /// Writes, per contract (its salt key):
 ///   tmp/v3-upgrade/{VERSION}/pre/{saltKey}.json   -- its state before any interaction
@@ -61,7 +64,7 @@ contract MarketsCapture is Test, HarborDeployer {
         );
         _setSaltPrefix("harbor_v1");
         testUser = makeAddr("testUser");
-        markets = frozenMintersConfig();
+        markets = marketsToUpgrade();
         for (uint256 i = 0; i < markets.length; ++i) {
             vm.makePersistent(address(markets[i]));
         }
@@ -73,7 +76,7 @@ contract MarketsCapture is Test, HarborDeployer {
     // TEST FUNCTION
     // ========================================================================
 
-    /// @notice Record every market's contracts, and each pool's interactions, to JSON.
+    /// @notice Record the named markets' contracts, and each pool's interactions, to JSON.
     function test_capture() public {
         string memory version = isBefore ? "before" : "after";
         uint256 captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
@@ -242,12 +245,20 @@ contract MarketsCapture is Test, HarborDeployer {
         return IClaimReward(pool).claimed(user, tokens)[0];
     }
 
+    /// @dev `user`'s withdrawal request on `pool`, as its version reports it.
+    function _withdrawalRequest(address pool, address user) private view returns (uint64 start, uint64 end) {
+        if (isBefore) {
+            return IStabilityPool(pool).getWithdrawalRequest(user);
+        }
+        return IStabilityPool_v3(pool).withdrawalRequest(user);
+    }
+
     /// @dev StabilityPool_v3's reward divisor, which it keeps internal: read through `MockStabilityPool` - v3 with
     ///      accessors added, built with the pool's own settings - put in place of the pool's code inside a snapshot that
     ///      is then reverted.
     function _rewardDivisor(address pool) private returns (uint256 divisor) {
         uint256 snapshot = vm.snapshotState();
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(pool).getWithdrawalWindow();
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(pool).withdrawalWindow();
         address exposer = address(
             new MockStabilityPool(
                 IStabilityPool_v3(pool).MINTER(),
@@ -372,7 +383,7 @@ contract MarketsCapture is Test, HarborDeployer {
         _serializeUint(objectKey, string.concat(ui, "_assetBalance"), IStabilityPool_v3(proxy).assetBalanceOf(user));
 
         {
-            (uint64 wStart, uint64 wEnd) = IStabilityPool_v3(proxy).getWithdrawalRequest(user);
+            (uint64 wStart, uint64 wEnd) = _withdrawalRequest(proxy, user);
             _serializeUint(objectKey, string.concat(ui, "_withdrawalStart"), uint256(wStart));
             _serializeUint(objectKey, string.concat(ui, "_withdrawalEnd"), uint256(wEnd));
         }
@@ -518,7 +529,7 @@ contract MarketsCapture is Test, HarborDeployer {
         vm.stopPrank();
 
         {
-            (uint64 wStart, ) = IStabilityPool_v3(proxy).getWithdrawalRequest(testUser);
+            (uint64 wStart, ) = _withdrawalRequest(proxy, testUser);
             if (wStart > 0) {
                 vm.warp(uint256(wStart) + 1);
             }

@@ -595,8 +595,8 @@ This is the system's principal trust assumption and is enumerated as such in §9
 
 **Fee receivers.** Three destinations, set separately: the Minter's, for mint and redeem fees; the
 stability-pool manager's, for the harvest and rebalance cuts and the part of a harvest bounty above
-its ceiling; and each stability pool's, for early-withdrawal fees, fixed when the pool is
-initialised. Passive recipients; they hold no authority.
+its ceiling; and each stability pool's, for early-withdrawal fees, set by the pool's owner. Passive
+recipients; they hold no authority.
 
 ### 3.3 Trust relationships
 
@@ -1761,9 +1761,9 @@ declines to make such a deposit and leaves the value owed instead.
 
 Requesting a withdrawal opens a fee-free window that begins after a configured delay and lasts a
 configured duration; both are fixed at deployment, must be non-zero, and are capped at one year.
-Neither has a setter, and nor do the fee or its recipient — changing any of them requires an
-upgrade, so **the terms a depositor joined under cannot shift beneath them** by ordinary governance
-action.
+Neither has a setter: changing either requires an upgrade. The fee and its recipient do have setters,
+for the pool's owner alone. So the window a depositor joined under cannot shift beneath them by
+ordinary governance action, but **the fee can**, up to just below 100%.
 
 The window governs **whether a fee applies, never whether withdrawal is possible**. There is no
 lock-up: a depositor with no request, or one whose window has passed, may still withdraw at any

@@ -809,7 +809,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         vm.startPrank(who);
         IStabilityPool_v3(pool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(who);
+        (uint64 start, ) = IStabilityPool_v3(pool).withdrawalRequest(who);
         vm.warp(uint256(start) + 1);
         uint256 before = IERC20(peggedToken).balanceOf(who);
         vm.startPrank(who);

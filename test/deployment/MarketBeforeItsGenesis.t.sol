@@ -78,7 +78,7 @@ contract MarketBeforeItsGenesisTest is DeployEURSetUp {
         vm.startPrank(holder);
         IStabilityPool_v3(stETH.collateralPool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 windowStart, ) = IStabilityPool_v3(stETH.collateralPool).getWithdrawalRequest(holder);
+        (uint64 windowStart, ) = IStabilityPool_v3(stETH.collateralPool).withdrawalRequest(holder);
         vm.warp(windowStart);
 
         uint256 floor = IStabilityPool_v3(stETH.collateralPool).MIN_TOTAL_ASSET_SUPPLY();
@@ -86,10 +86,10 @@ contract MarketBeforeItsGenesisTest is DeployEURSetUp {
         assertEq(paidInWindow, each - floor, "inside the window, all but the floor and no fee");
         assertEq(IStabilityPool_v3(stETH.collateralPool).assetBalanceOf(holder), floor, "the floor stays the holder's");
 
-        address feeReceiver = IStabilityPool_v3(stETH.leveragedPool).getFeeAddress();
+        address feeReceiver = IStabilityPool_v3(stETH.leveragedPool).feeReceiver();
         uint256 feeReceiverBefore = IERC20(pegged).balanceOf(feeReceiver);
         uint256 leavingThePool = each - IStabilityPool_v3(stETH.leveragedPool).MIN_TOTAL_ASSET_SUPPLY();
-        uint256 fee = (leavingThePool * IStabilityPool_v3(stETH.leveragedPool).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (leavingThePool * IStabilityPool_v3(stETH.leveragedPool).earlyWithdrawalFeeRatio()) / 1 ether;
         assertGt(fee, 0, "precondition: the pool charges a fee");
 
         uint256 paidOutsideAWindow = _withdrawAll(stETH.leveragedPool);

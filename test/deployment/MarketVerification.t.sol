@@ -7,9 +7,11 @@ import {BaoTest} from "@bao-test/BaoTest.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {Token} from "@bao/Token.sol";
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {ConfigMarket_BTC_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
 import {allPegsConfig} from "@harbor-script/src/AllMintersConfig.sol";
@@ -288,7 +290,8 @@ contract MarketVerificationOfEveryMarketTest is BaoTest {
         _deployAndCheck(6);
     }
 
-    /// @dev Deploy the peg at `pegIndex` of `allPegsConfig`, with every market of it, then check each market.
+    /// @dev Deploy the peg at `pegIndex` of `allPegsConfig`, with every market of it, then check each market: its wiring,
+    ///      and that its pools charge its config's fee and pay the treasury.
     function _deployAndCheck(uint256 pegIndex) private {
         forkMainnetWithBaoFactory();
         (ConfigPeg[7] memory pegs, Config_MinterMarket[][7] memory marketsByPeg) = allPegsConfig();
@@ -315,6 +318,15 @@ contract MarketVerificationOfEveryMarketTest is BaoTest {
                 addresses.leveragedPool,
                 addresses.manager
             );
+            address[2] memory pools = [addresses.collateralPool, addresses.leveragedPool];
+            for (uint256 p = 0; p < pools.length; ++p) {
+                assertEq(
+                    IStabilityPool_v3(pools[p]).earlyWithdrawalFeeRatio(),
+                    IHarborConfig(address(markets[i])).stabilityPoolEarlyWithdrawalFeeRatio(),
+                    "each pool charges the fee its config states"
+                );
+                assertEq(IStabilityPool_v3(pools[p]).feeReceiver(), deployRun.treasury(), "and pays the treasury");
+            }
         }
     }
 }

@@ -1,0 +1,4 @@
+# Holders: USD::PAXG::leveraged
+# address: 0xba7d5212B74CBB6A8EC3418a1F7C2B360f8aF144
+# to-block: 26248723
+# source: Transfer recipients (Etherscan), blocks 24049000-26248723

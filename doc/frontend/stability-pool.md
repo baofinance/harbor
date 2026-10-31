@@ -13,11 +13,11 @@ function ASSET_TOKEN() external view returns (address);
 function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the floor
 function MAX_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the ceiling
 function maxAssetLoss() external view returns (uint256);           // the headroom above the floor: supply - floor, or 0
-function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end);
-function getWithdrawalFeeFreeAmount(address account) external view returns (uint256); // what the request covers now
-function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
-function getEarlyWithdrawalFee() external view returns (uint256);
-function getFeeAddress() external view returns (address);
+function withdrawalRequest(address account) external view returns (uint64 start, uint64 end);
+function withdrawalFeeFreeAmount(address account) external view returns (uint256); // what the request covers now
+function withdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
+function earlyWithdrawalFeeRatio() external view returns (uint256);
+function feeReceiver() external view returns (address);
 function EXEMPT_WITHDRAWAL_FEE_ROLE() external view returns (uint256);
 function hasAnyRole(address user, uint256 roles) external view returns (bool);
 function activeRewardTokens() external view returns (address[]);
@@ -26,6 +26,20 @@ function claimed(address account, address[] tokens) external view returns (uint2
 function rewardData(address token) external view returns (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued);
 function REWARD_PERIOD_LENGTH() external view returns (uint40);
 ```
+
+Markets upgrade one at a time, so until all have, some pools run StabilityPool_v2 and some StabilityPool_v3. A pool
+answers only its own version's name for these, and reverts on the other, so read each pool by the name of the version it
+runs:
+
+| StabilityPool_v3 | StabilityPool_v2 |
+|---|---|
+| `withdrawalRequest(address)` | `getWithdrawalRequest(address)` |
+| `withdrawalFeeFreeAmount(address)` | none |
+| `withdrawalWindow()` | `getWithdrawalWindow()` |
+| `earlyWithdrawalFeeRatio()` | `getEarlyWithdrawalFee()` |
+| `feeReceiver()` | `getFeeAddress()` |
+
+A read that reverts tells you nothing about the fee: do not show it as no fee. The pool still charges it.
 
 ### Write Functions
 
@@ -50,10 +64,10 @@ const STABILITY_POOL_ABI = [
   "function MIN_TOTAL_ASSET_SUPPLY() view returns (uint256)",
   "function MAX_TOTAL_ASSET_SUPPLY() view returns (uint256)",
   "function maxAssetLoss() view returns (uint256)",
-  "function getWithdrawalRequest(address) view returns (uint64, uint64)",
-  "function getWithdrawalFeeFreeAmount(address) view returns (uint256)",
-  "function getWithdrawalWindow() view returns (uint64, uint64)",
-  "function getEarlyWithdrawalFee() view returns (uint256)",
+  "function withdrawalRequest(address) view returns (uint64, uint64)",
+  "function withdrawalFeeFreeAmount(address) view returns (uint256)",
+  "function withdrawalWindow() view returns (uint64, uint64)",
+  "function earlyWithdrawalFeeRatio() view returns (uint256)",
   "function EXEMPT_WITHDRAWAL_FEE_ROLE() view returns (uint256)",
   "function hasAnyRole(address, uint256) view returns (bool)",
   "function activeRewardTokens() view returns (address[])",
@@ -163,7 +177,7 @@ async function getStabilityPoolDeposit(poolAddress: string, userAddress: string,
   const pool = new Contract(poolAddress, STABILITY_POOL_ABI, provider);
   const balance = await pool.balanceOf(userAddress);
   const totalSupply = await pool.totalSupply();
-  const [start, end] = await pool.getWithdrawalRequest(userAddress);
+  const [start, end] = await pool.withdrawalRequest(userAddress);
 
   return {
     balance,
@@ -234,14 +248,14 @@ function calculateEstimatedStabilityPoolMarks(deposit: StabilityPoolDeposit): nu
 3. Fee-free window opens for `WITHDRAWAL_END_WINDOW` seconds
 4. After the window closes, the early withdrawal fee applies again
 
-`getWithdrawalWindow()` returns the two durations. `getWithdrawalFeeFreeAmount(account)` returns what the request covers
+`withdrawalWindow()` returns the two durations. `withdrawalFeeFreeAmount(account)` returns what the request covers
 now: the balance when it was made, reduced by the pool's losses and by transfers out since, and never more than the
 balance.
 
 ### Fee Rules
 
 - **Before window starts**: Early withdrawal fee applies
-- **During window [start, end]**, both ends included: No fee up to `getWithdrawalFeeFreeAmount(account)`, and the fee on
+- **During window [start, end]**, both ends included: No fee up to `withdrawalFeeFreeAmount(account)`, and the fee on
   anything above it
 - **After window ends**: Early withdrawal fee applies again
 - **An account holding `EXEMPT_WITHDRAWAL_FEE_ROLE`** never pays the fee
@@ -263,7 +277,7 @@ balance.
 ```typescript
 async function getWithdrawalRequestStatus(poolAddress: string, userAddress: string, provider: any) {
   const pool = new Contract(poolAddress, STABILITY_POOL_ABI, provider);
-  const [start, end] = await pool.getWithdrawalRequest(userAddress);
+  const [start, end] = await pool.withdrawalRequest(userAddress);
   const now = BigInt(Math.floor(Date.now() / 1000));
 
   const hasRequest = start > 0 && end > start;
@@ -274,7 +288,7 @@ async function getWithdrawalRequestStatus(poolAddress: string, userAddress: stri
     if (now < start) status = "waiting";
     else if (now >= start && now <= end) {
       status = "active";
-      feeFreeAmount = await pool.getWithdrawalFeeFreeAmount(userAddress);
+      feeFreeAmount = await pool.withdrawalFeeFreeAmount(userAddress);
     }
     else status = "expired";
   }
@@ -305,7 +319,7 @@ async function estimateWithdrawal(
   const exempt = await pool.hasAnyRole(userAddress, await pool.EXEMPT_WITHDRAWAL_FEE_ROLE());
   if (exempt || leaving <= feeFreeAmount) return { leaving, feeAmount: 0n, netAmount: leaving };
 
-  const earlyWithdrawalFee = await pool.getEarlyWithdrawalFee(); // scaled by 1e18
+  const earlyWithdrawalFee = await pool.earlyWithdrawalFeeRatio(); // scaled by 1e18
   const feeAmount = ((leaving - feeFreeAmount) * earlyWithdrawalFee) / BigInt("1000000000000000000");
   return { leaving, feeAmount, netAmount: leaving - feeAmount };
 }

@@ -96,15 +96,29 @@ contract CompensateRebalanceDilutionTest is BaoTest {
 
     /// @dev The compensated upgrade of BTC::stETH and EUR::stETH, from the frozen capture and the two incident files.
     function _aRun() private returns (CompensationRun run) {
-        (, Config_MinterMarket[] memory btc) = btcMintersConfig();
-        (, Config_MinterMarket[] memory eur) = eurMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](2);
-        markets[0] = btc[1]; // BTC::stETH
-        markets[1] = eur[1]; // EUR::stETH
+        markets[0] = _btcStETH();
+        markets[1] = _eurStETH();
+        return _aRunOf(markets);
+    }
+
+    function _btcStETH() private returns (Config_MinterMarket) {
+        (, Config_MinterMarket[] memory btc) = btcMintersConfig();
+        return btc[1];
+    }
+
+    function _eurStETH() private returns (Config_MinterMarket) {
+        (, Config_MinterMarket[] memory eur) = eurMintersConfig();
+        return eur[1];
+    }
+
+    /// @dev The compensated upgrade of `markets`, from the frozen capture and the two incident files.
+    function _aRunOf(Config_MinterMarket[] memory markets) private returns (CompensationRun run) {
         // A contract made on one fork is absent from another unless persistent: the run reads the frozen markets on
         // forks of its own.
-        vm.makePersistent(address(markets[0]));
-        vm.makePersistent(address(markets[1]));
+        for (uint256 m = 0; m < markets.length; ++m) {
+            vm.makePersistent(address(markets[m]));
+        }
         string[] memory files = new string[](2);
         files[0] = BTC_STETH_COMPENSATION;
         files[1] = EUR_STETH_COMPENSATION;
@@ -438,6 +452,98 @@ contract CompensateRebalanceDilutionTest is BaoTest {
             "the multisig keeps what it held beyond the fees, and the dust"
         );
         _checkReport(run, markets, p, before);
+    }
+
+    /// BTC::stETH and EUR::stETH share one fund and one fraction of each debt, so sizing either from its own file alone
+    /// would mint a different amount. A market run alone queues what a run of both queues for it: the same payout, the
+    /// same holders, gaps, deductions and owner's operations in its upgrade's inputs, and the same calls in the same order.
+    function test_aCompensatedMarketAlone_queuesWhatTheWholeRunQueues() public {
+        Config_MinterMarket[] memory both = new Config_MinterMarket[](2);
+        both[0] = _btcStETH();
+        both[1] = _eurStETH();
+        // Made here, and each run below is on a fork of its own.
+        vm.makePersistent(address(both[0]));
+        vm.makePersistent(address(both[1]));
+        (CompensationRun whole, Deployer.Transaction[] memory wholeQueued) = _ranOnAFreshFork(both);
+
+        Config_MinterMarket[] memory one = new Config_MinterMarket[](1);
+        one[0] = both[0];
+        (CompensationRun btcAlone, Deployer.Transaction[] memory btcQueued) = _ranOnAFreshFork(one);
+        one = new Config_MinterMarket[](1);
+        one[0] = both[1];
+        (CompensationRun eurAlone, Deployer.Transaction[] memory eurQueued) = _ranOnAFreshFork(one);
+
+        assertEq(
+            btcQueued.length + eurQueued.length,
+            wholeQueued.length,
+            "the runs alone queue what the whole run does"
+        );
+        assertEq(abi.encode(btcAlone.payout()), abi.encode(whole.payout()), "BTC::stETH alone sizes the whole payout");
+        assertEq(abi.encode(eurAlone.payout()), abi.encode(whole.payout()), "EUR::stETH alone sizes the whole payout");
+        _assertSameInput(btcAlone.inputs()[0], whole.inputs()[0], "BTC::stETH alone");
+        _assertSameInput(eurAlone.inputs()[0], whole.inputs()[1], "EUR::stETH alone");
+        _assertSameCalls(btcQueued, wholeQueued, 0, "BTC::stETH alone");
+        _assertSameCalls(eurQueued, wholeQueued, btcQueued.length, "EUR::stETH alone");
+    }
+
+    /// @dev Run the upgrade of `markets` on a fork of its own at the block after the capture's, and return it with what
+    ///      it queued. It stays readable across forks.
+    function _ranOnAFreshFork(
+        Config_MinterMarket[] memory markets
+    ) private returns (CompensationRun run, Deployer.Transaction[] memory queued) {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        run = _aRunOf(markets);
+        vm.makePersistent(address(run));
+        run.run(SALT);
+        queued = run.batches();
+    }
+
+    /// @dev Two runs' reads of one market's upgrade: the holders, gap, floor and window of each pool, the deductions and
+    ///      the owner's operations.
+    function _assertSameInput(
+        UpgradeMarketToV3.MarketUpgradeInput memory actual,
+        UpgradeMarketToV3.MarketUpgradeInput memory expected,
+        string memory what
+    ) private pure {
+        assertEq(
+            abi.encode(actual.collateralPool),
+            abi.encode(expected.collateralPool),
+            string.concat(what, ": the collateral pool's input")
+        );
+        assertEq(
+            abi.encode(actual.leveragedPool),
+            abi.encode(expected.leveragedPool),
+            string.concat(what, ": the leveraged pool's input")
+        );
+        assertEq(
+            abi.encode(actual.ownerOperations),
+            abi.encode(expected.ownerOperations),
+            string.concat(what, ": the owner's operations")
+        );
+    }
+
+    /// @dev `actual`'s calls against `expected`'s from `at`, in order: each to the same contract and described alike, and
+    ///      each carrying the same data, but for the two kinds that name a contract the run itself deployed - an upgrade
+    ///      and an oracle move - whose descriptions state what they do and whose pool inputs are compared apart.
+    function _assertSameCalls(
+        Deployer.Transaction[] memory actual,
+        Deployer.Transaction[] memory expected,
+        uint256 at,
+        string memory what
+    ) private pure {
+        assertGt(actual.length, 0, string.concat(what, ": queues its batch"));
+        for (uint256 i = 0; i < actual.length; ++i) {
+            string memory call = string.concat(what, ", call ", vm.toString(i));
+            assertEq(actual[i].target, expected[at + i].target, string.concat(call, ": the contract called"));
+            assertEq(actual[i].description, expected[at + i].description, string.concat(call, ": what it does"));
+            bytes4 selector = bytes4(actual[i].data);
+            assertEq(selector, bytes4(expected[at + i].data), string.concat(call, ": the function called"));
+            if (
+                selector != UUPSUpgradeable.upgradeToAndCall.selector && selector != IMinter.updatePriceOracle.selector
+            ) {
+                assertEq(actual[i].data, expected[at + i].data, string.concat(call, ": the amounts"));
+            }
+        }
     }
 
     /// @dev The run under test, for the checks after it.
@@ -789,7 +895,7 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         while (
             !(queued[at].target == manager && bytes4(queued[at].data) == UUPSUpgradeable.upgradeToAndCall.selector)
         ) {
-            if (queued[at].target == b.pool) {
+            if (queued[at].target == b.pool && bytes4(queued[at].data) == UUPSUpgradeable.upgradeToAndCall.selector) {
                 _checkDeductionsIn(queued[at].data, run.deductionsOf(market), market.name);
             }
             if (queued[at].target == b.minter && bytes4(queued[at].data) == IMinter.updatePriceOracle.selector) {

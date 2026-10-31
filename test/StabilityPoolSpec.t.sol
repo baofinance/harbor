@@ -129,7 +129,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(uint256(start) + 1); // inside the no-fee window
 
         uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
@@ -179,7 +179,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
 
         // Request 1.5*floor: leaves floor/2 (dust) if honoured, so it must clamp to leave exactly the floor.
@@ -204,7 +204,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(3 * floor, user1, 0);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
@@ -227,7 +227,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start2, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start2, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(uint256(start2) + 1);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
@@ -263,7 +263,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user1);
         uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
@@ -302,7 +302,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(start + 1);
         vm.startPrank(user1);
         uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
@@ -593,7 +593,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(start + 1);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
@@ -608,7 +608,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        (start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user2);
         vm.warp(start + 1);
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user2, 0);
@@ -782,7 +782,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     /// Several changes in one block leave one row, holding the supply after the last of them: here two deposits and a
     /// withdrawal outside any window, fee-charged, so the supply falls by the whole amount withdrawn, the fee included.
     function test_supplyHistory_keepsOnlyTheLastChangeInABlock() public {
-        address feeAddress = IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress();
+        address feeAddress = IStabilityPool_v3(stabilityPoolCollateral).feeReceiver();
         uint256 feesBefore = IERC20(peggedToken).balanceOf(feeAddress);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);

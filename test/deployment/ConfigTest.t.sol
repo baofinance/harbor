@@ -17,10 +17,123 @@ import {ConfigMarket_GOLD_stETH_mainnet} from "@harbor-script/config/markets/Con
 import {ConfigMarket_EUR_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
 import {ConfigMarket_EUR_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
-import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {
+    allMintersConfig,
+    isFrozen,
+    marketsNamed,
+    marketsToUpgrade,
+    pegNamed
+} from "@harbor-script/src/AllMintersConfig.sol";
+import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {usdMintersConfig} from "@harbor-script/src/Deploy_USD_Minter.sol";
 
 contract ConfigTest is Test {
     using MinterMarketConfigLib for Config_MinterMarket;
+
+    /// @dev The salts of `markets`, in order, so a list compares as one literal.
+    function _salts(Config_MinterMarket[] memory markets) private view returns (string memory joined) {
+        for (uint256 i = 0; i < markets.length; i++) {
+            joined = string.concat(joined, i == 0 ? "" : " ", markets[i].salt());
+        }
+    }
+
+    function marketsNamedFromOutside(string memory peg, string memory collateral) external {
+        marketsNamed(peg, collateral);
+    }
+
+    function marketsToUpgradeFromOutside() external {
+        marketsToUpgrade();
+    }
+
+    function parseCollateralFilterFromOutside(
+        Config_MinterMarket[] memory markets,
+        string memory collateralFilter
+    ) external view {
+        MinterMarketConfigLib.parseCollateralFilter(markets, collateralFilter);
+    }
+
+    /// A peg's name gives the peg and its markets, in the peg's order.
+    function test_pegNamed_givesThePegAndItsMarkets() public {
+        (ConfigPeg peg, Config_MinterMarket[] memory markets) = pegNamed("GOLD");
+        assertEq(peg.key(), "GOLD", "the peg");
+        assertEq(_salts(markets), "GOLD::fxUSD GOLD::stETH", "its markets");
+    }
+
+    /// A peg and one of its collaterals name that one market, wherever it sits in the peg's list.
+    function test_marketsNamed_aPegAndACollateral_giveThatMarket() public {
+        assertEq(_salts(marketsNamed("USD", "PAXG")), "USD::PAXG", "the first of four");
+        assertEq(_salts(marketsNamed("USD", "stETH")), "USD::stETH", "the last of four");
+        assertEq(_salts(marketsNamed("ETH", "fxUSD")), "ETH::fxUSD", "a peg's only market");
+    }
+
+    /// `*` names every market of the peg, in the peg's order, whether it has one, two or four.
+    function test_marketsNamed_aPegAndStar_giveEveryMarketOfThePeg() public {
+        assertEq(_salts(marketsNamed("ETH", "*")), "ETH::fxUSD", "one market");
+        assertEq(_salts(marketsNamed("BTC", "*")), "BTC::fxUSD BTC::stETH", "two markets");
+        assertEq(_salts(marketsNamed("USD", "*")), "USD::PAXG USD::tBTC USD::wBTC USD::stETH", "four markets");
+    }
+
+    /// An unknown peg is refused naming it, and so is an unknown collateral. A collateral of another peg is unknown, and
+    /// so is a whole market's name in place of a collateral.
+    function test_marketsNamed_anUnknownName_reverts() public {
+        vm.expectRevert(bytes("Peg not found: XAU"));
+        this.marketsNamedFromOutside("XAU", "*");
+        vm.expectRevert(bytes("Market not found for collateral: stETH"));
+        this.marketsNamedFromOutside("ETH", "stETH");
+        vm.expectRevert(bytes("Market not found for collateral: USD::stETH"));
+        this.marketsNamedFromOutside("USD", "USD::stETH");
+    }
+
+    /// An empty collateral is refused naming the peg, where the deploy's filter gives no markets: no name is an error.
+    function test_marketsNamed_noCollateral_reverts() public {
+        vm.expectRevert(bytes("No collateral named for peg: USD"));
+        this.marketsNamedFromOutside("USD", "");
+    }
+
+    /// With nothing named in the environment the run is refused, naming what is missing.
+    function test_marketsToUpgrade_withNoName_reverts() public {
+        vm.expectRevert(bytes('vm.envString: environment variable "UPGRADE_PEG" not found'));
+        this.marketsToUpgradeFromOutside();
+    }
+
+    /// Every market of the six paused pegs reads frozen, and no USD market does.
+    function test_isFrozen_listsTheElevenAndNotUSD() public {
+        Config_MinterMarket[] memory markets = allMintersConfig();
+        uint256 frozen;
+        for (uint256 i = 0; i < markets.length; i++) {
+            bool isUSD = LibString.eq(markets[i].peg(), "USD");
+            assertEq(isFrozen(markets[i]), !isUSD, markets[i].salt());
+            frozen += isUSD ? 0 : 1;
+        }
+        assertEq(frozen, 11, "the markets the pause froze");
+    }
+
+    /// The deploy scripts' filter: `*` takes every market, an empty filter none - a deploy of only the pegged token - and
+    /// a collateral that one market. A collateral no market has reverts naming it, over no markets, one or several.
+    function test_parseCollateralFilter_selectsAsTheDeployScriptsRelyOn() public {
+        Config_MinterMarket[] memory none = new Config_MinterMarket[](0);
+        (, Config_MinterMarket[] memory one) = ethMintersConfig();
+        (, Config_MinterMarket[] memory several) = usdMintersConfig();
+
+        assertEq(MinterMarketConfigLib.parseCollateralFilter(none, "*").length, 0, "every market of no markets");
+        assertEq(_salts(MinterMarketConfigLib.parseCollateralFilter(one, "*")), "ETH::fxUSD", "every market of one");
+        assertEq(
+            _salts(MinterMarketConfigLib.parseCollateralFilter(several, "*")),
+            "USD::PAXG USD::tBTC USD::wBTC USD::stETH",
+            "every market of several"
+        );
+        assertEq(MinterMarketConfigLib.parseCollateralFilter(several, "").length, 0, "an empty filter takes none");
+        assertEq(_salts(MinterMarketConfigLib.parseCollateralFilter(one, "fxUSD")), "ETH::fxUSD", "the only market");
+        assertEq(_salts(MinterMarketConfigLib.parseCollateralFilter(several, "wBTC")), "USD::wBTC", "one of several");
+
+        vm.expectRevert(bytes("Market not found for collateral: WETH"));
+        this.parseCollateralFilterFromOutside(none, "WETH");
+        vm.expectRevert(bytes("Market not found for collateral: WETH"));
+        this.parseCollateralFilterFromOutside(one, "WETH");
+        vm.expectRevert(bytes("Market not found for collateral: WETH"));
+        this.parseCollateralFilterFromOutside(several, "WETH");
+    }
 
     function test_market_ETH_fxUSD() public {
         Config_MinterMarket config = new ConfigMarket_ETH_fxUSD_mainnet();

@@ -805,7 +805,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
                 vm.startPrank(user2);
                 IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
                 vm.stopPrank();
-                (uint64 _start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user2);
+                (uint64 _start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user2);
                 vm.warp(_start + 1);
                 vm.startPrank(user2);
                 IStabilityPool_v3(stabilityPoolCollateral).withdraw(400 ether, user2, 0);

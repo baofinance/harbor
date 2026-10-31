@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {LibString} from "@solady/utils/LibString.sol";
 import {PeggedToken} from "@harbor-script/src/contracts/PeggedToken.sol";
 import {LeveragedToken} from "@harbor-script/src/contracts/LeveragedToken.sol";
 import {Minter} from "@harbor-script/src/contracts/Minter.sol";
@@ -29,50 +28,9 @@ abstract contract HarborDeployStack is
     Genesis,
     Repayment
 {
-    using LibString for string;
-
     /// @dev What this stack deploys, named once so the run's opening and closing lines cannot drift apart.
     /// @dev `internal` so a test-side subclass running a partial deploy reports under the same banner.
     string internal constant HARBOR_DEPLOYMENT_NAME = "Minter Contracts";
-
-    // ========== MARKET LOOKUP ==========
-
-    /// @notice Find a market config by collateral name.
-    /// @param markets Array of market configurations.
-    /// @param collateral Collateral name to find.
-    /// @return The matching market config.
-    /// @dev Reverts if not found.
-    function findMarket(
-        Config_MinterMarket[] memory markets,
-        string memory collateral
-    ) internal view returns (Config_MinterMarket) {
-        bytes32 target = keccak256(bytes(collateral));
-        for (uint256 i = 0; i < markets.length; i++) {
-            if (keccak256(bytes(MinterMarketConfigLib.collateral(markets[i]))) == target) {
-                return markets[i];
-            }
-        }
-        revert(string.concat("Market not found for collateral: ", collateral));
-    }
-
-    /// @notice Parse collateral filter string into array of markets.
-    /// @param allMarkets All configured markets.
-    /// @param collateralFilter "*" for all, or single collateral name.
-    /// @return Filtered array of markets.
-    function parseCollateralFilter(
-        Config_MinterMarket[] memory allMarkets,
-        string memory collateralFilter
-    ) internal view returns (Config_MinterMarket[] memory) {
-        if (collateralFilter.eq("*")) {
-            return allMarkets;
-        }
-        if (bytes(collateralFilter).length == 0) {
-            return new Config_MinterMarket[](0);
-        }
-        Config_MinterMarket[] memory result = new Config_MinterMarket[](1);
-        result[0] = findMarket(allMarkets, collateralFilter);
-        return result;
-    }
 
     // ========== THE DEPLOY RUN ==========
 

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "harbor_v1",
+  "network": "mainnet",
+  "chainId": 1,
+  "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "lastUpdated": "2026-10-31T00:00:00Z",
+  "implementations": {
+    "0x1111111111111111111111111111111111111111": {
+      "proxy": "MCAP::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v3.sol",
+      "contractType": "Minter_v3",
+      "deploymentTime": "2026-10-31T00:00:00Z"
+    },
+    "0x2222222222222222222222222222222222222222": {
+      "proxy": "BTC::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v3.sol",
+      "contractType": "StabilityPool_v3",
+      "deploymentTime": "2026-10-31T00:00:00Z"
+    },
+    "0x3333333333333333333333333333333333333333": {
+      "proxy": "BTC::fxUSD::stabilityPoolManager",
+      "contractSource": "@harbor/minter/StabilityPoolManager_v2.sol",
+      "contractType": "StabilityPoolManager_v2",
+      "deploymentTime": "2026-10-31T00:00:00Z"
+    },
+    "0x4444444444444444444444444444444444444444": {
+      "proxy": "MCAP::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-10-31T00:00:00Z"
+    }
+  },
+  "proxies": {}
+}

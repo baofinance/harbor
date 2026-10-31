@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Script} from "forge-std/Script.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice Deploy Harbor SILVER pegged token and SILVER markets.
 contract Deploy_SILVER_mainnet is Deploy_SILVER_Minter, Script {
@@ -30,7 +30,10 @@ contract Deploy_SILVER_mainnet is Deploy_SILVER_Minter, Script {
         }
         // Create config BEFORE broadcast - config contracts NOT deployed on-chain
         (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createSILVERMintersConfig();
-        Config_MinterMarket[] memory marketsToDeploy = parseCollateralFilter(allMarkets, collateral);
+        Config_MinterMarket[] memory marketsToDeploy = MinterMarketConfigLib.parseCollateralFilter(
+            allMarkets,
+            collateral
+        );
 
         vm.startBroadcast();
         deployHarborForPeg(saltPrefix, peg, allMarkets, network, deployPeg, marketsToDeploy);

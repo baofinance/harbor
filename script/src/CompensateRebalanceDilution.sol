@@ -99,15 +99,42 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
     /// @notice The file's debts do not sum to the total it records.
     error DebtsDoNotSumToTheTotal(string market, uint256 sum, uint256 total);
 
-    /// @notice A compensation file names a market the upgrade's inputs do not.
-    error MarketNotInTheUpgrade(string market);
-
     /// @notice A market's oracle reported two prices or two rates at the capture's block, which the sizing is not
     ///         proven for.
     error OracleAnswerHasABand(string market, uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate);
 
     /// @notice Two markets hold different wrapped collateral tokens, so their fees and debts cannot be one fund.
     error MarketsOfDifferentWrappedCollateral(string market, string other);
+
+    /// @notice What upgrading `markets` needs, as the upgrade script reads it: each market's inputs, and the compensation
+    ///         `files` describe, put into the inputs of the markets among them. The payout is sized over every file
+    ///         whichever markets are named, because they share one fund and one fraction of each debt, so a market run
+    ///         alone queues what a run of them all queues. Where no market named is one a file describes, nothing is
+    ///         sized and `compensated` is empty.
+    function readUpgradeInputsAndCompensation(
+        Config_MinterMarket[] memory markets,
+        string memory capture,
+        string memory network,
+        string[] memory files
+    )
+        internal
+        returns (MarketUpgradeInput[] memory inputs, MarketCompensation[] memory compensated, Payout memory payout)
+    {
+        inputs = readUpgradeInputs(markets, capture, network);
+        MarketCompensation[] memory described = new MarketCompensation[](files.length);
+        bool isCompensated;
+        for (uint256 f = 0; f < files.length; ++f) {
+            described[f] = readCompensation(files[f]);
+            for (uint256 m = 0; m < markets.length; ++m) {
+                isCompensated =
+                    isCompensated || LibString.eq(MinterMarketConfigLib.salt(markets[m]), described[f].name);
+            }
+        }
+        if (isCompensated) {
+            compensated = described;
+            payout = compensate(inputs, compensated, readFrozenMarkets(compensated, capture, network));
+        }
+    }
 
     /// @notice Read a market's compensation file.
     function readCompensation(string memory file) internal returns (MarketCompensation memory m) {
@@ -334,10 +361,10 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
         return MinterValuationLib.collateralRatio(state.backing, state.answer.minPrice, state.peggedSupply);
     }
 
-    /// @notice Put the compensation into the upgrade's inputs: for each market a file describes, its leveraged pool
-    ///         takes back the gainers' cuts, and the owner's operations after its upgrade - priced at the market's
-    ///         frozen reading - redeem the pegged fees and the tokens taken back and mint for each loser its share of
-    ///         the fund, sized here.
+    /// @notice Put the compensation into the upgrade's inputs: for each market a file describes that `inputs` holds, its
+    ///         leveraged pool takes back the gainers' cuts, and the owner's operations after its upgrade - priced at the
+    ///         market's frozen reading - redeem the pegged fees and the tokens taken back and mint for each loser its
+    ///         share of the fund, sized here over every file.
     function compensate(
         MarketUpgradeInput[] memory inputs,
         MarketCompensation[] memory markets,
@@ -345,15 +372,18 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
     ) internal returns (Payout memory p) {
         p = sizePayout(markets, frozen);
         for (uint256 m = 0; m < markets.length; ++m) {
-            uint256 at = _inputOf(inputs, markets[m].name);
-            inputs[at].leveragedPool.deductions = deductions(markets[m]);
-            inputs[at].ownerOperations = OwnerOperations({
-                answer: frozen[m].answer,
-                peggedRedeemed: markets[m].feesPegged,
-                leveragedRedeemed: markets[m].totalCutTokens,
-                accounts: markets[m].accounts,
-                mints: p.mints[m]
-            });
+            for (uint256 i = 0; i < inputs.length; ++i) {
+                if (LibString.eq(MinterMarketConfigLib.salt(inputs[i].market), markets[m].name)) {
+                    inputs[i].leveragedPool.deductions = deductions(markets[m]);
+                    inputs[i].ownerOperations = OwnerOperations({
+                        answer: frozen[m].answer,
+                        peggedRedeemed: markets[m].feesPegged,
+                        leveragedRedeemed: markets[m].totalCutTokens,
+                        accounts: markets[m].accounts,
+                        mints: p.mints[m]
+                    });
+                }
+            }
         }
     }
 
@@ -564,17 +594,6 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
         for (uint256 i = 0; i < amounts.length; ++i) {
             total += amounts[i];
         }
-    }
-
-    /// @dev The index in `inputs` of the market named `name`, as "<peg>::<collateral>".
-    function _inputOf(MarketUpgradeInput[] memory inputs, string memory name) private view returns (uint256) {
-        bytes32 wanted = keccak256(bytes(name));
-        for (uint256 i = 0; i < inputs.length; ++i) {
-            if (keccak256(bytes(MinterMarketConfigLib.salt(inputs[i].market))) == wanted) {
-                return i;
-            }
-        }
-        revert MarketNotInTheUpgrade(name);
     }
 
     /// @dev The market config `frozenMintersConfig` lists under `name`, as "<peg>::<collateral>".

@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
@@ -14,6 +15,7 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
@@ -77,6 +79,37 @@ contract ConfigMarket_MCAP_fxUSD_otherManagerTerms is ConfigMarket_MCAP_fxUSD_ma
     }
 }
 
+/// @dev MCAP::fxUSD as production configures it, with the early-withdrawal fee its live pools hold.
+contract ConfigMarket_MCAP_fxUSD_feeItsPoolsHold is ConfigMarket_MCAP_fxUSD_mainnet {
+    function stabilityPoolEarlyWithdrawalFeeRatio() public pure override returns (uint256) {
+        return 1e16;
+    }
+}
+
+/// @dev The market upgrade, whose deployment state starts from a file, as a script's does. It reads the file and saves
+///      nothing.
+contract MarketUpgradeRunFromAStateFile is MarketUpgradeRun {
+    string private _stateFile;
+
+    constructor(
+        Config_MinterMarket[] memory markets_,
+        string memory capture_,
+        string memory stateFile_
+    ) MarketUpgradeRun(markets_, capture_) {
+        _stateFile = stateFile_;
+    }
+
+    function _shouldPersistState() internal pure override returns (bool) {
+        return true;
+    }
+
+    function _stateFileRead() internal view override returns (string memory) {
+        return _stateFile;
+    }
+
+    function _saveState(DeploymentTypes.State memory) internal override {}
+}
+
 /// @notice The shared market upgrade - read each market's inputs, then `UpgradeMarketToV3.upgradeMarketsToV3` - on the
 ///         live MCAP::fxUSD market at the block of a committed holder capture: deployed and never used, so its pools
 ///         are empty and the capture lists no holders. It checks the minter's config, which the upgrade loads again
@@ -85,6 +118,12 @@ contract ConfigMarket_MCAP_fxUSD_otherManagerTerms is ConfigMarket_MCAP_fxUSD_ma
 ///         pool's floor or withdrawal window, and a capture that misses a holder.
 contract UpgradeMarketToV3Test is Test {
     string internal constant CAPTURE = "test/fixtures/holders-25272609/";
+
+    /// @dev A state recording, as a run that built them would: Minter_v3 for MCAP::fxUSD's minter, StabilityPool_v3 for
+    ///      BTC::stETH's collateral pool and StabilityPoolManager_v2 for BTC::fxUSD's manager; and for MCAP::stETH only
+    ///      what it runs today.
+    string internal constant STATE_RECORDING_NEW_IMPLEMENTATIONS =
+        "test/fixtures/deployment/harbor_v1-new-implementations.state.json";
 
     /// @dev A later block, at which BTC::stETH's collateral pool holds a depositor who joined after `CAPTURE`.
     uint256 internal constant AFTER_A_DEPOSITOR_JOINED = 25691117;
@@ -625,6 +664,299 @@ contract UpgradeMarketToV3Test is Test {
         vm.makePersistent(address(refused));
 
         vm.expectRevert(bytes(refusal));
+        refused.run("harbor_v1");
+    }
+
+    /// A pool whose fee differs from its config's is moved to it by its market's batch, straight after the pool's own
+    /// upgrade and before the next pool's. MCAP::fxUSD's pools hold 1% and its config states 5%.
+    function test_aPoolWhoseFeeDiffersFromItsConfig_getsTheSetterInItsBatch() public {
+        (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
+        address collateralPool = deployRun.stabilityPoolAddress(
+            markets[0],
+            HarborDeployer.StabilityPoolType.Collateral
+        );
+        address leveragedPool = deployRun.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Leveraged);
+        assertEq(
+            IStabilityPool(collateralPool).getEarlyWithdrawalFee(),
+            1e16,
+            "precondition: the collateral pool holds 1%"
+        );
+        assertEq(
+            IStabilityPool(leveragedPool).getEarlyWithdrawalFee(),
+            1e16,
+            "precondition: the leveraged pool holds 1%"
+        );
+        uint256 configured = IHarborConfig(address(markets[0])).stabilityPoolEarlyWithdrawalFeeRatio();
+        assertEq(configured, 5e16, "precondition: the config states 5%");
+
+        vm.recordLogs();
+        upgrade.run("harbor_v1");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(
+            IStabilityPool_v3(collateralPool).earlyWithdrawalFeeRatio(),
+            configured,
+            "the collateral pool's new fee"
+        );
+        assertEq(
+            IStabilityPool_v3(leveragedPool).earlyWithdrawalFeeRatio(),
+            configured,
+            "the leveraged pool's new fee"
+        );
+
+        bytes32 upgraded = IERC1967.Upgraded.selector;
+        bytes32 feeUpdated = IStabilityPool_v3.EarlyWithdrawalFeeUpdated.selector;
+        uint256 collateralFee = _lastLog(logs, collateralPool, feeUpdated);
+        assertGt(collateralFee, _lastLog(logs, collateralPool, upgraded), "the setter follows the pool's upgrade");
+        assertLt(collateralFee, _firstLog(logs, leveragedPool, upgraded), "and comes before the next pool's");
+        assertGt(
+            _lastLog(logs, leveragedPool, feeUpdated),
+            _lastLog(logs, leveragedPool, upgraded),
+            "so does the other's"
+        );
+    }
+
+    /// A pool already holding its config's fee gets no call to the setter, and its fee stays.
+    function test_aPoolHoldingItsConfigsFee_getsNoSetter() public {
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_MCAP_fxUSD_feeItsPoolsHold();
+        address collateralPool = deployRun.stabilityPoolAddress(
+            markets[0],
+            HarborDeployer.StabilityPoolType.Collateral
+        );
+        address leveragedPool = deployRun.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Leveraged);
+
+        vm.recordLogs();
+        new MarketUpgradeRun(markets, CAPTURE).run("harbor_v1");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertGt(_firstLog(logs, collateralPool, IERC1967.Upgraded.selector), 0, "precondition: the upgrade ran");
+        for (uint256 i = 0; i < logs.length; ++i) {
+            assertNotEq(logs[i].topics[0], IStabilityPool_v3.EarlyWithdrawalFeeUpdated.selector, "no setter is called");
+        }
+        assertEq(IStabilityPool_v3(collateralPool).earlyWithdrawalFeeRatio(), 1e16, "the collateral pool's fee stays");
+        assertEq(IStabilityPool_v3(leveragedPool).earlyWithdrawalFeeRatio(), 1e16, "the leveraged pool's fee stays");
+    }
+
+    /// An empty pool - no supply, and every reward stream record zero - has nothing to migrate, so its batch upgrades it
+    /// directly to its new implementation: one upgrade, not two. A run of only such pools deploys no upgrader. It also
+    /// reads no holders: the fixture's capture would not need to list them. MCAP::fxUSD's pools are both empty, one with
+    /// one reward token and one with two.
+    function test_anEmptyPool_getsAPlainUpgrade() public {
+        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        (, Config_MinterMarket[] memory mcap) = mcapMintersConfig();
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = mcap[0]; // MCAP::fxUSD
+        vm.makePersistent(address(markets[0]));
+        HarborDeployRun addresses = new HarborDeployRun(
+            address(0),
+            address(0),
+            "harbor_v1",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        address[2] memory pools = [
+            addresses.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral),
+            addresses.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Leveraged)
+        ];
+        FrozenMarketUpgradeRun run = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE, _noOperations());
+        vm.makePersistent(address(run));
+
+        vm.recordLogs();
+        run.run("harbor_v1");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        for (uint256 p = 0; p < pools.length; ++p) {
+            uint256 upgrades;
+            for (uint256 i = 0; i < logs.length; ++i) {
+                if (logs[i].emitter == pools[p] && logs[i].topics[0] == IERC1967.Upgraded.selector) {
+                    ++upgrades;
+                }
+            }
+            assertEq(upgrades, 1, "upgraded once, directly");
+            assertEq(IStabilityPool_v3(pools[p]).MINTER(), addresses.minterAddress(markets[0]), "to StabilityPool_v3");
+        }
+        DeploymentTypes.ImplementationRecord[] memory recorded = run.recorded();
+        for (uint256 i = 0; i < recorded.length; ++i) {
+            assertNotEq(recorded[i].contractType, "StabilityPool_v3_Upgrader", "no upgrader is deployed");
+        }
+    }
+
+    /// A pool with no supply and no holders, but a reward stream record, is not empty: a direct upgrade would drop the
+    /// record, so it goes through the upgrader, which keeps it. GOLD::stETH's collateral pool holds one from a stream
+    /// that finished on 2026-04-09.
+    function test_aPoolWithAStreamRecordAndNoHolders_goesThroughTheUpgrader() public {
+        uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
+        (, Config_MinterMarket[] memory gold) = goldMintersConfig();
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = gold[1]; // GOLD::stETH
+        vm.makePersistent(address(markets[0]));
+        HarborDeployRun addresses = new HarborDeployRun(
+            address(0),
+            address(0),
+            "harbor_v1",
+            "mainnet",
+            HarborDeployRun.Cut.Whole
+        );
+        vm.makePersistent(address(addresses));
+        address pool = addresses.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        assertEq(IStabilityPool(pool).totalAssetSupply(), 0, "precondition: no supply");
+        assertEq(
+            HolderCaptureLib
+                .holders(
+                    FROZEN_MARKETS_CAPTURE,
+                    addresses.stabilityPoolKey(markets[0], HarborDeployer.StabilityPoolType.Collateral)
+                )
+                .length,
+            0,
+            "precondition: no holders"
+        );
+        address token = IMultipleRewardDistributor(pool).activeRewardTokens()[0];
+        bytes memory recordBefore = _rewardRecordOf(pool, token);
+        assertNotEq(recordBefore, abi.encode(uint256(0), uint256(0), uint256(0), uint256(0)), "precondition: a record");
+
+        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        FrozenMarketUpgradeRun run = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE, _noOperations());
+        vm.makePersistent(address(run));
+        run.run("harbor_v1");
+
+        assertEq(_rewardRecordOf(pool, token), recordBefore, "the record survives the upgrade");
+        assertEq(_recordedAs(run.recorded(), "StabilityPool_v3_Upgrader").proxy, "*", "through the upgrader");
+    }
+
+    function _rewardRecordOf(address pool, address token) private view returns (bytes memory) {
+        (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(pool)
+            .rewardData(token);
+        return abi.encode(lastUpdate, finishAt, rate, queued);
+    }
+
+    /// A deposit makes an empty pool non-empty, so the upgrade reads its holders, finds the capture does not list the
+    /// depositor, and refuses it, naming the pool and what the holders hold, before anything is built.
+    function test_aPoolWithADepositTheCaptureDoesNotList_isRefused() public {
+        (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
+        _assertADepositIsRefused(markets[0]);
+    }
+
+    /// The supply alone makes a pool non-empty: with no active reward token, a deposit leaves no reward stream record, so
+    /// nothing else shows it. A direct upgrade would lose the depositor's balance, so the upgrade reads its holders and
+    /// refuses it.
+    function test_aPoolWithADepositAndNoRewardToken_isRefused() public {
+        (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
+        address pool = deployRun.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral);
+        address[] memory tokens = IMultipleRewardDistributor(pool).activeRewardTokens();
+        assertGt(tokens.length, 0, "precondition: the pool has reward tokens to remove");
+        vm.startPrank(IBaoOwnable(pool).owner());
+        for (uint256 t = 0; t < tokens.length; ++t) {
+            IMultipleRewardDistributor(pool).unregisterRewardToken(tokens[t]);
+        }
+        vm.stopPrank();
+        assertEq(IMultipleRewardDistributor(pool).activeRewardTokens().length, 0, "precondition: no reward token");
+
+        _assertADepositIsRefused(markets[0]);
+    }
+
+    /// @dev Deposits into `market`'s collateral pool as an account the capture does not list, and expects the upgrade to
+    ///      refuse the pool, naming what the holders hold.
+    function _assertADepositIsRefused(Config_MinterMarket market) private {
+        address pool = deployRun.stabilityPoolAddress(market, HarborDeployer.StabilityPoolType.Collateral);
+        address depositor = makeAddr("depositor");
+        uint256 amount = 10 ether;
+        address pegged = IMinter(minter).PEGGED_TOKEN();
+        deal(pegged, depositor, amount);
+        vm.startPrank(depositor);
+        IERC20(pegged).approve(pool, amount);
+        IStabilityPool(pool).deposit(amount, depositor, 0);
+        vm.stopPrank();
+        uint256 supply = IStabilityPool(pool).totalAssetSupply();
+        assertEq(supply, amount, "precondition: the deposit is the supply");
+
+        vm.expectRevert(
+            bytes(
+                string.concat(
+                    deployRun.stabilityPoolKey(market, HarborDeployer.StabilityPoolType.Collateral),
+                    ": the captured holders hold 0 of a supply of ",
+                    LibString.toString(supply),
+                    ", a gap beyond rounding"
+                )
+            )
+        );
+        upgrade.run("harbor_v1");
+    }
+
+    /// @dev The position in `logs` of the first log `emitter` emitted with `topic`, plus one, so zero is none.
+    function _firstLog(Vm.Log[] memory logs, address emitter, bytes32 topic) private pure returns (uint256) {
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter == emitter && logs[i].topics[0] == topic) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    /// @dev The position in `logs` of the last log `emitter` emitted with `topic`, plus one, so zero is none.
+    function _lastLog(Vm.Log[] memory logs, address emitter, bytes32 topic) private pure returns (uint256 position) {
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter == emitter && logs[i].topics[0] == topic) {
+                position = i + 1;
+            }
+        }
+    }
+
+    /// A market whose new implementation the state already records is refused before anything is built, naming the
+    /// record: a second batch for a market that has executed the first would copy its pools' v2 records over the v3
+    /// ones. Any of its contracts' records refuses it. A market the state records only an older implementation for
+    /// still builds.
+    function test_aMarketTheStateRecordsAsUpgraded_isRefused() public {
+        (, Config_MinterMarket[] memory mcap) = mcapMintersConfig();
+        (, Config_MinterMarket[] memory btc) = btcMintersConfig();
+        _assertRefused(mcap[0], "MCAP::fxUSD::minter", "Minter_v3", 0x1111111111111111111111111111111111111111);
+        _assertRefused(
+            btc[1],
+            "BTC::stETH::stabilityPoolCollateral",
+            "StabilityPool_v3",
+            0x2222222222222222222222222222222222222222
+        );
+        _assertRefused(
+            btc[0],
+            "BTC::fxUSD::stabilityPoolManager",
+            "StabilityPoolManager_v2",
+            0x3333333333333333333333333333333333333333
+        );
+
+        Config_MinterMarket[] memory other = new Config_MinterMarket[](1);
+        other[0] = mcap[1]; // MCAP::stETH
+        new MarketUpgradeRunFromAStateFile(other, CAPTURE, STATE_RECORDING_NEW_IMPLEMENTATIONS).run("harbor_v1");
+        assertEq(
+            IStabilityPool_v3(deployRun.stabilityPoolAddress(mcap[1], HarborDeployer.StabilityPoolType.Collateral))
+                .MINTER(),
+            deployRun.minterAddress(mcap[1]),
+            "the other market is upgraded"
+        );
+    }
+
+    function _assertRefused(
+        Config_MinterMarket market,
+        string memory proxy,
+        string memory contractType,
+        address implementation
+    ) private {
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = market;
+        MarketUpgradeRun refused = new MarketUpgradeRunFromAStateFile(
+            markets,
+            CAPTURE,
+            STATE_RECORDING_NEW_IMPLEMENTATIONS
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UpgradeMarketToV3.StateRecordsTheNewImplementation.selector,
+                proxy,
+                contractType,
+                implementation
+            )
+        );
         refused.run("harbor_v1");
     }
 

@@ -254,24 +254,10 @@ contract StabilityPool_v3 is
      * Constructor *
      ***************/
 
-    function initialize(
-        address deployerOwner_,
-        address pendingOwner_,
-        uint256 earlyWithdrawalFee_,
-        address feeAddress_
-    ) external initializer {
+    function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // initialize fee configuration on the proxy
-        if (earlyWithdrawalFee_ >= _EARLY_WITHDRAWAL_FEE_LIMIT) {
-            revert InvalidFee(earlyWithdrawalFee_);
-        }
-        if (feeAddress_ == address(0)) {
-            revert InvalidFeeAddress(feeAddress_);
-        }
-        $.feePayment = FeePayment({feeAddress: feeAddress_, earlyWithdrawalFee: uint96(earlyWithdrawalFee_)});
 
         TimestampedBalance memory initialSupply = TimestampedBalance({
             product: DecrementalFloatingPoint_v2.init(),
@@ -349,12 +335,21 @@ contract StabilityPool_v3 is
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /// @inheritdoc IStabilityPool_v3
-    function updateFeeAddress(address feeAddress_) external onlyOwner {
+    function updateFeeReceiver(address feeAddress_) external onlyOwner {
         if (feeAddress_ == address(0)) {
             revert InvalidFeeAddress(feeAddress_);
         }
         _getStabilityPoolStorage().feePayment.feeAddress = feeAddress_;
         emit FeeAddressUpdated(feeAddress_);
+    }
+
+    /// @inheritdoc IStabilityPool_v3
+    function updateEarlyWithdrawalFeeRatio(uint256 earlyWithdrawalFee_) external onlyOwner {
+        if (earlyWithdrawalFee_ >= _EARLY_WITHDRAWAL_FEE_LIMIT) {
+            revert InvalidFee(earlyWithdrawalFee_);
+        }
+        _getStabilityPoolStorage().feePayment.earlyWithdrawalFee = uint96(earlyWithdrawalFee_);
+        emit EarlyWithdrawalFeeUpdated(earlyWithdrawalFee_);
     }
 
     /*************************
@@ -388,7 +383,7 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the configured withdrawal request window for an account.
-    function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end) {
+    function withdrawalRequest(address account) external view returns (uint64 start, uint64 end) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         WithdrawalRequest memory request = $.withdrawalRequests[account];
         start = request.start;
@@ -398,7 +393,7 @@ contract StabilityPool_v3 is
     /// @inheritdoc IStabilityPool_v3
     /// @dev The fee-free record compounds from the product it was copied at, the balance from its last checkpoint, so
     ///      the two can differ by a rounding: the cap keeps the amount within the balance.
-    function getWithdrawalFeeFreeAmount(address account) external view returns (uint256 amount) {
+    function withdrawalFeeFreeAmount(address account) external view returns (uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         FeeFreeBalance storage feeFree = $.withdrawalFeeFree[account];
         amount = _getCompoundedBalance(feeFree.amount, feeFree.product, $.totalAssetSupply.product);
@@ -408,21 +403,21 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the current early withdrawal fee ratio (scaled by 1e18).
-    function getEarlyWithdrawalFee() external view returns (uint256) {
+    function earlyWithdrawalFeeRatio() external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return uint256($.feePayment.earlyWithdrawalFee);
     }
 
     /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the current fee recipient address for early withdrawal fees.
-    function getFeeAddress() external view returns (address) {
+    function feeReceiver() external view returns (address) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.feePayment.feeAddress;
     }
 
     /// @inheritdoc IStabilityPool_v3
     /// @notice Returns the global withdrawal window configuration.
-    function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow) {
+    function withdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow) {
         startDelay = WITHDRAWAL_START_DELAY;
         endWindow = WITHDRAWAL_END_WINDOW;
     }

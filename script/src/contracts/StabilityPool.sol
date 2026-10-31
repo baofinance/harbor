@@ -16,8 +16,8 @@ import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 /// @dev Each market has TWO stability pools: Collateral (wrapped collateral) and Leveraged (leveraged token).
 /// @dev Both pools grant: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE to StabilityPoolManager.
 ///
-/// @dev `deployStabilityPool` deploys AND configures: it registers the pool's reward tokens and grants
-///      the manager's roles, because those are part of standing a pool up rather than a later step a
+/// @dev `deployStabilityPool` deploys AND configures: it sets the pool's fee and fee receiver, registers its reward
+///      tokens and grants the manager's roles, because those are part of standing a pool up rather than a later step a
 ///      caller must remember. It needs nothing else deployed: the minter, the pegged token and the manager are
 ///      predicted addresses, and the pool's constructor calls none of them.
 abstract contract StabilityPool is HarborDeployer {
@@ -78,12 +78,13 @@ abstract contract StabilityPool is HarborDeployer {
 
         address impl = deployStabilityPoolImplementation(stateData, spKey, poolType, marketConfig, addresses);
 
-        bytes memory initData = abi.encodeCall(
-            StabilityPool_v3.initialize,
-            (deployerOwner(), owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
-        );
+        bytes memory initData = abi.encodeCall(StabilityPool_v3.initialize, (deployerOwner(), owner()));
 
         proxy = _deployProxyAndRecord(stateData, spKey, impl, initData);
+
+        // The receiver first: with a fee set and no receiver, every withdrawal that pays the fee reverts.
+        IStabilityPool_v3(proxy).updateFeeReceiver(treasury());
+        IStabilityPool_v3(proxy).updateEarlyWithdrawalFeeRatio(cfg.stabilityPoolEarlyWithdrawalFeeRatio());
 
         // A pool's type lives in the reward tokens it distributes, which are the tokens a rebalance may pay it
         // in. Both pools earn harvest rewards in wrapped collateral, and either may be paid collateral by a

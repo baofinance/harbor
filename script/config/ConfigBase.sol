@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {LibString} from "@solady/utils/LibString.sol";
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 /// @notice Base contract for all Harbor configuration contracts.
@@ -76,5 +77,30 @@ library MinterMarketConfigLib {
     /// @return The key in "collateral::peg::wrappedPriceAggregator" format (e.g., "fxUSD::BTC::wrappedPriceAggregator").
     function priceOracleKey(Config_MinterMarket config) internal view returns (string memory) {
         return SaltString.key(collateral(config), peg(config), "wrappedPriceAggregator");
+    }
+
+    /// @notice The markets a collateral filter selects from a peg's markets.
+    /// @param markets All configured markets of a peg.
+    /// @param collateralFilter "*" for all, "" for none, or one collateral's name.
+    /// @return The selected markets.
+    /// @dev Reverts if no market has the collateral named.
+    function parseCollateralFilter(
+        Config_MinterMarket[] memory markets,
+        string memory collateralFilter
+    ) internal view returns (Config_MinterMarket[] memory) {
+        if (LibString.eq(collateralFilter, "*")) {
+            return markets;
+        }
+        if (bytes(collateralFilter).length == 0) {
+            return new Config_MinterMarket[](0);
+        }
+        for (uint256 i = 0; i < markets.length; i++) {
+            if (LibString.eq(collateral(markets[i]), collateralFilter)) {
+                Config_MinterMarket[] memory result = new Config_MinterMarket[](1);
+                result[0] = markets[i];
+                return result;
+            }
+        }
+        revert(string.concat("Market not found for collateral: ", collateralFilter));
     }
 }

@@ -118,7 +118,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         vm.startPrank(user);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user);
         vm.warp(start + 1);
     }
 
@@ -283,31 +283,21 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     /// The implementation's initializers are disabled when it is constructed, so initialising it directly reverts.
     function test_initialize_onTheImplementation_reverts() public {
         address implementation = _newStabilityPoolImplementation();
-        // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be the call
-        // the expectation binds to.
-        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        StabilityPool_v3(implementation).initialize(address(this), owner(), earlyWithdrawalFee, treasury());
+        StabilityPool_v3(implementation).initialize(address(this), owner());
     }
 
     /// The deployed pool, initialised once by its deploy, refuses a second initialisation.
     function test_initialize_aSecondTime_reverts() public {
-        // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be the call
-        // the expectation binds to.
-        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
-
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        StabilityPool_v3(stabilityPoolCollateral).initialize(address(this), owner(), earlyWithdrawalFee, treasury());
+        StabilityPool_v3(stabilityPoolCollateral).initialize(address(this), owner());
     }
 
     /// Initialising a proxy points it at the implementation, makes the deployer its owner and marks it initialised;
     /// handed to the market owner, it is a pool like the deployed one.
     function test_initEvents() public {
         address implementation = _newStabilityPoolImplementation();
-        // Hoisted: reading the fee off the config is an external call that emits nothing, and the
-        // `expectEmit`s below bind to the NEXT call - which must be the proxy deployment, not this read.
-        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
 
         vm.expectEmit();
         emit IERC1967.Upgraded(implementation);
@@ -318,56 +308,22 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             implementation, // "StabilityPool_v3.sol",
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), earlyWithdrawalFee, treasury()))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner()))
         );
         IBaoOwnable(stabilityPool).transferOwnership(owner());
 
         test_initOnly(stabilityPool);
     }
 
-    /// Initialisation reverts on an early-withdrawal fee above 100%, naming the fee.
-    function test_initialize_invalidFee_reverts() public {
-        address implementation = _newStabilityPoolImplementation();
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFee.selector, 1 ether + 1));
-        UnsafeUpgrades.deployUUPSProxy(
-            implementation,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether + 1, treasury()))
-        );
-    }
-
-    /// Initialisation reverts on an early-withdrawal fee of exactly 100%, naming the fee: at 100% a withdrawal outside the
-    /// window would pay its whole amount as fee, leave the receiver nothing and be refused - the window a lock.
-    function test_initialize_feeOfOneHundredPercent_reverts() public {
-        address implementation = _newStabilityPoolImplementation();
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFee.selector, 1 ether));
-        UnsafeUpgrades.deployUUPSProxy(
-            implementation,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether, treasury()))
-        );
-    }
-
-    /// The largest fee initialisation accepts is one wei below 100%.
-    function test_initialize_feeJustBelowOneHundredPercent_isAccepted() public {
-        address implementation = _newStabilityPoolImplementation();
+    /// A pool fresh from initialisation charges no fee and names no receiver: the deploy sets both, through the same
+    /// setters the owner uses afterwards.
+    function test_initialize_setsNoFeeAndNoReceiver() public {
         address stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            implementation,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether - 1, treasury()))
+            _newStabilityPoolImplementation(),
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner()))
         );
-        assertEq(IStabilityPool_v3(stabilityPool).getEarlyWithdrawalFee(), 1 ether - 1, "the largest fee accepted");
-    }
-
-    /// Initialisation reverts on a zero fee receiver.
-    function test_initialize_invalidFeeAddress_reverts() public {
-        address implementation = _newStabilityPoolImplementation();
-        // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be
-        // the call the expectation binds to - which succeeds, so the test would fail claiming no revert.
-        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
-
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidFeeAddress.selector, address(0)));
-        UnsafeUpgrades.deployUUPSProxy(
-            implementation,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), earlyWithdrawalFee, address(0)))
-        );
+        assertEq(IStabilityPool_v3(stabilityPool).earlyWithdrawalFeeRatio(), 0, "no fee");
+        assertEq(IStabilityPool_v3(stabilityPool).feeReceiver(), address(0), "no receiver");
     }
 }
 
@@ -671,7 +627,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
     /// A withdrawal request says which window it opens; a later request replaces that window with its own, and says so
     /// again.
     function test_requestWithdrawal_emitsItsWindow_andASecondReplacesTheFirst() public {
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalWindow();
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalWindow();
         uint64 start = uint64(block.timestamp) + startDelay;
         vm.startPrank(user1);
         vm.expectEmit(stabilityPoolCollateral);
@@ -687,9 +643,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
 
-        (uint64 requestStart, uint64 requestEnd) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(
-            user1
-        );
+        (uint64 requestStart, uint64 requestEnd) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         assertEq(requestStart, secondStart, "the second request's start replaces the first's");
         assertEq(requestEnd, secondStart + endWindow, "the second request's end replaces the first's");
     }
@@ -701,14 +655,14 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         assertEq(start, requestedAt + marketConfig.stabilityPoolWithdrawalDelay(), "opens after the configured delay");
         assertEq(end, start + marketConfig.stabilityPoolWithdrawalPeriod(), "open for the configured period");
     }
 
     /// The pool reports the withdrawal window its market's config sets.
-    function test_getWithdrawalWindow_matches_config() public view {
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalWindow();
+    function test_withdrawalWindow_matches_config() public view {
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalWindow();
         assertEq(startDelay, marketConfig.stabilityPoolWithdrawalDelay(), "the configured delay");
         assertEq(endWindow, marketConfig.stabilityPoolWithdrawalPeriod(), "the configured period");
     }

@@ -139,7 +139,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).withdraw(40 ether, user1, 0);
@@ -573,7 +573,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             vm.startPrank(user1);
             IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
             vm.stopPrank();
-            (uint64 s3, ) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+            (uint64 s3, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
             vm.warp(uint256(s3) + 1);
             vm.startPrank(user1);
             vm.expectRevert(

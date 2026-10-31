@@ -945,11 +945,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _upgradeToV3();
 
         // Verify withdrawal request preserved
-        (uint64 startOnV3, uint64 endOnV3) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 startOnV3, uint64 endOnV3) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
         assertEq(startOnV3, startOnV2, "Withdrawal start preserved");
         assertEq(endOnV3, endOnV2, "Withdrawal end preserved");
         assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(user1),
+            IStabilityPool_v3(stabilityPoolCollateral).withdrawalFeeFreeAmount(user1),
             0,
             "a request carried from v2 makes nothing fee-free"
         );
@@ -969,7 +969,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Warp into withdrawal window and complete withdrawal on v3: inside the window, but nothing is fee-free
         vm.warp(startOnV3 + 1);
-        uint256 fee = (50 ether * IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee()) / 1 ether;
+        uint256 fee = (50 ether * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
         assertGt(fee, 0, "fixture: the pool charges a fee");
         uint256 peggedBefore = IERC20(peggedToken).balanceOf(user1);
         vm.startPrank(user1);
@@ -1314,22 +1314,22 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             assertEq(amount, gettersOnV2.historyAmount[i], "history row's supply preserved");
         }
         {
-            (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalRequest(user1);
+            (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
             assertEq(start, gettersOnV2.withdrawalStart, "withdrawal request's start preserved");
             assertEq(end, gettersOnV2.withdrawalEnd, "withdrawal request's end preserved");
         }
         assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).getEarlyWithdrawalFee(),
+            IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(),
             gettersOnV2.earlyWithdrawalFee,
             "early-withdrawal fee preserved"
         );
         assertEq(
-            IStabilityPool_v3(stabilityPoolCollateral).getFeeAddress(),
+            IStabilityPool_v3(stabilityPoolCollateral).feeReceiver(),
             gettersOnV2.feeAddress,
             "fee address preserved"
         );
         {
-            (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalWindow();
+            (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalWindow();
             assertEq(startDelay, gettersOnV2.withdrawalStartDelay, "withdrawal start delay preserved");
             assertEq(endWindow, gettersOnV2.withdrawalEndWindow, "withdrawal window preserved");
         }

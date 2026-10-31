@@ -57,6 +57,10 @@ interface IStabilityPool_v3 {
     /// @param newFeeAddress The address that receives them from now on.
     event FeeAddressUpdated(address newFeeAddress);
 
+    /// @notice Emitted when the owner changes the early-withdrawal fee.
+    /// @param newFee The fee ratio from now on, scaled by 1e18.
+    event EarlyWithdrawalFeeUpdated(uint256 newFee);
+
     /// @notice Emitted when an account requests a withdrawal window.
     /// @param owner The account.
     /// @param start The timestamp from which a withdrawal pays no fee.
@@ -100,10 +104,10 @@ interface IStabilityPool_v3 {
     ///      oneself.
     error InvalidReceiver(address receiver);
 
-    /// @dev Thrown by `initialize` for an early-withdrawal fee of 100% (1e18) or more.
+    /// @dev Thrown by `updateEarlyWithdrawalFeeRatio` for a fee of 100% (1e18) or more.
     error InvalidFee(uint256 fee);
 
-    /// @dev Thrown by `initialize` for a zero fee address.
+    /// @dev Thrown by `updateFeeReceiver` for the zero address.
     error InvalidFeeAddress(address feeAddress);
 
     /// @dev Thrown by the constructor for a zero start delay or window duration, or either above 365 days.
@@ -170,24 +174,24 @@ interface IStabilityPool_v3 {
     /// @notice An account's withdrawal request; both 0 when it has none.
     /// @return start The timestamp from which a withdrawal pays no fee.
     /// @return end The last timestamp at which a withdrawal pays no fee.
-    function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end);
+    function withdrawalRequest(address account) external view returns (uint64 start, uint64 end);
 
     /// @notice The part of an account's balance its withdrawal request makes fee-free; 0 when it has none. A
     ///         withdrawal pays no fee on it inside the request's window, and the fee on the rest.
     /// @dev The balance when the request was made, reduced by the losses since as the balance is, and by each transfer
     ///      out to the balance left; never more than the balance. A deposit or a transfer in does not raise it.
-    function getWithdrawalFeeFreeAmount(address account) external view returns (uint256 amount);
+    function withdrawalFeeFreeAmount(address account) external view returns (uint256 amount);
 
     /// @notice The current early withdrawal fee ratio (scaled by 1e18)
-    function getEarlyWithdrawalFee() external view returns (uint256);
+    function earlyWithdrawalFeeRatio() external view returns (uint256);
 
     /// @notice The address that receives early withdrawal fees
-    function getFeeAddress() external view returns (address);
+    function feeReceiver() external view returns (address);
 
     /// @notice Get the global withdrawal window configuration
     /// @return startDelay The delay in seconds before a window starts after a request
     /// @return endWindow The window duration in seconds (must be > 0)
-    function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
+    function withdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
 
     /// @notice The assets a deposit of `assetAmount` would credit — the forecast counterpart of
     ///         `deposit`, returning the same quantity `deposit` returns. `type(uint256).max` means the
@@ -223,7 +227,7 @@ interface IStabilityPool_v3 {
     ///   - with no request, before the window's start, or after its end, the fee applies, unless the caller holds
     ///     `EXEMPT_WITHDRAWAL_FEE_ROLE`;
     ///   - during [start, end], both ends included, the fee applies only to what exceeds the request's fee-free amount
-    ///     (see `getWithdrawalFeeFreeAmount`).
+    ///     (see `withdrawalFeeFreeAmount`).
     /// - The amount leaving is capped at the headroom above `MIN_TOTAL_ASSET_SUPPLY`, and the fee is taken out of it.
     /// - A successful withdrawal clears the caller's request (start and end zeroed).
     /// @param assetAmount The pegged to withdraw, or `type(uint256).max` for the whole balance.
@@ -237,9 +241,9 @@ interface IStabilityPool_v3 {
     ) external returns (uint256 assetsWithdrawn);
 
     /// @notice Open a fee-free withdrawal window for the caller's balance as it is now, replacing any request it has.
-    /// @dev The window is [now + startDelay, now + startDelay + endWindow] (see `getWithdrawalWindow`).
+    /// @dev The window is [now + startDelay, now + startDelay + endWindow] (see `withdrawalWindow`).
     /// - The request makes fee-free the caller's balance now, and nothing it receives later (see
-    ///   `getWithdrawalFeeFreeAmount`).
+    ///   `withdrawalFeeFreeAmount`).
     /// - A successful withdrawal clears it.
     function requestWithdrawal() external;
 
@@ -262,5 +266,11 @@ interface IStabilityPool_v3 {
     /// @notice Change the address the early-withdrawal fees are paid to. Owner only.
     /// @dev Reverts `InvalidFeeAddress` for the zero address. Emits `FeeAddressUpdated`.
     /// @param feeAddress_ The address that receives the fees from now on.
-    function updateFeeAddress(address feeAddress_) external;
+    function updateFeeReceiver(address feeAddress_) external;
+
+    /// @notice Change the early-withdrawal fee. Owner only.
+    /// @dev Reverts `InvalidFee` for 100% (1e18) or more: a withdrawal outside the window would pay its whole amount as
+    ///      fee, leave the receiver nothing and be refused, making the window a lock. Emits `EarlyWithdrawalFeeUpdated`.
+    /// @param earlyWithdrawalFee_ The fee ratio from now on, scaled by 1e18.
+    function updateEarlyWithdrawalFeeRatio(uint256 earlyWithdrawalFee_) external;
 }

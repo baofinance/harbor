@@ -158,7 +158,7 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
         vm.startPrank(who);
         IStabilityPool_v3(pool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(pool).getWithdrawalRequest(who);
+        (uint64 start, ) = IStabilityPool_v3(pool).withdrawalRequest(who);
         vm.warp(uint256(start) + 1);
         vm.startPrank(who);
         IStabilityPool_v3(pool).withdraw(type(uint256).max, who, 0);

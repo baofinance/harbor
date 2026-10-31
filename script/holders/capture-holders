@@ -35,6 +35,11 @@
 #   capture-holders --rerun               # redo the capture in --out-dir at ITS OWN block (retry a
 #                                         # failed/buggy run without moving the goalposts)
 #   capture-holders --out-dir tmp/holders-rerun   # for an independent cross-check capture
+#   capture-holders --peg <peg> --collateral <name>  # add one market to the capture in --out-dir, in the words
+#                                         # script/deploy uses: its two pools and leveraged token. '*' takes every market
+#                                         # of the peg and its pegged token. One folder holds one block, so a --to-block
+#                                         # other than the folder's manifest's is refused. The manifest counts the
+#                                         # folder's files.
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -54,6 +59,8 @@ STATE_FILE="deployments/mainnet/harbor_v1.state.json"
 OUT_DIR="tmp/holders"
 DRY_RUN=false
 RPC="mainnet"   # foundry alias, used to resolve `latest` when --to-block is not given
+PEG=""          # --peg and --collateral: scan only their targets; neither: scan every target
+COLLATERAL=""
 
 # topic0 = keccak("UserDepositChange(address,uint256,uint256)"); its owner is topic 1
 USER_DEPOSIT_CHANGE="0x5fa7d0e13a31540b6d42936e522173de31fa0c53aa5aff71e63c60fe02b2b50e"
@@ -67,10 +74,21 @@ while [[ $# -gt 0 ]]; do
     --rerun)      RERUN=true; shift ;;
     --out-dir)    OUT_DIR="$2"; shift 2 ;;
     --dry-run)    DRY_RUN=true; shift ;;
+    --peg)        PEG=$(echo "$2" | tr '[:lower:]' '[:upper:]'); shift 2 ;;
+    --collateral) COLLATERAL="$2"; shift 2 ;;
     -h|--help)    sed -n '2,/^$/p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ -n "$PEG" && -z "$COLLATERAL" ]]; then
+  echo "ERROR: --peg needs --collateral: a collateral's name, or '*' for every market of the peg" >&2
+  exit 1
+fi
+if [[ -z "$PEG" && -n "$COLLATERAL" ]]; then
+  echo "ERROR: --collateral needs --peg" >&2
+  exit 1
+fi
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -118,6 +136,23 @@ fi
 TARGETS=()
 if [[ -n "$targets_found" ]]; then
   mapfile -t TARGETS <<<"$targets_found"
+fi
+if [[ -n "$PEG" ]]; then
+  prefix="${PEG}::"
+  if [[ "$COLLATERAL" != "*" ]]; then
+    prefix="${PEG}::${COLLATERAL}::"
+  fi
+  named=()
+  for target in "${TARGETS[@]}"; do
+    if [[ "$target" == "$prefix"* ]]; then
+      named+=("$target")
+    fi
+  done
+  if [[ ${#named[@]} -eq 0 ]]; then
+    echo "ERROR: no pool or token in $STATE_FILE has a salt starting '${prefix}'" >&2
+    exit 1
+  fi
+  TARGETS=("${named[@]}")
 fi
 pool_count=0
 token_count=0
@@ -174,6 +209,15 @@ if [[ ! "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+# One folder holds one block: a market added to a capture is scanned to the block the rest were.
+if [[ -n "$PEG" && -f "${OUT_DIR}/manifest.txt" ]]; then
+  folder_block=$(awk -F': *' '/^to-block:/ {print $2; exit}' "${OUT_DIR}/manifest.txt")
+  if [[ "$folder_block" != "$TO_BLOCK" ]]; then
+    echo "ERROR: ${OUT_DIR}/ holds block ${folder_block}, and this run scans to block ${TO_BLOCK}" >&2
+    exit 1
+  fi
+fi
+
 echo "# scanning blocks ${FROM_BLOCK} -> ${TO_BLOCK} (Etherscan)" >&2
 mkdir -p "$OUT_DIR"
 
@@ -218,6 +262,12 @@ for target in "${TARGETS[@]}"; do
   } > "$out_file"
   echo "    ${salt}: ${#accounts[@]} holders -> ${out_file}" >&2
 done
+
+# A run naming a market adds to the folder, so the counts below are of its files, not of this run's targets.
+if [[ -n "$PEG" ]]; then
+  pool_count=$(find "$OUT_DIR" -maxdepth 1 -name '*::stabilityPool*.txt' | wc -l)
+  token_count=$(find "$OUT_DIR" -maxdepth 1 \( -name '*::pegged.txt' -o -name '*::leveraged.txt' \) | wc -l)
+fi
 
 # Manifest: the one file a consumer must read to use this capture. It carries the block
 # the scan ran to, so a checker forks at the block the holders were captured at rather

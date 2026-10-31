@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Rehearse the upgrade of every live market to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2: run the upgrade
-# script itself on anvil, as it will run on mainnet but for --local, and compare what every market contract reads
-# before and after it.
+# Rehearse the upgrade of the markets named to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2: run the upgrade
+# script itself on anvil, as it will run on mainnet but for --local, and compare what each of their contracts reads
+# before and after it. A pass covers only those markets, so a mainnet run is rehearsed with the same names.
 #
 #   Read point: FrozenMarketsReadPoint checks the state the upgrade reads is the state it runs on - the pause changed
 #     only which implementation each minter and pool runs, and nothing earlier in the pause's block changed a market.
-#   Native settings: UpgradedMarketsMatchANativeDeploy upgrades each peg's markets by the upgrade script's own function,
-#     on a fork of mainnet at the block after the capture, deploys the same peg natively beside them, and requires
-#     every contract of each market to hold the settings the native deploy sets.
+#   Native settings: UpgradedMarketsMatchANativeDeploy upgrades the markets by the upgrade script's own function, on a
+#     fork of mainnet at the block after the capture, or at the chain's head for a market the pause never froze, deploys
+#     them natively beside them, and requires every contract of each market to hold the settings the native deploy sets.
 #   Prong A (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
 #     behaviour under the same interactions. The before is a fork of mainnet at the block of the upgrade's capture
 #     (FROZEN_MARKETS_CAPTURE in script/Upgrade_MarketsToV3_mainnet.s.sol), the last before the pause; the after is a
@@ -16,15 +16,18 @@
 #     actual after records must not differ.
 #   Prong B (white-box): MarketsStorageCopy checks the storage the upgrade copied - each holder's reward records,
 #     each reward stream, each pool's ledger gap - against the frozen pools.
-#   Harvest: UpgradedMarketsHarvest upgrades every market as the upgrade script builds it, the compensation
+#   Harvest: UpgradedMarketsHarvest upgrades the markets as the upgrade script builds it, the compensation
 #     included, on a fork of mainnet at the block after the capture, where every price is fresh; then harvests each,
 #     and requires each holding yield to pay the harvest's caller, fee receiver and pools by its config's harvest terms.
 #
-# forge test forks anvil in memory and writes nothing back to it. run-script --broadcast --local sends the upgrade to
-# anvil and executes each market's batch as the multisig would. So one anvil session serves the whole run.
+# forge test forks anvil in memory and writes nothing back to it. script/upgrade --local sends the upgrade to anvil and
+# executes each market's batch as the multisig would. So one anvil session serves the whole run.
 #
 # Usage:
-#   script/verify/v3-upgrade/run-upgrade-rehearsal
+#   script/verify/v3-upgrade/run-upgrade-rehearsal --peg <peg> --collateral <name>
+#
+#   --peg <peg>          Which peg's markets to rehearse (BTC, ETH, EUR, GOLD, MCAP, SILVER, USD)
+#   --collateral <name>  Collateral of the market to rehearse (e.g., stETH, fxUSD), or '*' for every market of the peg
 #
 # Fails unless each step's tests actually ran - see script/verify/run-campaign-test.
 #
@@ -40,9 +43,19 @@ SALT="harbor_v1"
 NETWORK="mainnet"
 OUT="tmp/v3-upgrade"
 FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
+PEG=""
+COLLATERAL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --peg)
+      PEG=$2
+      shift 2
+      ;;
+    --collateral)
+      COLLATERAL=$2
+      shift 2
+      ;;
     -h | --help)
       sed -n '2,/^$/p' "$0"
       exit 0
@@ -53,6 +66,15 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+[[ -n "$PEG" ]] || { echo "ERROR: --peg required" >&2; exit 1; }
+[[ -n "$COLLATERAL" ]] || { echo "ERROR: --collateral required: a collateral's name, or '*' for every market of the peg" >&2; exit 1; }
+
+# Every step reads the markets from these, set here over anything already in the shell, so all name the same ones.
+export UPGRADE_PEG
+export UPGRADE_COLLATERAL
+UPGRADE_PEG=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')
+UPGRADE_COLLATERAL="$COLLATERAL"
 
 echotty() {
   echo "$*"
@@ -93,8 +115,9 @@ campaign_test() {
 }
 
 echo "======================================================================"
-echo "  Upgrade of every live market to v3: rehearsal"
+echo "  Upgrade of markets to v3: rehearsal"
 echo "======================================================================"
+echo "  Markets:        $UPGRADE_PEG::$UPGRADE_COLLATERAL"
 echo "  Salt:           $SALT"
 
 # The records and logs of an earlier run would hide one this run fails to write.
@@ -145,9 +168,9 @@ echo "Prong A: capturing the before, on mainnet at the capture's block..."
 VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test before.log MarketsCapture --rpc-url mainnet
 
 echo ""
-echo "Running Upgrade_MarketsToV3_mainnet on anvil (--broadcast --local)..."
+echo "Running script/upgrade on anvil (--local)..."
 set +e
-script/run-script Upgrade_MarketsToV3_mainnet --salt "$SALT" --network "$NETWORK" --broadcast --local 2>&1 |
+script/upgrade --network "$NETWORK" --salt "$SALT" --peg "$UPGRADE_PEG" --collateral "$UPGRADE_COLLATERAL" --local 2>&1 |
   tee "$OUT/upgrade.log"
 status=${PIPESTATUS[0]}
 set -e
@@ -183,7 +206,7 @@ echo "======================================================================"
 echo "  Prong A: the expected after against the after - expect NO differences"
 echo "======================================================================"
 if diff -ru "$OUT/compare/expected-after" "$OUT/compare/after"; then
-  echo "  ✅ PASS: every contract reads after the upgrade as it did before, or as expected"
+  echo "  ✅ PASS: each contract reads after the upgrade as it did before, or as expected"
   rehearsal_status=0
 else
   if command -v meld >/dev/null 2>&1; then
@@ -194,15 +217,16 @@ else
 fi
 
 if [[ "$native_status" -eq 0 ]]; then
-  echo "  ✅ PASS: every upgraded market holds the settings a native deploy sets"
+  echo "  ✅ PASS: each upgraded market holds the settings a native deploy sets"
 else
   echo "  ❌ FAIL: an upgraded market's settings differ from a native deploy's - see $OUT/native-settings.log"
 fi
 if [[ "$harvest_status" -eq 0 ]]; then
-  echo "  ✅ PASS: every upgraded market harvests at its config's terms"
+  echo "  ✅ PASS: each upgraded market harvests at its config's terms"
 else
   echo "  ❌ FAIL: an upgraded market did not harvest at its config's terms - see $OUT/harvest.log"
 fi
+echo "  Covers:         $UPGRADE_PEG::$UPGRADE_COLLATERAL, and no other market"
 if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 || "$harvest_status" -ne 0 ]]; then
   exit 1
 fi

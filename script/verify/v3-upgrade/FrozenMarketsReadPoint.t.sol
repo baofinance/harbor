@@ -11,7 +11,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenMintersConfig, isFrozen, marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
@@ -19,36 +19,49 @@ import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet
 ///         them, and runs on the frozen state. These check the two are the same in everything the upgrade reads: the
 ///         pause changed only which implementation each minter and pool runs, and nothing earlier in the pause's block
 ///         changed a minter or a pool.
-/// @dev The capture is the upgrade's, `FROZEN_MARKETS_CAPTURE`. Replaying the pause's block needs the Osaka EVM: the block holds EIP-7702 transactions, which forge refuses under the repository's Cancun setting.
+/// @dev The capture is the upgrade's, `FROZEN_MARKETS_CAPTURE`. A run naming a market the pause never froze skips them:
+///      it reads that market at the chain's head, not here. Replaying the pause's block needs the Osaka EVM: the block holds EIP-7702 transactions, which forge refuses under the repository's Cancun setting.
 contract FrozenMarketsReadPoint is Test, HarborDeployer {
     /// @dev The Safe transaction that paused every minter and stability pool, in block 26,248,724.
     bytes32 internal constant PAUSE = 0x0359c9fbfd7be6ef5b34e9f8aa8dfb8147b59aa7280d61787e83ffe9afc89a44;
 
     uint256 internal captureBlock;
+
+    /// @dev Every market the pause froze, and those the run names: none where it names a market the pause never froze.
+    Config_MinterMarket[] internal frozen;
     Config_MinterMarket[] internal markets;
 
     function setUp() public {
         captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         _setSaltPrefix("harbor_v1");
-        markets = frozenMintersConfig();
-        for (uint256 i = 0; i < markets.length; ++i) {
-            vm.makePersistent(address(markets[i]));
+        frozen = frozenMintersConfig();
+        for (uint256 i = 0; i < frozen.length; ++i) {
+            vm.makePersistent(address(frozen[i]));
+        }
+        Config_MinterMarket[] memory named = marketsToUpgrade();
+        if (isFrozen(named[0])) {
+            markets = named;
+            for (uint256 i = 0; i < markets.length; ++i) {
+                vm.makePersistent(address(markets[i]));
+            }
         }
     }
 
     /// The pause changed only which implementation each minter and pool runs. Replayed on the state just before it, in
     /// the block after the capture's, its only storage changes are the ERC-1967 implementation slot of every minter
-    /// and pool - each set to the same pauser - and the multisig's own.
+    /// and pool - each set to the same pauser - and the multisig's own. Every market it froze is checked, whichever the
+    /// run names, because the one transaction froze them all.
     function test_thePauseChangedOnlyEachProxysImplementation() public {
+        vm.skip(markets.length == 0);
         vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
         vm.setEvmVersion("osaka");
         vm.rollFork(PAUSE);
         assertEq(block.number, captureBlock + 1, "the pause is in the block after the capture's");
-        address[] memory proxies = new address[](3 * markets.length);
-        for (uint256 i = 0; i < markets.length; ++i) {
-            proxies[3 * i] = minterAddress(markets[i]);
-            proxies[3 * i + 1] = stabilityPoolAddress(markets[i], StabilityPoolType.Collateral);
-            proxies[3 * i + 2] = stabilityPoolAddress(markets[i], StabilityPoolType.Leveraged);
+        address[] memory proxies = new address[](3 * frozen.length);
+        for (uint256 i = 0; i < frozen.length; ++i) {
+            proxies[3 * i] = minterAddress(frozen[i]);
+            proxies[3 * i + 1] = stabilityPoolAddress(frozen[i], StabilityPoolType.Collateral);
+            proxies[3 * i + 2] = stabilityPoolAddress(frozen[i], StabilityPoolType.Leveraged);
         }
 
         vm.startStateDiffRecording();
@@ -83,11 +96,12 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
         assertEq(implementationsChanged, proxies.length, "every minter and pool changes implementation, once");
     }
 
-    /// Nothing earlier in the pause's block changed a market. At the same moment, every minter and pool answers the
-    /// views the upgrade reads and copies the same at the end of the capture's block as just before the pause: each
+    /// Nothing earlier in the pause's block changed a named market. At the same moment, its minter and pools answer the
+    /// views the upgrade reads and copies the same at the end of the capture's block as just before the pause: the
     /// minter's config and balances; each pool's supply, floor, withdrawal window, fee, reward tokens and streams, and
     /// each captured holder's balance and claimable and claimed rewards.
     function test_nothingBeforeThePauseInItsBlockChangedAMarket() public {
+        vm.skip(markets.length == 0);
         uint256 atCapture = vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
         uint256 beforePause = vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
         vm.setEvmVersion("osaka");

@@ -6,9 +6,9 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
 
-/// @notice The compensated upgrade of markets a pause has frozen, held by a test: for the markets, the holder capture
-///         and the compensation files it is constructed with, `run(saltPrefix)` reads the frozen markets at the
-///         capture's block, puts the compensation into their inputs, upgrades them on the fork selected, and executes
+/// @notice The upgrade as the upgrade script builds it, held by a test: for the markets, the holder capture and the
+///         compensation files it is constructed with, `run(saltPrefix)` reads the markets where each must be read, puts
+///         the compensation into the inputs of those a file describes, upgrades them on the fork selected, and executes
 ///         each market's batch as the owner - the Harbor multisig, which owns the live proxies. The batches as queued
 ///         and the payout as sized are kept for reading, and the compensation's own functions are callable from
 ///         outside.
@@ -19,6 +19,7 @@ contract CompensationRun is CompensateRebalanceDilution {
     string[] private _files;
     Transaction[] private _batches;
     bytes private _payout;
+    bytes private _inputs;
 
     /// @param saltPrefix_ The run's identity, fixed at construction, so every address it predicts resolves from the
     ///        moment it exists; `run` is given the same.
@@ -39,13 +40,14 @@ contract CompensationRun is CompensateRebalanceDilution {
     }
 
     function build() internal override {
-        MarketUpgradeInput[] memory inputs = readFrozenMarketUpgradeInputs(_markets, _capture, "mainnet");
-        MarketCompensation[] memory compensated = new MarketCompensation[](_files.length);
-        for (uint256 i = 0; i < _files.length; ++i) {
-            compensated[i] = readCompensation(_files[i]);
-        }
-        FrozenMarket[] memory frozen = readFrozenMarkets(compensated, _capture, "mainnet");
-        _payout = abi.encode(compensate(inputs, compensated, frozen));
+        (MarketUpgradeInput[] memory inputs, , Payout memory sized) = readUpgradeInputsAndCompensation(
+            _markets,
+            _capture,
+            "mainnet",
+            _files
+        );
+        _payout = abi.encode(sized);
+        _inputs = abi.encode(inputs);
         upgradeMarketsToV3(inputs, "mainnet");
         for (uint256 i = 0; i < _allTransactions.length; ++i) {
             _batches.push(_allTransactions[i]);
@@ -93,5 +95,10 @@ contract CompensationRun is CompensateRebalanceDilution {
     /// @notice The payout as `run` sized it, which its batches carry.
     function payout() public view returns (Payout memory) {
         return abi.decode(_payout, (Payout));
+    }
+
+    /// @notice What `run` read for each market's upgrade, the compensation in it, in the markets' order.
+    function inputs() public view returns (MarketUpgradeInput[] memory) {
+        return abi.decode(_inputs, (MarketUpgradeInput[]));
     }
 }

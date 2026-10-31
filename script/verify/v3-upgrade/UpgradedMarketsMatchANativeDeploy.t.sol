@@ -6,27 +6,26 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {frozenPegsConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {isFrozen, marketsToUpgrade, pegNamed} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 import {MarketSettings} from "@harbor-script/verify/v3-upgrade/MarketSettings.sol";
 
 import {OracleSaltDeployRun} from "@harbor-test/HarborDeployRun.sol";
-import {FrozenMarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
+import {FrozenMarketUpgradeRun, MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
 
 /// @title UpgradedMarketsMatchANativeDeploy
-/// @notice Each live market, upgraded from the state the pause froze, holds the settings a native v3 deploy of the same
-///         market holds: those of its minter, with its reserve pool and tokens, of both its pools and of its manager -
-///         config, owners, roles, the addresses each names, limits, windows and reward tokens. Its code is built from the
-///         same source as a native deploy's, and the rehearsal checks its holdings carried over, so a market that passes
-///         behaves as a native market would, holding what it holds.
-/// @dev On a fork at the block after the capture, where every minter and pool is paused. The upgrade script's own
-///      function upgrades each market of a peg. The production deploy then deploys the same peg beside it, under a salt
-///      of its own, wired to the live oracles and owned and paid as production's. `MarketSettings` reads both markets
-///      alike, and each address the native market names is read as the upgraded market's at the same deploy key. Every
-///      difference is logged before the test fails. One test per peg, as `MarketVerificationOfEveryMarketTest` does, so
-///      each stays within a test's gas and a failure names its peg.
+/// @notice Each named market, upgraded, holds the settings a native v3 deploy of the same market holds: those of its
+///         minter, with its reserve pool and tokens, of both its pools and of its manager - config, owners, roles, the
+///         addresses each names, limits, windows and reward tokens. Its code is built from the same source as a native
+///         deploy's, and the rehearsal checks its holdings carried over, so a market that passes behaves as a native
+///         market would, holding what it holds.
+/// @dev On a fork at the block after the capture for a market the pause froze, where its minter and pools are paused, and
+///      at the chain's head for any other. The upgrade script's own function upgrades the markets. The production deploy
+///      then deploys them beside them, under a salt of its own, wired to the live oracles and owned and paid as
+///      production's. `MarketSettings` reads both markets alike, and each address the native market names is read as the
+///      upgraded market's at the same deploy key. Every difference is logged before the test fails.
 contract UpgradedMarketsMatchANativeDeploy is Test {
     /// @dev The salt prefix the live markets were deployed under.
     string private constant LIVE_SALT_PREFIX = "harbor_v1";
@@ -45,56 +44,33 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
         address[] upgradedAddresses;
     }
 
-    /// The BTC markets, upgraded, hold the settings a native deploy of the BTC peg holds.
-    function test_theBTCMarkets_holdANativeDeploysSettings() public {
-        _compareWithANativeDeploy(0);
-    }
-
-    /// The ETH market, upgraded, holds the settings a native deploy of the ETH peg holds.
-    function test_theETHMarket_holdsANativeDeploysSettings() public {
-        _compareWithANativeDeploy(1);
-    }
-
-    /// The EUR markets, upgraded, hold the settings a native deploy of the EUR peg holds.
-    function test_theEURMarkets_holdANativeDeploysSettings() public {
-        _compareWithANativeDeploy(2);
-    }
-
-    /// The GOLD markets, upgraded, hold the settings a native deploy of the GOLD peg holds.
-    function test_theGOLDMarkets_holdANativeDeploysSettings() public {
-        _compareWithANativeDeploy(3);
-    }
-
-    /// The MCAP markets, upgraded, hold the settings a native deploy of the MCAP peg holds.
-    function test_theMCAPMarkets_holdANativeDeploysSettings() public {
-        _compareWithANativeDeploy(4);
-    }
-
-    /// The SILVER markets, upgraded, hold the settings a native deploy of the SILVER peg holds.
-    function test_theSILVERMarkets_holdANativeDeploysSettings() public {
-        _compareWithANativeDeploy(5);
-    }
-
-    /// @dev Upgrade the markets of the peg at `pegIndex` of `frozenPegsConfig`, deploy the peg natively beside them, and
-    ///      require each contract of each market to hold the same settings in both.
-    function _compareWithANativeDeploy(uint256 pegIndex) private {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+    /// The named markets, upgraded, hold the settings a native deploy of them holds. The deploy takes every market of
+    /// the peg for its role grants, and only those named to deploy.
+    function test_theNamedMarkets_holdANativeDeploysSettings() public {
         Comparison memory c;
-        Config_MinterMarket[] memory markets;
+        Config_MinterMarket[] memory markets = marketsToUpgrade();
+        // Made before the fork below, and read on it.
+        for (uint256 i = 0; i < markets.length; ++i) {
+            vm.makePersistent(address(markets[i]));
+        }
         {
-            (ConfigPeg[6] memory pegs, Config_MinterMarket[][6] memory marketsByPeg) = frozenPegsConfig();
-            markets = marketsByPeg[pegIndex];
-            assertGt(markets.length, 0, "precondition: the peg has markets");
-
-            FrozenMarketUpgradeRun upgraded = new FrozenMarketUpgradeRun(
-                markets,
-                FROZEN_MARKETS_CAPTURE,
-                new UpgradeMarketToV3.OwnerOperations[](0)
-            );
-            // It reads the frozen markets on forks of its own, then returns to this one.
-            vm.makePersistent(address(upgraded));
+            UpgradeMarketToV3 upgraded;
+            if (isFrozen(markets[0])) {
+                vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+                upgraded = new FrozenMarketUpgradeRun(
+                    markets,
+                    FROZEN_MARKETS_CAPTURE,
+                    new UpgradeMarketToV3.OwnerOperations[](0)
+                );
+                // It reads the frozen markets on forks of its own, then returns to this one.
+                vm.makePersistent(address(upgraded));
+            } else {
+                vm.createSelectFork(vm.rpcUrl("mainnet"));
+                upgraded = new MarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE);
+            }
             upgraded.run(LIVE_SALT_PREFIX);
 
+            (ConfigPeg peg, Config_MinterMarket[] memory marketsOfThePeg) = pegNamed(vm.envString("UPGRADE_PEG"));
             OracleSaltDeployRun native = new OracleSaltDeployRun(
                 upgraded.owner(),
                 upgraded.treasury(),
@@ -102,7 +78,7 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
                 LIVE_SALT_PREFIX
             );
             native.ensureFactory();
-            native.deploy(pegs[pegIndex], markets, true, markets);
+            native.deploy(peg, marketsOfThePeg, true, markets);
 
             c.upgraded = upgraded;
             c.native = native;

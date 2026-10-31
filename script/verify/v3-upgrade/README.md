@@ -1,22 +1,28 @@
-# Upgrading every market to v3
+# Upgrading markets to v3
 
-`script/Upgrade_MarketsToV3_mainnet.s.sol` upgrades every live market's minter to Minter_v3, its two stability pools
-to StabilityPool_v3 and its manager to StabilityPoolManager_v2. It deploys the new implementations and saves one Safe
-batch per market for the multisig to sign. This document is the campaign's one reference: the runbook, what the upgrade
-changes, and how the rehearsal checks it.
+`script/upgrade` upgrades the markets it names, through `script/Upgrade_MarketsToV3_mainnet.s.sol`: each one's minter to
+Minter_v3, its two stability pools to StabilityPool_v3 and its manager to StabilityPoolManager_v2. It deploys the new
+implementations and saves one Safe batch per market for the multisig to sign. This document is the campaign's one
+reference: the runbook, what the upgrade changes, and how the rehearsal checks it.
 
 ## Runbook
 
 ### Before you start
 
-- The markets are frozen. The pause of 2026-10-22, at block 26,248,724, put every minter and pool on the pause
-  implementation; the managers were paused earlier, at block 26,241,030. The upgrade reads each market at block
-  26,248,723, the last before the pause.
+- Every run names its markets: `--peg <peg> --collateral <name>`, or `--collateral '*'` for every market of the peg, in
+  the words `script/deploy` uses. No name is an error. A run names one peg. The 11 paused markets take six runs, one per
+  peg. A pass of the rehearsal covers only the markets it names, so a mainnet run is rehearsed with the same names.
+- The BTC, ETH, EUR, GOLD, MCAP and SILVER markets are frozen. The pause of 2026-10-22, at block 26,248,724, put their
+  minters and pools on the pause implementation; the managers were paused earlier, at block 26,241,030. The upgrade reads
+  each of them at block 26,248,723, the last before the pause. The USD markets were never paused, and the upgrade reads
+  them at the chain's head.
 - The holder capture the upgrade reads is `FROZEN_MARKETS_CAPTURE` in the script,
-  `script/UpgradeStabilityPool_v2_v3/holders-26248723/`. It must list every holder of every pool.
+  `script/UpgradeStabilityPool_v2_v3/holders-26248723/`. It must list every holder of every pool. To add a market to it,
+  at its own block: `script/holders/capture-holders --rerun --peg <peg> --collateral <name> --out-dir <that folder>`.
 - `MAINNET_RPC_URL` must be archival at block 26,248,723.
-- The deploying account (`--account`) needs ETH for about 218M gas, in 49 transactions (measured on the rehearsal).
-  With ETH at $2,313 (2026-10-26):
+- For the 11 paused markets, the deploying account (`--account`) needs ETH for about 218M gas, in 49 transactions,
+  measured when one run upgraded them all. By peg, each run that needs an upgrader deploys its own, about 1M gas each by
+  arithmetic. With ETH at $2,313 (2026-10-26):
 
   | Gas price | ETH | USD |
   |---|---|---|
@@ -38,7 +44,7 @@ ceiling StabilityPool_v3 enforces.
 ### 2. Rehearse on anvil
 
 ```bash
-script/verify/v3-upgrade/run-upgrade-rehearsal
+script/verify/v3-upgrade/run-upgrade-rehearsal --peg <peg> --collateral <name>
 ```
 
 Start anvil when asked (`script/anvil --block latest`). The run must end with PASS. What it checks is described under
@@ -49,19 +55,27 @@ script's own forks by `script/run-script` - so a refusal (HTTP 429) waits rather
 ### 3. Deploy and save the batches
 
 ```bash
-script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --account <name>
+script/upgrade --network mainnet --salt harbor_v1 --peg <peg> --collateral <name> --account <name>
 ```
 
 This is the rehearsal's command with `--account` in place of `--local`. It:
 
-- deploys 11 Minter_v3, 22 StabilityPool_v3 and 11 StabilityPoolManager_v2 implementations, three libraries, one
-  `StabilityPool_v3_Upgrader`, one `Minter_v3_Upgrader` (GOLD::fxUSD and SILVER::fxUSD need it), and two
-  `FrozenPriceOracle`s (BTC::stETH's and EUR::stETH's compensation);
-- saves 11 batch files, one per market, as
+- deploys, for each market it names, one Minter_v3, two StabilityPool_v3 and one StabilityPoolManager_v2 implementation;
+  one `StabilityPool_v3_Upgrader` for the run, where a pool is not empty (see
+  [Each market's batch](#each-markets-batch), item 2); one `Minter_v3_Upgrader` where a market needs it (GOLD::fxUSD and
+  SILVER::fxUSD); and one `FrozenPriceOracle` for each compensated market (BTC::stETH and EUR::stETH). Forge deploys
+  the three libraries only if they are not on the chain yet: each has an address fixed by its bytecode, whichever script
+  or sender runs;
+- saves one batch file per market, as
   `deployments/mainnet/batch/Upgrade_MarketsToV3_mainnet_<time>_<market>@harbor_multisig.json`;
 - adds every contract it deploys to `deployments/mainnet/harbor_v1.state.json`: the implementations under their
   proxies, the upgraders and the frozen oracles under `*`, as one-shots;
-- writes the compensation as queued to `doc/incidents/2026-10-16-rebalance-dilution/phase1.md`.
+- for a run naming BTC::stETH or EUR::stETH, writes the compensation as queued to
+  `doc/incidents/2026-10-16-rebalance-dilution/phase1.md`. The two share one fund and one fraction of each debt, so its
+  figures are the same whichever of them the run names. Any other run writes nothing there.
+
+It refuses a market whose new implementation the state file already records: executed after its first batch, a second
+would copy its pools' v2 records over the v3 ones. To rebuild a batch never executed, restore the state file first.
 
 The batch files are written before any transaction is sent. If the run stops part way, finish it with `--resume`, and
 sign nothing until every deployment has landed: a batch naming an implementation that does not exist reverts in the
@@ -88,8 +102,10 @@ Each market's batch holds these calls, in this order:
 2. for BTC::fxUSD, ETH::fxUSD, EUR::fxUSD and GOLD::fxUSD, `updatePriceOracle` to the oracle proxy the deploy
    predicts; for BTC::stETH and EUR::stETH, whose batches carry the compensation, `updatePriceOracle` to a
    `FrozenPriceOracle` of the batch's own, answering what the minter's oracle answered at the capture's block;
-3. the collateral pool's migration through `StabilityPool_v3_Upgrader`;
-4. the leveraged pool's migration through `StabilityPool_v3_Upgrader`;
+3. the collateral pool's upgrade - its migration through `StabilityPool_v3_Upgrader`, or its plain upgrade if it is
+   empty - then `updateEarlyWithdrawalFeeRatio` where its fee differs from the market config's, the description stating
+   both values;
+4. the leveraged pool's upgrade, in the same form;
 5. the manager's upgrade, then `updateRebalanceConfig` and `updateHarvestConfig`, each setting one action's bounty
    ratio, bounty ceiling and cut ratio to the market config's - their descriptions state the values;
 6. for BTC::stETH and EUR::stETH, the compensation's approvals, redemptions and mints, then `updatePriceOracle` to
@@ -123,13 +139,17 @@ each batch does is under [Each market's batch](#each-markets-batch), item 4. Bef
 - Each market's batch is independent of the others: they can be executed in any order.
 - The Safe runs a batch as one transaction: all of it happens, or none of it. The largest batch used about 4.2M gas
   on the rehearsal of 2026-10-28. The manager's two setters, added since, cost at most 0.15M more by their measured
-  cost.
+  cost. The pools' two fee setters, added since, cost 37,000 gas each, measured on the rehearsal of 2026-10-31.
 - Executing a market's batch moves its minter, pools and manager off the pause implementation onto v3: **that market is
   live again at once**.
 - Tell the market's depositors how its pools now treat a withdrawal request. A request makes fee-free only the balance
   held when it is made, and what arrives later pays the fee if it leaves early. A deposit no longer cancels a request.
   A request made before the pause makes nothing fee-free, and its window has ended anyway, so a depositor who wants to
   leave without the fee makes a new one.
+- Tell them too that the early-withdrawal fee rises from 1% to 5% in the batch that unpauses the market: every pool held
+  1% at the capture, and every market config states 5%.
+- A pool on v3 no longer answers v2's names for its fee, fee receiver, withdrawal window and withdrawal request: those
+  calls revert ([the names](../../../doc/frontend/stability-pool.md#read-functions)).
 - No call in a batch reads a live price: BTC::stETH's and EUR::stETH's batches price the compensation at the capture
   block's reading, held still in a `FrozenPriceOracle`; every other batch reads none.
 
@@ -164,7 +184,12 @@ that sets every manager's harvest and rebalance terms to its config's again, thr
    runs, directly. GOLD::fxUSD reads the fxUSD/XAU implementation, where its config names the fxUSD/GOLD proxy, which
    runs `Aggregator_fxUSD_GOLD_mainnet`: the XAU aggregator with its quote name changed, answering alike.
 2. **Each pool** is migrated through `StabilityPool_v3_Upgrader` (`script/UpgradeStabilityPool_v2_v3/`), which copies
-   its storage into v3's layout (below), writes its ledger gap, then upgrades it to StabilityPool_v3 in the same call.
+   its storage into v3's layout (below), writes its ledger gap, then upgrades it to StabilityPool_v3 in the same call. A
+   pool with no supply, whose active reward tokens' stream records are all zero, is empty: it has nothing to copy, so it
+   gets a plain upgrade to StabilityPool_v3 instead. These are the USD and MCAP pools. A pool with no holders can still
+   hold a stream record, as GOLD::stETH's do, and goes through the upgrader, which keeps it. Where a pool's
+   early-withdrawal fee differs from its market config's, `updateEarlyWithdrawalFeeRatio` then sets the config's: from
+   1% to 5% in all 30 pools. Its fee receiver is the multisig already, as a deploy sets it, and stays.
 3. **The manager** is upgraded to StabilityPoolManager_v2; its settings stay where they are in storage. Then
    `updateRebalanceConfig` and `updateHarvestConfig` set each action's bounty ratio, bounty ceiling and cut ratio to
    the market config's, as a deploy sets them. At the capture every market runs on a 1% harvest bounty, a 99% harvest
@@ -210,17 +235,19 @@ or withdrawal window.
 
 ## How the rehearsal checks the upgrade
 
-The rehearsal runs the upgrade script itself on an anvil fork of the chain's head, and checks what every market
-contract reads after it against what it read before.
+The rehearsal runs the upgrade script itself on an anvil fork of the chain's head, and checks what each named market's
+contracts read after it against what they read before.
 
 ### How it runs
 
 The upgrade reads one holder capture, `FROZEN_MARKETS_CAPTURE` in `script/Upgrade_MarketsToV3_mainnet.s.sol`, and the
-campaign's tests read the same constant. The rehearsal and the mainnet run differ only in `--local` and `--account`:
+campaign's tests read the same constant. They read the markets from `UPGRADE_PEG` and `UPGRADE_COLLATERAL`, which the
+rehearsal and `script/upgrade` set from their required flags, over anything already in the shell. The rehearsal and the
+mainnet run differ only in `--local` and `--account`:
 
 ```bash
-script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --local
-script/run-script Upgrade_MarketsToV3_mainnet --salt harbor_v1 --network mainnet --broadcast --account <name>
+script/upgrade --network mainnet --salt harbor_v1 --peg <peg> --collateral <name> --local
+script/upgrade --network mainnet --salt harbor_v1 --peg <peg> --collateral <name> --account <name>
 ```
 
 `--local` sends each call of every batch as its own transaction from the multisig; the Safe sends each batch as one.
@@ -229,7 +256,7 @@ The calls are the same: the batch files and the local execution come from the sa
 The runner first runs `CaptureExpectations`, the tests of the library that builds the expected-after records, so a
 broken library fails the run before anything is forked. It then runs `FrozenMarketsReadPoint`: the state the upgrade
 reads, at the end of the capture's block, is the state it runs on - the pause changed only which implementation each
-minter and pool runs. It then runs
+minter and pool runs. A run naming a market the pause never froze skips this. It then runs
 `UpgradedMarketsMatchANativeDeploy`: each upgraded market holds the settings a native deploy sets (see
 [Settings against a native deploy](#settings-against-a-native-deploy)); and `UpgradedMarketsHarvest`: each upgraded
 market harvests at its config's terms (see [Harvest after the upgrade](#harvest-after-the-upgrade)). It then asks you
@@ -239,7 +266,9 @@ to start anvil (`script/anvil --block latest`), and:
    deployed addresses;
 2. **before**: `MarketsCapture` with `VERSION=before`, on a fork of mainnet at the capture's block - the last block
    before the pause of 2026-10-22, where the markets still run. The managers were paused earlier, at block
-   26,241,030, so the capture puts each manager's own implementation back first: their pause changed only that;
+   26,241,030, so the capture puts each manager's own implementation back first: their pause changed only that. A USD
+   market is read at the same block: its manager has run one implementation since before then, and the diff below fails
+   if it reads differently after;
 3. runs the upgrade script as it will be run on mainnet, with `--local` added: the batches execute on anvil as the
    multisig would execute them;
 4. **after**: `MarketsCapture` with `VERSION=after`, on a fork of anvil, which must be past the capture's block;
@@ -296,6 +325,7 @@ The expected after is the before record, changed only where an expectation says.
 | StabilityPool | `state_liquidationToken`, `state_minDeposit` | removed | v3 names no single liquidation token, and calls its minimum `MIN_TOTAL_ASSET_SUPPLY` |
 | StabilityPool | `state_minter` | the market's minter | v3 names its minter, which v2 does not |
 | StabilityPool | `state_rewardDivisor` | supply less the ledger gap | v3 divides rewards by what the holders hold |
+| StabilityPool | `state_earlyWithdrawalFee` | the market config's | its batch moves the pool's early-withdrawal fee to the market config's |
 | StabilityPool with a ledger gap | each claimable before the claims, each claim's payout, and after the interactions each claimed total | the before value moved by the shift, within 2 wei per fold | v3 divides the reward it folds into its reward-per-share after the upgrade by what the holders hold, not by the supply |
 | Minter of a compensated market (BTC::stETH, EUR::stETH) | `minter_peggedBalance` | before, less the pegged fee redeemed | the multisig redeems its pegged fee from the exploit, fee-free, in the market's batch; the fee redeemed is read from the minter's events on anvil and must be the file's |
 | the same | `minter_leveragedBalance` | before, less the cuts redeemed, plus the leveraged minted (the events) | the multisig redeems the cuts taken back and mints fee-free for each loser |
@@ -341,13 +371,14 @@ each such record's pending is what its account may claim at that moment on the u
 and what it could claim on the frozen pool at that moment less its cut, where one was taken in that token, to the
 shift of the stream the migration folded; its claimed is copied; every other holder's records are copied exactly.
 
-It fails unless at least one reward record had data to compare.
+Where a named pool lists a holder, it fails unless at least one reward record had data to compare. A run whose pools
+list none rightly compares none.
 
 ### Harvest after the upgrade
 
 The records compare what each contract reads. `UpgradedMarketsHarvest` checks what a market does when a keeper
-harvests it, on the state the upgrade leaves. It forks mainnet at the block after the capture and upgrades every market
-there as the upgrade script builds the upgrade, the compensation included, executing each batch as the multisig. A
+harvests it, on the state the upgrade leaves. It forks mainnet at the block after the capture and upgrades the named
+markets there as the upgrade script builds the upgrade, the compensation included, executing each batch as the multisig. A
 harvest reads the price oracle, and at that block every answer is as fresh as mainnet keeps it. Anvil holds each answer
 from its fork while its clock runs on, so an hourly answer can go stale during a rehearsal.
 
@@ -360,7 +391,8 @@ For every market holding harvestable yield:
   where the pools hold no deposits, as GOLD::stETH's hold none at the capture;
 - the minter's harvestable falls by what is harvested.
 
-A market holding none must say so (`NoHarvestable`). The check fails unless at least one market harvests.
+A market holding none must say so (`NoHarvestable`). Where a named minter holds wrapped collateral, the check fails
+unless at least one market harvests.
 
 ### Settings against a native deploy
 
@@ -369,20 +401,20 @@ market deployed natively on v3. A contract's behaviour follows from its code, it
 is built from the same source as a native deploy's, and the records check the holdings carried over, so a market that
 also holds a native deploy's settings behaves as a native market would, holding what it holds.
 
-For each peg, on a fork of mainnet at the block after the capture, where every minter and pool is paused:
+On a fork of mainnet at the block after the capture for a market the pause froze, and at the chain's head for any other:
 
-1. the upgrade script's own function upgrades the peg's markets, as the multisig would execute it;
-2. the production deploy deploys the same peg beside them, under the salt prefix `native_v3`, wired to the live
-   oracles, and owned and paid as production's;
+1. the upgrade script's own function upgrades the named markets, as the multisig would execute it;
+2. the production deploy deploys them beside them, under the salt prefix `native_v3`, wired to the live oracles, and
+   owned and paid as production's, taking every market of the peg for its role grants;
 3. `MarketSettings` reads the settings of both markets' minter, pools and manager. Each address the native market
    names is read as the upgraded market's at the same deploy key: its minter, reserve pool, genesis, pools, manager
    and tokens. Every setting must be equal; each difference is logged before the test fails.
 
-One test per peg, so each stays within a test's gas and a failure names its peg. A role granted on mainnet to an
-address the deploy grants none is not seen.
+A role granted on mainnet to an address the deploy grants none is not seen.
 
 ## Files
 
+- `script/upgrade` - names the markets and runs the script
 - `script/Upgrade_MarketsToV3_mainnet.s.sol` - the script, and `FROZEN_MARKETS_CAPTURE`
 - `script/src/UpgradeMarketToV3.sol` - the read of each market, and its batch
 - `script/src/contracts/StabilityPoolManager.sol` - `queueStabilityPoolManagerConfig`, the manager's two setter calls

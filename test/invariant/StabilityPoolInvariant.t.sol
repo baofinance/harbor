@@ -156,7 +156,7 @@ contract StabilityPoolInvariantHandler is Test {
         IStabilityPool_v3(POOL).requestWithdrawal();
         vm.stopPrank();
         leastBalanceSinceRequest[actor] = IERC20(POOL).balanceOf(actor);
-        (uint64 start, ) = IStabilityPool_v3(POOL).getWithdrawalRequest(actor);
+        (uint64 start, ) = IStabilityPool_v3(POOL).withdrawalRequest(actor);
         vm.warp(start);
         vm.startPrank(actor);
         IStabilityPool_v3(POOL).withdraw(amount, actor, 0);
@@ -506,7 +506,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         for (uint256 a = 0; a < handler.actorCount(); a++) {
             address actor = handler.actorAt(a);
             assertLe(
-                IStabilityPool_v3(stabilityPoolCollateral).getWithdrawalFeeFreeAmount(actor),
+                IStabilityPool_v3(stabilityPoolCollateral).withdrawalFeeFreeAmount(actor),
                 handler.leastBalanceSinceRequest(actor) + 2 * handler.calls(),
                 "a fee-free amount exceeds the least balance held since its request"
             );

@@ -279,7 +279,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             _expectedMaxTotalAssetSupply(cfg.aboutADollarInPegged()),
             "deployed supply ceiling is not MIN * FACTOR_PRECISION (saturated at the supply field)"
         );
-        (uint256 startDelay, uint256 endWindow) = IStabilityPool_v3(stabilityPool).getWithdrawalWindow();
+        (uint256 startDelay, uint256 endWindow) = IStabilityPool_v3(stabilityPool).withdrawalWindow();
         assertEq(startDelay, cfg.stabilityPoolWithdrawalDelay(), "deployed withdrawal delay is not the configured one");
         assertEq(
             endWindow,
@@ -287,7 +287,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             "deployed withdrawal window is not the configured one"
         );
         assertEq(
-            IStabilityPool_v3(stabilityPool).getEarlyWithdrawalFee(),
+            IStabilityPool_v3(stabilityPool).earlyWithdrawalFeeRatio(),
             cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
             "deployed early-withdrawal fee is not the configured one"
         );
@@ -538,7 +538,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         vm.startPrank(who);
         IStabilityPool_v3(stabilityPool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPool).getWithdrawalRequest(who);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPool).withdrawalRequest(who);
         vm.warp(uint256(start) + 1);
         vm.startPrank(who);
         IStabilityPool_v3(stabilityPool).withdraw(type(uint256).max, who, 0);
@@ -1047,7 +1047,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         IStabilityPool_v3(stabilityPool).deposit(w, user, 0);
         IStabilityPool_v3(stabilityPool).requestWithdrawal();
         vm.stopPrank();
-        (uint64 start, ) = IStabilityPool_v3(stabilityPool).getWithdrawalRequest(user);
+        (uint64 start, ) = IStabilityPool_v3(stabilityPool).withdrawalRequest(user);
         vm.warp(uint256(start) + 1);
         vm.startPrank(user);
         IStabilityPool_v3(stabilityPool).withdraw(type(uint256).max, user, 0);
