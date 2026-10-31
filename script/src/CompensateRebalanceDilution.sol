@@ -13,7 +13,7 @@ import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol"
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {JsonSerializer} from "@bao-script/deployment/JsonSerializer.sol";
-import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
 
@@ -577,9 +577,9 @@ abstract contract CompensateRebalanceDilution is UpgradeMarketToV3 {
         revert MarketNotInTheUpgrade(name);
     }
 
-    /// @dev The market config `allMintersConfig` lists under `name`, as "<peg>::<collateral>".
+    /// @dev The market config `frozenMintersConfig` lists under `name`, as "<peg>::<collateral>".
     function _marketNamed(string memory name) private returns (Config_MinterMarket) {
-        Config_MinterMarket[] memory markets = allMintersConfig();
+        Config_MinterMarket[] memory markets = frozenMintersConfig();
         bytes32 wanted = keccak256(bytes(name));
         for (uint256 i = 0; i < markets.length; ++i) {
             if (keccak256(bytes(MinterMarketConfigLib.salt(markets[i]))) == wanted) {

@@ -12,7 +12,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
@@ -60,7 +60,7 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
 
     function setUp() public {
         _setSaltPrefix("harbor_v1");
-        markets = allMintersConfig();
+        markets = frozenMintersConfig();
         for (uint256 i = 0; i < markets.length; ++i) {
             vm.makePersistent(address(markets[i]));
         }

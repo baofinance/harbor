@@ -283,10 +283,15 @@ contract MarketVerificationOfEveryMarketTest is BaoTest {
         _deployAndCheck(5);
     }
 
+    /// The USD markets deploy wired as their addresses resolve.
+    function test_theUSDMarkets_deployWired() public {
+        _deployAndCheck(6);
+    }
+
     /// @dev Deploy the peg at `pegIndex` of `allPegsConfig`, with every market of it, then check each market.
     function _deployAndCheck(uint256 pegIndex) private {
         forkMainnetWithBaoFactory();
-        (ConfigPeg[6] memory pegs, Config_MinterMarket[][6] memory marketsByPeg) = allPegsConfig();
+        (ConfigPeg[7] memory pegs, Config_MinterMarket[][7] memory marketsByPeg) = allPegsConfig();
         Config_MinterMarket[] memory markets = marketsByPeg[pegIndex];
         HarborDeployRun deployRun = new HarborDeployRun(
             makeAddr("everyMarketOwner"),

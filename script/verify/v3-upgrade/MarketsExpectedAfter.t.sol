@@ -10,7 +10,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
@@ -53,7 +53,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE)
         );
         _setSaltPrefix("harbor_v1");
-        Config_MinterMarket[] memory markets = allMintersConfig();
+        Config_MinterMarket[] memory markets = frozenMintersConfig();
         string[] memory files = new string[](2);
         files[0] = BTC_STETH_COMPENSATION;
         files[1] = EUR_STETH_COMPENSATION;

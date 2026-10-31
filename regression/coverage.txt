@@ -5,9 +5,12 @@
 | script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol    | ✓ 100% (33/33)     | ✓ 100% (37/37)     | ✓ 100% (1/1)     | ✓ 100% (6/6)     |
 | script/config/ConfigBase.sol                                       | X  80% (8/10)      | X  78% (7/9)       | -  N/A (0/0)     | X  80% (4/5)     |
 | script/config/ConfigTokenNames.sol                                 | X  85% (22/26)     | X  91% (20/22)     | ✓ 100% (2/2)     | X  75% (9/12)    |
-| script/config/chains/ConfigChain_mainnet.sol                       | X  19% (4/21)      | X  31% (4/13)      | -  N/A (0/0)     | X   0% (0/8)     |
+| script/config/chains/ConfigChain_mainnet.sol                       | X  26% (7/27)      | X  41% (7/17)      | -  N/A (0/0)     | X   0% (0/10)    |
+| script/config/collaterals/ConfigCollateral_PAXG_mainnet.sol        | X  75% (6/8)       | X  67% (4/6)       | -  N/A (0/0)     | X  75% (3/4)     |
 | script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol       | ✓ 100% (8/8)       | ✓ 100% (6/6)       | -  N/A (0/0)     | ✓ 100% (4/4)     |
 | script/config/collaterals/ConfigCollateral_stETH_mainnet.sol       | ✓ 100% (8/8)       | ✓ 100% (6/6)       | -  N/A (0/0)     | ✓ 100% (4/4)     |
+| script/config/collaterals/ConfigCollateral_tBTC_mainnet.sol        | X  75% (6/8)       | X  67% (4/6)       | -  N/A (0/0)     | X  75% (3/4)     |
+| script/config/collaterals/ConfigCollateral_wBTC_mainnet.sol        | X  75% (6/8)       | X  67% (4/6)       | -  N/A (0/0)     | X  75% (3/4)     |
 | script/config/pegs/ConfigPeg.sol                                   | X  75% (6/8)       | X  86% (6/7)       | -  N/A (0/0)     | X  75% (3/4)     |
 | script/config/pegs/ConfigPeg_BTC.sol                               | ✓ 100% (4/4)       | ✓ 100% (2/2)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/pegs/ConfigPeg_ETH.sol                               | ✓ 100% (4/4)       | ✓ 100% (2/2)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
@@ -15,6 +18,7 @@
 | script/config/pegs/ConfigPeg_GOLD.sol                              | ✓ 100% (4/4)       | ✓ 100% (2/2)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/pegs/ConfigPeg_MCAP.sol                              | ✓ 100% (4/4)       | ✓ 100% (2/2)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/pegs/ConfigPeg_SILVER.sol                            | ✓ 100% (4/4)       | ✓ 100% (2/2)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
+| script/config/pegs/ConfigPeg_USD.sol                               | ✓ 100% (4/4)       | ✓ 100% (2/2)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/stabilitypool/ConfigStabilityPool.sol                | ✓ 100% (6/6)       | ✓ 100% (3/3)       | -  N/A (0/0)     | ✓ 100% (3/3)     |
 | script/config/stabilitypool/ConfigStabilityPoolManager.sol         | ✓ 100% (12/12)     | ✓ 100% (10/10)     | -  N/A (0/0)     | ✓ 100% (6/6)     |
 | script/config/volatility/ConfigPriceVolatility_105.sol             | X   0% (0/65)      | X   0% (0/71)      | -  N/A (0/0)     | X   0% (0/2)     |
@@ -24,13 +28,13 @@
 | script/config/volatility/ConfigPriceVolatility_115_stable.sol      | X   0% (0/65)      | X   0% (0/71)      | -  N/A (0/0)     | X   0% (0/2)     |
 | script/config/volatility/ConfigPriceVolatility_125.sol             | ✓ 100% (65/65)     | ✓ 100% (71/71)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/volatility/ConfigPriceVolatility_125_may_26.sol      | ✓ 100% (65/65)     | ✓ 100% (71/71)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
-| script/config/volatility/ConfigPriceVolatility_125_stable.sol      | X   0% (0/65)      | X   0% (0/71)      | -  N/A (0/0)     | X   0% (0/2)     |
+| script/config/volatility/ConfigPriceVolatility_125_stable.sol      | ✓ 100% (65/65)     | ✓ 100% (71/71)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/volatility/ConfigPriceVolatility_130.sol             | ✓ 100% (65/65)     | ✓ 100% (71/71)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/volatility/ConfigPriceVolatility_130_may_26.sol      | ✓ 100% (65/65)     | ✓ 100% (71/71)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/config/volatility/ConfigPriceVolatility_130_stable.sol      | X   0% (0/65)      | X   0% (0/71)      | -  N/A (0/0)     | X   0% (0/2)     |
 | script/holders/HolderCaptureLib.sol                                | X  97% (29/30)     | X  98% (42/43)     | ✓ 100% (14/14)   | ✓ 100% (5/5)     |
 | script/holders/LogCaptureLib.sol                                   | ✓ 100% (48/48)     | ✓ 100% (61/61)     | X  81% (17/21)   | ✓ 100% (4/4)     |
-| script/src/AllMintersConfig.sol                                    | ✓ 100% (17/17)     | ✓ 100% (22/22)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
+| script/src/AllMintersConfig.sol                                    | ✓ 100% (31/31)     | ✓ 100% (43/43)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
 | script/src/CompensateRebalanceDilution.sol                         | X   0% (0/163)     | X   0% (0/205)     | X   0% (0/12)    | X   0% (0/16)    |
 | script/src/Deploy_BTC_Minter.sol                                   | X  71% (5/7)       | X  67% (4/6)       | -  N/A (0/0)     | X  50% (1/2)     |
 | script/src/Deploy_ETH_Minter.sol                                   | ✓ 100% (6/6)       | ✓ 100% (5/5)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
@@ -38,6 +42,7 @@
 | script/src/Deploy_GOLD_Minter.sol                                  | X  71% (5/7)       | X  67% (4/6)       | -  N/A (0/0)     | X  50% (1/2)     |
 | script/src/Deploy_MCAP_Minter.sol                                  | X  71% (5/7)       | X  67% (4/6)       | -  N/A (0/0)     | X  50% (1/2)     |
 | script/src/Deploy_SILVER_Minter.sol                                | X  71% (5/7)       | X  67% (4/6)       | -  N/A (0/0)     | X  50% (1/2)     |
+| script/src/Deploy_USD_Minter.sol                                   | X  78% (7/9)       | X  75% (6/8)       | -  N/A (0/0)     | X  50% (1/2)     |
 | script/src/HarborDeployStack.sol                                   | X  69% (31/45)     | X  62% (29/47)     | X  33% (2/6)     | X  71% (5/7)     |
 | script/src/HarborDeployer.sol                                      | X  80% (82/102)    | X  95% (94/99)     | X  80% (4/5)     | X  59% (24/41)   |
 | script/src/HarborReporting.sol                                     | X  75% (18/24)     | X  74% (14/19)     | X  80% (4/5)     | X  80% (4/5)     |
@@ -78,4 +83,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                   | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
 | src/util/FmtLib.sol                                                | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)     |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
-| Total                                                              | X  72% (3630/5038) | X  72% (4000/5530) | X  68% (486/715) | X  77% (518/674) |
+| Total                                                              | X  73% (3741/5095) | X  74% (4115/5583) | X  68% (486/715) | X  77% (534/694) |

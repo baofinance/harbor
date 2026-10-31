@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ConfigChain_mainnet} from "../chains/ConfigChain_mainnet.sol";
+import {ConfigChain_mainnet} from "@harbor-script/config/chains/ConfigChain_mainnet.sol";
 
 /// @notice Collateral configuration for PAXG markets.
 /// @dev Addresses come from the chain config that this is composed with.
@@ -10,11 +10,16 @@ abstract contract ConfigCollateral_PAXG_mainnet is ConfigChain_mainnet {
         return PAXG();
     }
 
-    function wrappedCollateralToken() public pure virtual returns (address) {
+    function wrappedCollateralToken() public view virtual returns (address) {
         return PAXG();
     }
 
     function collateral() public pure virtual returns (string memory) {
         return "PAXG";
+    }
+
+    /// @notice About a dollar's worth of PAXG - see `IHarborConfig.aboutADollarInWrappedCollateral`.
+    function aboutADollarInWrappedCollateral() public pure virtual returns (uint256) {
+        return 2.5e14;
     }
 }

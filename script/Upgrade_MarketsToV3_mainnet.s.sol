@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
 
-import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {CompensateRebalanceDilution} from "@harbor-script/src/CompensateRebalanceDilution.sol";
 
 /// @dev The holder capture the live markets are upgraded from, made by `script/holders/capture-holders` to block
@@ -29,7 +29,7 @@ contract Upgrade_MarketsToV3_mainnet is Script, CompensateRebalanceDilution {
     function build() internal override {
         // The config objects are script-side inputs, created outside the broadcast so they are not deployed.
         MarketUpgradeInput[] memory inputs = readFrozenMarketUpgradeInputs(
-            allMintersConfig(),
+            frozenMintersConfig(),
             FROZEN_MARKETS_CAPTURE,
             "mainnet"
         );

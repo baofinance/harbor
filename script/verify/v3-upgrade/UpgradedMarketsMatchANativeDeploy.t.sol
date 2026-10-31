@@ -6,7 +6,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {allPegsConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenPegsConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
@@ -75,14 +75,14 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
         _compareWithANativeDeploy(5);
     }
 
-    /// @dev Upgrade the markets of the peg at `pegIndex` of `allPegsConfig`, deploy the peg natively beside them, and
+    /// @dev Upgrade the markets of the peg at `pegIndex` of `frozenPegsConfig`, deploy the peg natively beside them, and
     ///      require each contract of each market to hold the same settings in both.
     function _compareWithANativeDeploy(uint256 pegIndex) private {
         vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         Comparison memory c;
         Config_MinterMarket[] memory markets;
         {
-            (ConfigPeg[6] memory pegs, Config_MinterMarket[][6] memory marketsByPeg) = allPegsConfig();
+            (ConfigPeg[6] memory pegs, Config_MinterMarket[][6] memory marketsByPeg) = frozenPegsConfig();
             markets = marketsByPeg[pegIndex];
             assertGt(markets.length, 0, "precondition: the peg has markets");
 

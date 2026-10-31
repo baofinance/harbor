@@ -63,3 +63,6 @@ test deployment testEUR
 
 the EUR::fxUSD and EUR::stETH markets, on v1 contracts
 """
+"deploy/mainnet/harbor_v1.state@2026-05-18T00-28-35Z" = """
+harbor: deployment for USD against stETH, PAXG, wBTC, and tBTC
+"""

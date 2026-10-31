@@ -10,7 +10,7 @@ import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {
     BTC_STETH_COMPENSATION,
@@ -41,7 +41,7 @@ contract UpgradedMarketsHarvest is BaoTest, HarborDeployer {
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         _setSaltPrefix("harbor_v1");
-        markets = allMintersConfig();
+        markets = frozenMintersConfig();
         // A contract made on one fork is absent from another unless persistent: the run reads the frozen markets on
         // forks of its own.
         for (uint256 i = 0; i < markets.length; ++i) {

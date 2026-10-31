@@ -11,7 +11,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {allMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
+import {frozenMintersConfig} from "@harbor-script/src/AllMintersConfig.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
@@ -30,7 +30,7 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
     function setUp() public {
         captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         _setSaltPrefix("harbor_v1");
-        markets = allMintersConfig();
+        markets = frozenMintersConfig();
         for (uint256 i = 0; i < markets.length; ++i) {
             vm.makePersistent(address(markets[i]));
         }
