@@ -28,6 +28,7 @@ import {btcMintersConfig} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {goldMintersConfig} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {pauserNamed} from "@harbor-script/src/Pausers.sol";
 import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {IMinter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/IMinter_v3_Upgrader.sol";
@@ -35,7 +36,11 @@ import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_U
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
-import {FrozenMarketUpgradeRun, MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
+import {
+    FrozenMarketUpgradeRun,
+    MarketUpgradeRun,
+    MarketUpgradeRunDecidingWhereToRead
+} from "@harbor-test/harness/MarketUpgradeRun.sol";
 import {MarketVerification} from "@harbor-test/harness/MarketVerification.sol";
 
 /// @dev MCAP::fxUSD as production configures it, with a floor a wei above its live pools'.
@@ -140,6 +145,28 @@ contract UpgradeMarketToV3Test is Test {
         upgrade = new MarketUpgradeRun(upgraded, CAPTURE);
         deployRun = new HarborDeployRun(address(0), address(0), "harbor_v1", "mainnet", HarborDeployRun.Cut.Whole);
         minter = deployRun.minterAddress(markets[0]);
+    }
+
+    /// A run's markets are all frozen or none. One whose minter runs a pauser beside one whose minter does not is
+    /// refused, naming each: here MCAP::stETH's minter is put on BaoPauser_v1 beside MCAP::fxUSD's, which runs as live.
+    function test_aRunMixingFrozenAndUnfrozenMarketsIsRefused() public {
+        (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
+        address pauser = pauserNamed("mainnet", "BaoPauser_v1");
+        vm.store(
+            deployRun.minterAddress(markets[1]),
+            ERC1967Utils.IMPLEMENTATION_SLOT,
+            bytes32(uint256(uint160(pauser)))
+        );
+        MarketUpgradeRunDecidingWhereToRead mixed = new MarketUpgradeRunDecidingWhereToRead(markets, CAPTURE);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UpgradeMarketToV3.MixedFrozenAndUnfrozenMarkets.selector,
+                "MCAP::stETH",
+                "MCAP::fxUSD"
+            )
+        );
+        mixed.run("harbor_v1");
     }
 
     /// The upgrade moves the minter to a new implementation and keeps its stored config: loaded again through

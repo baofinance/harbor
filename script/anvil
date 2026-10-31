@@ -25,7 +25,12 @@ Options:
   --block latest     Use the latest block
   --block factory    Use block $FACTORY_BLOCK (when BaoFactory was deployed) [default]
   --block <number>   Use a specific block number, which may contain _ (e.g., 26_204_584)
-  --block <time>     Use block at given time (ISO 8601, e.g., 2025-12-01T12:00:00Z)
+  --block today      Use the last block before today began. A day begins at 06:00 local time, so every run on a
+                     day forks the same block, and before 06:00 today is the day that began yesterday morning
+  --block yesterday  Use the last block before yesterday began
+  --block today-<n>  Use the last block before the day <n> days ago began (today-1 is yesterday)
+  --block <date>     Use the last block before 06:00 local time on that date: 2026-07-04, 4-Jul-2026 or Jul-4-2026
+  --block <time>     Use the last block before that time, local unless it names a zone (e.g., 2025-12-01T12:00:00Z)
   --tx <hash>        Use the transaction with this hash; slower to start than a block
   --transaction      The same as --tx
   --block | --tx rebalance-exploit-BTC-stETH
@@ -135,6 +140,7 @@ if [[ -n "$TX_SPEC" ]]; then
   fi
 else
   block=""
+  found=""
   case "$BLOCK_SPEC" in
     latest) ;;
     factory)
@@ -154,13 +160,52 @@ else
         # Numeric block number, with any _ digit separators removed
         block="${BLOCK_SPEC//_/}"
       else
-        # Assume ISO 8601 timestamp - convert to block number
-        timestamp=$(date -d "$BLOCK_SPEC" +%s 2>/dev/null) || {
-          echo "Error: Invalid time format '$BLOCK_SPEC'. Use ISO 8601 (e.g., 2025-12-01T12:00:00Z)" >&2
-          exit 1
-        }
-        # Use cast to find block by timestamp
+        # A day begins at 06:00 local time: today is the latest 06:00 that has passed, yesterday and today-N count
+        # days back from it, and a plain date is 06:00 on that date. A value with a time keeps its time, local unless
+        # it names a zone. Resolved in python, whose datetime does the same on linux and macOS, where date has no -d.
+        resolved=$(
+          python3 - "$BLOCK_SPEC" <<'PYTHON'
+import re
+import sys
+import time
+from datetime import datetime, timedelta
+
+DAY_BEGINS_AT = 6  # o'clock, local time
+
+spec = sys.argv[1]
+day = re.fullmatch(r"today(?:-(\d+))?|yesterday", spec)
+if day:
+    days_back = 1 if spec == "yesterday" else int(day.group(1) or 0)
+    now = datetime.now()
+    today = now.replace(hour=DAY_BEGINS_AT, minute=0, second=0, microsecond=0)
+    if today > now:
+        today -= timedelta(days=1)  # before 06:00, the day that began yesterday morning is still today
+    when = today - timedelta(days=days_back)
+else:
+    date_forms = ("%Y-%m-%d", "%d-%b-%Y", "%b-%d-%Y")
+    time_forms = ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M%z", "%Y-%m-%dT%H:%M")
+    for form in date_forms + time_forms:
+        try:
+            when = datetime.strptime(spec, form)
+        except ValueError:
+            continue
+        if form in date_forms:
+            when = when.replace(hour=DAY_BEGINS_AT)
+        break
+    else:
+        sys.exit(
+            f"Error: '{spec}' is not a block number, a named block, today, yesterday, today-N, "
+            "a date (2026-07-04, 4-Jul-2026, Jul-4-2026) or a time (2025-12-01T12:00:00Z)"
+        )
+when = when.astimezone()  # a time that names no zone is local time
+if when.timestamp() > time.time():
+    sys.exit(f"Error: {when:%Y-%m-%d %H:%M %z} is in the future")
+print(int(when.timestamp()), f"{when:%Y-%m-%d %H:%M %z}")
+PYTHON
+        ) || exit 1
+        read -r timestamp when <<<"$resolved"
         block=$(cast find-block "$timestamp" --rpc-url mainnet)
+        found=", the last block before $when"
       fi
       ;;
   esac
@@ -176,9 +221,10 @@ else
     fork_block="$block"
     if [[ "$AROUND" == before ]]; then
       fork_block=$((block - 1))
+      found=", the block before $block$found"
     fi
     FORK_ARGS=(--fork-block-number "$fork_block")
-    FORK_POINT="at block $fork_block"
+    FORK_POINT="at block $fork_block$found"
   fi
 fi
 

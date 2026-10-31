@@ -127,19 +127,39 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
     /// @notice The owner's operations name a different number of accounts and mints.
     error AccountsAndMintsOfDifferentLengths(string market, uint256 accounts, uint256 mints);
 
+    /// @notice A run's markets are all frozen or none, and these are not: the markets whose minter runs a pauser, and
+    ///         those whose minter does not, each as "<peg>::<collateral>"s.
+    error MixedFrozenAndUnfrozenMarkets(string frozen, string unfrozen);
+
     /// @notice The deployment state records an implementation this upgrade would deploy, for a contract of a market in
     ///         the run.
     error StateRecordsTheNewImplementation(string proxy, string contractType, address implementation);
 
     /// @notice Read what upgrading each of `markets` needs, where it must be read: markets a pause has frozen at the
-    ///         capture's block, any other on the fork selected. A run names one peg, whose markets are all frozen or none.
+    ///         capture's block, any other on the fork selected. A market is frozen when its minter runs a pauser on the
+    ///         fork selected (`isFrozen`), and a run's markets must be all frozen or none: a mix is refused, naming each.
     function readUpgradeInputs(
         Config_MinterMarket[] memory markets,
         string memory capture,
         string memory network
     ) internal returns (MarketUpgradeInput[] memory) {
+        string memory frozen;
+        string memory unfrozen;
+        uint256 frozenCount;
+        for (uint256 i = 0; i < markets.length; ++i) {
+            string memory name = MinterMarketConfigLib.salt(markets[i]);
+            if (isFrozen(minterAddress(markets[i]), network)) {
+                frozen = string.concat(frozen, bytes(frozen).length == 0 ? "" : " ", name);
+                ++frozenCount;
+            } else {
+                unfrozen = string.concat(unfrozen, bytes(unfrozen).length == 0 ? "" : " ", name);
+            }
+        }
+        if (frozenCount != 0 && frozenCount != markets.length) {
+            revert MixedFrozenAndUnfrozenMarkets(frozen, unfrozen);
+        }
         return
-            isFrozen(markets[0])
+            frozenCount != 0
                 ? readFrozenMarketUpgradeInputs(markets, capture, network)
                 : readMarketUpgradeInputs(markets, capture);
     }

@@ -15,7 +15,9 @@ reference: the runbook, what the upgrade changes, and how the rehearsal checks i
 - The BTC, ETH, EUR, GOLD, MCAP and SILVER markets are frozen. The pause of 2026-10-22, at block 26,248,724, put their
   minters and pools on the pause implementation; the managers were paused earlier, at block 26,241,030. The upgrade reads
   each of them at block 26,248,723, the last before the pause. The USD markets were never paused, and the upgrade reads
-  them at the chain's head.
+  them at the chain's head. A market is frozen when its minter runs a pauser, one of those bao-base's deployment state
+  records (`script/src/Pausers.sol`), read on the fork the run selects; a run mixing frozen and unfrozen markets is
+  refused.
 - The holder capture the upgrade reads is `FROZEN_MARKETS_CAPTURE` in the script,
   `script/UpgradeStabilityPool_v2_v3/holders-26248723/`. It must list every holder of every pool. To add a market to it,
   at its own block: `script/holders/capture-holders --rerun --peg <peg> --collateral <name> --out-dir <that folder>`.

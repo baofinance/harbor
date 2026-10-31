@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {LibString} from "@solady/utils/LibString.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {Token} from "@bao/Token.sol";
@@ -13,22 +12,25 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
-import {isFrozen, marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
+import {marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 import {MarketHarvestCheck} from "@harbor-script/verify/v3-upgrade/MarketHarvestCheck.sol";
 
 import {MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
 
-/// @title UpgradedUSDMarketsOpen - the USD markets, upgraded, open and run
-/// @notice No USD market has opened. Each has a deployed Genesis_v1 that has not ended and a minter that holds nothing, so
+/// @title UpgradedUnopenedMarketsOpen - the markets named that have not opened, upgraded, open and run
+/// @notice A market that has not opened has a deployed Genesis_v1 that has not ended and a minter that holds nothing, so
 ///         its genesis ending against Minter_v3, and everything after, has never happened on it. The rehearsal's records
-///         compare empty contracts with empty contracts, so this does what they cannot: it opens each market through its
-///         genesis, then uses it.
-/// @dev On a fork of mainnet at the chain's head, where the USD markets run and their oracles answer. Two depositors enter
-///      each genesis while the minter is still v2, then the upgrade script's own function upgrades the named markets.
-///      The tests run for each named USD market but USD::wBTC, whose oracle cannot open it correctly at its token's
-///      8 decimals (`ConfigTest.test_theUSDwBTCOracle_failsThePriceScaleCheck`). Any run naming none of those skips them.
-contract UpgradedUSDMarketsOpen is MarketHarvestCheck {
+///         compare empty contracts with empty contracts, so this does what they cannot: it opens each such market through
+///         its genesis, then uses it.
+/// @dev On a fork of mainnet at the chain's head, where the markets run and their oracles answer. The markets named
+///      whose genesis has not ended there are the ones opened. Two depositors enter each genesis while the minter is
+///      still v2, then the upgrade script's own function upgrades the named markets. A run naming no such market skips
+///      the tests, and each says so.
+contract UpgradedUnopenedMarketsOpen is MarketHarvestCheck {
+    /// @dev Why every test skips when no market named has a genesis still to end.
+    string private constant NOTHING_TO_OPEN = "no market named has an unended genesis";
+
     /// @dev What each depositor enters a genesis with, in dollars of the market's wrapped collateral.
     uint256 private constant DOLLARS_IN_GENESIS = 100_000;
 
@@ -58,15 +60,17 @@ contract UpgradedUSDMarketsOpen is MarketHarvestCheck {
         for (uint256 i = 0; i < named.length; ++i) {
             // Made before the fork below, and read on it.
             vm.makePersistent(address(named[i]));
-            if (!isFrozen(named[i]) && !LibString.eq(MinterMarketConfigLib.salt(named[i]), "USD::wBTC")) {
+        }
+        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        _setSaltPrefix("harbor_v1");
+        for (uint256 i = 0; i < named.length; ++i) {
+            if (!IGenesis(genesisAddress(named[i])).genesisIsEnded()) {
                 markets.push(named[i]);
             }
         }
         if (markets.length == 0) {
             return;
         }
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
-        _setSaltPrefix("harbor_v1");
         for (uint256 i = 0; i < markets.length; ++i) {
             _enterGenesis(markets[i], stayer);
             _enterGenesis(markets[i], leaver);
@@ -80,7 +84,7 @@ contract UpgradedUSDMarketsOpen is MarketHarvestCheck {
     /// that, and holds all the collateral. Each depositor, whether they entered before the upgrade or after, claims
     /// their share of both.
     function test_genesisV1_opensEachUpgradedMarket() public {
-        vm.skip(markets.length == 0);
+        vm.skip(markets.length == 0, NOTHING_TO_OPEN);
         for (uint256 i = 0; i < markets.length; ++i) {
             MarketContracts memory m = _contractsOf(markets[i]);
             _enterGenesis(markets[i], lateDepositor);
@@ -120,7 +124,7 @@ contract UpgradedUSDMarketsOpen is MarketHarvestCheck {
     /// and it is all theirs. One left in claims the whole opening, as the only share left, and can no longer be taken
     /// out. The depositor who took theirs out has nothing to claim.
     function test_aGenesisDepositFromBeforeTheUpgrade_survivesIt() public {
-        vm.skip(markets.length == 0);
+        vm.skip(markets.length == 0, NOTHING_TO_OPEN);
         for (uint256 i = 0; i < markets.length; ++i) {
             MarketContracts memory m = _contractsOf(markets[i]);
             uint256 deposited = _inGenesis(markets[i]);
@@ -155,7 +159,7 @@ contract UpgradedUSDMarketsOpen is MarketHarvestCheck {
     /// the market's own oracle and fee bands, and pay the fee they state to the fee receiver. Each pool takes a deposit
     /// and gives it back, less its config's early-withdrawal fee, paid to its fee receiver.
     function test_eachOpenedMarket_takesPoolDepositsAndRedeems() public {
-        vm.skip(markets.length == 0);
+        vm.skip(markets.length == 0, NOTHING_TO_OPEN);
         for (uint256 i = 0; i < markets.length; ++i) {
             MarketContracts memory m = _contractsOf(markets[i]);
             _open(markets[i]);
@@ -290,7 +294,7 @@ contract UpgradedUSDMarketsOpen is MarketHarvestCheck {
     /// bounty and cut leave - nothing, as configured today, where the two are the whole harvest; and a harvest large enough
     /// that the bounty stops at the config's ceiling, which is denominated in this market's own collateral.
     function test_eachOpenedMarket_harvestsByItsConfigsTerms() public {
-        vm.skip(markets.length == 0);
+        vm.skip(markets.length == 0, NOTHING_TO_OPEN);
         for (uint256 i = 0; i < markets.length; ++i) {
             MarketContracts memory m = _contractsOf(markets[i]);
             IHarborConfig config = IHarborConfig(address(markets[i]));

@@ -25,6 +25,22 @@ contract MarketUpgradeRun is UpgradeMarketToV3 {
     }
 }
 
+/// @notice The production upgrade as the upgrade script decides it: `readUpgradeInputs` reads each market where it must
+///         be read, by whether its minter runs a pauser on the fork selected, then `upgradeMarketsToV3`.
+contract MarketUpgradeRunDecidingWhereToRead is UpgradeMarketToV3 {
+    Config_MinterMarket[] private _markets;
+    string private _capture;
+
+    constructor(Config_MinterMarket[] memory markets_, string memory capture_) {
+        _markets = markets_;
+        _capture = capture_;
+    }
+
+    function build() internal override {
+        upgradeMarketsToV3(readUpgradeInputs(_markets, _capture, "mainnet"), "mainnet");
+    }
+}
+
 /// @dev The production upgrade of markets a pause has frozen, as the upgrade script runs it - read at the capture's
 ///      block, upgraded on the fork selected - for the markets and capture it is constructed with, each market's batch
 ///      carrying the owner's operations it is constructed with: one per market, or none at all. What the run

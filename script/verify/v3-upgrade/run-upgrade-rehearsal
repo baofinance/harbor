@@ -8,20 +8,20 @@
 #   Native settings: UpgradedMarketsMatchANativeDeploy upgrades the markets by the upgrade script's own function, on a
 #     fork of mainnet at the block after the capture, or at the chain's head for a market the pause never froze, deploys
 #     them natively beside them, and requires every contract of each market to hold the settings the native deploy sets.
-#   Prong A (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
+#   Before and after (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
 #     behaviour under the same interactions. The before is a fork of mainnet at the block of the upgrade's capture
 #     (FROZEN_MARKETS_CAPTURE in script/Upgrade_MarketsToV3_mainnet.s.sol), the last before the pause; the after is a
 #     fork of anvil once the upgrade script has run there. MarketsExpectedAfter then writes the record each contract
 #     must have after: its before record, changed only where an expectation says, with the reason. The expected and the
 #     actual after records must not differ.
-#   Prong B (white-box): MarketsStorageCopy checks the storage the upgrade copied - each holder's reward records,
+#   Storage copy (white-box): MarketsStorageCopy checks the storage the upgrade copied - each holder's reward records,
 #     each reward stream, each pool's ledger gap - against the frozen pools.
 #   Harvest: UpgradedMarketsHarvest upgrades the markets as the upgrade script builds it, the compensation
 #     included, on a fork of mainnet at the block after the capture, where every price is fresh; then harvests each,
 #     and requires each holding yield to pay the harvest's caller, fee receiver and pools by its config's harvest terms.
-#   Opening: UpgradedUSDMarketsOpen opens each USD market named but USD::wBTC, none of which has ever opened, through
-#     its genesis, with deposits from before the upgrade and after, then trades, deposits and harvests on it. On a fork of
-#     mainnet at the chain's head. A run naming none of those markets skips it.
+#   Opening: UpgradedUnopenedMarketsOpen opens each market named whose genesis has not ended through it, with deposits
+#     from before the upgrade and after, then trades, deposits and harvests on it. On a fork of mainnet at the chain's
+#     head. A run naming no such market skips it, and the summary says so.
 #
 # forge test forks anvil in memory and writes nothing back to it. script/upgrade --local sends the upgrade to anvil and
 # executes each market's batch as the multisig would. So one anvil session serves the whole run.
@@ -154,9 +154,9 @@ set -e
 
 # Independent of the rehearsal below too.
 echo ""
-echo "Opening: each upgraded USD market opens through its genesis, and runs..."
+echo "Opening: each market named that has not opened does, through its genesis, and runs (skipped when none is named)..."
 set +e
-campaign_test opening.log UpgradedUSDMarketsOpen --rpc-url mainnet
+campaign_test opening.log UpgradedUnopenedMarketsOpen --rpc-url mainnet
 opening_status=$?
 set -e
 
@@ -175,7 +175,7 @@ echo "  anvil head:     block $HEAD_BLOCK"
 echo "  START_TIMESTAMP: $START_TIMESTAMP (anvil head's time + 12000s)"
 
 echo ""
-echo "Prong A: capturing the before, on mainnet at the capture's block..."
+echo "Before and after: capturing the before, on mainnet at the capture's block..."
 VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test before.log MarketsCapture --rpc-url mainnet
 
 echo ""
@@ -191,15 +191,15 @@ if [[ "$status" -ne 0 ]]; then
 fi
 
 echo ""
-echo "Prong A: capturing the after, on anvil..."
+echo "Before and after: capturing the after, on anvil..."
 VERSION=after START_TIMESTAMP="$START_TIMESTAMP" campaign_test after.log MarketsCapture --fork-url local
 
 echo ""
-echo "Prong B: checking the storage the upgrade copied..."
+echo "Storage copy: checking the storage the upgrade copied..."
 campaign_test storage-copy.log MarketsStorageCopy --fork-url local
 
 echo ""
-echo "Prong A: writing the expected after..."
+echo "Before and after: writing the expected after..."
 # The compensated markets' expectations read the minters' events on anvil, from the block after its head.
 START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test expected-after.log MarketsExpectedAfter \
   --rpc-url mainnet
@@ -214,7 +214,7 @@ done
 
 echo ""
 echo "======================================================================"
-echo "  Prong A: the expected after against the after - expect NO differences"
+echo "  Before and after: the expected after against the after - expect NO differences"
 echo "======================================================================"
 if diff -ru "$OUT/compare/expected-after" "$OUT/compare/after"; then
   echo "  ✅ PASS: each contract reads after the upgrade as it did before, or as expected"
@@ -227,6 +227,7 @@ else
   rehearsal_status=1
 fi
 
+echo ""
 if [[ "$native_status" -eq 0 ]]; then
   echo "  ✅ PASS: each upgraded market holds the settings a native deploy sets"
 else
@@ -237,10 +238,15 @@ if [[ "$harvest_status" -eq 0 ]]; then
 else
   echo "  ❌ FAIL: an upgraded market did not harvest at its config's terms - see $OUT/harvest.log"
 fi
-if [[ "$opening_status" -eq 0 ]]; then
-  echo "  ✅ PASS: each USD market named but USD::wBTC opens through its genesis and runs; a run naming none skips this"
+# The opening tests skip themselves, each saying why, when no market named has a genesis still to end, and forge passes
+# a suite of skipped tests, so the count of tests passed says whether anything was checked.
+opening_passed="$(grep -oE '[0-9]+ tests? passed' "$OUT/opening.log" | tail -n 1 | grep -oE '[0-9]+' || true)"
+if [[ "$opening_status" -eq 0 && "${opening_passed:-0}" -eq 0 ]]; then
+  echo "  ⏭️ SKIPPED: every opening test skipped itself - see $OUT/opening.log for why"
+elif [[ "$opening_status" -eq 0 ]]; then
+  echo "  ✅ PASS: each market named that had not opened does, through its genesis, and runs"
 else
-  echo "  ❌ FAIL: an upgraded USD market did not open through its genesis and run - see $OUT/opening.log"
+  echo "  ❌ FAIL: a market named that had not opened failed to open through its genesis and run - see $OUT/opening.log"
 fi
 echo "  Covers:         $UPGRADE_PEG::$UPGRADE_COLLATERAL, and no other market"
 if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 || "$harvest_status" -ne 0 || "$opening_status" -ne 0 ]]; then

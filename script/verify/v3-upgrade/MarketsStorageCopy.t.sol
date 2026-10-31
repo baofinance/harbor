@@ -26,8 +26,8 @@ import {CompensationRun} from "@harbor-script/verify/incidents/CompensationRun.s
 import {StabilityPoolRewardRecordLib} from "@harbor-test/harness/StabilityPoolRewardRecordLib.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
-/// @title MarketsStorageCopy - Prong B of the v3 upgrade's verification
-/// @notice White-box check of the storage the upgrade copies, which the before/after record (Prong A) sees only
+/// @title MarketsStorageCopy - the storage the v3 upgrade copies, against the frozen pools
+/// @notice White-box check of the storage the upgrade copies, which the before and after record (`MarketsCapture`) sees only
 ///         through views - a holder's checkpoint integral and timestamp through nothing but claimable. For every pool:
 ///         each captured holder's reward record for each reward token - pending, claimed, timestamp, integral - read in
 ///         its V2 layout at the block of the upgrade's capture, `FROZEN_MARKETS_CAPTURE`, equals its V3 record after the

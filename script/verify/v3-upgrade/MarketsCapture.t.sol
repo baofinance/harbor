@@ -22,7 +22,7 @@ import {MarketSettings} from "@harbor-script/verify/v3-upgrade/MarketSettings.so
 
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 
-/// @title MarketsCapture - Prong A of the v3 upgrade's verification
+/// @title MarketsCapture - the before and after of the v3 upgrade: each market's contracts, recorded
 /// @notice Records the named markets' contracts - minter, both stability pools, manager - to JSON: each one's settings, read
 ///         by `MarketSettings`, and its holdings, and each pool's behaviour under the same interactions. Run once before
 ///         the upgrade (`VERSION=before`) and once after (`VERSION=after`); `MarketsExpectedAfter` then writes what the

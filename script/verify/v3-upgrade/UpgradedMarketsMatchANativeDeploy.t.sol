@@ -12,7 +12,7 @@ import {UpgradeMarketToV3} from "@harbor-script/src/UpgradeMarketToV3.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 import {MarketSettings} from "@harbor-script/verify/v3-upgrade/MarketSettings.sol";
 
-import {OracleSaltDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {HarborDeployRun, OracleSaltDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {FrozenMarketUpgradeRun, MarketUpgradeRun} from "@harbor-test/harness/MarketUpgradeRun.sol";
 
 /// @title UpgradedMarketsMatchANativeDeploy
@@ -55,7 +55,16 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
         }
         {
             UpgradeMarketToV3 upgraded;
-            if (isFrozen(markets[0])) {
+            // Whether the pause froze the markets is read at the chain's head, where their minters run a pauser if so.
+            vm.createSelectFork(vm.rpcUrl("mainnet"));
+            HarborDeployRun live = new HarborDeployRun(
+                address(0),
+                address(0),
+                LIVE_SALT_PREFIX,
+                "mainnet",
+                HarborDeployRun.Cut.Whole
+            );
+            if (isFrozen(live.minterAddress(markets[0]), "mainnet")) {
                 vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
                 upgraded = new FrozenMarketUpgradeRun(
                     markets,
@@ -65,7 +74,6 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
                 // It reads the frozen markets on forks of its own, then returns to this one.
                 vm.makePersistent(address(upgraded));
             } else {
-                vm.createSelectFork(vm.rpcUrl("mainnet"));
                 upgraded = new MarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE);
             }
             upgraded.run(LIVE_SALT_PREFIX);

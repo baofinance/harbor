@@ -11,7 +11,8 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
-import {frozenMintersConfig, isFrozen, marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
+import {allMintersConfig, isFrozen, marketsToUpgrade} from "@harbor-script/src/AllMintersConfig.sol";
+import {Pauser, pausers} from "@harbor-script/src/Pausers.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
@@ -34,16 +35,24 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
     function setUp() public {
         captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         _setSaltPrefix("harbor_v1");
-        frozen = frozenMintersConfig();
-        for (uint256 i = 0; i < frozen.length; ++i) {
-            vm.makePersistent(address(frozen[i]));
+        // Which markets the pause froze is read where it took effect, the block after the capture's: each market whose
+        // minter runs a pauser there. The configs are made before the fork and read on it and on the tests' own.
+        Config_MinterMarket[] memory all = allMintersConfig();
+        for (uint256 i = 0; i < all.length; ++i) {
+            vm.makePersistent(address(all[i]));
         }
         Config_MinterMarket[] memory named = marketsToUpgrade();
-        if (isFrozen(named[0])) {
-            markets = named;
-            for (uint256 i = 0; i < markets.length; ++i) {
-                vm.makePersistent(address(markets[i]));
+        for (uint256 i = 0; i < named.length; ++i) {
+            vm.makePersistent(address(named[i]));
+        }
+        vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock + 1);
+        for (uint256 i = 0; i < all.length; ++i) {
+            if (isFrozen(minterAddress(all[i]), "mainnet")) {
+                frozen.push(all[i]);
             }
+        }
+        if (isFrozen(minterAddress(named[0]), "mainnet")) {
+            markets = named;
         }
     }
 
@@ -94,6 +103,12 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
             }
         }
         assertEq(implementationsChanged, proxies.length, "every minter and pool changes implementation, once");
+        Pauser[] memory recorded = pausers("mainnet");
+        bool isRecorded;
+        for (uint256 i = 0; i < recorded.length; ++i) {
+            isRecorded = isRecorded || recorded[i].implementation == address(uint160(uint256(pauser)));
+        }
+        assertTrue(isRecorded, "the pause installed a pauser bao-base's deployment state records");
     }
 
     /// Nothing earlier in the pause's block changed a named market. At the same moment, its minter and pools answer the

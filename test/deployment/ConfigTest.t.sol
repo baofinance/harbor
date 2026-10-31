@@ -18,13 +18,7 @@ import {ConfigMarket_EUR_fxUSD_mainnet} from "@harbor-script/config/markets/Conf
 import {ConfigMarket_EUR_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {
-    allMintersConfig,
-    isFrozen,
-    marketsNamed,
-    marketsToUpgrade,
-    pegNamed
-} from "@harbor-script/src/AllMintersConfig.sol";
+import {allMintersConfig, marketsNamed, marketsToUpgrade, pegNamed} from "@harbor-script/src/AllMintersConfig.sol";
 import {ethMintersConfig} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {usdMintersConfig} from "@harbor-script/src/Deploy_USD_Minter.sol";
 
@@ -95,18 +89,6 @@ contract ConfigTest is Test {
     function test_marketsToUpgrade_withNoName_reverts() public {
         vm.expectRevert(bytes('vm.envString: environment variable "UPGRADE_PEG" not found'));
         this.marketsToUpgradeFromOutside();
-    }
-
-    /// Every market of the six paused pegs reads frozen, and no USD market does.
-    function test_isFrozen_listsTheElevenAndNotUSD() public {
-        Config_MinterMarket[] memory markets = allMintersConfig();
-        uint256 frozen;
-        for (uint256 i = 0; i < markets.length; i++) {
-            bool isUSD = LibString.eq(markets[i].peg(), "USD");
-            assertEq(isFrozen(markets[i]), !isUSD, markets[i].salt());
-            frozen += isUSD ? 0 : 1;
-        }
-        assertEq(frozen, 11, "the markets the pause froze");
     }
 
     /// The deploy scripts' filter: `*` takes every market, an empty filter none - a deploy of only the pegged token - and
