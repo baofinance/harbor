@@ -49,7 +49,9 @@ def write_stub(directory: Path, name: str, body: str) -> None:
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
 
 
-def run(tmp_path: Path, *arguments: str, cast_send_exit: int = 0) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
+def run(
+    tmp_path: Path, *arguments: str, cast_send_exit: int = 0
+) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
     """Run the script from a folder holding only what it checks for, and return each command the stubs were handed."""
     stubs = tmp_path / "stubs"
     stubs.mkdir()

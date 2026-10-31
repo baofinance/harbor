@@ -221,13 +221,16 @@ case "$BLOCK_SPEC" in
   *)
     echo ""
     echo "Block is '$BLOCK_SPEC' - local state should mirror mainnet state."
-    read -rn1 -p "Copy deployments/mainnet/*.json to deployments/local/mainnet/? [Yn] " response
+    # A state file an earlier node left here records contracts the new node does not hold, so the folder is replaced,
+    # not added to.
+    read -rn1 -p "Replace deployments/local/mainnet/*.json with deployments/mainnet/*.json? [Yn] " response
     echo
     if [[ ! "$response" =~ ^[Nn]$ ]]; then
       mkdir -p "$LOCAL_STATE_DIR"
-      cp "$MAINNET_STATE_DIR"/*.json "$LOCAL_STATE_DIR/"
+      rm -f "$LOCAL_STATE_DIR"/*.json
       rm -rf "$LOCAL_STATE_DIR/batch"
-      echo "Copied mainnet state files to local (batch directory cleared)."
+      cp "$MAINNET_STATE_DIR"/*.json "$LOCAL_STATE_DIR/"
+      echo "Replaced local state files with mainnet's (batch directory cleared)."
     fi
     ;;
 esac

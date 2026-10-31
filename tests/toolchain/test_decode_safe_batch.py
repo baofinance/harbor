@@ -39,7 +39,9 @@ def update_price_oracle(oracle: str) -> str:
     return "0x" + UPDATE_PRICE_ORACLE + word(oracle)
 
 
-def write_deployment(root: Path, network_dir: str, state_file: str | None = "harbor_v1", name: str | None = "harbor_v1") -> Path:
+def write_deployment(
+    root: Path, network_dir: str, state_file: str | None = "harbor_v1", name: str | None = "harbor_v1"
+) -> Path:
     """A deployments tree under `root`: the batch under `<network_dir>/batch/`, named `name` in its meta, and the
     state file `<state_file>.state.json` beside it - none where either is None."""
     deployment = root / "deployments" / network_dir
