@@ -265,8 +265,8 @@ minter and pool runs. A run naming a market the pause never froze skips this. It
 `UpgradedMarketsMatchANativeDeploy`: each upgraded market holds the settings a native deploy sets (see
 [Settings against a native deploy](#settings-against-a-native-deploy)); `UpgradedMarketsHarvest`: each upgraded
 market harvests at its config's terms (see [Harvest after the upgrade](#harvest-after-the-upgrade)); and
-`UpgradedUSDMarketsOpen`: each USD market opens through its genesis and runs (see
-[A USD market opening](#a-usd-market-opening)). It then asks you to start anvil (`script/anvil --block latest`), and:
+`UpgradedUnopenedMarketsOpen`: each market named whose genesis has not ended opens through it and runs (see
+[A market opening](#a-market-opening)). It then asks you to start anvil (`script/anvil --block latest`), and:
 
 1. copies `deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the
    deployed addresses;
@@ -401,12 +401,13 @@ For every market holding harvestable yield:
 A market holding none must say so (`NoHarvestable`). Where a named minter holds wrapped collateral, the check fails
 unless at least one market harvests.
 
-### A USD market opening
+### A market opening
 
-No USD market has opened. Each has a deployed `Genesis_v1` that has not ended and a minter holding nothing, so the
-records compare empty contracts with empty contracts. `UpgradedUSDMarketsOpen` does what they cannot. On a fork of
-mainnet at the chain's head, two depositors enter each genesis while its minter is still v2, and the upgrade script's own
-function upgrades the named markets, as the multisig would execute it. Then, for each USD market named but USD::wBTC:
+A market whose genesis has not ended has not opened: its minter holds nothing, so the records compare empty contracts
+with empty contracts. `UpgradedUnopenedMarketsOpen` does what they cannot, for each market named whose `Genesis_v1`
+says it has not ended - today the USD markets. On a fork of mainnet at the chain's head, two depositors enter each
+genesis while its minter is still v2, and the upgrade script's own function upgrades the named markets, as the multisig
+would execute it. Then, for each such market:
 
 - the genesis, ended by its owner, mints what the oracle's price gives on Minter_v3, and each depositor, from before the
   upgrade or after, claims its share, exact to the wei;
@@ -454,4 +455,4 @@ A role granted on mainnet to an address the deploy grants none is not seen.
 - `script/verify/v3-upgrade/` - the rehearsal: `run-upgrade-rehearsal`, `CaptureExpectations.t.sol`,
   `FrozenMarketsReadPoint.t.sol`, `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`,
   `MarketSettings.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`,
-  `MarketHarvestCheck.sol`, `UpgradedMarketsHarvest.t.sol`, `UpgradedUSDMarketsOpen.t.sol`
+  `MarketHarvestCheck.sol`, `UpgradedMarketsHarvest.t.sol`, `UpgradedUnopenedMarketsOpen.t.sol`

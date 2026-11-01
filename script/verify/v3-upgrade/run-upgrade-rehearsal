@@ -158,8 +158,9 @@ prompt() {
   fi
 }
 
-# Run the campaign's tests matching <contract> with the given forge arguments, logging to <records>/<log>. The capture
-# runs every market's interactions in one test call, so the block gas limit is lifted. A step given an RPC (--rpc-url
+# Run the campaign's tests matching <contract> with the given forge arguments, logging to <records>/<log>, which is
+# also where the capture tests write their records: RECORDS_DIR names it to them. The capture runs every market's
+# interactions in one test call, so the block gas limit is lifted. A step given an RPC (--rpc-url
 # mainnet for one forking mainnet from inside its tests, --fork-url local for one against anvil) has the provider's
 # refusals (HTTP 429, a rate limit) retried with a backoff - forge accepts the retry options only with an RPC - and
 # one forking mainnet paces its requests too, as the other campaign runners do; a step against anvil is not paced,
@@ -172,7 +173,7 @@ campaign_test() {
     pacing=(--fork-retries 100 --fork-retry-backoff 5000)
     [[ " $* " == *" local "* ]] || pacing+=(--compute-units-per-second 50)
   fi
-  script/verify/run-campaign-test script/verify/v3-upgrade "$records/$log" --mc "$contract" "$@" \
+  RECORDS_DIR="$records" script/verify/run-campaign-test script/verify/v3-upgrade "$records/$log" --mc "$contract" "$@" \
     "$FORGE_VERBOSITY" --disable-block-gas-limit "${pacing[@]}"
 }
 
@@ -273,8 +274,13 @@ for peg in "${PEGS[@]}"; do
   START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test "$records" expected-after.log \
     MarketsExpectedAfter --rpc-url mainnet
 
-  # Each record with its keys sorted, so the diff compares values, not the order they were written in.
+  # Each record with its keys sorted, so the diff compares values, not the order they were written in. A side with no
+  # records stops the run: a diff of what is not there would report differences, when nothing was compared.
   for side in expected-after after; do
+    [[ -d "$records/$side" ]] || {
+      echo "ERROR: $records/$side does not exist: the $side step wrote no records there - see $records/$side.log" >&2
+      exit 1
+    }
     while IFS= read -r -d '' file; do
       mkdir -p "$records/compare/$side/$(dirname "$file")"
       jq -S . "$records/$side/$file" >"$records/compare/$side/$file"

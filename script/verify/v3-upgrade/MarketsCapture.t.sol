@@ -40,12 +40,12 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///         Each version is read through its own form where the two differ (a pool's reward reads, the views v3 dropped,
 ///         added or renamed), into the same keys.
 ///
-/// Writes, per contract (its salt key):
-///   tmp/v3-upgrade/{VERSION}/pre/{saltKey}.json   -- its state before any interaction
-///   tmp/v3-upgrade/{VERSION}/post/{saltKey}.json  -- a pool's interaction results, then its state after them
+/// Writes, per contract (its salt key), under the directory RECORDS_DIR names:
+///   {RECORDS_DIR}/{VERSION}/pre/{saltKey}.json   -- its state before any interaction
+///   {RECORDS_DIR}/{VERSION}/post/{saltKey}.json  -- a pool's interaction results, then its state after them
 ///
-/// Run by run-upgrade-rehearsal, with VERSION and START_TIMESTAMP set: the before forks mainnet itself; the after runs
-/// on the fork given on the forge command line, anvil.
+/// Run by run-upgrade-rehearsal, with RECORDS_DIR, VERSION and START_TIMESTAMP set: the before forks mainnet itself;
+/// the after runs on the fork given on the forge command line, anvil.
 contract MarketsCapture is Test, HarborDeployer {
     /// @dev The managers were paused in this block; the block before it holds each one's own implementation.
     uint256 internal constant MANAGERS_PAUSED_AT = 26_241_030;
@@ -106,8 +106,9 @@ contract MarketsCapture is Test, HarborDeployer {
             console.log("Normalized block:", block.number, "timestamp:", block.timestamp);
         }
 
-        string memory preDir = string.concat("tmp/v3-upgrade/", version, "/pre");
-        string memory postDir = string.concat("tmp/v3-upgrade/", version, "/post");
+        string memory records = vm.envString("RECORDS_DIR");
+        string memory preDir = string.concat(records, "/", version, "/pre");
+        string memory postDir = string.concat(records, "/", version, "/post");
         vm.createDir(preDir, true);
         vm.createDir(postDir, true);
 

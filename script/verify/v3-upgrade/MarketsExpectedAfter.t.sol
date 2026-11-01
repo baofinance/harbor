@@ -24,10 +24,12 @@ import {CaptureExpectationsLib} from "@harbor-script/verify/v3-upgrade/CaptureEx
 
 /// @notice What each named market's contracts are expected to read after the upgrade, written down beforehand: for each record
 ///         `MarketsCapture` took before, the record it must have after - each value as it was, or as an expectation
-///         below says, with its reason. Writes tmp/v3-upgrade/expected-after/{pre,post}/{saltKey}.json, which the
-///         runner diffs against the after record.
+///         below says, with its reason. Writes {RECORDS_DIR}/expected-after/{pre,post}/{saltKey}.json beside the
+///         before and after records MarketsCapture wrote there, which the runner diffs against the after record.
 contract MarketsExpectedAfter is Test, HarborDeployer {
-    string internal constant ROOT = "tmp/v3-upgrade/";
+    /// @dev The directory the capture's records are in, named by RECORDS_DIR: the before and after are read there, and
+    ///      the expected after written.
+    string internal records;
 
     /// @dev The fork of mainnet at the capture's block, where the before was taken.
     uint256 internal mainnetAtCapture;
@@ -48,6 +50,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     ///         for each market, and what that proxy runs, are read on mainnet at the capture's block, where the before
     ///         was taken; what a compensated market's batch did is read from its minter's events on anvil.
     function test_writeExpectedAfter() public {
+        records = vm.envString("RECORDS_DIR");
         mainnetAtCapture = vm.createSelectFork(
             vm.rpcUrl("mainnet"),
             HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE)
@@ -61,8 +64,8 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         for (uint256 f = 0; f < files.length; ++f) {
             compensated.push(compensation.read(files[f]));
         }
-        vm.createDir(string.concat(ROOT, "expected-after/pre"), true);
-        vm.createDir(string.concat(ROOT, "expected-after/post"), true);
+        vm.createDir(string.concat(records, "/expected-after/pre"), true);
+        vm.createDir(string.concat(records, "/expected-after/post"), true);
         for (uint256 i = 0; i < markets.length; ++i) {
             string memory before = _read("before", "pre", minterKey(markets[i]));
             CaptureExpectationsLib.Expectation[] memory minter = _minterExpectations(markets[i], before);
@@ -771,7 +774,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
             _read("after", phase, label),
             expectations
         );
-        vm.writeJson(json, string.concat(ROOT, "expected-after/", phase, "/", label, ".json"));
+        vm.writeJson(json, string.concat(records, "/expected-after/", phase, "/", label, ".json"));
     }
 
     function _read(
@@ -779,7 +782,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
         string memory phase,
         string memory label
     ) private view returns (string memory) {
-        return vm.readFile(string.concat(ROOT, version, "/", phase, "/", label, ".json"));
+        return vm.readFile(string.concat(records, "/", version, "/", phase, "/", label, ".json"));
     }
 
     function _uint(string memory json, string memory key) private pure returns (uint256) {
