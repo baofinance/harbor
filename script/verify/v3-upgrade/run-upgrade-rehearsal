@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Rehearse the upgrade of the markets named to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2: run the upgrade
 # script itself on anvil, as it will run on mainnet but for --local, and compare what each of their contracts reads
-# before and after it. A pass covers only those markets, so a mainnet run is rehearsed with the same names.
+# before and after it. A pass covers only those markets, so a mainnet run is rehearsed with the same names. Several pegs
+# are rehearsed on one anvil session, one after another, as their mainnet runs will follow one another: the upgrade
+# script runs once per peg, as it does on mainnet, and each peg's records go to tmp/v3-upgrade/<peg>/.
 #
 #   Read point: FrozenMarketsReadPoint checks the state the upgrade reads is the state it runs on - the pause changed
 #     only which implementation each minter and pool runs, and nothing earlier in the pause's block changed a market.
@@ -27,15 +29,17 @@
 # executes each market's batch as the multisig would. So one anvil session serves the whole run.
 #
 # Usage:
-#   script/verify/v3-upgrade/run-upgrade-rehearsal --peg <peg> --collateral <name>
+#   script/verify/v3-upgrade/run-upgrade-rehearsal --peg <peg>[,<peg>...] --collateral <name> [--dry-run]
 #
-#   --peg <peg>          Which peg's markets to rehearse (BTC, ETH, EUR, GOLD, MCAP, SILVER, USD)
-#   --collateral <name>  Collateral of the market to rehearse (e.g., stETH, fxUSD), or '*' for every market of the peg
+#   --peg <peg>          Which pegs' markets to rehearse: one, several separated by commas, or '*' for every peg
+#                        production configures - each the ConfigPeg_<peg>.sol in script/config/pegs
+#   --collateral <name>  Collateral of the market to rehearse (e.g., stETH, fxUSD), or '*' for every market of each peg
+#   --dry-run            Print the markets the run would cover and where their records would go, then stop
 #
 # Fails unless each step's tests actually ran - see script/verify/run-campaign-test.
 #
-# Needs MAINNET_RPC_URL, archival at the capture's block. The records are written to tmp/v3-upgrade/, and each step's
-# output is kept there in a .log file.
+# Needs MAINNET_RPC_URL, archival at the capture's block. The records are written to tmp/v3-upgrade/<peg>/, and each
+# step's output is kept there in a .log file.
 
 set -euo pipefail
 
@@ -48,6 +52,7 @@ OUT="tmp/v3-upgrade"
 FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
 PEG=""
 COLLATERAL=""
+DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +63,10 @@ while [[ $# -gt 0 ]]; do
     --collateral)
       COLLATERAL=$2
       shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
       ;;
     -h | --help)
       sed -n '2,/^$/p' "$0"
@@ -70,13 +79,63 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$PEG" ]] || { echo "ERROR: --peg required" >&2; exit 1; }
-[[ -n "$COLLATERAL" ]] || { echo "ERROR: --collateral required: a collateral's name, or '*' for every market of the peg" >&2; exit 1; }
+[[ -n "$PEG" ]] || {
+  echo "ERROR: --peg required: a peg's name, several separated by commas, or '*' for every peg" >&2
+  exit 1
+}
+[[ -n "$COLLATERAL" ]] || {
+  echo "ERROR: --collateral required: a collateral's name, or '*' for every market of the peg" >&2
+  exit 1
+}
+
+# The pegs named, in the order given: '*' is every peg production configures, each the ConfigPeg_<peg>.sol in
+# script/config/pegs, in file order. A peg with no config there is refused by name.
+PEG_CONFIGS="script/config/pegs"
+PEGS=()
+if [[ "$PEG" == "*" ]]; then
+  for config in "$PEG_CONFIGS"/ConfigPeg_*.sol; do
+    if [[ -f "$config" ]]; then
+      name="$(basename "$config" .sol)"
+      PEGS+=("${name#ConfigPeg_}")
+    fi
+  done
+  [[ ${#PEGS[@]} -gt 0 ]] || {
+    echo "ERROR: $PEG_CONFIGS holds no ConfigPeg_<peg>.sol" >&2
+    exit 1
+  }
+else
+  IFS=',' read -ra named_pegs <<<"$PEG"
+  for peg in "${named_pegs[@]}"; do
+    PEGS+=("$(echo "$peg" | tr '[:lower:]' '[:upper:]')")
+  done
+fi
+for peg in "${PEGS[@]}"; do
+  [[ -f "$PEG_CONFIGS/ConfigPeg_$peg.sol" ]] || {
+    echo "ERROR: no peg '$peg': $PEG_CONFIGS has no ConfigPeg_$peg.sol" >&2
+    exit 1
+  }
+done
+MARKETS=""
+for peg in "${PEGS[@]}"; do
+  MARKETS+="${MARKETS:+, }$peg::$COLLATERAL"
+done
+
+echo "======================================================================"
+echo "  Upgrade of markets to v3: rehearsal"
+echo "======================================================================"
+echo "  Markets:        $MARKETS"
+echo "  Salt:           $SALT"
+echo "  Records:        $OUT/<peg>/"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo ""
+  echo "Dry run: nothing is forked, upgraded or written."
+  exit 0
+fi
 
 # Every step reads the markets from these, set here over anything already in the shell, so all name the same ones.
+# UPGRADE_PEG is set to each peg in turn.
 export UPGRADE_PEG
 export UPGRADE_COLLATERAL
-UPGRADE_PEG=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')
 UPGRADE_COLLATERAL="$COLLATERAL"
 
 echotty() {
@@ -99,29 +158,23 @@ prompt() {
   fi
 }
 
-# Run the campaign's tests matching <contract> with the given forge arguments, logging to $OUT/<log>. The capture runs
-# every market's interactions in one test call, so the block gas limit is lifted. A step given an RPC (--rpc-url
+# Run the campaign's tests matching <contract> with the given forge arguments, logging to <records>/<log>. The capture
+# runs every market's interactions in one test call, so the block gas limit is lifted. A step given an RPC (--rpc-url
 # mainnet for one forking mainnet from inside its tests, --fork-url local for one against anvil) has the provider's
 # refusals (HTTP 429, a rate limit) retried with a backoff - forge accepts the retry options only with an RPC - and
 # one forking mainnet paces its requests too, as the other campaign runners do; a step against anvil is not paced,
 # anvil being local, and a step forking nothing is given nothing.
 campaign_test() {
-  local log="$1" contract="$2"
-  shift 2
+  local records="$1" log="$2" contract="$3"
+  shift 3
   local pacing=()
   if [[ " $* " == *" --rpc-url "* || " $* " == *" --fork-url "* ]]; then
     pacing=(--fork-retries 100 --fork-retry-backoff 5000)
     [[ " $* " == *" local "* ]] || pacing+=(--compute-units-per-second 50)
   fi
-  script/verify/run-campaign-test script/verify/v3-upgrade "$OUT/$log" --mc "$contract" "$@" \
+  script/verify/run-campaign-test script/verify/v3-upgrade "$records/$log" --mc "$contract" "$@" \
     "$FORGE_VERBOSITY" --disable-block-gas-limit "${pacing[@]}"
 }
-
-echo "======================================================================"
-echo "  Upgrade of markets to v3: rehearsal"
-echo "======================================================================"
-echo "  Markets:        $UPGRADE_PEG::$UPGRADE_COLLATERAL"
-echo "  Salt:           $SALT"
 
 # The records and logs of an earlier run would hide one this run fails to write.
 rm -rf "$OUT"
@@ -130,126 +183,154 @@ mkdir -p "$OUT"
 # The expected-after records are built by this library; its own tests run first, before anything is forked.
 echo ""
 echo "Expectations library: a record expected after is built as its tests say..."
-campaign_test expectations.log CaptureExpectations
+campaign_test "$OUT" expectations.log CaptureExpectations
 
-echo ""
-echo "Read point: the state the upgrade reads is the state it runs on..."
-campaign_test read-point.log FrozenMarketsReadPoint --rpc-url mainnet
+# The checks that fork mainnet from inside their tests, for each peg in turn. Each is independent of the rehearsal
+# below; a failure is reported at the end, after the rehearsal has run.
+declare -A NATIVE_STATUS HARVEST_STATUS OPENING_STATUS REHEARSAL_STATUS
+for peg in "${PEGS[@]}"; do
+  UPGRADE_PEG="$peg"
+  records="$OUT/$peg"
+  mkdir -p "$records"
 
-# Independent of the rehearsal below: a failure here is reported at the end, after the rehearsal has run.
-echo ""
-echo "Native settings: each upgraded market holds the settings a native deploy sets..."
-set +e
-campaign_test native-settings.log UpgradedMarketsMatchANativeDeploy --rpc-url mainnet
-native_status=$?
-set -e
+  echo ""
+  echo "Read point: the state the upgrade of $peg::$COLLATERAL reads is the state it runs on..."
+  campaign_test "$records" read-point.log FrozenMarketsReadPoint --rpc-url mainnet
 
-# Independent of the rehearsal below too.
-echo ""
-echo "Harvest: each upgraded market harvests at its config's terms..."
-set +e
-campaign_test harvest.log UpgradedMarketsHarvest --rpc-url mainnet
-harvest_status=$?
-set -e
+  echo ""
+  echo "Native settings: each upgraded $peg market holds the settings a native deploy sets..."
+  set +e
+  campaign_test "$records" native-settings.log UpgradedMarketsMatchANativeDeploy --rpc-url mainnet
+  NATIVE_STATUS[$peg]=$?
+  set -e
 
-# Independent of the rehearsal below too.
-echo ""
-echo "Opening: each market named that has not opened does, through its genesis, and runs (skipped when none is named)..."
-set +e
-campaign_test opening.log UpgradedUnopenedMarketsOpen --rpc-url mainnet
-opening_status=$?
-set -e
+  echo ""
+  echo "Harvest: each upgraded $peg market harvests at its config's terms..."
+  set +e
+  campaign_test "$records" harvest.log UpgradedMarketsHarvest --rpc-url mainnet
+  HARVEST_STATUS[$peg]=$?
+  set -e
+
+  echo ""
+  echo "Opening: each $peg market named that has not opened does, through its genesis, and runs (skipped when none is named)..."
+  set +e
+  campaign_test "$records" opening.log UpgradedUnopenedMarketsOpen --rpc-url mainnet
+  OPENING_STATUS[$peg]=$?
+  set -e
+done
 
 prompt "Start a fresh anvil fork of the chain's head:  script/anvil --block latest"
 
-# The upgrade script reads the deployed addresses from the local state file, so it starts as mainnet's.
+# The upgrade script reads the deployed addresses from the local state file, so it starts as mainnet's. Each peg's run
+# adds what it deploys, as the mainnet runs will, one after another.
 mkdir -p "deployments/local/$NETWORK"
 cp "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
 echo "  Local state:    copied from deployments/$NETWORK/$SALT.state.json"
 
-# Both captures are warped to the same time, well after anvil's head, so the blocks the upgrade adds stay before it.
-HEAD_BLOCK="$(cast block-number --rpc-url local)"
-HEAD_TIMESTAMP="$(cast block latest -f timestamp --rpc-url local)"
-START_TIMESTAMP=$((HEAD_TIMESTAMP + 12000))
-echo "  anvil head:     block $HEAD_BLOCK"
-echo "  START_TIMESTAMP: $START_TIMESTAMP (anvil head's time + 12000s)"
+for peg in "${PEGS[@]}"; do
+  UPGRADE_PEG="$peg"
+  records="$OUT/$peg"
 
-echo ""
-echo "Before and after: capturing the before, on mainnet at the capture's block..."
-VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test before.log MarketsCapture --rpc-url mainnet
+  echo ""
+  echo "======================================================================"
+  echo "  $peg::$COLLATERAL: the upgrade, on anvil"
+  echo "======================================================================"
+  # Both captures are warped to the same time, well after anvil's head, so the blocks the upgrade adds stay before it.
+  # Read for each peg: the pegs before it have moved anvil's head on.
+  HEAD_BLOCK="$(cast block-number --rpc-url local)"
+  HEAD_TIMESTAMP="$(cast block latest -f timestamp --rpc-url local)"
+  START_TIMESTAMP=$((HEAD_TIMESTAMP + 12000))
+  echo "  anvil head:     block $HEAD_BLOCK"
+  echo "  START_TIMESTAMP: $START_TIMESTAMP (anvil head's time + 12000s)"
 
-echo ""
-echo "Running script/upgrade on anvil (--local)..."
-set +e
-script/upgrade --network "$NETWORK" --salt "$SALT" --peg "$UPGRADE_PEG" --collateral "$UPGRADE_COLLATERAL" --local 2>&1 |
-  tee "$OUT/upgrade.log"
-status=${PIPESTATUS[0]}
-set -e
-if [[ "$status" -ne 0 ]]; then
-  echo "ERROR: the upgrade script failed (exit $status) - see $OUT/upgrade.log" >&2
-  exit "$status"
-fi
+  echo ""
+  echo "Before and after: capturing the before, on mainnet at the capture's block..."
+  VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test "$records" before.log MarketsCapture --rpc-url mainnet
 
-echo ""
-echo "Before and after: capturing the after, on anvil..."
-VERSION=after START_TIMESTAMP="$START_TIMESTAMP" campaign_test after.log MarketsCapture --fork-url local
+  echo ""
+  echo "Running script/upgrade on anvil (--local)..."
+  set +e
+  script/upgrade --network "$NETWORK" --salt "$SALT" --peg "$peg" --collateral "$COLLATERAL" --local 2>&1 |
+    tee "$records/upgrade.log"
+  status=${PIPESTATUS[0]}
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    echo "ERROR: the upgrade script failed (exit $status) for $peg::$COLLATERAL - see $records/upgrade.log" >&2
+    exit "$status"
+  fi
 
-echo ""
-echo "Storage copy: checking the storage the upgrade copied..."
-campaign_test storage-copy.log MarketsStorageCopy --fork-url local
+  echo ""
+  echo "Before and after: capturing the after, on anvil..."
+  VERSION=after START_TIMESTAMP="$START_TIMESTAMP" campaign_test "$records" after.log MarketsCapture --fork-url local
 
-echo ""
-echo "Before and after: writing the expected after..."
-# The compensated markets' expectations read the minters' events on anvil, from the block after its head.
-START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test expected-after.log MarketsExpectedAfter \
-  --rpc-url mainnet
+  echo ""
+  echo "Storage copy: checking the storage the upgrade copied..."
+  campaign_test "$records" storage-copy.log MarketsStorageCopy --fork-url local
 
-# Each record with its keys sorted, so the diff compares values, not the order they were written in.
-for side in expected-after after; do
-  while IFS= read -r -d '' file; do
-    mkdir -p "$OUT/compare/$side/$(dirname "$file")"
-    jq -S . "$OUT/$side/$file" >"$OUT/compare/$side/$file"
-  done < <(cd "$OUT/$side" && find . -name '*.json' -print0)
+  echo ""
+  echo "Before and after: writing the expected after..."
+  # The compensated markets' expectations read the minters' events on anvil, from the block after its head.
+  START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test "$records" expected-after.log \
+    MarketsExpectedAfter --rpc-url mainnet
+
+  # Each record with its keys sorted, so the diff compares values, not the order they were written in.
+  for side in expected-after after; do
+    while IFS= read -r -d '' file; do
+      mkdir -p "$records/compare/$side/$(dirname "$file")"
+      jq -S . "$records/$side/$file" >"$records/compare/$side/$file"
+    done < <(cd "$records/$side" && find . -name '*.json' -print0)
+  done
+
+  echo ""
+  echo "Before and after: the expected after against the after for $peg::$COLLATERAL - expect NO differences"
+  if diff -ru "$records/compare/expected-after" "$records/compare/after"; then
+    REHEARSAL_STATUS[$peg]=0
+  else
+    if command -v meld >/dev/null 2>&1; then
+      meld "$records/compare/expected-after" "$records/compare/after" &
+    fi
+    REHEARSAL_STATUS[$peg]=1
+  fi
 done
 
 echo ""
 echo "======================================================================"
-echo "  Before and after: the expected after against the after - expect NO differences"
+echo "  Upgrade of markets to v3: rehearsal - results"
 echo "======================================================================"
-if diff -ru "$OUT/compare/expected-after" "$OUT/compare/after"; then
-  echo "  ✅ PASS: each contract reads after the upgrade as it did before, or as expected"
-  rehearsal_status=0
-else
-  if command -v meld >/dev/null 2>&1; then
-    meld "$OUT/compare/expected-after" "$OUT/compare/after" &
+failed=0
+for peg in "${PEGS[@]}"; do
+  records="$OUT/$peg"
+  echo ""
+  echo "  $peg::$COLLATERAL - records in $records/"
+  if [[ "${REHEARSAL_STATUS[$peg]}" -eq 0 ]]; then
+    echo "  ✅ PASS: each contract reads after the upgrade as it did before, or as expected"
+  else
+    echo "  ❌ FAIL: the differences printed above are neither unchanged nor expected"
   fi
-  echo "  ❌ FAIL: the differences above are neither unchanged nor expected"
-  rehearsal_status=1
-fi
-
+  if [[ "${NATIVE_STATUS[$peg]}" -eq 0 ]]; then
+    echo "  ✅ PASS: each upgraded market holds the settings a native deploy sets"
+  else
+    echo "  ❌ FAIL: an upgraded market's settings differ from a native deploy's - see $records/native-settings.log"
+  fi
+  if [[ "${HARVEST_STATUS[$peg]}" -eq 0 ]]; then
+    echo "  ✅ PASS: each upgraded market harvests at its config's terms"
+  else
+    echo "  ❌ FAIL: an upgraded market did not harvest at its config's terms - see $records/harvest.log"
+  fi
+  # The opening tests skip themselves, each saying why, when no market named has a genesis still to end, and forge
+  # passes a suite of skipped tests, so the count of tests passed says whether anything was checked.
+  opening_passed="$(grep -oE '[0-9]+ tests? passed' "$records/opening.log" | tail -n 1 | grep -oE '[0-9]+' || true)"
+  if [[ "${OPENING_STATUS[$peg]}" -eq 0 && "${opening_passed:-0}" -eq 0 ]]; then
+    echo "  ⏭️ SKIPPED: every opening test skipped itself - see $records/opening.log for why"
+  elif [[ "${OPENING_STATUS[$peg]}" -eq 0 ]]; then
+    echo "  ✅ PASS: each market named that had not opened does, through its genesis, and runs"
+  else
+    echo "  ❌ FAIL: a market named that had not opened failed to open through its genesis and run - see $records/opening.log"
+  fi
+  if [[ "${REHEARSAL_STATUS[$peg]}" -ne 0 || "${NATIVE_STATUS[$peg]}" -ne 0 || "${HARVEST_STATUS[$peg]}" -ne 0 || "${OPENING_STATUS[$peg]}" -ne 0 ]]; then
+    failed=1
+  fi
+done
 echo ""
-if [[ "$native_status" -eq 0 ]]; then
-  echo "  ✅ PASS: each upgraded market holds the settings a native deploy sets"
-else
-  echo "  ❌ FAIL: an upgraded market's settings differ from a native deploy's - see $OUT/native-settings.log"
-fi
-if [[ "$harvest_status" -eq 0 ]]; then
-  echo "  ✅ PASS: each upgraded market harvests at its config's terms"
-else
-  echo "  ❌ FAIL: an upgraded market did not harvest at its config's terms - see $OUT/harvest.log"
-fi
-# The opening tests skip themselves, each saying why, when no market named has a genesis still to end, and forge passes
-# a suite of skipped tests, so the count of tests passed says whether anything was checked.
-opening_passed="$(grep -oE '[0-9]+ tests? passed' "$OUT/opening.log" | tail -n 1 | grep -oE '[0-9]+' || true)"
-if [[ "$opening_status" -eq 0 && "${opening_passed:-0}" -eq 0 ]]; then
-  echo "  ⏭️ SKIPPED: every opening test skipped itself - see $OUT/opening.log for why"
-elif [[ "$opening_status" -eq 0 ]]; then
-  echo "  ✅ PASS: each market named that had not opened does, through its genesis, and runs"
-else
-  echo "  ❌ FAIL: a market named that had not opened failed to open through its genesis and run - see $OUT/opening.log"
-fi
-echo "  Covers:         $UPGRADE_PEG::$UPGRADE_COLLATERAL, and no other market"
-if [[ "$rehearsal_status" -ne 0 || "$native_status" -ne 0 || "$harvest_status" -ne 0 || "$opening_status" -ne 0 ]]; then
-  exit 1
-fi
-exit 0
+echo "  Covers:         $MARKETS, and no other market"
+exit "$failed"

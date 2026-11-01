@@ -10,8 +10,11 @@ reference: the runbook, what the upgrade changes, and how the rehearsal checks i
 ### Before you start
 
 - Every run names its markets: `--peg <peg> --collateral <name>`, or `--collateral '*'` for every market of the peg, in
-  the words `script/deploy` uses. No name is an error. A run names one peg. The 11 paused markets take six runs, one per
-  peg. A pass of the rehearsal covers only the markets it names, so a mainnet run is rehearsed with the same names.
+  the words `script/deploy` uses. No name is an error. A mainnet run of `script/upgrade` names one peg, so the 11 paused
+  markets take six runs, one per peg. The rehearsal names one peg, several separated by commas, or `--peg '*'` for every
+  peg production configures (each a `ConfigPeg_<peg>.sol` in `script/config/pegs`), and rehearses them one after another
+  on one anvil session, running the upgrade script once per peg as mainnet will. A pass of the rehearsal covers only the
+  markets it names, so a mainnet run is rehearsed with the same names. `--dry-run` prints what a run would cover.
 - The BTC, ETH, EUR, GOLD, MCAP and SILVER markets are frozen. The pause of 2026-10-22, at block 26,248,724, put their
   minters and pools on the pause implementation; the managers were paused earlier, at block 26,241,030. The upgrade reads
   each of them at block 26,248,723, the last before the pause. The USD markets were never paused, and the upgrade reads
@@ -286,8 +289,9 @@ runs all four, reports each, and fails if any failed.
 `forge test` forks anvil in memory and writes nothing back, so one anvil session serves the whole run. Both captures
 are warped to the same time, 12,000 seconds after anvil's head, so the reward streams and withdrawal windows read alike.
 
-Each step's output is kept in `tmp/v3-upgrade/*.log`, and the records in `tmp/v3-upgrade/{before,after,expected-after}/`.
-The runner empties `tmp/v3-upgrade/` when it starts. It needs `MAINNET_RPC_URL`, archival at the capture's block.
+Each step's output is kept in `tmp/v3-upgrade/<peg>/*.log`, and the records in
+`tmp/v3-upgrade/<peg>/{before,after,expected-after}/`. The runner empties `tmp/v3-upgrade/` when it starts. It needs
+`MAINNET_RPC_URL`, archival at the capture's block.
 
 ### What is recorded
 
