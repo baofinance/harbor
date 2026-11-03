@@ -202,7 +202,7 @@ contract ConfigTest is Test {
 ///         at the market's live oracle the first buys about the second. The minter computes pegged tokens from a price
 ///         with no decimals handling, so an oracle whose scale is wrong for its collateral fails here by many orders of
 ///         magnitude.
-/// @dev Forked at a block of its own: the shared pin predates the USD markets' oracles.
+/// @dev Forked at the latest block listed: the default predates the USD markets' oracles.
 contract ConfigAtTheLiveOracleTest is BaoTest {
     using MinterMarketConfigLib for Config_MinterMarket;
 
@@ -210,13 +210,9 @@ contract ConfigAtTheLiveOracleTest is BaoTest {
     ///      factor of ten is well within what a config may be out by, and far short of the smallest scale error, 1e8.
     uint256 private constant _WITHIN_A_FACTOR_OF = 10;
 
-    function forkBlock() internal pure override returns (uint256) {
-        return 26308489;
-    }
-
     /// Every production market but one passes. USD::wBTC is the exception, which the next test holds to its reason.
     function test_aboutADollarOfCollateralIsAboutADollarOfPegged_atTheLiveOracle() public {
-        forkMainnet();
+        createSelectFork("mainnet", FORK_LATEST);
         HarborDeployRun addresses = _liveAddresses();
         Config_MinterMarket[] memory markets = allMintersConfig();
         assertGt(markets.length, 1, "fixture: more than one market");
@@ -234,7 +230,7 @@ contract ConfigAtTheLiveOracleTest is BaoTest {
     /// USD::wBTC's oracle answers at a scale wrong for its 8-decimal collateral, so its dollar buys far too much. The fix
     /// belongs to its aggregator: a pin past that fix fails this test, and the exception above then goes.
     function test_theUSDwBTCOracle_failsThePriceScaleCheck() public {
-        forkMainnet();
+        createSelectFork("mainnet", FORK_LATEST);
         HarborDeployRun addresses = _liveAddresses();
         Config_MinterMarket market = new ConfigMarket_USD_wBTC_mainnet();
         assertGt(

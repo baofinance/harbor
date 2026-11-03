@@ -57,7 +57,7 @@ contract RebalanceFairnessSetUp is BaoTest, Array {
 
     function setUp() public virtual {
         // Fork mainnet so real token contracts (fxSAVE, fxUSD, etc.) exist; the run stands the factory up on it
-        forkMainnet();
+        createSelectFork("mainnet");
         deployRun = new HarborDeployRun(
             HARBOR_MULTISIG,
             HARBOR_MULTISIG,

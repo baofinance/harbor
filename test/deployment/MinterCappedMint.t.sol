@@ -27,7 +27,7 @@ contract MinterCappedMintSetUp is BaoTest {
     MockWrappedPriceOracle mockOracle;
 
     function setUp() public virtual {
-        forkMainnet();
+        createSelectFork("mainnet");
         deployRun = new HarborDeployRun(
             HARBOR_MULTISIG,
             HARBOR_MULTISIG,

@@ -38,7 +38,7 @@ contract TestTokenDistributorSetUp is BaoTest, Array {
     address recipient3;
 
     function setUpFork() internal virtual {
-        forkMainnet();
+        createSelectFork("mainnet");
 
         owner = makeAddr("owner");
         claimer = makeAddr("claimer");

@@ -38,7 +38,7 @@ contract TestReservePoolSetUp is BaoTest {
     MarketDeployRun internal deployRun;
 
     function setUpFork() internal virtual {
-        forkMainnet();
+        createSelectFork("mainnet");
         owner = makeAddr("owner");
         bonusReceiver = makeAddr("bonusReceiver");
         treasury = makeAddr("treasury");

@@ -32,7 +32,7 @@ abstract contract DeployEURSetUp is BaoTest {
     address pegged; // haEUR - shared across markets
 
     function setUp() public virtual {
-        forkMainnet();
+        createSelectFork("mainnet");
         deployRun = new HarborDeployRun(
             HARBOR_MULTISIG,
             HARBOR_MULTISIG,

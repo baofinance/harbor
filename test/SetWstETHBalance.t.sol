@@ -10,7 +10,7 @@ contract SetWstETHBalanceTest is BaoTest {
     uint256 constant AMOUNT = 1000 * 1e18;
 
     function testSetBalance() external {
-        forkMainnet();
+        createSelectFork("mainnet");
         // Calculate storage slot for balance mapping
         // balanceOf[address] is at keccak256(abi.encode(address, slot))
         // For ERC20, balances are typically at slot 0

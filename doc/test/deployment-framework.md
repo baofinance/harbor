@@ -104,7 +104,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile, HarborDeployRun {
     constructor() HarborDeployRun(makeAddr("owner"), makeAddr("feeReceiver"), "minter_test", "mainnet") {}
 
     function setUpFork() internal virtual {
-        forkMainnet();
+        createSelectFork("mainnet");
         feeReceiver = treasury();
         marketConfig = new TestMinterMarketConfig();
     }

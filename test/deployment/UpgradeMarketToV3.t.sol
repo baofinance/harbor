@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -36,6 +36,7 @@ import {Minter_v3_Upgrader} from "@harbor-script/UpgradeMinter_v2_v3/Minter_v3_U
 import {FROZEN_MARKETS_CAPTURE} from "@harbor-script/Upgrade_MarketsToV3_mainnet.s.sol";
 
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {V3_HOLDER_CAPTURE} from "@harbor-test/harness/DeployedMarket.sol";
 import {
     FrozenMarketUpgradeRun,
     MarketUpgradeRun,
@@ -121,28 +122,23 @@ contract MarketUpgradeRunFromAStateFile is MarketUpgradeRun {
 ///         through Minter_v3's loader, the manager's terms, which it sets to the market config's, and what the upgrade
 ///         refuses: a pool implementation that would not keep the live
 ///         pool's floor or withdrawal window, and a capture that misses a holder.
-contract UpgradeMarketToV3Test is Test {
-    string internal constant CAPTURE = "test/fixtures/holders-25272609/";
-
+contract UpgradeMarketToV3Test is BaoTest {
     /// @dev A state recording, as a run that built them would: Minter_v3 for MCAP::fxUSD's minter, StabilityPool_v3 for
     ///      BTC::stETH's collateral pool and StabilityPoolManager_v2 for BTC::fxUSD's manager; and for MCAP::stETH only
     ///      what it runs today.
     string internal constant STATE_RECORDING_NEW_IMPLEMENTATIONS =
         "test/fixtures/deployment/harbor_v1-new-implementations.state.json";
 
-    /// @dev A later block, at which BTC::stETH's collateral pool holds a depositor who joined after `CAPTURE`.
-    uint256 internal constant AFTER_A_DEPOSITOR_JOINED = 25691117;
-
     HarborDeployRun internal deployRun;
     MarketUpgradeRun internal upgrade;
     address internal minter;
 
     function setUp() public {
-        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(CAPTURE));
+        createSelectFork("mainnet", HolderCaptureLib.captureBlock(V3_HOLDER_CAPTURE));
         (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
         Config_MinterMarket[] memory upgraded = new Config_MinterMarket[](1);
         upgraded[0] = markets[0]; // MCAP::fxUSD
-        upgrade = new MarketUpgradeRun(upgraded, CAPTURE);
+        upgrade = new MarketUpgradeRun(upgraded, V3_HOLDER_CAPTURE);
         deployRun = new HarborDeployRun(address(0), address(0), "harbor_v1", "mainnet", HarborDeployRun.Cut.Whole);
         minter = deployRun.minterAddress(markets[0]);
     }
@@ -157,7 +153,7 @@ contract UpgradeMarketToV3Test is Test {
             ERC1967Utils.IMPLEMENTATION_SLOT,
             bytes32(uint256(uint160(pauser)))
         );
-        MarketUpgradeRunDecidingWhereToRead mixed = new MarketUpgradeRunDecidingWhereToRead(markets, CAPTURE);
+        MarketUpgradeRunDecidingWhereToRead mixed = new MarketUpgradeRunDecidingWhereToRead(markets, V3_HOLDER_CAPTURE);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -207,7 +203,7 @@ contract UpgradeMarketToV3Test is Test {
         uint256 threshold = IStabilityPoolManager(manager).rebalanceThreshold();
         address feeReceiver = IStabilityPoolManager(manager).feeReceiver();
 
-        new MarketUpgradeRun(markets, CAPTURE).run("harbor_v1");
+        new MarketUpgradeRun(markets, V3_HOLDER_CAPTURE).run("harbor_v1");
 
         IStabilityPoolManager_v2 upgraded = IStabilityPoolManager_v2(manager);
         assertEq(upgraded.rebalanceBountyRatio(), config.rebalanceBountyRatio(), "the rebalance bounty ratio");
@@ -255,7 +251,7 @@ contract UpgradeMarketToV3Test is Test {
         uint256 liveFloor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
         uint256 newFloor = IHarborConfig(address(markets[0])).aboutADollarInPegged();
         assertEq(newFloor, liveFloor + 1, "precondition: the live floor is the production config's");
-        MarketUpgradeRun refused = new MarketUpgradeRun(markets, CAPTURE);
+        MarketUpgradeRun refused = new MarketUpgradeRun(markets, V3_HOLDER_CAPTURE);
         bytes32 implementationBefore = vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT);
 
         vm.expectRevert(
@@ -286,7 +282,7 @@ contract UpgradeMarketToV3Test is Test {
         uint256 newWindow = IHarborConfig(address(markets[0])).stabilityPoolWithdrawalPeriod();
         assertEq(newDelay, liveDelay + 1, "precondition: the live delay is the production config's");
         assertEq(newWindow, liveWindow, "precondition: the live window is the production config's");
-        MarketUpgradeRun refused = new MarketUpgradeRun(markets, CAPTURE);
+        MarketUpgradeRun refused = new MarketUpgradeRun(markets, V3_HOLDER_CAPTURE);
         bytes32 implementationBefore = vm.load(minter, ERC1967Utils.IMPLEMENTATION_SLOT);
 
         vm.expectRevert(
@@ -316,7 +312,7 @@ contract UpgradeMarketToV3Test is Test {
     /// the market's contracts name its tokens and each other.
     function test_theFrozenUpgradeBuildsAtThePauseBlock() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork("mainnet", readBlock);
+        createSelectFork("mainnet", readBlock);
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = btcMarkets[1]; // BTC::stETH
@@ -339,7 +335,7 @@ contract UpgradeMarketToV3Test is Test {
         uint256 collateralSupply = IStabilityPool(collateralPool).totalAssetSupply();
         uint256 leveragedSupply = IStabilityPool(leveragedPool).totalAssetSupply();
 
-        vm.createSelectFork("mainnet", readBlock + 1);
+        createSelectFork("mainnet", readBlock + 1);
         FrozenMarketUpgradeRun frozenUpgrade = new FrozenMarketUpgradeRun(
             markets,
             FROZEN_MARKETS_CAPTURE,
@@ -396,7 +392,7 @@ contract UpgradeMarketToV3Test is Test {
     ///      paused and the upgrade runs; return what was read.
     function _retiredBesideLive() private returns (RetiredBesideLive memory fixture) {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork("mainnet", readBlock);
+        createSelectFork("mainnet", readBlock);
         (, Config_MinterMarket[] memory goldMarkets) = goldMintersConfig();
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         fixture.markets = new Config_MinterMarket[](2);
@@ -431,7 +427,7 @@ contract UpgradeMarketToV3Test is Test {
         assertGt(fixture.retiredBacking, 0, "precondition: the retired market records backing");
         assertEq(IERC20(fixture.retiredCollateral).balanceOf(fixture.retiredMinter), 0, "precondition: and holds none");
 
-        vm.createSelectFork("mainnet", readBlock + 1);
+        createSelectFork("mainnet", readBlock + 1);
     }
 
     /// @dev The frozen upgrade of `markets`, built but not run, on the fork selected, each market's batch carrying
@@ -669,7 +665,7 @@ contract UpgradeMarketToV3Test is Test {
     /// A capture not taken at the last block before the pause is refused: at the block after an earlier capture's, the
     /// market's minter still answers, and the read names it and that block - before any upgrade is built.
     function test_theFrozenReadRefusesACaptureBeforeTheLastBlock() public {
-        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = btcMarkets[1]; // BTC::stETH
@@ -684,10 +680,10 @@ contract UpgradeMarketToV3Test is Test {
         string memory refusal = string.concat(
             addresses.minterKey(markets[0]),
             " answers at block ",
-            vm.toString(HolderCaptureLib.captureBlock(CAPTURE) + 1),
+            vm.toString(HolderCaptureLib.captureBlock(V3_HOLDER_CAPTURE) + 1),
             ", the block after the capture's: the capture must end at the last block before the pause"
         );
-        FrozenMarketUpgradeRun refused = new FrozenMarketUpgradeRun(markets, CAPTURE, _noOperations());
+        FrozenMarketUpgradeRun refused = new FrozenMarketUpgradeRun(markets, V3_HOLDER_CAPTURE, _noOperations());
         vm.makePersistent(address(refused));
 
         vm.expectRevert(bytes(refusal));
@@ -754,7 +750,7 @@ contract UpgradeMarketToV3Test is Test {
         address leveragedPool = deployRun.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Leveraged);
 
         vm.recordLogs();
-        new MarketUpgradeRun(markets, CAPTURE).run("harbor_v1");
+        new MarketUpgradeRun(markets, V3_HOLDER_CAPTURE).run("harbor_v1");
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertGt(_firstLog(logs, collateralPool, IERC1967.Upgraded.selector), 0, "precondition: the upgrade ran");
@@ -771,7 +767,7 @@ contract UpgradeMarketToV3Test is Test {
     /// one reward token and one with two.
     function test_anEmptyPool_getsAPlainUpgrade() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork("mainnet", readBlock + 1);
+        createSelectFork("mainnet", readBlock + 1);
         (, Config_MinterMarket[] memory mcap) = mcapMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = mcap[0]; // MCAP::fxUSD
@@ -815,7 +811,7 @@ contract UpgradeMarketToV3Test is Test {
     /// that finished on 2026-04-09.
     function test_aPoolWithAStreamRecordAndNoHolders_goesThroughTheUpgrader() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork("mainnet", readBlock);
+        createSelectFork("mainnet", readBlock);
         (, Config_MinterMarket[] memory gold) = goldMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = gold[1]; // GOLD::stETH
@@ -844,7 +840,7 @@ contract UpgradeMarketToV3Test is Test {
         bytes memory recordBefore = _rewardRecordOf(pool, token);
         assertNotEq(recordBefore, abi.encode(uint256(0), uint256(0), uint256(0), uint256(0)), "precondition: a record");
 
-        vm.createSelectFork("mainnet", readBlock + 1);
+        createSelectFork("mainnet", readBlock + 1);
         FrozenMarketUpgradeRun run = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE, _noOperations());
         vm.makePersistent(address(run));
         run.run("harbor_v1");
@@ -954,7 +950,9 @@ contract UpgradeMarketToV3Test is Test {
 
         Config_MinterMarket[] memory other = new Config_MinterMarket[](1);
         other[0] = mcap[1]; // MCAP::stETH
-        new MarketUpgradeRunFromAStateFile(other, CAPTURE, STATE_RECORDING_NEW_IMPLEMENTATIONS).run("harbor_v1");
+        new MarketUpgradeRunFromAStateFile(other, V3_HOLDER_CAPTURE, STATE_RECORDING_NEW_IMPLEMENTATIONS).run(
+            "harbor_v1"
+        );
         assertEq(
             IStabilityPool_v3(deployRun.stabilityPoolAddress(mcap[1], HarborDeployer.StabilityPoolType.Collateral))
                 .MINTER(),
@@ -973,7 +971,7 @@ contract UpgradeMarketToV3Test is Test {
         markets[0] = market;
         MarketUpgradeRun refused = new MarketUpgradeRunFromAStateFile(
             markets,
-            CAPTURE,
+            V3_HOLDER_CAPTURE,
             STATE_RECORDING_NEW_IMPLEMENTATIONS
         );
         vm.expectRevert(
@@ -991,7 +989,7 @@ contract UpgradeMarketToV3Test is Test {
     /// holders leave a gap far beyond rounding, and the read refuses it, naming the pool, what the captured holders hold
     /// and the supply - before any upgrade is built.
     function test_readRefusesACaptureMissingAHolder() public {
-        vm.createSelectFork("mainnet", AFTER_A_DEPOSITOR_JOINED);
+        createSelectFork("mainnet", "after-a-depositor-joined");
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = btcMarkets[1]; // BTC::stETH
@@ -1004,13 +1002,13 @@ contract UpgradeMarketToV3Test is Test {
         );
         string memory key = addresses.stabilityPoolKey(markets[0], HarborDeployer.StabilityPoolType.Collateral);
         address pool = addresses.stabilityPoolAddress(markets[0], HarborDeployer.StabilityPoolType.Collateral);
-        address[] memory holders = HolderCaptureLib.holders(CAPTURE, key);
+        address[] memory holders = HolderCaptureLib.holders(V3_HOLDER_CAPTURE, key);
         uint256 held;
         for (uint256 i = 0; i < holders.length; ++i) {
             held += IStabilityPool(pool).assetBalanceOf(holders[i]);
         }
         uint256 supply = IStabilityPool(pool).totalAssetSupply();
-        MarketUpgradeRun refused = new MarketUpgradeRun(markets, CAPTURE);
+        MarketUpgradeRun refused = new MarketUpgradeRun(markets, V3_HOLDER_CAPTURE);
 
         vm.expectRevert(
             bytes(

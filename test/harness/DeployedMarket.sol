@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -14,6 +14,7 @@ import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager
 
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
+import {HolderCaptureLib} from "@harbor-script/holders/HolderCaptureLib.sol";
 
 import {MarketReaderV2Lineage, MarketReaderV3Lineage} from "@harbor-test/harness/MarketReader.sol";
 import {mcapMintersConfig} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
@@ -24,6 +25,9 @@ import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 import {RuleMarketUpgradeRun} from "@harbor-test/harness/RuleMarketUpgradeRun.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+
+/// @dev The holder capture the v3 upgrade reads: the deployed market is forked at the block it was taken at.
+string constant V3_HOLDER_CAPTURE = "test/fixtures/holders-25272609/";
 
 /// @notice The market that is DEPLOYED, driven through its own proxies on a pinned fork.
 ///
@@ -57,12 +61,11 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 ///     market as the fixed deploy builds it, rather than one whose rebalance is disabled by an ordering
 ///     accident. It would be needed at ANY block, including the deployment block: the grant was missing from
 ///     the deploy itself.
-abstract contract DeployedMarket is Test, MarketUnderTest {
+abstract contract DeployedMarket is BaoTest, MarketUnderTest {
     /// @dev The production run, re-created for its identity alone: the salt prefix that makes its address
     ///      predictions the deployed addresses. It never deploys here, so it has no owner or treasury of its own.
     HarborDeployRun internal productionRun;
 
-    uint256 internal constant FORK_BLOCK = 25272609;
     string internal constant SALT_PREFIX = "harbor_v1";
 
     /// @dev The price of the market's genesis, and the wrapped-to-underlying rate. Chosen rather than
@@ -84,7 +87,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         string memory runName
     ) internal virtual override returns (MarketAddresses memory) {
         _requireHoldersOutsidePools(collateralPoolShare, leveragedPoolShare);
-        vm.createSelectFork("mainnet", FORK_BLOCK);
+        createSelectFork("mainnet", HolderCaptureLib.captureBlock(V3_HOLDER_CAPTURE));
         // After the fork is selected, which would otherwise discard it.
         productionRun = new HarborDeployRun(address(0), address(0), SALT_PREFIX, "mainnet", HarborDeployRun.Cut.Whole);
 
@@ -112,7 +115,7 @@ abstract contract DeployedMarket is Test, MarketUnderTest {
         // compares the RULE and not the fee schedule - a deployed conversion paid its pool exactly 0.99 of fair value
         // before this, and the 0.01 was the bounty, not the rule.
         if (bytes(overrideLabel()).length > 0) {
-            _upgradeMarketToV3(config, string.concat("test/fixtures/holders-", vm.toString(FORK_BLOCK), "/"));
+            _upgradeMarketToV3(config, V3_HOLDER_CAPTURE);
             // The upgraded manager is v2, which sets each action's bounty ratio, bounty ceiling and cut ratio in one
             // call.
             vm.startPrank(IBaoOwnable(market.manager).owner());

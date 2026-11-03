@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
@@ -14,7 +14,7 @@ import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 
 /// @notice The pausers bao-base has deployed, read from its deployment state, and what makes a market frozen: its minter
 ///         running one of them.
-contract PausersTest is Test {
+contract PausersTest is BaoTest {
     function pauserNamedFromOutside(string memory network, string memory contractType) external view returns (address) {
         return pauserNamed(network, contractType);
     }
@@ -45,7 +45,7 @@ contract PausersTest is Test {
     /// At the block after the capture's, where the pause took effect, every market of the six paused pegs reads frozen,
     /// its minter running BaoPauser_v1, and no USD market does: eleven markets, as the pause's Safe batch named them.
     function test_isFrozen_readsThePauserOnTheElevenAndNotUSD() public {
-        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         HarborDeployRun live = new HarborDeployRun(
             address(0),
             address(0),

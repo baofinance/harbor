@@ -350,7 +350,7 @@ contract TestMinterSetUp is BaoTest, Array, ConfigFile {
     }
 
     function setUpFork() internal virtual {
-        forkMainnet();
+        createSelectFork("mainnet");
 
         feeReceiver = treasury();
 
