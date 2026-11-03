@@ -811,6 +811,223 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
         assertEq(remaining, balanceAfterLoss - firstTransfer - secondTransfer, "sender remainder correct");
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // A transfer is a withdrawal, a pegged transfer and a deposit in one: the pool and both parties stand as those
+    // three steps leave them, and the new owner requests and takes its withdrawal as any depositor does. Each test
+    // runs the move both ways from one snapshot and compares every holding after the move and after the new owner's
+    // withdrawal, with a reward streaming and a loss on either side of the move.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev What the pool and the two parties hold, read after a step of either path and compared between the paths.
+    struct Holdings {
+        uint256 senderShares;
+        uint256 receiverShares;
+        uint256 totalSupply;
+        uint256 senderClaimable;
+        uint256 receiverClaimable;
+        uint256 senderPegged;
+        uint256 receiverPegged;
+        uint256 feeReceiverPegged;
+        uint64 senderRequestStart;
+        uint64 receiverRequestStart;
+        uint256 senderFeeFree;
+        uint256 receiverFeeFree;
+    }
+
+    /// @dev The move of `amount` from user1 to user2, then a loss, then user2's withdrawal of everything: in a window
+    ///      it requests then, or in the one it opened before the move.
+    struct Path {
+        uint256 amount;
+        uint256 lossAfterTheMove;
+        bool receiverRequestsBeforeExit;
+    }
+
+    /// @dev One path's outcome: when the move was made, the holdings after it, and the holdings and the pegged paid
+    ///      after the receiver's withdrawal.
+    struct Outcome {
+        uint256 movedAt;
+        Holdings moved;
+        Holdings exited;
+        uint256 paid;
+    }
+
+    function _holdings(address sender, address receiver) internal view returns (Holdings memory held) {
+        held.senderShares = IERC20(stabilityPool).balanceOf(sender);
+        held.receiverShares = IERC20(stabilityPool).balanceOf(receiver);
+        held.totalSupply = IERC20(stabilityPool).totalSupply();
+        address[] memory rewardToken = aa(wrappedCollateralToken);
+        held.senderClaimable = IMultipleRewardAccumulator(stabilityPool).claimable(sender, rewardToken)[0];
+        held.receiverClaimable = IMultipleRewardAccumulator(stabilityPool).claimable(receiver, rewardToken)[0];
+        held.senderPegged = IERC20(peggedToken).balanceOf(sender);
+        held.receiverPegged = IERC20(peggedToken).balanceOf(receiver);
+        held.feeReceiverPegged = IERC20(peggedToken).balanceOf(IStabilityPool_v3(stabilityPool).feeReceiver());
+        (held.senderRequestStart, ) = IStabilityPool_v3(stabilityPool).withdrawalRequest(sender);
+        (held.receiverRequestStart, ) = IStabilityPool_v3(stabilityPool).withdrawalRequest(receiver);
+        held.senderFeeFree = IStabilityPool_v3(stabilityPool).withdrawalFeeFreeAmount(sender);
+        held.receiverFeeFree = IStabilityPool_v3(stabilityPool).withdrawalFeeFreeAmount(receiver);
+    }
+
+    function _assertSameHoldings(
+        Holdings memory byTransfer,
+        Holdings memory inThree,
+        string memory step
+    ) internal pure {
+        assertEq(byTransfer.senderShares, inThree.senderShares, string.concat(step, ": the sender's shares"));
+        assertEq(byTransfer.receiverShares, inThree.receiverShares, string.concat(step, ": the receiver's shares"));
+        assertEq(byTransfer.totalSupply, inThree.totalSupply, string.concat(step, ": the total supply"));
+        assertEq(byTransfer.senderClaimable, inThree.senderClaimable, string.concat(step, ": the sender's claim"));
+        assertEq(
+            byTransfer.receiverClaimable,
+            inThree.receiverClaimable,
+            string.concat(step, ": the receiver's claim")
+        );
+        assertEq(byTransfer.senderPegged, inThree.senderPegged, string.concat(step, ": the sender's pegged"));
+        assertEq(byTransfer.receiverPegged, inThree.receiverPegged, string.concat(step, ": the receiver's pegged"));
+        assertEq(byTransfer.feeReceiverPegged, inThree.feeReceiverPegged, string.concat(step, ": the fees paid"));
+        assertEq(
+            byTransfer.senderRequestStart,
+            inThree.senderRequestStart,
+            string.concat(step, ": the sender's withdrawal request")
+        );
+        assertEq(
+            byTransfer.receiverRequestStart,
+            inThree.receiverRequestStart,
+            string.concat(step, ": the receiver's withdrawal request")
+        );
+        assertEq(
+            byTransfer.senderFeeFree,
+            inThree.senderFeeFree,
+            string.concat(step, ": the sender's fee-free amount")
+        );
+        assertEq(
+            byTransfer.receiverFeeFree,
+            inThree.receiverFeeFree,
+            string.concat(step, ": the receiver's fee-free amount")
+        );
+    }
+
+    /// @dev `holder` requests a withdrawal and, at its window's start, withdraws `amount` to itself.
+    function _withdrawInOwnWindow(address holder, uint256 amount) internal returns (uint256 paid) {
+        vm.startPrank(holder);
+        IStabilityPool_v3(stabilityPool).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(stabilityPool).withdrawalRequest(holder);
+        vm.warp(start);
+        vm.startPrank(holder);
+        paid = IStabilityPool_v3(stabilityPool).withdraw(amount, holder, 0);
+        vm.stopPrank();
+    }
+
+    /// @dev Runs `path` from the state now, moving the shares by a transfer or in its three steps.
+    function _run(bool byTransfer, Path memory path) internal returns (Outcome memory outcome) {
+        if (byTransfer) {
+            // the wait the other path spends on the sender's window, so the two moves are made at the same time
+            (uint64 startDelay, ) = IStabilityPool_v3(stabilityPool).withdrawalWindow();
+            skip(startDelay);
+            vm.startPrank(user1);
+            IERC20(stabilityPool).transfer(user2, path.amount);
+            vm.stopPrank();
+        } else {
+            uint256 withdrawn = _withdrawInOwnWindow(user1, path.amount);
+            assertEq(withdrawn, path.amount, "fixture: in its window the sender's withdrawal is fee-free");
+            vm.startPrank(user1);
+            IERC20(peggedToken).transfer(user2, withdrawn);
+            vm.stopPrank();
+            vm.startPrank(user2);
+            IERC20(peggedToken).approve(stabilityPool, withdrawn);
+            IStabilityPool_v3(stabilityPool).deposit(withdrawn, user2, 0);
+            vm.stopPrank();
+        }
+        outcome.movedAt = block.timestamp;
+        outcome.moved = _holdings(user1, user2);
+
+        poolActions.liquidate(wrappedCollateralToken, path.lossAfterTheMove, path.lossAfterTheMove);
+
+        if (path.receiverRequestsBeforeExit) {
+            outcome.paid = _withdrawInOwnWindow(user2, type(uint256).max);
+        } else {
+            vm.startPrank(user2);
+            outcome.paid = IStabilityPool_v3(stabilityPool).withdraw(type(uint256).max, user2, 0);
+            vm.stopPrank();
+        }
+        outcome.exited = _holdings(user1, user2);
+    }
+
+    /// @dev Runs `path` both ways from the state now and asserts the two outcomes agree, step by step. Returns the
+    ///      transfer's, for the test to pin to the values it expects.
+    function _assertTransferEqualsItsThreeSteps(Path memory path) internal returns (Outcome memory byTransfer) {
+        uint256 snapshot = vm.snapshotState();
+        byTransfer = _run(true, path);
+        vm.revertToState(snapshot);
+        Outcome memory inThree = _run(false, path);
+
+        assertEq(
+            byTransfer.movedAt,
+            inThree.movedAt,
+            "fixture: the moves are made at the same time, so rewards stream alike"
+        );
+        _assertSameHoldings(byTransfer.moved, inThree.moved, "after the move");
+        _assertSameHoldings(byTransfer.exited, inThree.exited, "after the receiver's withdrawal");
+        assertEq(byTransfer.paid, inThree.paid, "the receiver is paid the same");
+    }
+
+    /// A transfer to a wallet that never deposited leaves the pool, the sender and the wallet as a withdrawal, a pegged
+    /// transfer and the wallet's deposit would, through a loss and the wallet's own withdrawal request. No reward from
+    /// before the move reaches the wallet, and in its window it is paid its shares as the loss left them, with no fee.
+    function test_transfer_equalsWithdrawTransferDeposit_freshReceiver() public {
+        _deposit(user1, 100 ether);
+        _depositReward(stabilityPool, wrappedCollateralToken, wrappedCollateralToken, 10 ether);
+        // a loss before the move, so the sender's stored balance compounds from an older product than the move's
+        poolActions.liquidate(wrappedCollateralToken, 25 ether, 25 ether);
+
+        Outcome memory outcome = _assertTransferEqualsItsThreeSteps(
+            Path({amount: 30 ether, lossAfterTheMove: 15 ether, receiverRequestsBeforeExit: true})
+        );
+
+        assertEq(outcome.moved.receiverClaimable, 0, "no reward from before the move reaches the receiver");
+        // the 30 received, less the fifth the loss after the move took: exact, as a fifth of the supply carries nothing
+        assertEq(outcome.paid, 24 ether, "the receiver is paid its shares as the loss left them, with no fee");
+    }
+
+    /// A transfer to a wallet already holding shares is the same three steps, with the wallet's earlier shares and
+    /// claim kept through the move, and the wallet's own request covering all it holds.
+    function test_transfer_equalsWithdrawTransferDeposit_holdingReceiver() public {
+        _deposit(user1, 100 ether);
+        _deposit(user2, 50 ether);
+        _depositReward(stabilityPool, wrappedCollateralToken, wrappedCollateralToken, 10 ether);
+        // a quarter of the supply: user1 holds 75, user2 37.5
+        poolActions.liquidate(wrappedCollateralToken, 37.5 ether, 37.5 ether);
+
+        Outcome memory outcome = _assertTransferEqualsItsThreeSteps(
+            Path({amount: 30 ether, lossAfterTheMove: 22.5 ether, receiverRequestsBeforeExit: true})
+        );
+
+        // the 37.5 held and the 30 received, less the fifth the loss after the move took
+        assertEq(outcome.paid, 54 ether, "the receiver is paid all it holds as the loss left it, with no fee");
+    }
+
+    /// A transfer into a window the wallet opened before the move is the same three steps: by either path the shares
+    /// that arrive are outside its fee-free amount, so withdrawing everything in that window pays the fee on them alone.
+    function test_transfer_equalsWithdrawTransferDeposit_receiverWindowOpen() public {
+        _deposit(user1, 100 ether);
+        _deposit(user2, 50 ether);
+        _depositReward(stabilityPool, wrappedCollateralToken, wrappedCollateralToken, 10 ether);
+        poolActions.liquidate(wrappedCollateralToken, 37.5 ether, 37.5 ether);
+        // the window opens as the move is made, and the move and the withdrawal are both inside it
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPool).requestWithdrawal();
+        vm.stopPrank();
+
+        Outcome memory outcome = _assertTransferEqualsItsThreeSteps(
+            Path({amount: 30 ether, lossAfterTheMove: 22.5 ether, receiverRequestsBeforeExit: false})
+        );
+
+        // fee-free: the 37.5 held at the request, less the fifth; the 30 that arrived, less the fifth, pays the fee
+        uint256 fee = (24 ether * IStabilityPool_v3(stabilityPool).earlyWithdrawalFeeRatio()) / 1 ether;
+        assertGt(fee, 0, "fixture: the shares that arrived pay a fee");
+        assertEq(outcome.paid, 54 ether - fee, "the receiver is paid all it holds, less the fee on what arrived");
+    }
+
     /// @notice Specific to the stability pool: permit approval persists across a rebase (loss). The allowance
     ///         sits on the share token's allowance slot, independent of the compounded balance
     ///         accounting that rebases reduce.
