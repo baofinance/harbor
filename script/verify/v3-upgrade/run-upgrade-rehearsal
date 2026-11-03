@@ -179,6 +179,12 @@ echo ""
 echo "Expectations library: a record expected after is built as its tests say..."
 campaign_test "$OUT" expectations.log CaptureExpectations
 
+# The upgrade's own tests: each forks mainnet at a capture's block from inside the test, upgrades the markets there and
+# checks what the upgrade reads, refuses, builds and records. Independent of the pegs named.
+echo ""
+echo "Upgrade: the upgrade reads, refuses, builds and records as its tests say..."
+campaign_test "$OUT" upgrade.log UpgradeMarketToV3Test
+
 # The checks that fork mainnet from inside their tests, for each peg in turn. Each is independent of the rehearsal
 # below; a failure is reported at the end, after the rehearsal has run.
 declare -A NATIVE_STATUS HARVEST_STATUS OPENING_STATUS REHEARSAL_STATUS

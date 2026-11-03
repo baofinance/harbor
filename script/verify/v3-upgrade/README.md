@@ -259,9 +259,11 @@ script/upgrade --network mainnet --salt harbor_v1 --peg <peg> --collateral <name
 The calls are the same: the batch files and the local execution come from the same queue.
 
 The runner first runs `CaptureExpectations`, the tests of the library that builds the expected-after records, so a
-broken library fails the run before anything is forked. It then runs `FrozenMarketsReadPoint`: the state the upgrade
-reads, at the end of the capture's block, is the state it runs on - the pause changed only which implementation each
-minter and pool runs. A run naming a market the pause never froze skips this. It then runs
+broken library fails the run before anything is forked. Then `UpgradeMarketToV3Test`, the upgrade's own tests: each
+forks mainnet at a capture's block, upgrades the markets there, and checks what the upgrade reads, refuses, builds and
+records. It then runs `FrozenMarketsReadPoint`: the state the upgrade reads, at the end of the capture's block, is the
+state it runs on - the pause changed only which implementation each minter and pool runs. A run naming a market the
+pause never froze skips this. It then runs
 `UpgradedMarketsMatchANativeDeploy`: each upgraded market holds the settings a native deploy sets (see
 [Settings against a native deploy](#settings-against-a-native-deploy)); `UpgradedMarketsHarvest`: each upgraded
 market harvests at its config's terms (see [Harvest after the upgrade](#harvest-after-the-upgrade)); and
@@ -451,8 +453,8 @@ A role granted on mainnet to an address the deploy grants none is not seen.
   the batch carries, which `script/UpdateHarvestAndRebalanceConfig_AllMarkets.s.sol` queues for every market
 - `script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol`, `script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol`
   - the one-shot upgraders
-- `test/deployment/UpgradeMarketToV3.t.sol` - the upgrade's tests
-- `script/verify/v3-upgrade/` - the rehearsal: `run-upgrade-rehearsal`, `CaptureExpectations.t.sol`,
+- `script/verify/v3-upgrade/` - the upgrade's tests, `UpgradeMarketToV3.t.sol`, and the rehearsal:
+  `run-upgrade-rehearsal`, `CaptureExpectations.t.sol`,
   `FrozenMarketsReadPoint.t.sol`, `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`,
   `MarketSettings.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`,
   `MarketHarvestCheck.sol`, `UpgradedMarketsHarvest.t.sol`, `UpgradedUnopenedMarketsOpen.t.sol`

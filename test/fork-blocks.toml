@@ -12,13 +12,9 @@ default = 24699497
 # the holder capture the v3 upgrade tests read, test/fixtures/holders-25272609: those tests take the block from
 # its manifest, and this entry admits it
 v3-holder-capture = 25272609
-# the frozen-markets capture, script/UpgradeStabilityPool_v2_v3/holders-26248723, at the last block before the
-# pause: taken from its manifest likewise
-frozen-markets-read = 26248723
-# the block after it, where the pause took effect
+# the block after the frozen-markets capture, script/UpgradeStabilityPool_v2_v3/holders-26248723, where the pause took
+# effect: the tests take the capture's block from its manifest, plus one, and this entry admits it
 frozen-markets-paused = 26248724
-# BTC::stETH's collateral pool holds a depositor who joined after the v3 holder capture
-after-a-depositor-joined = 25691117
 # after the USD markets' oracles were deployed, which the default predates: `latest`, until a later block is listed
 usd-oracles-live = 26308489
 
