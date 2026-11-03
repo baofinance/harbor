@@ -56,7 +56,7 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
         {
             UpgradeMarketToV3 upgraded;
             // Whether the pause froze the markets is read at the chain's head, where their minters run a pauser if so.
-            vm.createSelectFork(vm.rpcUrl("mainnet"));
+            vm.createSelectFork("mainnet");
             HarborDeployRun live = new HarborDeployRun(
                 address(0),
                 address(0),
@@ -65,7 +65,7 @@ contract UpgradedMarketsMatchANativeDeploy is Test {
                 HarborDeployRun.Cut.Whole
             );
             if (isFrozen(live.minterAddress(markets[0]), "mainnet")) {
-                vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+                vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
                 upgraded = new FrozenMarketUpgradeRun(
                     markets,
                     FROZEN_MARKETS_CAPTURE,

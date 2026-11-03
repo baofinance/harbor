@@ -39,9 +39,9 @@ import {CompensationRun} from "@harbor-script/verify/incidents/CompensationRun.s
 ///         at the capture block's reading, and the compensated upgrade of the two exploited markets run as it will run
 ///         - at the block after the pause, each market's batch executed as the multisig - taking back the gains and
 ///         paying the losers in the same transaction as the upgrade, every amount exactly as sized.
-/// @dev Needs MAINNET_RPC_URL, archival at the capture's block, and `--disable-block-gas-limit`: the two markets'
-///      upgrade runs in one test call, beyond a block's gas (`run-compensation-test`). Under `script/verify/`, with
-///      the incident's report that writes the files it reads.
+/// @dev Needs MAINNET_RPC_URL, archival at the capture's block, and the campaign runner's lifted block gas limit: the
+///      two markets' upgrade runs in one test call, beyond a block's gas (`run-compensation-test`). Under
+///      `script/verify/`, with the incident's report that writes the files it reads.
 contract CompensateRebalanceDilutionTest is BaoTest {
     string private constant SALT = "harbor_v1";
 
@@ -397,7 +397,7 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         // The block after the capture's, where every minter and pool is paused and the upgrade runs. The run and the
         // configs the files name are made here and persist, so the frozen fork below can ask them for addresses.
-        uint256 paused = vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        uint256 paused = vm.createSelectFork("mainnet", readBlock + 1);
         CompensationRun run = _aRun();
         vm.makePersistent(address(run));
         CompensateRebalanceDilution.MarketCompensation[]
@@ -410,7 +410,7 @@ contract CompensateRebalanceDilutionTest is BaoTest {
         address wrapped = IHarborConfig(address(markets[0].market)).wrappedCollateralToken();
 
         // What the paused contracts no longer answer is read at the capture's block, where they still run.
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
+        vm.createSelectFork("mainnet", readBlock);
         Before[] memory before = new Before[](2);
         for (uint256 m = 0; m < 2; ++m) {
             before[m] = _readFrozen(run, markets[m]);
@@ -491,7 +491,7 @@ contract CompensateRebalanceDilutionTest is BaoTest {
     function _ranOnAFreshFork(
         Config_MinterMarket[] memory markets
     ) private returns (CompensationRun run, Deployer.Transaction[] memory queued) {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         run = _aRunOf(markets);
         vm.makePersistent(address(run));
         run.run(SALT);

@@ -76,7 +76,7 @@ contract MarketsStorageCopy is BaoTest, HarborDeployer {
     ///         compared nothing. A run whose pools list none rightly finds none.
     function test_everyPoolsStorageIsCopied() public {
         uint256 upgraded = vm.activeFork();
-        uint256 frozen = vm.createFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE));
+        uint256 frozen = vm.createFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE));
         uint256 records;
         uint256 holders;
         for (uint256 i = 0; i < markets.length; ++i) {

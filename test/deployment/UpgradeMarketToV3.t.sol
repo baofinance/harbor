@@ -138,7 +138,7 @@ contract UpgradeMarketToV3Test is Test {
     address internal minter;
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(CAPTURE));
+        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(CAPTURE));
         (, Config_MinterMarket[] memory markets) = mcapMintersConfig();
         Config_MinterMarket[] memory upgraded = new Config_MinterMarket[](1);
         upgraded[0] = markets[0]; // MCAP::fxUSD
@@ -316,7 +316,7 @@ contract UpgradeMarketToV3Test is Test {
     /// the market's contracts name its tokens and each other.
     function test_theFrozenUpgradeBuildsAtThePauseBlock() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
+        vm.createSelectFork("mainnet", readBlock);
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = btcMarkets[1]; // BTC::stETH
@@ -339,7 +339,7 @@ contract UpgradeMarketToV3Test is Test {
         uint256 collateralSupply = IStabilityPool(collateralPool).totalAssetSupply();
         uint256 leveragedSupply = IStabilityPool(leveragedPool).totalAssetSupply();
 
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        vm.createSelectFork("mainnet", readBlock + 1);
         FrozenMarketUpgradeRun frozenUpgrade = new FrozenMarketUpgradeRun(
             markets,
             FROZEN_MARKETS_CAPTURE,
@@ -396,7 +396,7 @@ contract UpgradeMarketToV3Test is Test {
     ///      paused and the upgrade runs; return what was read.
     function _retiredBesideLive() private returns (RetiredBesideLive memory fixture) {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
+        vm.createSelectFork("mainnet", readBlock);
         (, Config_MinterMarket[] memory goldMarkets) = goldMintersConfig();
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         fixture.markets = new Config_MinterMarket[](2);
@@ -431,7 +431,7 @@ contract UpgradeMarketToV3Test is Test {
         assertGt(fixture.retiredBacking, 0, "precondition: the retired market records backing");
         assertEq(IERC20(fixture.retiredCollateral).balanceOf(fixture.retiredMinter), 0, "precondition: and holds none");
 
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        vm.createSelectFork("mainnet", readBlock + 1);
     }
 
     /// @dev The frozen upgrade of `markets`, built but not run, on the fork selected, each market's batch carrying
@@ -669,7 +669,7 @@ contract UpgradeMarketToV3Test is Test {
     /// A capture not taken at the last block before the pause is refused: at the block after an earlier capture's, the
     /// market's minter still answers, and the read names it and that block - before any upgrade is built.
     function test_theFrozenReadRefusesACaptureBeforeTheLastBlock() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = btcMarkets[1]; // BTC::stETH
@@ -771,7 +771,7 @@ contract UpgradeMarketToV3Test is Test {
     /// one reward token and one with two.
     function test_anEmptyPool_getsAPlainUpgrade() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        vm.createSelectFork("mainnet", readBlock + 1);
         (, Config_MinterMarket[] memory mcap) = mcapMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = mcap[0]; // MCAP::fxUSD
@@ -815,7 +815,7 @@ contract UpgradeMarketToV3Test is Test {
     /// that finished on 2026-04-09.
     function test_aPoolWithAStreamRecordAndNoHolders_goesThroughTheUpgrader() public {
         uint256 readBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock);
+        vm.createSelectFork("mainnet", readBlock);
         (, Config_MinterMarket[] memory gold) = goldMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = gold[1]; // GOLD::stETH
@@ -844,7 +844,7 @@ contract UpgradeMarketToV3Test is Test {
         bytes memory recordBefore = _rewardRecordOf(pool, token);
         assertNotEq(recordBefore, abi.encode(uint256(0), uint256(0), uint256(0), uint256(0)), "precondition: a record");
 
-        vm.createSelectFork(vm.rpcUrl("mainnet"), readBlock + 1);
+        vm.createSelectFork("mainnet", readBlock + 1);
         FrozenMarketUpgradeRun run = new FrozenMarketUpgradeRun(markets, FROZEN_MARKETS_CAPTURE, _noOperations());
         vm.makePersistent(address(run));
         run.run("harbor_v1");
@@ -991,7 +991,7 @@ contract UpgradeMarketToV3Test is Test {
     /// holders leave a gap far beyond rounding, and the read refuses it, naming the pool, what the captured holders hold
     /// and the supply - before any upgrade is built.
     function test_readRefusesACaptureMissingAHolder() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), AFTER_A_DEPOSITOR_JOINED);
+        vm.createSelectFork("mainnet", AFTER_A_DEPOSITOR_JOINED);
         (, Config_MinterMarket[] memory btcMarkets) = btcMintersConfig();
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = btcMarkets[1]; // BTC::stETH

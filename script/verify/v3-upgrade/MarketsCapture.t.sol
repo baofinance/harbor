@@ -81,7 +81,7 @@ contract MarketsCapture is Test, HarborDeployer {
         string memory version = isBefore ? "before" : "after";
         uint256 captureBlock = HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE);
         if (isBefore) {
-            vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
+            vm.createSelectFork("mainnet", captureBlock);
             _restoreManagers();
         } else {
             require(
@@ -145,7 +145,7 @@ contract MarketsCapture is Test, HarborDeployer {
             managers[i] = stabilityPoolManagerAddress(markets[i]);
         }
         uint256 beforeFork = vm.activeFork();
-        vm.createSelectFork(vm.rpcUrl("mainnet"), MANAGERS_PAUSED_AT - 1);
+        vm.createSelectFork("mainnet", MANAGERS_PAUSED_AT - 1);
         bytes32[] memory implementations = new bytes32[](managers.length);
         for (uint256 i = 0; i < managers.length; ++i) {
             implementations[i] = vm.load(managers[i], ERC1967Utils.IMPLEMENTATION_SLOT);

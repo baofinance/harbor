@@ -45,7 +45,7 @@ contract PausersTest is Test {
     /// At the block after the capture's, where the pause took effect, every market of the six paused pegs reads frozen,
     /// its minter running BaoPauser_v1, and no USD market does: eleven markets, as the pause's Safe batch named them.
     function test_isFrozen_readsThePauserOnTheElevenAndNotUSD() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         HarborDeployRun live = new HarborDeployRun(
             address(0),
             address(0),

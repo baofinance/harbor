@@ -29,7 +29,7 @@ contract StateFileAddressConsistency is Test, HarborDeployer {
     uint256 internal constant FORK_BLOCK = 25272609;
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
+        vm.createSelectFork("mainnet", FORK_BLOCK);
         _setSaltPrefix("harbor_v1");
     }
 

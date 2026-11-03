@@ -15,11 +15,10 @@
 #
 # Needs MAINNET_RPC_URL on an archival node. The full output is kept in tmp/rebalance-dilution-report.log.
 #
-# The reads are throttled for an RPC that answers a burst of requests with HTTP 429, as a free plan does: forge waits
-# after each 429 (--compute-units-per-second sets how long) and retries up to --fork-retries times, from a backoff of
-# --fork-retry-backoff milliseconds. forge accepts those two only with --rpc-url, so every test first runs on a fork
-# pinned to the block before the first exploit, before its setUp creates the fork it reads. With the reads in forge's RPC
-# cache, a run takes minutes; uncached, a reading of the holders' history took about 50 seconds (2026-10-24).
+# The reads are paced for an RPC that answers a burst of requests with HTTP 429, as a free plan does: run-campaign-test
+# paces every campaign's requests, and the fork each test's setUp creates takes the retries foundry.toml's mainnet
+# entry carries. With the reads in forge's RPC cache, a run takes minutes; uncached, a reading of the holders' history
+# took about 50 seconds (2026-10-24).
 
 set -euo pipefail
 
@@ -27,6 +26,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../../.."
 
 exec script/verify/run-campaign-test script/verify/incidents tmp/rebalance-dilution-report.log \
-  --mc RebalanceDilutionReport --threads 1 "${FORGE_VERBOSITY:--vv}" \
-  --rpc-url mainnet --fork-block-number 26204583 --fork-retries 100 --fork-retry-backoff 5000 \
-  --compute-units-per-second 50
+  --mc RebalanceDilutionReport --threads 1 "${FORGE_VERBOSITY:--vv}"

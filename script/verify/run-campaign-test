@@ -10,6 +10,16 @@
 # `--deny never` keeps that cache, as in `yarn test`: with warnings denied (foundry.toml), forge 1.8 writes none and
 # every run compiles everything.
 #
+# The gas limit of a test's own chain is lifted to the maximum and the forked block's gas limit is not applied, as in
+# `yarn test` (lib/bao-base/bin/forge_test_runs.py): a campaign's test runs a whole deploy or upgrade in one call,
+# beyond what a block holds. Neither is in foundry.toml, where it would reach a script's simulation, whose check that
+# each transaction fits a block is what catches one that does not; doctor refuses the lift there.
+#
+# Every campaign's forks of mainnet are created by its tests, each named by foundry.toml's alias so that it takes the
+# retries the mainnet entry carries - forge gives a fork a test creates the entry's retries and ignores the command
+# line's (foundry issue 18071) - and their requests are paced here, at 50 compute units per second, for a provider that
+# refuses a burst (HTTP 429): the command line's pacing does reach a fork a test creates.
+#
 # The build goes to its own output and cache directories, as the sizes build's does. With the test directory moved,
 # forge compiles with one remapping more (`test/=test/`), so every artifact differs from the main build's by its
 # metadata hash. Sharing `out/` and `cache/` with `yarn test` let each run overwrite the other's artifacts while the
@@ -30,7 +40,8 @@ mkdir -p "$(dirname "$LOG")"
 
 set +e
 FOUNDRY_TEST="$CAMPAIGN_DIR" forge test --no-dynamic-test-linking --deny never --out out/_campaign \
-  --cache-path cache/_campaign "$@" 2>&1 | tee "$LOG"
+  --cache-path cache/_campaign --gas-limit 18446744073709551615 --disable-block-gas-limit \
+  --compute-units-per-second 50 "$@" 2>&1 | tee "$LOG"
 status=${PIPESTATUS[0]}
 set -e
 

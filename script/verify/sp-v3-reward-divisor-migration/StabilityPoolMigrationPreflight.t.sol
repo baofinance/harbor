@@ -246,7 +246,7 @@ contract StabilityPoolMigrationPreflight is
         // and reporting that as a finding about the pools.
         captureBlock = HolderCaptureLib.captureBlock(holdersDir);
 
-        vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
+        vm.createSelectFork("mainnet", captureBlock);
         _setSaltPrefix("harbor_v1");
     }
 

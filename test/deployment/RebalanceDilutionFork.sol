@@ -222,7 +222,7 @@ abstract contract RebalanceDilutionFork is DeployedMarket {
     }
 
     function setUp() public virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), exploitTransaction());
+        vm.createSelectFork("mainnet", exploitTransaction());
         // After the fork is selected, which would otherwise discard it.
         productionRun = new HarborDeployRun(address(0), address(0), SALT_PREFIX, "mainnet", HarborDeployRun.Cut.Whole);
         exploitedMarket = exploitMarket();

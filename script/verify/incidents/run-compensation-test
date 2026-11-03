@@ -7,9 +7,8 @@
 # Usage, from the repository root:
 #   script/verify/incidents/run-compensation-test
 #
-# Needs MAINNET_RPC_URL, archival at the capture's block. The block gas limit is lifted: the two markets' upgrade runs
-# in one test call. The RPC is throttled, as the incident's other campaigns throttle it. Output in
-# tmp/compensation-test.log.
+# Needs MAINNET_RPC_URL, archival at the capture's block. The forks the test creates take the retries foundry.toml's
+# mainnet entry carries, and run-campaign-test paces their requests. Output in tmp/compensation-test.log.
 
 set -euo pipefail
 
@@ -17,5 +16,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../../.."
 
 script/verify/run-campaign-test script/verify/incidents tmp/compensation-test.log \
-  --mc CompensateRebalanceDilutionTest -vv --disable-block-gas-limit \
-  --rpc-url mainnet --fork-retries 100 --fork-retry-backoff 5000 --compute-units-per-second 50
+  --mc CompensateRebalanceDilutionTest -vv

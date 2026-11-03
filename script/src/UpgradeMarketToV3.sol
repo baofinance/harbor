@@ -216,7 +216,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         }
         uint256 readBlock = HolderCaptureLib.captureBlock(capture);
 
-        _vm.createSelectFork(_vm.rpcUrl(network), readBlock + 1);
+        _vm.createSelectFork(network, readBlock + 1);
         for (uint256 i = 0; i < markets.length; ++i) {
             _requirePaused(minterKey(markets[i]), minterAddress(markets[i]), abi.encodeCall(IMinter.config, ()));
             _requirePaused(
@@ -231,7 +231,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
             );
         }
 
-        _vm.createSelectFork(_vm.rpcUrl(network), readBlock);
+        _vm.createSelectFork(network, readBlock);
     }
 
     /// @notice Upgrade each market `inputs` names: deploy its new implementations, from its `marketAddresses`, and save,

@@ -61,7 +61,7 @@ contract UpgradedUnopenedMarketsOpen is MarketHarvestCheck {
             // Made before the fork below, and read on it.
             vm.makePersistent(address(named[i]));
         }
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.createSelectFork("mainnet");
         _setSaltPrefix("harbor_v1");
         for (uint256 i = 0; i < named.length; ++i) {
             if (!IGenesis(genesisAddress(named[i])).genesisIsEnded()) {

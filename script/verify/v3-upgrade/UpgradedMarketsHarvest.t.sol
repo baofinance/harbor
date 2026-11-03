@@ -29,7 +29,7 @@ contract UpgradedMarketsHarvest is MarketHarvestCheck {
     address internal keeper;
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
+        vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE) + 1);
         _setSaltPrefix("harbor_v1");
         markets = marketsToUpgrade();
         // A contract made on one fork is absent from another unless persistent: the run reads the frozen markets on

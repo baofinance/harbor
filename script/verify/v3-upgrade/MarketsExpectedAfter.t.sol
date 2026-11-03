@@ -51,10 +51,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     ///         was taken; what a compensated market's batch did is read from its minter's events on anvil.
     function test_writeExpectedAfter() public {
         records = vm.envString("RECORDS_DIR");
-        mainnetAtCapture = vm.createSelectFork(
-            vm.rpcUrl("mainnet"),
-            HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE)
-        );
+        mainnetAtCapture = vm.createSelectFork("mainnet", HolderCaptureLib.captureBlock(FROZEN_MARKETS_CAPTURE));
         _setSaltPrefix("harbor_v1");
         Config_MinterMarket[] memory markets = marketsToUpgrade();
         string[] memory files = new string[](2);
@@ -156,7 +153,7 @@ contract MarketsExpectedAfter is Test, HarborDeployer {
     ///      again after.
     function _whatTheMinterDid(address minter) private returns (MinterEvents memory did) {
         (, , uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(IMinter_v3(minter).priceOracle()).latestAnswer();
-        vm.createSelectFork(vm.rpcUrl("local"));
+        vm.createSelectFork("local");
         Vm.EthGetLogs[] memory logs = vm.eth_getLogs(
             vm.envUint("UPGRADE_FROM_BLOCK") + 1,
             block.number,

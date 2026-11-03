@@ -22,7 +22,7 @@ contract MainnetRoles is Test, HarborDeployer {
         // Use --fork-url to select the target (mainnet, local anvil, etc.)
         // Only create a fork if one isn't already active (i.e. no --fork-url was passed)
         if (block.chainid != 1) {
-            vm.createSelectFork(vm.rpcUrl("mainnet"));
+            vm.createSelectFork("mainnet");
         }
 
         _setSaltPrefix("harbor_v1");

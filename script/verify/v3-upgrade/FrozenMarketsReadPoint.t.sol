@@ -45,7 +45,7 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
         for (uint256 i = 0; i < named.length; ++i) {
             vm.makePersistent(address(named[i]));
         }
-        vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock + 1);
+        vm.createSelectFork("mainnet", captureBlock + 1);
         for (uint256 i = 0; i < all.length; ++i) {
             if (isFrozen(minterAddress(all[i]), "mainnet")) {
                 frozen.push(all[i]);
@@ -62,7 +62,7 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
     /// run names, because the one transaction froze them all.
     function test_thePauseChangedOnlyEachProxysImplementation() public {
         vm.skip(markets.length == 0);
-        vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
+        vm.createSelectFork("mainnet", captureBlock);
         vm.setEvmVersion("osaka");
         vm.rollFork(PAUSE);
         assertEq(block.number, captureBlock + 1, "the pause is in the block after the capture's");
@@ -117,8 +117,8 @@ contract FrozenMarketsReadPoint is Test, HarborDeployer {
     /// each captured holder's balance and claimable and claimed rewards.
     function test_nothingBeforeThePauseInItsBlockChangedAMarket() public {
         vm.skip(markets.length == 0);
-        uint256 atCapture = vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
-        uint256 beforePause = vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
+        uint256 atCapture = vm.createSelectFork("mainnet", captureBlock);
+        uint256 beforePause = vm.createSelectFork("mainnet", captureBlock);
         vm.setEvmVersion("osaka");
         vm.rollFork(PAUSE);
         uint256 moment = block.timestamp;

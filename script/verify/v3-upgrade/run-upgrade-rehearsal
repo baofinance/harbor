@@ -159,22 +159,15 @@ prompt() {
 }
 
 # Run the campaign's tests matching <contract> with the given forge arguments, logging to <records>/<log>, which is
-# also where the capture tests write their records: RECORDS_DIR names it to them. The capture runs every market's
-# interactions in one test call, so the block gas limit is lifted. A step given an RPC (--rpc-url
-# mainnet for one forking mainnet from inside its tests, --fork-url local for one against anvil) has the provider's
-# refusals (HTTP 429, a rate limit) retried with a backoff - forge accepts the retry options only with an RPC - and
-# one forking mainnet paces its requests too, as the other campaign runners do; a step against anvil is not paced,
-# anvil being local, and a step forking nothing is given nothing.
+# also where the capture tests write their records: RECORDS_DIR names it to them. A step forking mainnet does so from
+# inside its tests, and each fork takes the retries foundry.toml's mainnet entry carries - forge gives a fork a test
+# creates the entry's retries and not the command line's (foundry issue 18071) - with its requests paced by
+# run-campaign-test, as every campaign's are. A step against anvil is given --fork-url local, the fork its tests read.
 campaign_test() {
   local records="$1" log="$2" contract="$3"
   shift 3
-  local pacing=()
-  if [[ " $* " == *" --rpc-url "* || " $* " == *" --fork-url "* ]]; then
-    pacing=(--fork-retries 100 --fork-retry-backoff 5000)
-    [[ " $* " == *" local "* ]] || pacing+=(--compute-units-per-second 50)
-  fi
   RECORDS_DIR="$records" script/verify/run-campaign-test script/verify/v3-upgrade "$records/$log" --mc "$contract" "$@" \
-    "$FORGE_VERBOSITY" --disable-block-gas-limit "${pacing[@]}"
+    "$FORGE_VERBOSITY"
 }
 
 # The records and logs of an earlier run would hide one this run fails to write.
@@ -196,26 +189,26 @@ for peg in "${PEGS[@]}"; do
 
   echo ""
   echo "Read point: the state the upgrade of $peg::$COLLATERAL reads is the state it runs on..."
-  campaign_test "$records" read-point.log FrozenMarketsReadPoint --rpc-url mainnet
+  campaign_test "$records" read-point.log FrozenMarketsReadPoint
 
   echo ""
   echo "Native settings: each upgraded $peg market holds the settings a native deploy sets..."
   set +e
-  campaign_test "$records" native-settings.log UpgradedMarketsMatchANativeDeploy --rpc-url mainnet
+  campaign_test "$records" native-settings.log UpgradedMarketsMatchANativeDeploy
   NATIVE_STATUS[$peg]=$?
   set -e
 
   echo ""
   echo "Harvest: each upgraded $peg market harvests at its config's terms..."
   set +e
-  campaign_test "$records" harvest.log UpgradedMarketsHarvest --rpc-url mainnet
+  campaign_test "$records" harvest.log UpgradedMarketsHarvest
   HARVEST_STATUS[$peg]=$?
   set -e
 
   echo ""
   echo "Opening: each $peg market named that has not opened does, through its genesis, and runs (skipped when none is named)..."
   set +e
-  campaign_test "$records" opening.log UpgradedUnopenedMarketsOpen --rpc-url mainnet
+  campaign_test "$records" opening.log UpgradedUnopenedMarketsOpen
   OPENING_STATUS[$peg]=$?
   set -e
 done
@@ -246,7 +239,7 @@ for peg in "${PEGS[@]}"; do
 
   echo ""
   echo "Before and after: capturing the before, on mainnet at the capture's block..."
-  VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test "$records" before.log MarketsCapture --rpc-url mainnet
+  VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test "$records" before.log MarketsCapture
 
   echo ""
   echo "Running script/upgrade on anvil (--local)..."
@@ -272,7 +265,7 @@ for peg in "${PEGS[@]}"; do
   echo "Before and after: writing the expected after..."
   # The compensated markets' expectations read the minters' events on anvil, from the block after its head.
   START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$HEAD_BLOCK" campaign_test "$records" expected-after.log \
-    MarketsExpectedAfter --rpc-url mainnet
+    MarketsExpectedAfter
 
   # Each record with its keys sorted, so the diff compares values, not the order they were written in. A side with no
   # records stops the run: a diff of what is not there would report differences, when nothing was compared.
