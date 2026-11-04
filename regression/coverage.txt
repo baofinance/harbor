@@ -1,7 +1,7 @@
 | File                                                               | % Lines            | % Statements       | % Branches       | % Funcs          |
 |--------------------------------------------------------------------|--------------------|--------------------|------------------|------------------|
-| script/UpgradeMinter_v2_v3/FrozenPriceOracle.sol                   | ✓ 100% (7/7)       | ✓ 100% (5/5)       | -  N/A (0/0)     | ✓ 100% (2/2)     |
-| script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol                  | ✓ 100% (14/14)     | ✓ 100% (13/13)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
+| script/UpgradeMinter_v2_v3/FrozenPriceOracle.sol                   | X   0% (0/7)       | X   0% (0/5)       | -  N/A (0/0)     | X   0% (0/2)     |
+| script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol                  | X   0% (0/14)      | X   0% (0/13)      | X   0% (0/1)     | X   0% (0/4)     |
 | script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol    | ✓ 100% (33/33)     | ✓ 100% (37/37)     | ✓ 100% (1/1)     | ✓ 100% (6/6)     |
 | script/config/ConfigBase.sol                                       | X  90% (19/21)     | X  91% (21/23)     | ✓ 100% (3/3)     | X  83% (5/6)     |
 | script/config/ConfigTokenNames.sol                                 | X  85% (22/26)     | X  91% (20/22)     | ✓ 100% (2/2)     | X  75% (9/12)    |
@@ -47,7 +47,7 @@
 | script/src/HarborDeployer.sol                                      | X  80% (82/102)    | X  95% (94/99)     | X  80% (4/5)     | X  59% (24/41)   |
 | script/src/HarborReporting.sol                                     | X  75% (18/24)     | X  74% (14/19)     | X  80% (4/5)     | X  80% (4/5)     |
 | script/src/Pausers.sol                                             | ✓ 100% (19/19)     | ✓ 100% (30/30)     | ✓ 100% (2/2)     | ✓ 100% (2/2)     |
-| script/src/UpgradeMarketToV3.sol                                   | X  96% (151/158)   | X  97% (201/208)   | X  80% (33/41)   | ✓ 100% (12/12)   |
+| script/src/UpgradeMarketToV3.sol                                   | X  63% (100/158)   | X  67% (140/208)   | X  29% (12/41)   | X  67% (8/12)    |
 | script/src/contracts/Genesis.sol                                   | ✓ 100% (10/10)     | ✓ 100% (11/11)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/src/contracts/LeveragedToken.sol                            | ✓ 100% (16/16)     | ✓ 100% (23/23)     | -  N/A (0/0)     | ✓ 100% (2/2)     |
 | script/src/contracts/Minter.sol                                    | ✓ 100% (29/29)     | ✓ 100% (33/33)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
@@ -84,4 +84,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                   | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
 | src/util/FmtLib.sol                                                | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)     |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | -  N/A (0/0)     | ✓ 100% (4/4)     |
-| Total                                                              | X  74% (3822/5170) | X  74% (4230/5689) | X  69% (506/736) | X  77% (543/701) |
+| Total                                                              | X  73% (3750/5170) | X  73% (4151/5689) | X  66% (484/736) | X  76% (533/701) |

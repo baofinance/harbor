@@ -154,7 +154,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | updateEarlyWithdrawalFeeRatio |  10846 | 1.085e+04 |
 | updateFeeReceiver             |  28049 | 2.805e+04 |
 | withdraw                      | 292705 | 2.927e+05 |
-| withdrawalFeeFreeAmount       |   8608 | 8.608e+03 |
+| withdrawalFeeFreeAmount       |   9389 | 9.389e+03 |
 | withdrawalRequest             |   2767 | 2.767e+03 |
 | withdrawalWindow              |    363 | 3.630e+02 |
 
