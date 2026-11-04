@@ -22,9 +22,6 @@ contract Deploy_USD_mainnet is Deploy_USD_Minter, Script {
         string memory collateral,
         string memory oracleSalt
     ) external {
-        // The run's direct calls - role grants, the hand-over - are broadcast from the sender, so each contract it
-        // deploys is the sender's until the hand-over.
-        _setDeployerOwner(msg.sender);
         if (bytes(oracleSalt).length != 0) {
             _setOracleSaltPrefix(oracleSalt);
         }

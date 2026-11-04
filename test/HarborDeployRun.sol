@@ -129,11 +129,6 @@ contract HarborDeployRun is HarborDeployStack {
         return _treasury;
     }
 
-    /// @dev This run sends its own configuring calls, so it holds each contract it deploys until the hand-over.
-    function deployerOwner() public view override returns (address) {
-        return address(this);
-    }
-
     /// @dev Overrides `FactoryDeployer`'s accessor, which is `virtual` for exactly this. Answering from
     ///      constructor state means every address prediction resolves before any deploy call has run, so a
     ///      test can take a predicted address the moment it has an instance.

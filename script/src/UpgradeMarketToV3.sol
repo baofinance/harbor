@@ -255,7 +255,7 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
         string memory network
     ) internal returns (DeploymentTypes.State memory state) {
         state = _shouldPersistState()
-            ? DeploymentState.loadOrFresh(_stateFileRead(), saltPrefix(), network)
+            ? DeploymentState.load(_stateFileRead(), saltPrefix(), network)
             : DeploymentState.fresh(saltPrefix(), network);
         state.baoFactory = baoFactory();
         _reportRun(_WHAT, saltPrefix(), network);

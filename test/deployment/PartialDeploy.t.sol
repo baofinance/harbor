@@ -24,11 +24,6 @@ import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
 abstract contract PartialDeploySetUp is BaoTest, Deploy_ETH_Minter {
     Config_MinterMarket internal market;
 
-    /// @dev This test sends the deploy's configuring calls itself, so it holds each contract until the hand-over.
-    function deployerOwner() public view override returns (address) {
-        return address(this);
-    }
-
     /// @dev Deploys the peg's shared pegged token, then the market's leveraged token, reserve pool and minter —
     ///      the shortest prefix that yields a usable minter. Returns the deployment state so a subclass can
     ///      carry on: the struct holds dynamic arrays, which the legacy pipeline cannot copy into storage, so
