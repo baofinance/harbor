@@ -1,0 +1,4 @@
+# Holders: USD::pegged
+# address: 0x2536A8636A99466173229AB15fdb37Fcaa05BA1A
+# to-block: 26248723
+# source: Transfer recipients (Etherscan), blocks 24049000-26248723

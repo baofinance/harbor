@@ -2,7 +2,20 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(forge coverage:*)",
+      "Bash(yarn sizes:*)",
+      "WebSearch",
+      "WebFetch(domain:fxprotocol.gitbook.io)",
+      "WebFetch(domain:www.openzeppelin.com)",
+      "Read(~/.claude/plans/**)",
+      "Bash(git -C ~/.claude/plans commit -am )",
+      "Bash(yarn slither:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.liquity.org)",
+      "WebFetch(domain:www.liquity.org)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:liquity.gitbook.io)"
     ]
   }
 }

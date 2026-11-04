@@ -1,32 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-//import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
-import {TokenDistributor_v1} from "src/minter/TokenDistributor_v1.sol";
-import {ITokenDistributor} from "src/interfaces/ITokenDistributor.sol";
+import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
+import {ITokenDistributor} from "@harbor/interfaces/ITokenDistributor.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 
-import {Array} from "test/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
-contract TestTokenDistributorSetUp is Test, Array {
-    using ECDSA for bytes32;
-
+contract TestTokenDistributorSetUp is BaoTest, Array {
     address tokenDistributor;
 
     address owner;
@@ -42,7 +38,7 @@ contract TestTokenDistributorSetUp is Test, Array {
     address recipient3;
 
     function setUpFork() internal virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+        createSelectFork("mainnet");
 
         owner = makeAddr("owner");
         claimer = makeAddr("claimer");
@@ -53,7 +49,7 @@ contract TestTokenDistributorSetUp is Test, Array {
         tokenDistributor = address(
             TokenDistributor_v1(
                 UnsafeUpgrades.deployUUPSProxy(
-                    address(new TokenDistributor_v1()), //"TokenDistributor_v1.sol",
+                    address(new TokenDistributor_v1()),
                     abi.encodeCall(TokenDistributor_v1.initialize, (owner, name))
                 )
             )
@@ -74,11 +70,14 @@ contract TestTokenDistributorSetUp is Test, Array {
         token3 = Deployed.BaoETH;
 
         uint256 claimerRole = ITokenDistributor(tokenDistributor).CLAIMER_ROLE();
-        vm.prank(owner);
+        vm.startPrank(owner);
         IBaoRoles(tokenDistributor).grantRoles(claimer, claimerRole);
+        vm.stopPrank();
     }
 }
 contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
+    /// Deploying the implementation disables its initializers, and each proxy of it emits its upgrade, ownership and
+    /// initialization - two proxies of one implementation, since the state lives in each proxy.
     function test_initEvents() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
@@ -90,10 +89,7 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
-        UnsafeUpgrades.deployUUPSProxy(
-            impl, //"TokenDistributor_v1.sol",
-            abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
-        );
+        UnsafeUpgrades.deployUUPSProxy(impl, abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init")));
 
         // second proxy for the same implementation - this works because the state is in the proxy
         vm.expectEmit();
@@ -102,26 +98,35 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1);
-        UnsafeUpgrades.deployUUPSProxy(
-            impl, //"TokenDistributor_v1.sol",
-            abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
-        );
+        UnsafeUpgrades.deployUUPSProxy(impl, abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init")));
     }
 }
 
 contract TestTokenDistributor is TestTokenDistributorSetUp {
     using SafeERC20 for IERC20;
 
+    /// A proxy initializes once, advertises its interfaces, and starts with its name, its owner, the claimer's role,
+    /// and no tokens or recipients.
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         TokenDistributor_v1(tokenDistributor).initialize(address(this), "second init");
 
-        // IERC165
-        IERC165(tokenDistributor).supportsInterface(type(ITokenDistributor).interfaceId);
-        IERC165(tokenDistributor).supportsInterface(type(IBaoOwnable).interfaceId);
-        IERC165(tokenDistributor).supportsInterface(type(IBaoRoles).interfaceId);
-        IERC165(tokenDistributor).supportsInterface(type(ITokenHolder).interfaceId);
+        // IERC165: the distributor's, ownership's and roles' interfaces are advertised; the token holder's is not, as
+        // TokenHolder has no supportsInterface
+        assertTrue(
+            IERC165(tokenDistributor).supportsInterface(type(ITokenDistributor).interfaceId),
+            "advertises ITokenDistributor"
+        );
+        assertTrue(
+            IERC165(tokenDistributor).supportsInterface(type(IBaoOwnable).interfaceId),
+            "advertises IBaoOwnable"
+        );
+        assertTrue(IERC165(tokenDistributor).supportsInterface(type(IBaoRoles).interfaceId), "advertises IBaoRoles");
+        assertFalse(
+            IERC165(tokenDistributor).supportsInterface(type(ITokenHolder).interfaceId),
+            "does not advertise ITokenHolder"
+        );
 
         // name
         assertEq(ITokenDistributor(tokenDistributor).name(), name);
@@ -132,7 +137,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         // claimer role
         assertTrue(
             IBaoRoles(tokenDistributor).hasAnyRole(claimer, ITokenDistributor(tokenDistributor).CLAIMER_ROLE()),
-            "this should not be a claimer"
+            "the claimer holds the claimer role"
         );
 
         // tokens
@@ -147,6 +152,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(totalShares, 0);
     }
 
+    /// Configuring, sweeping and distributing revert for a caller who is neither the owner nor holds the claimer role.
     function test_access() public {
         // access to protected functions
         // admin role
@@ -173,6 +179,8 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         ITokenDistributor(tokenDistributor).distribute();
     }
 
+    /// The owner's configuration: the distribution's input checks; setting, replacing and clearing the distribution;
+    /// adding, updating and removing single recipients; and adding and removing tokens, with the token checks.
     function test_config() public {
         // tokens
         assertEq(ITokenDistributor(tokenDistributor).tokens().length, 0, "some tokens");
@@ -336,7 +344,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(ITokenDistributor(tokenDistributor).tokens().length, 1);
         assertEq(ITokenDistributor(tokenDistributor).tokens()[0], token1);
 
-        // adding the same token tiwce has no effect
+        // adding the same token twice has no effect
         ITokenDistributor(tokenDistributor).addToken(token1);
         assertEq(ITokenDistributor(tokenDistributor).tokens().length, 1);
         assertEq(ITokenDistributor(tokenDistributor).tokens()[0], token1);
@@ -360,27 +368,34 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         vm.stopPrank();
     }
 
+    /// Distributing pays each token's whole balance to the recipients in proportion to their shares - nothing with no
+    /// tokens, no recipients or no balance - and the owner may distribute as well as the claimer.
     function test_distribute() public {
         assertEq(IERC20(token1).balanceOf(recipient1), 0);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 0);
         // no tokens or distribution config
-        vm.prank(claimer);
+        vm.startPrank(claimer);
         ITokenDistributor(tokenDistributor).distribute();
+        vm.stopPrank();
         assertEq(IERC20(token1).balanceOf(recipient1), 0);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 0);
 
         // single token
-        vm.prank(owner);
+        vm.startPrank(owner);
         ITokenDistributor(tokenDistributor).addToken(token1);
-        vm.prank(claimer);
+        vm.stopPrank();
+        vm.startPrank(claimer);
         ITokenDistributor(tokenDistributor).distribute();
+        vm.stopPrank();
         assertEq(IERC20(token1).balanceOf(recipient1), 0);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 0);
 
-        vm.prank(owner);
+        vm.startPrank(owner);
         ITokenDistributor(tokenDistributor).setDistribution(aa(recipient1), ua(1));
-        vm.prank(claimer);
+        vm.stopPrank();
+        vm.startPrank(claimer);
         ITokenDistributor(tokenDistributor).distribute();
+        vm.stopPrank();
         assertEq(IERC20(token1).balanceOf(recipient1), 0);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 0);
 
@@ -391,8 +406,9 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(IERC20(token1).balanceOf(address(this)), 9 ether);
 
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 1 ether);
-        vm.prank(claimer);
+        vm.startPrank(claimer);
         ITokenDistributor(tokenDistributor).distribute();
+        vm.stopPrank();
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 0);
 
@@ -407,8 +423,9 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         vm.stopPrank();
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 6 ether);
         assertEq(IERC20(token2).balanceOf(address(tokenDistributor)), 12 ether);
-        vm.prank(claimer);
+        vm.startPrank(claimer);
         ITokenDistributor(tokenDistributor).distribute();
+        vm.stopPrank();
         assertEq(IERC20(token1).balanceOf(recipient1), 2 ether);
         assertEq(IERC20(token1).balanceOf(recipient2), 2 ether);
         assertEq(IERC20(token1).balanceOf(recipient3), 3 ether);
@@ -419,10 +436,13 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(IERC20(token2).balanceOf(address(tokenDistributor)), 0);
 
         // owner can distribute too
-        vm.prank(owner);
+        vm.startPrank(owner);
         ITokenDistributor(tokenDistributor).distribute();
+        vm.stopPrank();
     }
 
+    /// Only the owner sweeps, only to a non-zero recipient, only a token not in use and at most its balance -
+    /// `type(uint256).max` sweeping all of it.
     function test_sweep() public {
         deal(token1, address(tokenDistributor), 11 ether);
         deal(token2, address(tokenDistributor), 12 ether);
@@ -449,7 +469,6 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         ITokenHolder(tokenDistributor).sweep(token1, 1 ether, recipient1);
         ITokenDistributor(tokenDistributor).removeToken(token1);
 
-        //console.log("about to try 1 ether");
         ITokenHolder(tokenDistributor).sweep(token1, 1 ether, recipient1);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);
@@ -458,7 +477,6 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(IERC20(token2).balanceOf(recipient1), 0 ether);
         assertEq(IERC20(token2).balanceOf(recipient2), 0 ether);
 
-        //console.log("about to try -1");
         ITokenHolder(tokenDistributor).sweep(token2, type(uint256).max, recipient2); // 12
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);

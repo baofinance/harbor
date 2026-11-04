@@ -1,56 +1,53 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {MintableBurnableERC20_v2} from "@bao/MintableBurnableERC20_v2.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
-import {LibString} from "@solady/utils/LibString.sol";
-
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 /// @notice Harbor leveraged token deployment logic.
 /// @dev Leveraged tokens are unique per market (e.g., hsFXUSD-BTC for BTC::fxUSD market).
-abstract contract LeveragedToken is HarborFactoryDeployer {
-    using LibString for string;
-
+abstract contract LeveragedToken is HarborDeployer {
     // ========== LEVERAGED TOKEN DEPLOYMENT ==========
+
+    /// @notice Deploy MintableBurnableERC20_v2 impl only (for leveraged token), record in state.
+    function deployLeveragedTokenImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory key
+    ) internal virtual returns (address impl) {
+        impl = address(new MintableBurnableERC20_v2());
+        _reportImplementation(impl);
+
+        _recordImplementation(stateData, key, "@bao/MintableBurnableERC20_v2.sol", "MintableBurnableERC20_v2", impl);
+    }
 
     /// @notice Deploy a leveraged token and grant minter roles.
     function _deployLeveragedTokenWithRoles(
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig
     ) internal returns (address leveragedToken) {
-        string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory peg = MinterMarketConfigLib.peg(marketConfig);
-        string memory collateral = MinterMarketConfigLib.collateral(marketConfig);
+        string memory key = leveragedTokenKey(marketConfig);
+        string memory tokenName = ConfigTokenNames(address(marketConfig)).leveragedName();
+        string memory tokenSymbol = ConfigTokenNames(address(marketConfig)).leveragedSymbol();
 
-        string memory leveragedKey = string.concat(marketKey, "::leveraged");
-        string memory tokenName = string.concat("Harbor sail: variable leveraged long ", collateral, " against ", peg);
-        string memory tokenSymbol = string.concat("hs", collateral.upper(), "-", peg.upper());
+        _reportContract(key);
+        _reportToken(tokenName, tokenSymbol);
 
-        console.log("    > %s", leveragedKey);
-        console.log("        Name:   %s", tokenName);
-        console.log("        Symbol: %s", tokenSymbol);
+        address impl = deployLeveragedTokenImplementation(stateData, key);
 
-        address impl = address(new MintableBurnableERC20_v1());
-        console.log("        Impl:   %s", impl);
-
-        bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), tokenName, tokenSymbol));
-
-        leveragedToken = _deployProxyAndRecord(
-            stateData,
-            leveragedKey,
-            impl,
-            "@bao/MintableBurnableERC20_v1.sol",
-            "MintableBurnableERC20_v1",
-            initData
+        bytes memory initData = abi.encodeCall(
+            MintableBurnableERC20_v2.initialize,
+            (deployerOwner(), owner(), tokenName, tokenSymbol)
         );
 
+        leveragedToken = _deployProxyAndRecord(stateData, key, impl, initData);
+
         // Grant minter roles
-        address minter = _predictAddress(marketKey, "minter");
+        address minter = minterAddress(marketConfig);
         uint256 roles = IMintableRole(leveragedToken).MINTER_ROLE() | IBurnableRole(leveragedToken).BURNER_ROLE();
-        _grantRoles(leveragedKey, leveragedToken, minter, marketKey, roles, "MINTER | BURNER");
+        _grantRoles(key, leveragedToken, minter, MinterMarketConfigLib.salt(marketConfig), roles, "MINTER | BURNER");
     }
 }

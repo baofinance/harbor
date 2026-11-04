@@ -1,0 +1,6 @@
+# Holders: SILVER::fxUSD::stabilityPoolCollateral
+# address: 0x7619664fe05c9cbDA5B622455856D7CA11Cb8800
+# to-block: 25272609
+# source: UserDepositChange owners (Etherscan), blocks 24049000-25272609
+0x1a9152528AEFbcD9E5df4E0770f4F510e7056913
+0xF1e73F7d7656b9b00d970b58aaB3Bb19b5518060

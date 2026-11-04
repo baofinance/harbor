@@ -1,111 +1,109 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
-import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
-/// @notice Config interface for stability pool deployment parameters.
-interface IStabilityPoolMarketConfig {
-    function stabilityPoolWithdrawalDelay() external pure returns (uint256);
-    function stabilityPoolWithdrawalPeriod() external pure returns (uint256);
-    function stabilityPoolEarlyWithdrawalFeeRatio() external pure returns (uint256);
-    function minTotalSupply() external view returns (uint256);
-}
-
-/// @notice Harbor StabilityPool_v2 deployment logic.
+/// @notice Harbor StabilityPool deployment logic.
 /// @dev Each market has TWO stability pools: Collateral (wrapped collateral) and Leveraged (leveraged token).
 /// @dev Both pools grant: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE to StabilityPoolManager.
-abstract contract StabilityPool is HarborFactoryDeployer {
-    string StabilityPoolCollateral = "stabilityPoolCollateral";
-    string StabilityPoolLeveraged = "stabilityPoolLeveraged";
-
+///
+/// @dev `deployStabilityPool` deploys AND configures: it sets the pool's fee and fee receiver, registers its reward
+///      tokens and grants the manager's roles, because those are part of standing a pool up rather than a later step a
+///      caller must remember. It needs nothing else deployed: the minter, the pegged token and the manager are
+///      predicted addresses, and the pool's constructor calls none of them.
+abstract contract StabilityPool is HarborDeployer {
     // ========== STABILITY POOL DEPLOYMENT ==========
 
     /// @notice Deploy StabilityPool impl only, record in state.
+    /// @dev Uniform with every other implementation function: `(stateData, key, …)` first, then what this
+    ///      constructor needs. Reading non-address values off the config is fine here — the invariant this
+    ///      layer keeps is that no ADDRESS resolution happens in it, so a test override never has to
+    ///      reproduce address prediction. The addresses arrive already resolved, and are taken by name.
     function deployStabilityPoolImplementation(
-        string memory spType,
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        address minter,
-        address liquidationToken,
-        address configContract
+        string memory key,
+        StabilityPoolType poolType,
+        Config_MinterMarket marketConfig,
+        MarketAddresses memory addresses
     ) internal virtual returns (address impl) {
-        string memory spKey = string.concat(marketKey, "::", spType);
-        console.log("    > %s", spKey);
+        ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
+        bool isCollateral = poolType == StabilityPoolType.Collateral;
+        string memory tokenName = isCollateral
+            ? names.stabilityPoolCollateralName()
+            : names.stabilityPoolLeveragedName();
+        string memory tokenSymbol = isCollateral
+            ? names.stabilityPoolCollateralSymbol()
+            : names.stabilityPoolLeveragedSymbol();
 
-        IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(configContract);
+        IHarborConfig cfg = IHarborConfig(address(marketConfig));
+
         impl = address(
-            new StabilityPool_v2(
-                minter,
-                liquidationToken,
+            new StabilityPool_v3(
+                addresses.minter,
+                addresses.pegged,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.minTotalSupply()
+                cfg.aboutADollarInPegged(),
+                tokenName,
+                tokenSymbol
             )
         );
-        console.log("        Impl:  %s", impl);
+        _reportImplementation(impl);
+        _reportToken(tokenName, tokenSymbol);
 
-        DeploymentState.recordImplementation(
-            stateData,
-            DeploymentTypes.ImplementationRecord({
-                proxy: spKey,
-                contractSource: "@harbor/minter/StabilityPool_v2.sol",
-                contractType: "StabilityPool_v2",
-                implementation: impl,
-                deploymentTime: uint64(block.timestamp)
-            })
-        );
+        _recordImplementation(stateData, key, "@harbor/minter/StabilityPool_v3.sol", "StabilityPool_v3", impl);
     }
 
-    /// @notice Deploy StabilityPool impl+proxy, record in state.
+    /// @notice Deploy one of a market's two stability pools: impl+proxy, its reward tokens, its roles.
+    /// @param poolType Which of the market's two stability pools.
     function deployStabilityPool(
-        string memory spType,
+        StabilityPoolType poolType,
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        address minter,
-        address liquidationToken,
-        address configContract
+        Config_MinterMarket marketConfig
     ) internal returns (address proxy) {
-        string memory spKey = string.concat(marketKey, "::", spType);
-        console.log("    > %s", spKey);
+        string memory spKey = stabilityPoolKey(marketConfig, poolType);
+        _reportContract(spKey);
 
-        address impl = deployStabilityPoolImplementation(
-            spType,
-            stateData,
-            marketKey,
-            minter,
-            liquidationToken,
-            configContract
-        );
+        IHarborConfig cfg = IHarborConfig(address(marketConfig));
+        MarketAddresses memory addresses = marketAddresses(marketConfig);
 
-        IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(configContract);
-        bytes memory initData = abi.encodeCall(
-            StabilityPool_v2.initialize,
-            (owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
-        );
+        address impl = deployStabilityPoolImplementation(stateData, spKey, poolType, marketConfig, addresses);
+
+        bytes memory initData = abi.encodeCall(StabilityPool_v3.initialize, (deployerOwner(), owner()));
 
         proxy = _deployProxyAndRecord(stateData, spKey, impl, initData);
-    }
 
-    /// @notice Grant StabilityPool roles to StabilityPoolManager.
-    function grantStabilityPoolRoles(
-        string memory stabilityPoolKey,
-        address stabilityPoolProxy,
-        address stabilityPoolManager
-    ) internal {
-        StabilityPool_v2 pool = StabilityPool_v2(stabilityPoolProxy);
-        uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
+        // The receiver first: with a fee set and no receiver, every withdrawal that pays the fee reverts.
+        IStabilityPool_v3(proxy).updateFeeReceiver(treasury());
+        IStabilityPool_v3(proxy).updateEarlyWithdrawalFeeRatio(cfg.stabilityPoolEarlyWithdrawalFeeRatio());
+
+        // A pool's type lives in the reward tokens it distributes, which are the tokens a rebalance may pay it
+        // in. Both pools earn harvest rewards in wrapped collateral, and either may be paid collateral by a
+        // rebalance where the market sells no leverage; the leveraged pool is additionally paid the leveraged
+        // token where it does.
+        IMultipleRewardDistributor(proxy).registerRewardToken(addresses.wrappedCollateral);
+        if (poolType == StabilityPoolType.Leveraged) {
+            IMultipleRewardDistributor(proxy).registerRewardToken(addresses.leveraged);
+        }
+
+        // The manager rebalances into the pool and deposits its rewards. It is not deployed yet — this is
+        // its predicted address — but the ROLES are read off this pool, which is why the grant lives here:
+        // the pool exists by this line, and nothing above it needs to.
         _grantRoles(
-            stabilityPoolKey,
-            stabilityPoolProxy,
-            stabilityPoolManager,
+            spKey,
+            proxy,
+            addresses.manager,
             "stabilityPoolManager",
-            roles,
+            IStabilityPool_v3(proxy).REBALANCER_ROLE() | IMultipleRewardDistributor(proxy).REWARD_DEPOSITOR_ROLE(),
             "REBALANCER | REWARD_DEPOSITOR"
         );
     }

@@ -9,7 +9,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
-import {IReservePool} from "src/interfaces/IReservePool.sol";
+import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
 /// @title Reserve Pool
 /// @author rootminus0x1
@@ -41,7 +41,6 @@ contract ReservePool_v1 is
 
     function initialize(address owner_) public initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
         // TODO: __ERC165_init();
     }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ConfigBase} from "../ConfigBase.sol";
+import {ConfigBase} from "@harbor-script/config/ConfigBase.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Base contract for peg configurations.
@@ -18,11 +18,14 @@ abstract contract ConfigPeg is ConfigBase {
     /// @dev Must be implemented by concrete peg configs.
     function peg() public view virtual returns (string memory);
 
-    /// @notice Minimum single deposit amount.
-    function minDeposit() public view virtual returns (uint256);
-
-    /// @notice Minimum total supply required in system.
-    function minTotalSupply() public view virtual returns (uint256);
+    /// @notice About a dollar's worth of the pegged token - the number of pegged tokens that make about a dollar,
+    ///         stated when the config is written: the smallest amount given up for good. It is each stability pool's
+    ///         supply floor (`MIN_TOTAL_ASSET_SUPPLY`), and the dead-share seed of each downstream vault, which passes
+    ///         into a stability pool and so must clear that floor.
+    /// @dev The floor is fixed in the pool's bytecode and also sets its ceiling, `MIN_TOTAL_ASSET_SUPPLY * 1e18`: the most
+    ///      whole tokens a pool can hold is this value in wei. So it must be at least the number of whole tokens a pool
+    ///      will ever hold, and otherwise small, since nobody gets it back. See doc/stability-pool-min-total-asset-supply.md.
+    function aboutADollarInPegged() public view virtual returns (uint256);
 
     /// @notice Burn signature for pegged token.
     function peggedBurnSignature() public pure virtual returns (string memory) {

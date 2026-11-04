@@ -4,16 +4,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ $# -eq 0 ]]; then
-  echo "Usage: cast [--network <network>] <command with salt strings>"
+  echo "Usage: cast [--rpc-url <url or foundry.toml alias>] <command with salt strings>"
   echo "Example: cast call harbor_v1::BTC::pegged 'owner()(address)'"
-  echo "         cast --network mainnet call harbor_v1::BTC::pegged 'owner()(address)'"
+  echo "         cast --rpc-url mainnet call harbor_v1::BTC::pegged 'owner()(address)'"
   exit 1
 fi
 
-# Parse network option
-network="mainnet"
-if [[ "$1" == "--network" ]]; then
-  network="$2"
+# Parse RPC URL option
+rpc_url="mainnet"
+if [[ "$1" == "--rpc-url" ]]; then
+  rpc_url="$2"
   shift 2
 fi
 
@@ -122,7 +122,7 @@ reverse_lookup() {
 lookup_ens() {
   local addr="$1"
   local ens
-  ens=$(cast lookup-address "$addr" --rpc-url "$network" 2>/dev/null || echo "")
+  ens=$(cast lookup-address "$addr" --rpc-url "$rpc_url" 2>/dev/null || echo "")
   if [[ -n "$ens" && "$ens" != "null" ]]; then
     echo "$ens"
     return 0
@@ -142,7 +142,7 @@ for arg in "$@"; do
   # Check if arg looks like a salt string (contains ::)
   elif [[ "$arg" =~ ^[a-zA-Z0-9_]+::[a-zA-Z0-9_:]+ ]]; then
     # Replace salt with predicted address
-    address=$("$SCRIPT_DIR/predict" --network "$network" --porcelain "$arg")
+    address=$("$SCRIPT_DIR/predict" --rpc-url "$rpc_url" --porcelain "$arg")
     args+=("$address")
     display_args+=("$address ($arg)")
   # Check if arg looks like an address
@@ -165,8 +165,8 @@ for arg in "$@"; do
 done
 
 # Print and execute, then annotate output
-echo "→ cast ${display_args[*]} --rpc-url $network"
-output=$(cast "${args[@]}" --rpc-url "$network")
+echo "→ cast ${display_args[*]} --rpc-url $rpc_url"
+output=$(cast "${args[@]}" --rpc-url "$rpc_url")
 
 # Annotate any known addresses in the output
 annotate_output() {

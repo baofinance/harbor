@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
 
-import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
-import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
-import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
+import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
+import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-/// @notice Harbor Minter_v2 deployment logic (including ReservePool and FeeReceiver).
+/// @notice Harbor Minter_v3 deployment logic (including ReservePool and FeeReceiver).
 /// @dev File Organization Pattern (see deployment2-design.md Section 3.3.2):
 /// @dev - This file: contract-specific deployment for Minter, ReservePool, MinterFeeReceiver
 /// @dev - Uses DeploymentOwnership pattern: register deployed contracts, transfer at end
@@ -22,159 +20,104 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// @dev - Minter needs: wrappedCollateral, peggedToken, leveragedToken, priceOracle, reservePool, feeReceiver
 /// @dev - Minter grants: HARVESTER_ROLE to StabilityPoolManager, ZERO_FEE_ROLE to Genesis
 /// @dev - ReservePool grants: REQUESTER_ROLE to Minter
-abstract contract Minter is HarborFactoryDeployer {
+///
+/// @dev Each deploy function here deploys AND configures its contract — the roles it grants and the
+///      values it sets are part of standing that contract up, not a later step a caller must remember.
+///      Every grantee is a PREDICTED CREATE3 address, and granting to an address with no code is valid,
+///      so neither function needs anything above it to exist yet.
+abstract contract Minter is HarborDeployer {
     // ========== MINTER DEPLOYMENT ==========
 
+    /// @dev Receives the resolved key and the market's resolved addresses only — never a config object — so a test
+    ///      override can substitute an implementation without reproducing any address resolution. It takes the
+    ///      tokens from `addresses` by name, as every implementation of the market does.
     function deployMinterImplementation(
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        address wrappedCollateral,
-        address peggedToken,
-        address leveragedToken
-    ) internal virtual returns (address impl, string memory minterKey) {
-        minterKey = string.concat(marketKey, "::minter");
-        console.log("    > %s", minterKey);
+        string memory key,
+        MarketAddresses memory addresses
+    ) internal virtual returns (address impl) {
+        _reportContract(key);
 
-        impl = address(new Minter_v2(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
-        console.log("        Impl:  %s", impl);
+        impl = address(new Minter_v3(addresses.wrappedCollateral, addresses.pegged, addresses.leveraged));
+        _reportImplementation(impl);
 
-        DeploymentState.recordImplementation(
-            stateData,
-            DeploymentTypes.ImplementationRecord({
-                proxy: minterKey,
-                contractSource: "@harbor/minter/Minter_v2.sol",
-                contractType: "Minter_v2",
-                implementation: impl,
-                deploymentTime: uint64(block.timestamp)
-            })
-        );
+        _recordImplementation(stateData, key, "@harbor/minter/Minter_v3.sol", "Minter_v3", impl);
     }
 
-    /// @notice Deploy Minter impl+proxy, record both in state, register for ownership transfer.
+    /// @notice Deploy a fully wired Minter: impl+proxy, recorded in state and registered for ownership
+    ///         transfer, with every dependency and its incentive config already set.
+    /// @dev Takes the market config, not the Minter's constructor arguments. This function is the ONLY
+    ///      place that decides how each value reaches the contract — constructor argument, `initialize`
+    ///      calldata, or post-deploy setter. Moving a value between those three changes this body and
+    ///      nothing else; callers pass the same config either way.
     function deployMinter(
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        address wrappedCollateral,
-        address peggedToken,
-        address leveragedToken
-    ) internal virtual returns (address proxy) {
-        (address impl, string memory minterKey) = deployMinterImplementation(
-            stateData,
-            marketKey,
-            wrappedCollateral,
-            peggedToken,
-            leveragedToken
-        );
+        Config_MinterMarket marketConfig
+    ) internal returns (address proxy) {
+        IHarborConfig cfg = IHarborConfig(address(marketConfig));
+        string memory key = minterKey(marketConfig);
+        MarketAddresses memory addresses = marketAddresses(marketConfig);
 
-        bytes memory initData = abi.encodeCall(Minter_v2.initialize, (owner()));
+        address impl = deployMinterImplementation(stateData, key, addresses);
 
-        proxy = _deployProxyAndRecord(stateData, minterKey, impl, initData);
-    }
+        bytes memory initData = abi.encodeCall(Minter_v3.initialize, (deployerOwner(), owner()));
 
-    /// @notice Configure a deployed Minter with its operational parameters.
-    function configureMinter(
-        address minterProxy,
-        IMinter.Config memory config,
-        address feeReceiver,
-        address priceOracle,
-        address reservePool
-    ) internal {
-        Minter_v2 minter = Minter_v2(minterProxy);
-        minter.updateConfig(config);
-        minter.updateFeeReceiver(feeReceiver);
-        minter.updatePriceOracle(priceOracle);
-        minter.updateReservePool(reservePool);
-    }
+        proxy = _deployProxyAndRecord(stateData, key, impl, initData);
 
-    /// @notice Grant Minter roles to downstream contracts.
-    function grantMinterRoles(
-        string memory minterKey,
-        address minterProxy,
-        address stabilityPoolManager,
-        address genesis
-    ) internal {
-        Minter_v2 minter = Minter_v2(minterProxy);
+        IMinter(proxy).updateConfig(cfg.minterConfig());
+        IMinter(proxy).updateReservePool(reservePoolAddress(marketConfig));
+        IMinter(proxy).updateFeeReceiver(treasury());
+        IMinter(proxy).updatePriceOracle(addresses.oracle);
+
+        // The manager harvests and mints fee-free; genesis only mints fee-free. Neither is deployed at
+        // this point — both are predicted addresses, which is what lets a minter deploy on its own.
         _grantRoles(
-            minterKey,
-            minterProxy,
-            stabilityPoolManager,
+            key,
+            proxy,
+            stabilityPoolManagerAddress(marketConfig),
             "stabilityPoolManager",
-            minter.HARVESTER_ROLE() | minter.ZERO_FEE_ROLE(),
+            IMinter(proxy).HARVESTER_ROLE() | IMinter(proxy).ZERO_FEE_ROLE(),
             "HARVESTER | ZERO_FEE"
         );
-        _grantRoles(minterKey, minterProxy, genesis, "genesis", minter.ZERO_FEE_ROLE(), "ZERO_FEE");
+        _grantRoles(key, proxy, genesisAddress(marketConfig), "genesis", IMinter(proxy).ZERO_FEE_ROLE(), "ZERO_FEE");
     }
 
     // ========== RESERVE POOL DEPLOYMENT ==========
 
+    /// @notice Deploy ReservePool_v2 impl only, record in state.
+    function deployReservePoolImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory key
+    ) internal virtual returns (address impl) {
+        impl = address(new ReservePool_v2());
+        _reportImplementation(impl);
+
+        _recordImplementation(stateData, key, "@harbor/minter/ReservePool_v2.sol", "ReservePool_v2", impl);
+    }
+
     /// @notice Deploy ReservePool impl+proxy, record both in state, register for ownership transfer.
     function deployReservePool(
         DeploymentTypes.State memory stateData,
-        string memory marketKey
+        Config_MinterMarket marketConfig
     ) internal returns (address proxy) {
-        string memory reservePoolKey = string.concat(marketKey, "::reservePool");
-        console.log("    > %s", reservePoolKey);
+        string memory key = reservePoolKey(marketConfig);
+        _reportContract(key);
 
-        address impl = address(new ReservePool_v1());
-        console.log("        Impl:  %s", impl);
+        address impl = deployReservePoolImplementation(stateData, key);
 
-        bytes memory initData = abi.encodeCall(ReservePool_v1.initialize, (owner()));
+        bytes memory initData = abi.encodeCall(ReservePool_v2.initialize, (deployerOwner(), owner()));
 
-        proxy = _deployProxyAndRecord(
-            stateData,
-            reservePoolKey,
-            impl,
-            "@harbor/minter/ReservePool_v1.sol",
-            "ReservePool_v1",
-            initData
+        proxy = _deployProxyAndRecord(stateData, key, impl, initData);
+
+        // REQUESTER lets the minter draw on the pool. The minter need not exist yet — this is its
+        // predicted address, so a reserve pool can be deployed before, or without, the minter it serves.
+        _grantRoles(
+            key,
+            proxy,
+            minterAddress(marketConfig),
+            "minter",
+            ReservePool_v2(proxy).REQUESTER_ROLE(),
+            "REQUESTER"
         );
-    }
-
-    /// @notice Grant ReservePool REQUESTER_ROLE to Minter.
-    function grantReservePoolRoles(string memory reservePoolKey, address reservePoolProxy, address minter) internal {
-        ReservePool_v1 reservePool = ReservePool_v1(reservePoolProxy);
-        _grantRoles(reservePoolKey, reservePoolProxy, minter, "minter", reservePool.REQUESTER_ROLE(), "REQUESTER");
-    }
-
-    // ========== FEE RECEIVER (TOKEN DISTRIBUTOR) DEPLOYMENT ==========
-
-    /// @notice Deploy TokenDistributor_v1 as Minter fee receiver.
-    function deployMinterFeeReceiver(
-        DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        string memory name
-    ) internal returns (address proxy) {
-        string memory feeReceiverKey = string.concat(marketKey, "::minterFeeReceiver");
-        console.log("    > %s", feeReceiverKey);
-
-        address impl = address(new TokenDistributor_v1());
-        console.log("        Impl:  %s", impl);
-
-        bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
-
-        proxy = _deployProxyAndRecord(
-            stateData,
-            feeReceiverKey,
-            impl,
-            "@harbor/minter/TokenDistributor_v1.sol",
-            "TokenDistributor_v1",
-            initData
-        );
-    }
-
-    /// @notice Configure TokenDistributor with tokens and distribution.
-    function configureFeeReceiver(
-        address feeReceiverProxy,
-        address[] memory tokens,
-        address[] memory recipients,
-        uint256[] memory shares
-    ) internal {
-        TokenDistributor_v1 distributor = TokenDistributor_v1(feeReceiverProxy);
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            distributor.addToken(tokens[i]);
-        }
-
-        distributor.setDistribution(recipients, shares);
     }
 }

@@ -2,25 +2,25 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMockMultipleRewardCompoundingAccumulator} from "test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
+import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
+import {IMockMultipleRewardCompoundingAccumulator} from "@harbor-test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockMultipleRewardCompoundingAccumulator_v2} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v2.sol";
+import {MockMultipleRewardCompoundingAccumulator_v3} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
-contract MultipleRewardCompoundingAccumulatorTest is Test {
+contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     // Addresses
     address deployer;
     address manager;
     address receiver;
 
-    // Test parameters to loop through
-    // TODO: make these fuzz possibilities (for all tests!)
-    // TODO: test for no reward tokens
-    // TODO: test for zero reward period
+    // Test parameters to loop through: no reward tokens, one, and several
     uint256[] rewardCounts;
 
     // Error message constants
@@ -33,9 +33,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         receiver = makeAddr("receiver");
 
         // Setup test parameters
-        rewardCounts = new uint256[](2);
-        rewardCounts[0] = 1;
-        rewardCounts[1] = 3;
+        rewardCounts = new uint256[](3);
+        rewardCounts[0] = 0;
+        rewardCounts[1] = 1;
+        rewardCounts[2] = 3;
     }
 
     function createMultipleRewardCompoundingAccumulator(
@@ -43,7 +44,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     ) internal virtual returns (IMockMultipleRewardCompoundingAccumulator) {
         return
             IMockMultipleRewardCompoundingAccumulator(
-                address(new MockMultipleRewardCompoundingAccumulator_v2(periodLength))
+                address(new MockMultipleRewardCompoundingAccumulator_v3(periodLength))
             );
     }
 
@@ -53,7 +54,9 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     ) internal returns (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) {
         // Deploy accumulator
         accumulator = createMultipleRewardCompoundingAccumulator(periodLength);
-        accumulator.initialize(address(this));
+        // The test is the owner throughout: the deployer owner hands over to the pending owner an hour after
+        // initialization, and the tests run for weeks.
+        accumulator.initialize(address(this), address(this));
 
         // Grant manager role
         accumulator.grantRoles(manager, accumulator.REWARD_MANAGER_ROLE());
@@ -61,21 +64,24 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         tokenAddresses = new address[](rewardCount);
         // Deploy tokens
         for (uint256 i = 0; i < rewardCount; i++) {
-            string memory i_str = vm.toString(i);
-            string memory token_name = string.concat("Name_", i_str);
-            string memory token_symbol = string.concat("Symbol_", i_str);
-            tokenAddresses[i] = address(new MockERC20(token_name, token_symbol, 18));
+            string memory index = vm.toString(i);
+            string memory tokenName = string.concat("Name_", index);
+            string memory tokenSymbol = string.concat("Symbol_", index);
+            tokenAddresses[i] = address(new MockERC20(tokenName, tokenSymbol, 18));
 
             MockERC20(tokenAddresses[i]).mint(deployer, 1000000 * 1 ether);
             // Approve tokens
-            MockERC20(tokenAddresses[i]).approve(address(accumulator), type(uint256).max);
+            IERC20(tokenAddresses[i]).approve(address(accumulator), type(uint256).max);
 
             // Register reward token
-            vm.prank(manager);
+            vm.startPrank(manager);
             accumulator.registerRewardToken(tokenAddresses[i]);
+            vm.stopPrank();
         }
     }
 
+    /// A set-up accumulator holds its period, its registered tokens in order, no historical tokens and its owner - with
+    /// no reward tokens, one and several.
     function testInitialization() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -99,11 +105,12 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             // Check historical rewards is empty
             assertEq(accumulator.historicalRewardTokens().length, 0);
 
-            // Check deployer has default admin role
+            // Check the deployer owns it
             assertEq(accumulator.owner(), deployer);
         }
     }
 
+    /// checkpoint cannot be re-entered.
     function testReentrantCheckpoint() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -116,6 +123,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         }
     }
 
+    /// claim() cannot be re-entered.
     function testReentrantClaim() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -126,39 +134,38 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             // Test claim()
             vm.expectRevert(REENTRANT_ERROR);
             accumulator.reentrantCall(abi.encodeWithSelector(bytes4(keccak256("claim()")), ""));
-
-            // Test claim(address)
-            vm.expectRevert(REENTRANT_ERROR);
-            accumulator.reentrantCall(abi.encodeWithSelector(bytes4(keccak256("claim(address)")), address(0)));
-
-            // Test claim(address,address)
-            vm.expectRevert(REENTRANT_ERROR);
-            accumulator.reentrantCall(
-                abi.encodeWithSelector(bytes4(keccak256("claim(address,address)")), address(0), address(0))
-            );
         }
     }
 
-    function testReentrantClaimHistorical() public {
+    /// claim(address[]) cannot be re-entered.
+    function testReentrantClaimVector() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
-            uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
-
-            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(rewardCount, periodLength);
+            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(
+                rewardCounts[i],
+                periodLength
+            );
 
             address[] memory emptyArray = new address[](0);
-
-            // Test claimHistorical(address[])
             vm.expectRevert(REENTRANT_ERROR);
-            accumulator.reentrantCall(abi.encodeWithSignature("claimHistorical(address[])", emptyArray));
-
-            // Test claimHistorical(address,address[])
-            vm.expectRevert(REENTRANT_ERROR);
-            accumulator.reentrantCall(
-                abi.encodeWithSignature("claimHistorical(address,address[])", address(0), emptyArray)
-            );
+            accumulator.reentrantCall(abi.encodeWithSignature("claim(address[])", emptyArray));
         }
     }
+
+    /// claim(address,uint256) cannot be re-entered.
+    function testReentrantClaimSingle() public {
+        for (uint256 i = 0; i < rewardCounts.length; i++) {
+            uint40 periodLength = 1 weeks;
+            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(
+                rewardCounts[i],
+                periodLength
+            );
+
+            vm.expectRevert(REENTRANT_ERROR);
+            accumulator.reentrantCall(abi.encodeWithSignature("claim(address,uint256)", address(0), type(uint256).max));
+        }
+    }
+
     struct TestParams {
         uint256 rewardCount;
         uint40 periodLength;
@@ -167,70 +174,60 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         uint256 userPoolShare;
     }
 
+    /// A global checkpoint accrues each token's stream into its integral; a user checkpoint records the integral, its
+    /// time and the user's share of what accrued; a second period's deposits add to both - with no reward tokens, one
+    /// and several. All exact: a stream pays `rate * period`, its rate the deposit over the period rounded down and the
+    /// remainder queued for the next deposit; each payout adds `paid * 1e18 * magnitude / totalShare` to the integral;
+    /// and a user's pending grows by `shares * integral gained / (magnitude * 1e18)` - each rounded down.
     function testCheckpoint() public {
-        // TODO: fuzz this
-
         for (uint256 i = 0; i < rewardCounts.length; i++) {
-            TestParams memory t;
-            t.rewardCount = rewardCounts[i];
-            t.periodLength = 1 weeks;
-            t.baseRewardAmount = 2233 ether;
-            t.totalPoolShare = 1234 ether;
-            t.userPoolShare = 456 ether;
-
-            uint256[3] memory timestamp;
-            uint256 globalSnapshot;
+            TestParams memory params;
+            params.rewardCount = rewardCounts[i];
+            params.periodLength = 1 weeks;
+            params.baseRewardAmount = 2233 ether;
+            params.totalPoolShare = 1234 ether;
+            params.userPoolShare = 456 ether;
+            // the pool's and the user's product: exponent 0, magnitude 1e18
+            uint128 product = 1 ether;
 
             (
                 IMockMultipleRewardCompoundingAccumulator accumulator,
                 address[] memory tokenAddresses
-            ) = _setupAccumulator(t.rewardCount, t.periodLength);
+            ) = _setupAccumulator(params.rewardCount, params.periodLength);
+            uint256[] memory expectedIntegral = new uint256[](params.rewardCount);
+            uint256[] memory expectedPending = new uint256[](params.rewardCount);
 
             // Set pool shares
-            accumulator.setTotalPoolShare(t.totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(t.userPoolShare, 1 ether);
+            accumulator.setTotalPoolShare(params.totalPoolShare, product);
+            accumulator.setUserPoolShare(params.userPoolShare, product);
 
             // Deposit rewards
-            for (uint256 j = 0; j < t.rewardCount; j++) {
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
+            for (uint256 j = 0; j < params.rewardCount; j++) {
+                accumulator.depositReward(tokenAddresses[j], params.baseRewardAmount * (j + 1));
             }
 
-            // Test global checkpoint
-            // TODO: get rid of timestamp array and replace with block.timestamp
-            timestamp[0] = block.timestamp;
-            vm.warp(timestamp[0] + t.periodLength);
-            assertEq(block.timestamp, timestamp[0] + t.periodLength, "warp failed");
-
+            // Test global checkpoint: each stream has paid its whole first period
+            vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(address(0));
 
-            for (uint256 j = 0; j < t.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / t.periodLength;
-
-                assertApproxEqRel(
-                    globalSnapshot,
-                    (rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare,
-                    0.0001e18, // Allow 0.01% error
+            for (uint256 j = 0; j < params.rewardCount; j++) {
+                uint256 rate = (params.baseRewardAmount * (j + 1)) / params.periodLength;
+                expectedIntegral[j] = Math.mulDiv(rate * params.periodLength * 1e18, product, params.totalPoolShare);
+                assertEq(
+                    accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0),
+                    expectedIntegral[j],
                     string.concat("Global integral mismatch for token ", vm.toString(j))
                 );
             }
 
-            // Test user checkpoint
-            timestamp[1] = block.timestamp;
-            vm.warp(timestamp[1] + t.periodLength);
+            // Test user checkpoint: the period is over, so the integral holds and the user takes their share of it
+            vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(deployer);
 
-            for (uint256 j = 0; j < t.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / t.periodLength;
-
-                assertApproxEqRel(
-                    globalSnapshot,
-                    (rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare,
-                    0.0001e18, // Allow 0.01% error
+            for (uint256 j = 0; j < params.rewardCount; j++) {
+                assertEq(
+                    accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0),
+                    expectedIntegral[j],
                     string.concat("User integral mismatch for token ", vm.toString(j))
                 );
 
@@ -238,36 +235,40 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 (uint256 userTimestamp, uint256 userIntegral, uint256 userPending, uint256 userClaimed) = accumulator
                     .userRewardSnapshot(deployer, tokenAddresses[j]);
 
-                assertEq(userTimestamp, timestamp[1] + t.periodLength);
-                assertEq(userIntegral, globalSnapshot);
-                assertApproxEqRel(
+                expectedPending[j] = Math.mulDiv(params.userPoolShare, expectedIntegral[j], uint256(product) * 1e18);
+                assertEq(userTimestamp, block.timestamp);
+                assertEq(userIntegral, expectedIntegral[j]);
+                assertEq(
                     userPending,
-                    (depositAmount * t.userPoolShare) / t.totalPoolShare,
-                    0.0001e18, // Allow 0.01% error
+                    expectedPending[j],
                     string.concat("User pending mismatch for token ", vm.toString(j))
                 );
                 assertEq(userClaimed, 0);
             }
 
-            // Deposit again and checkpoint
-            for (uint256 j = 0; j < t.rewardCount; j++) {
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
+            // Deposit again and checkpoint: each second stream takes its deposit and the first's queued remainder
+            for (uint256 j = 0; j < params.rewardCount; j++) {
+                accumulator.depositReward(tokenAddresses[j], params.baseRewardAmount * (j + 1));
             }
 
-            timestamp[2] = block.timestamp;
-            vm.warp(timestamp[2] + t.periodLength);
+            vm.warp(block.timestamp + params.periodLength);
             accumulator.checkpoint(deployer);
 
-            for (uint256 j = 0; j < t.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
-                uint256 depositAmount = t.baseRewardAmount * (j + 1);
-                uint256 rate = depositAmount / t.periodLength;
-
-                assertApproxEqRel(
-                    globalSnapshot,
-                    ((rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare) * 2,
-                    0.001e18, // Allow 0.1% error for accumulated calculations
+            for (uint256 j = 0; j < params.rewardCount; j++) {
+                {
+                    uint256 deposit = params.baseRewardAmount * (j + 1);
+                    uint256 secondRate = (deposit + (deposit % params.periodLength)) / params.periodLength;
+                    uint256 secondGain = Math.mulDiv(
+                        secondRate * params.periodLength * 1e18,
+                        product,
+                        params.totalPoolShare
+                    );
+                    expectedIntegral[j] += secondGain;
+                    expectedPending[j] += Math.mulDiv(params.userPoolShare, secondGain, uint256(product) * 1e18);
+                }
+                assertEq(
+                    accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0),
+                    expectedIntegral[j],
                     string.concat("Global integral mismatch #2 for token ", vm.toString(j))
                 );
 
@@ -275,16 +276,15 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 (uint256 userTimestamp, uint256 userIntegral, uint256 userPending, uint256 userClaimed) = accumulator
                     .userRewardSnapshot(deployer, tokenAddresses[j]);
 
-                assertEq(userTimestamp, timestamp[2] + t.periodLength);
+                assertEq(userTimestamp, block.timestamp);
                 assertEq(
                     userIntegral,
-                    globalSnapshot,
+                    expectedIntegral[j],
                     string.concat("User integral mismatch #2 for token ", vm.toString(j))
                 );
-                assertApproxEqRel(
+                assertEq(
                     userPending,
-                    ((depositAmount * t.userPoolShare) / t.totalPoolShare) * 2,
-                    0.001e18, // Allow 0.1% error for accumulated calculations
+                    expectedPending[j],
                     string.concat("Global user pending mismatch #2 for token ", vm.toString(j))
                 );
                 assertEq(userClaimed, 0);
@@ -292,644 +292,6 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         }
     }
 
-    function testSetRewardReceiver() public {
-        for (uint256 i = 0; i < rewardCounts.length; i++) {
-            uint256 rewardCount = rewardCounts[i];
-            uint40 periodLength = 1 weeks;
-
-            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(rewardCount, periodLength);
-
-            // Initial value should be zero address
-            assertEq(accumulator.rewardReceiver(deployer), address(0));
-
-            // Set receiver
-            vm.expectEmit(true, true, true, true);
-            emit IMultipleRewardAccumulator.UpdateRewardReceiver(deployer, address(0), receiver);
-            accumulator.setRewardReceiver(receiver);
-
-            // Check updated value
-            assertEq(accumulator.rewardReceiver(deployer), receiver);
-
-            // Reset to zero address
-            vm.expectEmit(true, true, true, true);
-            emit IMultipleRewardAccumulator.UpdateRewardReceiver(deployer, receiver, address(0));
-            accumulator.setRewardReceiver(address(0));
-
-            // Check value is reset
-            assertEq(accumulator.rewardReceiver(deployer), address(0));
-        }
-    }
-
-    function testClaimWithoutRewardReceiver() public {
-        for (uint256 i = 0; i < rewardCounts.length; i++) {
-            uint256 rewardCount = rewardCounts[i];
-            uint40 periodLength = 1 weeks;
-            uint256 baseRewardAmount = 2233 * 1 ether;
-            uint256 totalPoolShare = 1234 * 1 ether;
-            uint256 userPoolShare = 456 * 1 ether;
-
-            (
-                IMockMultipleRewardCompoundingAccumulator accumulator,
-                address[] memory tokenAddresses
-            ) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            // Advance time if period length > 0
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(deployer);
-
-            // Test reverting when claiming other to other
-            vm.expectRevert(abi.encodeWithSelector(IMultipleRewardAccumulator.ClaimOthersRewardToAnother.selector));
-            accumulator.claim(manager, deployer);
-
-            // Test claim caller
-            uint256[] memory claimable = new uint256[](rewardCount);
-            uint256[] memory balanceBefore = new uint256[](rewardCount);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
-
-                // Verify pending rewards
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Execute claim and check events
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], deployer, claimable[j]);
-            }
-            accumulator.claim();
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(deployer), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-
-            // Claiming again should not emit events
-            vm.recordLogs();
-            accumulator.claim();
-            Vm.Log[] memory logs = vm.getRecordedLogs();
-            assertEq(logs.length, 0);
-
-            // Test claim other
-            // Reset the state for a new test
-            (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state again
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(deployer);
-
-            // Store claimable amounts and balances
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Claim as manager for deployer
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], deployer, claimable[j]);
-            }
-            vm.prank(manager);
-            accumulator.claim(deployer);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(deployer), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-
-            // Test claim to other
-            // Reset the state for a new test
-            (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state again
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(deployer);
-
-            // Store claimable amounts and balances for manager
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(manager);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Claim to manager
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], manager, claimable[j]);
-            }
-            accumulator.claim(deployer, manager);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(manager), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-        }
-    }
-
-    function testClaimWithRewardReceiver() public {
-        for (uint256 i = 0; i < rewardCounts.length; i++) {
-            uint256 rewardCount = rewardCounts[i];
-            uint40 periodLength = 1 weeks;
-            uint256 baseRewardAmount = 2233 * 1 ether;
-            uint256 totalPoolShare = 1234 * 1 ether;
-            uint256 userPoolShare = 456 * 1 ether;
-
-            (
-                IMockMultipleRewardCompoundingAccumulator accumulator,
-                address[] memory tokenAddresses
-            ) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(deployer);
-
-            // Set reward receiver
-            accumulator.setRewardReceiver(receiver);
-
-            // Test reverting when claiming other to other
-            vm.expectRevert(abi.encodeWithSelector(IMultipleRewardAccumulator.ClaimOthersRewardToAnother.selector));
-            accumulator.claim(manager, deployer);
-
-            // Test claim caller - should go to reward receiver
-            uint256[] memory claimable = new uint256[](rewardCount);
-            uint256[] memory balanceBefore = new uint256[](rewardCount);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(receiver);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Execute claim and check events
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], receiver, claimable[j]);
-            }
-            accumulator.claim();
-
-            // Verify post-claim state - tokens should go to receiver
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(receiver), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-
-            // Test claim other - should go to reward receiver
-            // Reset the state for a new test
-            (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state again
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(deployer);
-            accumulator.setRewardReceiver(receiver);
-
-            // Store claimable amounts and balances
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(receiver);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Claim as manager for deployer - should go to receiver
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], receiver, claimable[j]);
-            }
-            vm.prank(manager);
-            accumulator.claim(deployer);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(receiver), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-
-            // Test claim to other - override reward receiver
-            // Reset the state for a new test
-            (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state again
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(deployer);
-            accumulator.setRewardReceiver(receiver);
-
-            // Store claimable amounts and balances for manager
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(manager);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Claim to manager - overrides reward receiver
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], manager, claimable[j]);
-            }
-            accumulator.claim(deployer, manager);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(manager), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-        }
-    }
-
-    function testClaimHistoricalWithoutRewardReceiver() public {
-        for (uint256 i = 0; i < rewardCounts.length; i++) {
-            uint256 rewardCount = rewardCounts[i];
-            uint40 periodLength = 1 weeks;
-            uint256 baseRewardAmount = 2233 * 1 ether;
-            uint256 totalPoolShare = 1234 * 1 ether;
-            uint256 userPoolShare = 456 * 1 ether;
-
-            (
-                IMockMultipleRewardCompoundingAccumulator accumulator,
-                address[] memory tokenAddresses
-            ) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(address(0));
-
-            // Unregister tokens to make them historical
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.prank(manager);
-                accumulator.unregisterRewardToken(tokenAddresses[j]);
-            }
-
-            accumulator.checkpoint(deployer);
-
-            // Test claim caller
-            uint256[] memory claimable = new uint256[](rewardCount);
-            uint256[] memory balanceBefore = new uint256[](rewardCount);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Regular claim should not emit events (tokens unregistered)
-            vm.recordLogs();
-            accumulator.claim();
-            Vm.Log[] memory logs = vm.getRecordedLogs();
-            assertEq(logs.length, 0);
-
-            // Claim historical
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], deployer, claimable[j]);
-            }
-            accumulator.claimHistorical(tokenAddresses);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(deployer), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-
-            // Test claim other
-            // Reset the state for a new test
-            (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state again
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(address(0));
-
-            // Unregister tokens
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.prank(manager);
-                accumulator.unregisterRewardToken(tokenAddresses[j]);
-            }
-
-            accumulator.checkpoint(deployer);
-
-            // Store claimable amounts and balances
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Regular claim should not emit events
-            vm.recordLogs();
-            accumulator.claim();
-            logs = vm.getRecordedLogs();
-            assertEq(logs.length, 0);
-
-            // Claim historical as manager
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], deployer, claimable[j]);
-            }
-            vm.prank(manager);
-            accumulator.claimHistorical(deployer, tokenAddresses);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(deployer), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-        }
-    }
-
-    function testClaimHistoricalWithRewardReceiver() public {
-        for (uint256 i = 0; i < rewardCounts.length; i++) {
-            uint256 rewardCount = rewardCounts[i];
-            uint40 periodLength = 1 weeks;
-            uint256 baseRewardAmount = 2233 * 1 ether;
-            uint256 totalPoolShare = 1234 * 1 ether;
-            uint256 userPoolShare = 456 * 1 ether;
-
-            (
-                IMockMultipleRewardCompoundingAccumulator accumulator,
-                address[] memory tokenAddresses
-            ) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(address(0));
-
-            // Unregister tokens to make them historical
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.prank(manager);
-                accumulator.unregisterRewardToken(tokenAddresses[j]);
-            }
-
-            accumulator.checkpoint(deployer);
-
-            // Set reward receiver
-            accumulator.setRewardReceiver(receiver);
-
-            // Test claim caller
-            uint256[] memory claimable = new uint256[](rewardCount);
-            uint256[] memory balanceBefore = new uint256[](rewardCount);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(receiver);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Regular claim should not emit events (tokens unregistered)
-            vm.recordLogs();
-            accumulator.claim();
-            Vm.Log[] memory logs = vm.getRecordedLogs();
-            assertEq(logs.length, 0);
-
-            // Claim historical - should go to receiver
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], receiver, claimable[j]);
-            }
-            accumulator.claimHistorical(tokenAddresses);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(receiver), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-
-            // Test claim other
-            // Reset the state for a new test
-            (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
-
-            // Setup reward state again
-            accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
-            accumulator.setUserPoolShare(userPoolShare, 1 ether);
-
-            for (uint256 j = 0; j < rewardCount; j++) {
-                uint256 depositAmount = baseRewardAmount * (j + 1);
-                accumulator.depositReward(tokenAddresses[j], depositAmount);
-            }
-
-            if (periodLength > 0) {
-                vm.warp(block.timestamp + periodLength);
-            }
-
-            accumulator.checkpoint(address(0));
-
-            // Unregister tokens
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.prank(manager);
-                accumulator.unregisterRewardToken(tokenAddresses[j]);
-            }
-
-            accumulator.checkpoint(deployer);
-            accumulator.setRewardReceiver(receiver);
-
-            // Store claimable amounts and balances
-            for (uint256 j = 0; j < rewardCount; j++) {
-                claimable[j] = accumulator.claimable(deployer, tokenAddresses[j]);
-                balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(receiver);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertGt(pending, 0);
-                assertEq(claimed, 0);
-            }
-
-            // Regular claim should not emit events
-            vm.recordLogs();
-            accumulator.claim();
-            logs = vm.getRecordedLogs();
-            assertEq(logs.length, 0);
-
-            // Claim historical as manager - should go to receiver
-            for (uint256 j = 0; j < rewardCount; j++) {
-                vm.expectEmit(true, true, true, true);
-                emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], receiver, claimable[j]);
-            }
-            vm.prank(manager);
-            accumulator.claimHistorical(deployer, tokenAddresses);
-
-            // Verify post-claim state
-            for (uint256 j = 0; j < rewardCount; j++) {
-                assertEq(accumulator.claimable(deployer, tokenAddresses[j]), 0);
-                assertEq(IERC20(tokenAddresses[j]).balanceOf(receiver), balanceBefore[j] + claimable[j]);
-
-                (, , uint256 pending, uint256 claimed) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
-                assertEq(pending, 0);
-                assertEq(claimed, claimable[j]);
-                assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
-            }
-        }
-    }
     /// ═══════════════════════════════════════════════════════════════════════════════
     /// INTEGRAL OVERFLOW BOUNDS ANALYSIS
     /// ═══════════════════════════════════════════════════════════════════════════════
@@ -990,11 +352,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     ///    are generous and not practical constraints for any realistic scenario.
     /// ═══════════════════════════════════════════════════════════════════════════════
 
-    /// @notice Replicates the mainnet failure: uint192 integral overflow in _accumulateReward.
-    /// Two tokens registered, only token0 gets deposits. Token1 develops finishAt=0 state.
-    /// After enough deposit cycles, token0's integral exceeds uint192 max.
-    /// v2 (uint256 integral): succeeds. v1 (uint192 integral): reverts with Panic(0x11).
-    function test_accumulateReward_Uint192Overflow() public virtual {
+    /// @notice The integral is a full uint256: with two tokens registered and only token0 funded - token1 left with
+    /// finishAt 0 and lastUpdate set - deposit cycles take token0's integral past uint192's max, the width the integral
+    /// once had, and the deposits still succeed.
+    function test_accumulateReward_integralGrowsPastUint192Max() public virtual {
         uint40 periodLength = 1 weeks;
 
         // Setup with 2 tokens — token1 will never receive deposits (mainnet scenario)
@@ -1027,16 +388,17 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         assertGt(integral, (uint256(type(uint192).max) * 90) / 100, "Should be close to uint192 max");
         assertLe(integral, uint256(type(uint192).max), "Should still be under uint192 max");
 
-        // 7th cycle: pushes integral past uint192 max — v2 succeeds (uint256)
+        // the 7th cycle takes the integral past uint192's max, and the deposit succeeds
         vm.warp(block.timestamp + periodLength);
         accumulator.depositReward(tokens[0], depositAmount);
 
         integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        assertGt(integral, type(uint192).max, "v2: integral should exceed uint192 max");
+        assertGt(integral, type(uint192).max, "the integral exceeds uint192 max");
     }
 
     /// @notice Verify integral growth matches the theoretical formula:
-    ///   delta = rewardAmount * 1e54 / totalPoolShare (at magnitude = 1e36)
+    ///   delta = paid * 1e54 / totalPoolShare (at magnitude = 1e36), paid being the reward less its remainder over the
+    ///   period
     function test_integralGrowth_MatchesFormula() public {
         uint40 periodLength = 1 weeks;
         (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
@@ -1045,7 +407,8 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         );
 
         // Fresh pool: magnitude = 1e36 (MAGNITUDE_PRECISION), exponent = 0
-        accumulator.setTotalPoolShare(1 ether, uint128(1e36));
+        uint256 poolSize = 1 ether;
+        accumulator.setTotalPoolShare(poolSize, uint128(1e36));
 
         uint256 reward = 1000 ether;
         accumulator.depositReward(tokens[0], reward);
@@ -1055,8 +418,115 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         accumulator.depositReward(tokens[0], reward);
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // Expected: reward * 1e54 / poolSize = 1e21 * 1e54 / 1e18 = 1e57
-        assertApproxEqRel(integral, 1e57, 0.001e18, "delta = reward * 1e54 / poolSize");
+        // The period paid rate * period - the reward less its remainder over the period, which stays queued - so
+        // delta = paid * 1e18 * 1e36 / poolSize = 1e21 * 1e54 / 1e18 = 1e57, less the remainder's part
+        uint256 paid = (reward / periodLength) * periodLength;
+        assertEq(integral, Math.mulDiv(paid * 1e18, 1e36, poolSize), "delta = paid * 1e54 / poolSize");
+    }
+
+    /// @notice A stream that accrues while the pool is EMPTY is re-queued in FULL. `queued` is a uint256 field, so a
+    /// large accrued reward - the cheap-collateral scale where a reward token COUNT is largest - must re-queue rather
+    /// than be rejected by an artificially narrowed addend.
+    function test_accumulateReward_emptyPoolQueuesRewardPastUint96() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            1 weeks
+        );
+
+        // stream a reward whose full-period distribution exceeds uint96, while the pool still has share
+        accumulator.setTotalPoolShare(1 ether, uint128(1e36));
+        uint256 reward = uint256(type(uint96).max) * 2;
+        uint256 checkpointDeposit = 1;
+        MockERC20(tokens[0]).mint(deployer, reward + checkpointDeposit);
+        accumulator.depositReward(tokens[0], reward);
+
+        // the pool empties; the whole distributed stream is then re-queued by _accumulateReward
+        accumulator.setTotalPoolShare(0, uint128(1e36));
+        vm.warp(block.timestamp + 1 weeks);
+        accumulator.depositReward(tokens[0], checkpointDeposit); // checkpoint: accrues the stream into the empty-pool queue
+
+        // That checkpoint re-queues the whole accrued stream and then re-streams it with its own deposit, so the reward
+        // now lives in `rate * period` plus the `queued` remainder - exactly the reward and that deposit. Asserting
+        // their sum proves the accrual was taken at full width: narrowing the addend to uint96 (as v1 did) rejects
+        // this outright with a SafeCast overflow.
+        (, , uint256 rate, uint256 queued) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
+        assertEq(
+            rate * 1 weeks + queued,
+            reward + checkpointDeposit,
+            "whole accrued reward survived the empty-pool re-queue"
+        );
+    }
+
+    /// @notice `maxDepositReward` frees the finished stream's capacity at EXACTLY `finishAt`, not one block later. While
+    /// the period is active `committed` holds `rate * period`; once `block.timestamp >= finishAt` the stream is fully
+    /// distributed and `increase` restreams from a clean slate, so that term drops and the capacity frees. The freeing
+    /// must land on the boundary block (`>= finishAt`) to match `increase`: a deposit arriving exactly at `finishAt`
+    /// restreams fresh, so its full capacity must be reported. A `<= finishAt` guard would hold the stream one block too
+    /// long, stalling recovery on the boundary block.
+    function test_maxDepositReward_freesCapacityAtExactlyFinishAt() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            1 weeks
+        );
+        accumulator.setTotalPoolShare(1 ether, uint128(1e36)); // share present, so the reward streams (sets finishAt)
+        accumulator.setMinTotalPoolShare(1 ether); // sizes the deposit cap (integral headroom) so the reward is not capped to 0
+        accumulator.depositReward(tokens[0], 1000 ether); // commits `rate * period` for one period, well below that cap
+
+        (, uint256 finishAt, , ) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
+
+        // one block BEFORE the period ends: the stream is active, so `committed` still holds `rate * period`
+        vm.warp(finishAt - 1);
+        uint256 beforeEnd = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
+
+        // AT exactly `finishAt`: the stream is fully distributed, so `committed` drops `rate * period` and frees capacity
+        vm.warp(finishAt);
+        uint256 atEnd = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
+
+        // the freeing lands on the boundary block: `< finishAt` frees here; a mutated `<= finishAt` would still hold it
+        assertGt(
+            atEnd,
+            beforeEnd,
+            "capacity frees at exactly finishAt (>= finishAt), matching increase's fresh restream"
+        );
+    }
+
+    /// @notice `maxLiquidationReward` is the immediate-accrual integral cap sized against the LIVE total share - a
+    /// liquidation reward accrues at once (before any loss), so it is bounded against the live share, not the pool
+    /// floor the streamed-deposit cap must assume. It is therefore strictly larger while the pool sits above its floor.
+    /// `assertDiscriminates` pins it to the live-share value and rejects the floor-share value (the plausible bug:
+    /// sizing the immediate cap against the floor, as the streamed cap does).
+    function test_maxLiquidationReward_sizedAgainstLiveShare() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(1, 1 weeks);
+
+        uint256 liveShare = 1000 ether;
+        uint256 floorShare = 1 ether;
+        accumulator.setTotalPoolShare(liveShare, uint128(1e36)); // the immediate liquidation accrues against this
+        accumulator.setMinTotalPoolShare(floorShare); // the streamed-deposit cap uses this floor
+
+        // uint256.max * share / (_REWARD_PRECISION * MAGNITUDE_PRECISION * _INTEGRAL_HEADROOM) = uint256.max * share / 1e60
+        uint256 denominator = uint256(1e18) * 1e36 * 1e6;
+        uint256 expectedLive = Math.mulDiv(type(uint256).max, liveShare, denominator);
+        uint256 wrongFloor = Math.mulDiv(type(uint256).max, floorShare, denominator);
+
+        assertDiscriminates(
+            IMultipleRewardAccumulator(address(accumulator)).maxLiquidationReward(),
+            expectedLive,
+            0,
+            wrongFloor,
+            "maxLiquidationReward is the live-share integral cap, not the floor-share one"
+        );
+    }
+
+    /// @notice An empty pool (no depositors) has no immediate-liquidation reward capacity: a reward would queue rather
+    /// than accrue, so the cap is zero.
+    function test_maxLiquidationReward_zeroWhenPoolEmpty() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(1, 1 weeks);
+        accumulator.setTotalPoolShare(0, uint128(1e36));
+        assertEq(
+            IMultipleRewardAccumulator(address(accumulator)).maxLiquidationReward(),
+            0,
+            "empty pool: zero liquidation reward capacity"
+        );
     }
 
     /// @notice 52 weeks at 100% APY: integral ~ 1e54, safe for both v1 and v2.
@@ -1074,15 +544,27 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         // 100% APY: annual reward = poolSize, weekly = poolSize / 52
         uint256 weeklyReward = poolSize / 52;
 
+        // Each week pays the stream's rate * period - the week's deposit and the last week's remainder over the
+        // period, rounded down - and adds paid * 1e18 * 1e36 / poolSize to the integral
+        uint256 expected;
         accumulator.depositReward(tokens[0], weeklyReward);
         for (uint256 i = 0; i < 52; i++) {
+            (, , uint256 rate, ) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
             vm.warp(block.timestamp + periodLength);
             accumulator.depositReward(tokens[0], weeklyReward);
+            expected += Math.mulDiv(rate * periodLength * 1e18, 1e36, poolSize);
         }
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // After 52 weeks at 100% APY: integral ~ 52 * (poolSize/52) * 1e54 / poolSize = 1e54
-        assertApproxEqRel(integral, 1e54, 0.01e18, "52wk at 100% APY: integral ~ 1e54");
+        assertEq(integral, expected, "52wk at 100% APY: each week's payout accrued");
+        // After 52 weeks at 100% APY: integral ~ 52 * (poolSize/52) * 1e54 / poolSize = 1e54. The 52 weeks paid
+        // 52 * (poolSize / 52) less the last remainder still queued, under a period; each wei short is 1e54 / poolSize
+        // of integral, so the shortfall is at most (poolSize % 52 + periodLength - 1) of them.
+        assertLe(
+            1e54 - integral,
+            ((poolSize % 52) + periodLength - 1) * (1e54 / poolSize),
+            "52wk at 100% APY: integral ~ 1e54"
+        );
         assertLt(integral, type(uint192).max, "Well within v1 uint192 bounds");
     }
 
@@ -1102,23 +584,34 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         // 1000% APY: annual reward = 10 * poolSize, weekly = 10 * poolSize / 52
         uint256 weeklyReward = (poolSize * 10) / 52;
 
+        // Each week pays the stream's rate * period - the week's deposit and the last week's remainder over the
+        // period, rounded down - and adds paid * 1e18 * 1e36 / poolSize to the integral
+        uint256 expected;
         accumulator.depositReward(tokens[0], weeklyReward);
         for (uint256 i = 0; i < 520; i++) {
+            (, , uint256 rate, ) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
             vm.warp(block.timestamp + periodLength);
             accumulator.depositReward(tokens[0], weeklyReward);
+            expected += Math.mulDiv(rate * periodLength * 1e18, 1e36, poolSize);
         }
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // After 520 weeks at 1000% APY: integral ~ 520 * (10 * poolSize/52) * 1e54 / poolSize = 1e56
-        assertApproxEqRel(integral, 1e56, 0.01e18, "10yr at 1000% APY: integral ~ 1e56");
+        assertEq(integral, expected, "10yr at 1000% APY: each week's payout accrued");
+        // After 520 weeks at 1000% APY: integral ~ 520 * (10 * poolSize/52) * 1e54 / poolSize = 1e56. The 520 weeks
+        // paid 520 * (10 * poolSize / 52) - ten times (10 * poolSize % 52) short of 100 * poolSize - less the last
+        // remainder still queued, under a period; each wei short is 1e54 / poolSize of integral.
+        assertLe(
+            1e56 - integral,
+            (((poolSize * 10) % 52) * 10 + periodLength - 1) * (1e54 / poolSize),
+            "10yr at 1000% APY: integral ~ 1e56"
+        );
         assertLt(integral, type(uint192).max, "Still within v1 uint192 bounds (62x headroom)");
     }
 
-    /// @notice Realistic mainnet scenario: BTC MIN_DEPOSIT pool (1e13 wei) with
-    /// fresh product (magnitude=1e36) receiving 1e16/week (~$600 at BTC $60k).
-    /// Demonstrates Table 2: $600/wk to BTC MIN_DEPOSIT pool overflows v1 in ~7 weeks.
-    /// v2 survives. v1 override expects Panic(0x11).
-    function test_integralBounds_MinPool_RealisticOverflow() public virtual {
+    /// @notice A realistic minimum-deposit pool - a BTC MIN_DEPOSIT pool (1e13 wei) with a fresh product (magnitude
+    /// 1e36) receiving 1e16 a week, about $600 at $60k a BTC - takes its integral past uint192's max in seven weeks
+    /// (Table 2) and keeps accruing.
+    function test_integralBounds_minimumDepositPool_passesUint192MaxInSevenWeeks() public virtual {
         uint40 periodLength = 1 weeks;
         (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
             1,
@@ -1142,12 +635,12 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         assertGt(integral, (uint256(type(uint192).max) * 90) / 100, "Near uint192 max after 6 weeks");
         assertLe(integral, type(uint192).max, "Still under uint192 max");
 
-        // 7th week: v2 survives past uint192 max
+        // the 7th week takes the integral past uint192's max
         vm.warp(block.timestamp + periodLength);
         accumulator.depositReward(tokens[0], weeklyReward);
 
         integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        assertGt(integral, type(uint192).max, "v2: integral exceeds uint192 max");
+        assertGt(integral, type(uint192).max, "the integral exceeds uint192 max");
     }
 
     /// @notice Minimum meaningful reward (rate=1/sec) to a large pool still
@@ -1172,716 +665,449 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         accumulator.checkpoint(deployer); // triggers accumulation + user checkpoint
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        // rate=1, accumulated=604800, delta = 604800 * 1e54 / 1e25 = 6.048e34
+        // rate 1, so the period paid periodLength: delta = periodLength * 1e18 * 1e36 / 1e25, exactly 6.048e34
         assertGt(integral, 0, "Integral non-zero even at minimum rate");
-        assertApproxEqRel(integral, 6.048e34, 0.001e18, "Integral matches minimum rate prediction");
+        assertEq(
+            integral,
+            Math.mulDiv(uint256(periodLength) * 1e18, 1e36, poolSize),
+            "Integral matches minimum rate prediction"
+        );
 
         // Verify user can claim a non-zero amount
-        uint256 claimable = accumulator.claimable(deployer, tokens[0]);
-        // claimable = shares * delta / (magnitude * 1e18) = 1e25 * 6.048e34 / 1e54 = 604800
+        uint256 claimable = IMultipleRewardAccumulator(address(accumulator)).claimable(deployer, aa(tokens[0]))[0];
+        // claimable = shares * delta / (magnitude * 1e18) = 1e25 * 6.048e34 / 1e54: the whole period's payout
         assertGt(claimable, 0, "User has non-zero claimable at minimum rate");
-        assertApproxEqAbs(claimable, 604800, 10, "Claimable matches accumulated amount");
-    }
-}
-
-import {MockMultipleRewardCompoundingAccumulator} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol";
-
-contract MultipleRewardCompoundingAccumulatorTest_v1 is MultipleRewardCompoundingAccumulatorTest {
-    function createMultipleRewardCompoundingAccumulator(
-        uint40 periodLength
-    ) internal override returns (IMockMultipleRewardCompoundingAccumulator) {
-        return
-            IMockMultipleRewardCompoundingAccumulator(
-                address(new MockMultipleRewardCompoundingAccumulator(periodLength))
-            );
+        assertEq(claimable, periodLength, "Claimable matches accumulated amount");
     }
 
-    /// @notice v1 override: realistic params (BTC MIN_DEPOSIT, magnitude=1e36),
-    /// $600/wk reward overflows uint192 integral on the 7th week.
-    function test_integralBounds_MinPool_RealisticOverflow() public override {
+    // ═══════════════════════════════════════════════════════════════════════
+    // claim(address[]) — vector claim
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice claim([t1, t2]) returns amounts[] parallel to the token array; ERC-20 balances match.
+    function test_claim_vector_returnsAmounts() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(2);
+
+        uint256[] memory balanceBefore = new uint256[](2);
+        balanceBefore[0] = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        balanceBefore[1] = IERC20(tokenAddresses[1]).balanceOf(deployer);
+
+        uint256[] memory amounts = IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses);
+
+        assertEq(amounts.length, 2, "return length matches token count");
+        assertEq(amounts[0], pending[0], "amounts[0] == pending[0]");
+        assertEq(amounts[1], pending[1], "amounts[1] == pending[1]");
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore[0],
+            pending[0],
+            "balance[0] increased by pending[0]"
+        );
+        assertEq(
+            IERC20(tokenAddresses[1]).balanceOf(deployer) - balanceBefore[1],
+            pending[1],
+            "balance[1] increased by pending[1]"
+        );
+    }
+
+    /// @notice claim(token, maxAmount) return value equals the amount actually transferred.
+    function test_claim_scalar_returnsAmount() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        uint256 returned = IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], type(uint256).max);
+
+        assertEq(returned, pending[0], "returned == pending");
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore,
+            returned,
+            "balance increase == returned"
+        );
+    }
+
+    /// @notice claim([t, t]) returns [pending, 0]: first entry claims the full pending; second
+    /// entry finds pending zeroed after the first — no double-counting.
+    function test_claim_vector_duplicateToken() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        address[] memory twoSame = new address[](2);
+        twoSame[0] = tokenAddresses[0];
+        twoSame[1] = tokenAddresses[0];
+
+        uint256[] memory amounts = IMultipleRewardAccumulator(address(accumulator)).claim(twoSame);
+
+        assertEq(amounts.length, 2, "return length == 2");
+        assertEq(amounts[0], pending[0], "first entry claims full pending");
+        assertEq(amounts[1], 0, "second entry finds pending zeroed - no double-count");
+    }
+
+    /// @notice claim([]) returns an empty uint256[] and does not revert.
+    function test_claim_vector_emptyArray() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(1, 1 weeks);
+        accumulator.setTotalPoolShare(1000 ether, 1 ether);
+        accumulator.setUserPoolShare(1000 ether, 1 ether);
+
+        address[] memory empty = new address[](0);
+        uint256[] memory amounts = IMultipleRewardAccumulator(address(accumulator)).claim(empty);
+
+        assertEq(amounts.length, 0, "empty token list returns zero-length result");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // claim(token, maxAmount) — single-token capped claim
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev Stake the test contract, deposit rewards, warp the full period and checkpoint —
+    /// so each token has a known, non-zero pending read straight from the snapshot
+    /// (source of truth — avoids replicating the integral math here).
+    function _stakeAndAccruePending(
+        uint256 rewardCount
+    )
+        internal
+        returns (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        )
+    {
         uint40 periodLength = 1 weeks;
+        (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
+        accumulator.setTotalPoolShare(1234 ether, 1 ether);
+        accumulator.setUserPoolShare(456 ether, 1 ether);
+        // Different deposit per token so the multi-token test exercises distinct pending values.
+        for (uint256 j = 0; j < rewardCount; j++) {
+            accumulator.depositReward(tokenAddresses[j], 1000 ether * (j + 1));
+        }
+        vm.warp(block.timestamp + periodLength);
+        accumulator.checkpoint(deployer);
+        pending = new uint256[](rewardCount);
+        for (uint256 j = 0; j < rewardCount; j++) {
+            (, , pending[j], ) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
+            require(pending[j] > 0, "no pending: bad setup");
+        }
+    }
 
+    /// @notice maxAmount below pending: exactly maxAmount is transferred and the remainder
+    /// is left in pending. claimed advances by maxAmount.
+    function test_claim_single_capBindsBelowPending_partialTransfer() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 cap = pending[0] / 3;
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], cap);
+
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore, cap, "transferred == cap");
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(claimedAfter, cap, "claimed += cap");
+        assertEq(pendingAfter, pending[0] - cap, "pending -= cap");
+    }
+
+    /// @notice maxAmount at or above pending: the full pending is paid out and pending goes to zero.
+    function test_claim_single_capAtOrAbovePending_fullTransfer() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], pending[0] * 10);
+
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore,
+            pending[0],
+            "transferred == full pending"
+        );
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(pendingAfter, 0, "pending zeroed");
+        assertEq(claimedAfter, pending[0], "claimed == original pending");
+    }
+
+    /// @notice maxAmount is applied INDEPENDENTLY per token via separate claim(token,cap) calls.
+    function test_claim_single_capAppliedPerTokenIndependently() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(3);
+
+        // Pick a cap that binds on every token (smaller than the smallest pending).
+        uint256 cap = pending[0];
+        for (uint256 j = 1; j < pending.length; j++) {
+            if (pending[j] < cap) {
+                cap = pending[j];
+            }
+        }
+        cap = cap / 2;
+
+        uint256[] memory balanceBefore = new uint256[](3);
+        for (uint256 j = 0; j < 3; j++) {
+            balanceBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
+        }
+
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], cap);
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[1], cap);
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[2], cap);
+
+        for (uint256 j = 0; j < 3; j++) {
+            string memory tag = string.concat(" (token ", vm.toString(j), ")");
+            assertEq(
+                IERC20(tokenAddresses[j]).balanceOf(deployer) - balanceBefore[j],
+                cap,
+                string.concat("transferred == cap per token", tag)
+            );
+            (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(
+                deployer,
+                tokenAddresses[j]
+            );
+            assertEq(claimedAfter, cap, string.concat("claimed == cap", tag));
+            assertEq(pendingAfter, pending[j] - cap, string.concat("pending -= cap", tag));
+        }
+    }
+
+    /// @notice maxAmount == 0 is a no-op: no transfer, pending unchanged, claimed unchanged.
+    function test_claim_single_capZero_noTransfer() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], 0);
+
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer), balanceBefore, "no tokens transferred");
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(pendingAfter, pending[0], "pending unchanged");
+        assertEq(claimedAfter, 0, "claimed unchanged");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Historical token behaviour — claimable/claimed/claim work for
+    // deregistered tokens: the StabilityPool's accumulator treats active and
+    // historical tokens alike for claims.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev Distribute 1000 ether over one period, checkpoint deployer (100% shares),
+    /// then deregister so the token is in historicalRewardTokens with a known
+    /// exact pending. Returns the exact pendingAtCheckpoint read from storage
+    /// (the authoritative source — no math replication needed).
+    function _earnCheckpointDeregister()
+        internal
+        returns (address accumulator, address token, uint256 pendingAtCheckpoint)
+    {
+        (IMockMultipleRewardCompoundingAccumulator mock, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
+        accumulator = address(mock);
+        token = tokens[0];
+
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setTotalPoolShare(1000 ether, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(1000 ether, 1 ether); // deployer owns 100%
+
+        IMockMultipleRewardCompoundingAccumulator(accumulator).depositReward(token, 1000 ether);
+        vm.warp(block.timestamp + 1 weeks);
+
+        // Checkpoint deployer: locks accrued rewards into snapshot.pending.
+        IMultipleRewardAccumulator(accumulator).checkpoint(deployer);
+        (, , pendingAtCheckpoint, ) = IMockMultipleRewardCompoundingAccumulator(accumulator).userRewardSnapshot(
+            deployer,
+            token
+        );
+        require(pendingAtCheckpoint > 0, "_earnCheckpointDeregister: no pending");
+
+        // Move token to historical set.
+        vm.startPrank(manager);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).unregisterRewardToken(token);
+        vm.stopPrank();
+        assertFalse(
+            IMockMultipleRewardCompoundingAccumulator(accumulator).isActiveRewardToken(token),
+            "token should be historical"
+        );
+    }
+
+    /// @notice claimable() returns the exact snapshot.pending after deregistration.
+    /// After checkpoint + deregistration, the integral is frozen and temporal rewards
+    /// are zero, so claimable = snapshot.pending exactly.
+    function test_historicalToken_claimable_correctAfterDeregistration() public {
+        (address accumulator, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+
+        uint256 claimable = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
+        assertEq(claimable, pendingAtCheckpoint, "claimable == snapshot.pending (exact)");
+    }
+
+    /// @notice claim(vector) transfers exactly snapshot.pending for a historical token.
+    function test_historicalToken_claim_vector_transfersCorrectAmount() public {
+        (address accumulator, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+
+        uint256 balanceBefore = IERC20(token).balanceOf(deployer);
+
+        IMultipleRewardAccumulator(accumulator).claim(aa(token));
+
+        assertEq(
+            IERC20(token).balanceOf(deployer) - balanceBefore,
+            pendingAtCheckpoint,
+            "received == snapshot.pending"
+        );
+    }
+
+    /// @notice After a full claim, claimed == original pending and claimable == 0.
+    function test_historicalToken_claimed_tracksPaymentToZero() public {
+        (address accumulator, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+
+        IMultipleRewardAccumulator(accumulator).claim(aa(token));
+
+        (, , uint256 pendingAfter, uint256 claimedAfter) = IMockMultipleRewardCompoundingAccumulator(accumulator)
+            .userRewardSnapshot(deployer, token);
+        assertEq(claimedAfter, pendingAtCheckpoint, "claimed == original pending");
+        assertEq(pendingAfter, 0, "pending zeroed after full claim");
+        assertEq(
+            IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0],
+            0,
+            "claimable == 0 after full claim"
+        );
+    }
+
+    /// @notice An account with zero pool shares and no prior checkpoint earns nothing.
+    /// Uses manager (never checkpointed) with global shares set to 0: pending=0,
+    /// accrual = 0*integral = 0, temporal = 0 => claimable = 0.
+    function test_historicalToken_zeroShares_hasZeroClaimable() public {
+        (address accumulator, address token, ) = _earnCheckpointDeregister();
+
+        // Set global shares to 0. manager was never checkpointed so snapshot.pending = 0.
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(0, 1 ether);
+
+        assertEq(
+            IMultipleRewardAccumulator(accumulator).claimable(manager, aa(token))[0],
+            0,
+            "zero shares: zero claimable"
+        );
+    }
+
+    /// @notice Gap scenario: if shares decrease AFTER rewards accumulate into the integral
+    /// but BEFORE the user snapshot is checkpointed, the claim uses the post-change share
+    /// count. This demonstrates why the AutoCompounder's _beforeTokenTransfer must checkpoint historical
+    /// tokens before allowing share transfers.
+    function test_historicalToken_gapScenario_shareCountUsedAtClaimTime() public {
+        (IMockMultipleRewardCompoundingAccumulator mock, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
+        address accumulator = address(mock);
+        address token = tokens[0];
+
+        uint256 shares = 1000 ether;
+        uint128 product = 1 ether; // magnitude 1e18
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setTotalPoolShare(shares, product);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(shares, product); // deployer has 100%
+
+        IMockMultipleRewardCompoundingAccumulator(accumulator).depositReward(token, 1000 ether);
+        vm.warp(block.timestamp + 1 weeks);
+
+        // Global checkpoint only — deployer's user snapshot is NOT updated.
+        IMultipleRewardAccumulator(accumulator).checkpoint(address(0));
+
+        // Deregister: no more rewards accumulate.
+        vm.startPrank(manager);
+        IMockMultipleRewardCompoundingAccumulator(accumulator).unregisterRewardToken(token);
+        vm.stopPrank();
+
+        // Correct entitlement (1000e18 shares = 100%): read from view before changing shares - the shares' part of the
+        // integral, shares * integral / (magnitude * 1e18).
+        uint256 integral = IMockMultipleRewardCompoundingAccumulator(accumulator).tokenToExponentToIntegral(token, 0);
+        assertGt(integral, 0, "should have earned rewards");
+        uint256 correctEntitlement = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
+        assertEq(
+            correctEntitlement,
+            Math.mulDiv(shares, integral, uint256(product) * 1e18),
+            "the whole pool's part of the integral"
+        );
+
+        // Shares halved WITHOUT prior checkpoint — this is the gap.
+        IMockMultipleRewardCompoundingAccumulator(accumulator).setUserPoolShare(shares / 2, product);
+
+        // What the view reports with the post-gap share count: the halved shares' part of the same integral.
+        uint256 gapEntitlement = IMultipleRewardAccumulator(accumulator).claimable(deployer, aa(token))[0];
+        assertEq(
+            gapEntitlement,
+            Math.mulDiv(shares / 2, integral, uint256(product) * 1e18),
+            "gap: the halved shares' part of the integral"
+        );
+
+        // Claim transfers exactly what the view reported — no surprise, no rounding.
+        uint256 balanceBefore = IERC20(token).balanceOf(deployer);
+        IMultipleRewardAccumulator(accumulator).claim(aa(token));
+
+        assertEq(
+            IERC20(token).balanceOf(deployer) - balanceBefore,
+            gapEntitlement,
+            "received == gapEntitlement (exact)"
+        );
+    }
+
+    /// @notice After a partial cap-bound claim, the remainder is still claimable in a second uncapped call
+    /// (no new rewards accrue because we don't advance time).
+    function test_claim_single_remainderClaimableAfterPartial() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 firstCap = pending[0] / 4;
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], firstCap);
+
+        uint256 balanceBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        IMultipleRewardAccumulator(address(accumulator)).claim(tokenAddresses[0], type(uint256).max);
+
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balanceBefore,
+            pending[0] - firstCap,
+            "second claim drains the remainder"
+        );
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(pendingAfter, 0, "pending fully drained");
+        assertEq(claimedAfter, pending[0], "claimed == original pending");
+    }
+
+    /// @notice `claimable` must hold at the reward cap even when the pool-share floor is large. The temporal-pending
+    /// term forms `amount * shares` as a plain uint256 intermediate, but the two factors are bounded INDEPENDENTLY:
+    /// the reward-integral cap sizes `amount` against the FLOOR (`_minTotalShare`), while `shares` is bounded by the
+    /// pool's own field width. At a large floor a cap-sized reward times a field-sized share exceeds uint256 and the
+    /// view reverts - a holder whose claimable cannot be read is the same failure class as one whose balance cannot be.
+    function test_claimable_holdsAtTheRewardCapWithALargeFloor() public {
+        uint40 periodLength = 1 weeks;
         (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
             1,
             periodLength
         );
 
-        accumulator.setTotalPoolShare(1e13, uint128(1e36));
+        // A large floor raises the reward-integral cap; a field-sized share is the largest a pool can credit.
+        accumulator.setMinTotalPoolShare(1e24);
+        accumulator.setTotalPoolShare(1e38, uint128(1e36));
+        accumulator.setUserPoolShare(1e38, uint128(1e36));
 
-        uint256 weeklyReward = 1e16;
+        uint256 reward = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
+        MockERC20(tokens[0]).mint(deployer, reward);
+        accumulator.depositReward(tokens[0], reward);
 
-        accumulator.depositReward(tokens[0], weeklyReward);
+        // mid-period: the un-distributed remainder is the temporal-pending `amount`
+        vm.warp(block.timestamp + periodLength / 2);
 
-        for (uint256 i = 0; i < 6; i++) {
-            vm.warp(block.timestamp + periodLength);
-            accumulator.depositReward(tokens[0], weeklyReward);
-        }
-
-        // 7th week: uint192 overflow
-        vm.warp(block.timestamp + periodLength);
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        accumulator.depositReward(tokens[0], weeklyReward);
-    }
-
-    /// @notice v1 override: the 7th cycle reverts because uint192 integral overflows.
-    function test_accumulateReward_Uint192Overflow() public override {
-        uint40 periodLength = 1 weeks;
-
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
-            2,
-            periodLength
-        );
-
-        accumulator.setTotalPoolShare(1, 1 ether);
-
-        uint256 depositAmount = 1000 ether;
-
-        // First deposit: sets rate
-        accumulator.depositReward(tokens[0], depositAmount);
-
-        // 6 weekly cycles: integral grows to ~6e57 < uint192.max
-        for (uint256 i = 0; i < 6; i++) {
-            vm.warp(block.timestamp + periodLength);
-            accumulator.depositReward(tokens[0], depositAmount);
-        }
-
-        // 7th cycle: uint192 overflow — Panic(0x11)
-        vm.warp(block.timestamp + periodLength);
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        accumulator.depositReward(tokens[0], depositAmount);
+        uint256 claimable = IMultipleRewardAccumulator(address(accumulator)).claimable(deployer, aa(tokens[0]))[0];
+        assertLe(claimable, reward, "claimable cannot exceed the reward injected");
     }
 }
-
-/*
-import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { MockERC20, MockMultipleRewardCompoundingAccumulator } from "@/types/index";
-import { expect } from "chai";
-import { MaxUint256, ZeroAddress, ZeroHash, toBigInt } from "ethers";
-import { ethers, network } from "hardhat";
-
-describe("MultipleRewardCompoundingAccumulator.spec", async () => {
-  for (const rewardCount of [1, 3]) {
-    const periodLength = 86400 * 7;
-    const precision = 10n ** 18n;
-
-    let deployer: HardhatEthersSigner;
-    let manager: HardhatEthersSigner;
-    let receiver: HardhatEthersSigner;
-
-    let tokens: MockERC20[];
-    let tokenAddresses: string[];
-    let accumulator: MockMultipleRewardCompoundingAccumulator;
-
-    context(`run with period[${periodLength}] rewards[${rewardCount}]`, async () => {
-      beforeEach(async () => {
-        [deployer, manager, receiver] = await ethers.getSigners();
-        const MockERC20 = await ethers.getContractFactory("MockERC20", deployer);
-        const MockMultipleRewardCompoundingAccumulator = await ethers.getContractFactory(
-          "MockMultipleRewardCompoundingAccumulator",
-          deployer
-        );
-
-        tokens = [];
-        tokenAddresses = [];
-        for (let i = 0; i < rewardCount; i++) {
-          tokens.push(await MockERC20.deploy("R", "R", 18));
-          tokenAddresses.push(await tokens[i].getAddress());
-          await tokens[i].mint(deployer.address, ethers.parseEther("1000000"));
-        }
-        accumulator = await MockMultipleRewardCompoundingAccumulator.deploy(periodLength);
-        await accumulator.initialize();
-
-        await accumulator.grantRole(await accumulator.REWARD_MANAGER_ROLE(), manager.address);
-        for (let i = 0; i < rewardCount; i++) {
-          await accumulator.connect(manager).registerRewardToken(await tokens[i].getAddress(), deployer.address);
-          await tokens[i].approve(await accumulator.getAddress(), MaxUint256);
-        }
-      });
-
-      context("initialization", async () => {
-        it("should initialize correctly", async () => {
-          expect(await accumulator.periodLength()).to.eq(periodLength);
-          expect(await accumulator.getActiveRewardTokens()).to.deep.eq(tokenAddresses);
-          expect(await accumulator.getHistoricalRewardTokens()).to.deep.eq([]);
-          expect(await accumulator.hasRole(ZeroHash, deployer.address)).to.eq(true);
-        });
-      });
-
-      context("reentrant", async () => {
-        it("should prevent reentrant on checkpoint", async () => {
-          await expect(
-            accumulator.reentrantCall(accumulator.interface.encodeFunctionData("checkpoint", [ZeroAddress]))
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-        });
-
-        it("should prevent reentrant on claim", async () => {
-          await expect(accumulator.reentrantCall(accumulator.interface.encodeFunctionData("claim()"))).to.revertedWith(
-            "ReentrancyGuard: reentrant call"
-          );
-          await expect(
-            accumulator.reentrantCall(accumulator.interface.encodeFunctionData("claim(address)", [ZeroAddress]))
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-          await expect(
-            accumulator.reentrantCall(
-              accumulator.interface.encodeFunctionData("claim(address,address)", [ZeroAddress, ZeroAddress])
-            )
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-        });
-        it("should prevent reentrant on claimHistorical", async () => {
-          await expect(
-            accumulator.reentrantCall(
-              accumulator.interface.encodeFunctionData("claimHistorical(address,address[])", [ZeroAddress, []])
-            )
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-          await expect(
-            accumulator.reentrantCall(accumulator.interface.encodeFunctionData("claimHistorical(address[])", [[]]))
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-        });
-      });
-
-      context("#checkpoint", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-        });
-
-        it("should succeed when only checkpoint global snapshot", async () => {
-          const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-          await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          await accumulator.checkpoint(ZeroAddress);
-
-          for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            const rate = depositedAmount / toBigInt(periodLength);
-            expect(snapshot.integral).to.closeTo(
-              (rate * toBigInt(periodLength) * precision * precision) / TotalPoolShare,
-              100n * precision
-            );
-            expect(snapshot.timestamp).to.eq(timestamp + periodLength);
-          }
-        });
-
-        it("should succeed, when checkpoint normal user", async () => {
-          let timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-          await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          await accumulator.checkpoint(deployer.address);
-
-          for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            const rate = depositedAmount / toBigInt(periodLength);
-            expect(snapshot.integral).to.closeTo(
-              (rate * toBigInt(periodLength) * precision * precision) / TotalPoolShare,
-              100n * precision
-            );
-            expect(snapshot.timestamp).to.eq(timestamp + periodLength);
-
-            const userSnapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(userSnapshot.checkpoint.timestamp).to.eq(timestamp + periodLength);
-            expect(userSnapshot.checkpoint.integral).to.eq(snapshot.integral);
-            expect(userSnapshot.rewards.pending).to.closeTo(
-              (depositedAmount * UserPoolShare) / TotalPoolShare,
-              userSnapshot.rewards.pending / 1000000n
-            ); // error within 0.00001%
-          }
-
-          // deposit again
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-          await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          await accumulator.checkpoint(deployer.address);
-
-          for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            const rate = depositedAmount / toBigInt(periodLength);
-            expect(snapshot.integral).to.closeTo(
-              ((rate * toBigInt(periodLength) * precision * precision) / TotalPoolShare) * 2n,
-              1000n * precision
-            );
-            expect(snapshot.timestamp).to.eq(timestamp + periodLength);
-
-            const userSnapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(userSnapshot.checkpoint.timestamp).to.eq(timestamp + periodLength);
-            expect(userSnapshot.checkpoint.integral).to.eq(snapshot.integral);
-            expect(userSnapshot.rewards.pending).to.closeTo(
-              ((depositedAmount * UserPoolShare) / TotalPoolShare) * 2n,
-              userSnapshot.rewards.pending / 1000000n
-            ); // error within 0.00001%
-          }
-        });
-      });
-
-      context("#setRewardReceiver", async () => {
-        it("should succeed", async () => {
-          expect(await accumulator.rewardReceiver(deployer.address)).to.eq(ZeroAddress);
-          await expect(accumulator.connect(deployer).setRewardReceiver(receiver.address))
-            .to.emit(accumulator, "UpdateRewardReceiver")
-            .withArgs(deployer.address, ZeroAddress, receiver.address);
-          expect(await accumulator.rewardReceiver(deployer.address)).to.eq(receiver.address);
-          await expect(accumulator.connect(deployer).setRewardReceiver(ZeroAddress))
-            .to.emit(accumulator, "UpdateRewardReceiver")
-            .withArgs(deployer.address, receiver.address, ZeroAddress);
-          expect(await accumulator.rewardReceiver(deployer.address)).to.eq(ZeroAddress);
-        });
-      });
-
-      context("#claim without setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(deployer.address);
-        });
-
-        it("should revert when claim other to other", async () => {
-          await expect(
-            accumulator["claim(address,address)"](manager.address, deployer.address)
-          ).to.revertedWithCustomError(accumulator, "ClaimOthersRewardToAnother");
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim()"]();
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator.connect(manager)["claim(address)"](deployer.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator.connect(manager)["claim(address)"](deployer.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim to other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(manager.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim(address,address)"](deployer.address, manager.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), manager.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim(address,address)"](deployer.address, manager.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-      });
-
-      context("#claim with setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(deployer.address);
-          await accumulator.connect(deployer).setRewardReceiver(receiver.address);
-        });
-
-        it("should revert when claim other to other", async () => {
-          await expect(
-            accumulator["claim(address,address)"](manager.address, deployer.address)
-          ).to.revertedWithCustomError(accumulator, "ClaimOthersRewardToAnother");
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim()"]();
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator.connect(manager)["claim(address)"](deployer.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator.connect(manager)["claim(address)"](deployer.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim to other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(manager.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim(address,address)"](deployer.address, manager.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), manager.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim(address,address)"](deployer.address, manager.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-      });
-
-      context("#claimHistorical without setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(ZeroAddress);
-          for (let i = 0; i < rewardCount; i++) {
-            await accumulator.connect(manager).unregisterRewardToken(await tokens[i].getAddress());
-          }
-          await accumulator.checkpoint(deployer.address);
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator["claimHistorical(address[])"](tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claimHistorical(address[])"](tokenAddresses)).to.not.emit(accumulator, "Claim");
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator
-            .connect(manager)
-            ["claimHistorical(address,address[])"](deployer.address, tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(
-            accumulator.connect(manager)["claimHistorical(address,address[])"](deployer.address, tokenAddresses)
-          ).to.not.emit(accumulator, "Claim");
-        });
-      });
-
-      context("#claimHistorical with setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(ZeroAddress);
-          for (let i = 0; i < rewardCount; i++) {
-            await accumulator.connect(manager).unregisterRewardToken(await tokens[i].getAddress());
-          }
-          await accumulator.checkpoint(deployer.address);
-          await accumulator.connect(deployer).setRewardReceiver(receiver.address);
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator["claimHistorical(address[])"](tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claimHistorical(address[])"](tokenAddresses)).to.not.emit(accumulator, "Claim");
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator
-            .connect(manager)
-            ["claimHistorical(address,address[])"](deployer.address, tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(
-            accumulator.connect(manager)["claimHistorical(address,address[])"](deployer.address, tokenAddresses)
-          ).to.not.emit(accumulator, "Claim");
-        });
-      });
-    });
-  }
-});
-*/

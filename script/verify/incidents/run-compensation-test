@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Phase 1 of the repayment for the rebalance dilution exploits of 2026-10-16, checked: the compensation's inputs read
+# from the incident's files, the deductions and the payout sized from them, and the compensated upgrade of the two
+# exploited markets run on a fork of mainnet at the block after the pause, each market's batch executed as the
+# multisig - the gains taken back and the losers paid in the same transaction as the upgrade.
+#
+# Usage, from the repository root:
+#   script/verify/incidents/run-compensation-test
+#
+# Needs MAINNET_RPC_URL, archival at the capture's block. The forks the test creates take the retries foundry.toml's
+# mainnet entry carries, and run-campaign-test paces their requests. Output in tmp/compensation-test.log.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/../../.."
+
+script/verify/run-campaign-test script/verify/incidents tmp/compensation-test.log \
+  --mc CompensateRebalanceDilutionTest -vv

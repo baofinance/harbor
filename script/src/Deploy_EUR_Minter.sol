@@ -1,22 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
-import {DeployMintersShared} from "./DeployMintersShared.sol";
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {ConfigPeg_EUR} from "script/config/pegs/ConfigPeg_EUR.sol";
-import {ConfigMarket_EUR_fxUSD_mainnet} from "script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
-import {ConfigMarket_EUR_stETH_mainnet} from "script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
-import {Config_MinterMarket} from "script/config/ConfigBase.sol";
+import {HarborDeployStack} from "@harbor-script/src/HarborDeployStack.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {ConfigPeg_EUR} from "@harbor-script/config/pegs/ConfigPeg_EUR.sol";
+import {ConfigMarket_EUR_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
+import {ConfigMarket_EUR_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+
+/// @notice The EUR peg and its markets as production configures them: fresh config contracts on each call.
+/// @dev A free function, so the list can be built without inheriting the deploy stack: the single statement of
+///      which markets the peg has, for the deploy scripts and for the tests that hold a `HarborDeployRun` alike.
+function eurMintersConfig() returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
+    peg = new ConfigPeg_EUR();
+    markets = new Config_MinterMarket[](2);
+    markets[0] = new ConfigMarket_EUR_fxUSD_mainnet();
+    markets[1] = new ConfigMarket_EUR_stETH_mainnet();
+}
 
 /// @notice EUR-specific minter deployment functionality.
-abstract contract Deploy_EUR_Minter is DeployMintersShared {
+abstract contract Deploy_EUR_Minter is HarborDeployStack {
     /// @notice Create EUR-specific config objects.
     function createEURMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
-        peg = new ConfigPeg_EUR();
-        markets = new Config_MinterMarket[](2);
-        markets[0] = new ConfigMarket_EUR_fxUSD_mainnet();
-        markets[1] = new ConfigMarket_EUR_stETH_mainnet();
+        return eurMintersConfig();
     }
 }

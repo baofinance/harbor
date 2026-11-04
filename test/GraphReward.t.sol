@@ -2,22 +2,20 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SignedMath.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import "test/Useful.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
-import {TestGraph} from "test/Graph.t.sol";
-
-abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
+import {GraphSweepTestBase} from "@bao-test/GraphTestBase.t.sol";
+abstract contract TestGraphReward is GraphSweepTestBase, TestStabilityPoolSetUp {
     string rewardFile;
     uint256 initialPoolDeposit;
 
@@ -29,15 +27,16 @@ abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
 
         // load up and approve stabilityPool for rewardDepositor
         deal(steam, rewardDepositor, 1000 ether);
-        vm.prank(rewardDepositor);
+        vm.startPrank(rewardDepositor);
         IERC20(steam).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
         // load up and approve stability pool for this
         initialPoolDeposit = 100 ether;
         deal(peggedToken, address(this), initialPoolDeposit * 100);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
-        IStabilityPool(stabilityPoolCollateral).deposit(initialPoolDeposit, address(this), 0);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(initialPoolDeposit, address(this), 0);
 
         rewardFile = openFile(
             "reward",
@@ -57,12 +56,12 @@ abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
     function doActions() internal virtual;
 
     function doOneX() internal virtual override {
-        // write a gnuplot data file line for fees, invariant and liquidation
+        // write a gnuplot data file line of the reward: what is claimable and claimed, and the stream's distribution
 
         doActions();
 
         // get claimable
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), steam);
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), aa(steam))[0];
 
         // get claim - wrap in a snapshot to avoid changes of state
         uint256 claim = IERC20(steam).balanceOf(address(this));
@@ -96,14 +95,16 @@ contract TestGraphRewardClaim is TestGraphReward {
     function doActions() internal virtual override {
         // do actions that change the state
         if (!deposited1 && currentX >= startX + 1 days) {
-            vm.prank(rewardDepositor);
+            vm.startPrank(rewardDepositor);
             IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 1 ether);
+            vm.stopPrank();
             deposited1 = true;
         }
 
         if (!deposited2 && currentX >= startX + 4 days) {
-            vm.prank(rewardDepositor);
+            vm.startPrank(rewardDepositor);
             IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 2 ether);
+            vm.stopPrank();
             deposited2 = true;
         }
     }
@@ -117,8 +118,8 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     bool depositedInPool;
 
     uint256 price;
-
-    uint256 currentPoolDeposit;
+    /// @dev Liquidates the pool as its rebalancer, with the loss and proceeds the scenario states.
+    StabilityPoolActions internal poolActions;
 
     function percentRebalance() internal pure virtual returns (uint256);
 
@@ -130,11 +131,10 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         super.setUp();
 
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        vm.startPrank(owner);
-        IBaoRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
+        poolActions = new StabilityPoolActions(stabilityPoolCollateral, rebalancer);
+        vm.startPrank(owner());
+        IHarborRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
         vm.stopPrank();
-
-        currentPoolDeposit = initialPoolDeposit;
 
         rewardFile = openFile(
             "reward",
@@ -171,15 +171,8 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     }
 
     function doOneX() internal virtual override {
-        // write a gnuplot data file line for fees, invariant and liquidation
+        // write a gnuplot data file line of both holders' claims and each reward token's distribution
         doActions();
-
-        // get claimable
-        // uint256 claimableSTEAM = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), steam);
-        // uint256 claimableCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-        //     address(this),
-        //     wrappedCollateralToken
-        // );
 
         ClaimAmounts memory claim;
         // get claim - wrap in a snapshot to avoid changes of state
@@ -193,8 +186,9 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         claim.STEAM1 = IERC20(steam).balanceOf(address(this)) - claim.STEAM1;
         claim.Collateral1 = IERC20(wrappedCollateralToken).balanceOf(address(this)) - claim.Collateral1;
 
-        vm.prank(user2);
+        vm.startPrank(user2);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
         claim.STEAM2 = IERC20(steam).balanceOf(user2) - claim.STEAM2;
         claim.Collateral2 = IERC20(wrappedCollateralToken).balanceOf(user2) - claim.Collateral2;
         vm.revertToState(snap);
@@ -232,43 +226,34 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     function doActions() internal virtual override {
         // do actions that change the state
         if (!depositedReward1 && currentX >= startX + 1 days) {
-            vm.prank(rewardDepositor);
+            vm.startPrank(rewardDepositor);
             IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 1 ether);
+            vm.stopPrank();
             depositedReward1 = true;
         }
 
         if (!rebalance1 && currentX >= startX + 3 days) {
             uint256 toLiquidate = (initialPoolDeposit * percentRebalance()) / 100;
-            currentPoolDeposit -= toLiquidate;
-            uint256 toLiquidateTo = (toLiquidate * 1 ether) / price;
-            // liquidate pegged into collateral, creating an immediate reward
-            IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
-            vm.prank(rebalancer);
-            IStabilityPool(stabilityPoolCollateral).notifyLiquidation(toLiquidate, toLiquidateTo);
+            // the scenario: the rebalance pays what the pool gives up - the request, capped at its headroom above the
+            // floor - at the collateral's price, an immediate reward
+            uint256 givenUp = Math.min(toLiquidate, IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss());
+            poolActions.liquidate(wrappedCollateralToken, toLiquidate, (givenUp * 1 ether) / price);
             rebalance1 = true;
         }
 
         if (!depositedInPool && currentX >= startX + 5 days) {
             uint256 user2Deposit = (initialPoolDeposit * 2) / 3;
-            IStabilityPool(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
-            currentPoolDeposit += user2Deposit;
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
             depositedInPool = true;
         }
 
         if (!rebalance2 && currentX >= startX + 7 days) {
-            uint256 toLiquidateTo = (currentPoolDeposit * 1 ether) / price;
-            // liquidate pegged into collateral, creating an immediate reward
-            IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
-            vm.prank(rebalancer);
-            IStabilityPool(stabilityPoolCollateral).notifyLiquidation(currentPoolDeposit, toLiquidateTo);
+            // the second asks for the whole pool; the pool gives up all but its floor, and the rebalance pays for that
+            uint256 toLiquidate = IERC20(stabilityPoolCollateral).totalSupply();
+            uint256 givenUp = Math.min(toLiquidate, IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss());
+            poolActions.liquidate(wrappedCollateralToken, toLiquidate, (givenUp * 1 ether) / price);
             rebalance2 = true;
         }
-
-        // if (!deposited2 && currentX >= startX + 6 days) {
-        //     vm.prank(rewardDepositor);
-        //     IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 2 ether);
-        //     deposited2 = true;
-        // }
     }
 }
 

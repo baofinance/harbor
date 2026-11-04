@@ -1,0 +1,246 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+import {Vm} from "forge-std/Vm.sol";
+
+import {BaoFactoryTestLib} from "@bao-test/BaoFactoryTestLib.sol";
+import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {HarborDeployStack} from "@harbor-script/src/HarborDeployStack.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {MarketAddresses} from "@harbor-script/src/MarketAddresses.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+
+/// @notice One Harbor deployment run: who owns it, where its fees go, its salt namespace, its network and which cut of
+///         each market it deploys.
+/// @dev An INSTANCE is a run, and a test HOLDS one — `new HarborDeployRun(owner, treasury, "prefix", "mainnet", cut)`,
+///      or a subclass that fixes the identity and states what it deploys (`MarketDeployRun`) — and drives it
+///      from outside: construct it, then tell it to deploy. Two things follow from the run being an object
+///      rather than a base of the test contract:
+///
+///      **Independent deployments.** A test needing MORE THAN ONE — two pegs, or two minter markets whose salt
+///      namespaces must not collide — holds two. Each carries its own `FactoryDeployer` state, so each is a
+///      separate run, exactly as they are in production.
+///
+///      **Compiled once.** The deploy framework is a large body of code. Inherited, it is compiled into every
+///      test contract that inherits it and the optimizer processes each copy; held, it is compiled into the
+///      run alone, and a test contract carries only its tests and the run's creation code.
+///
+///      This is deliberately NOT a `BaoTest`: `new` on a `BaoTest` would instantiate a whole test contract per
+///      run. The deploy it runs is production logic, and `HarborDeployStack` itself must never inherit test code
+///      at all. What this adds for tests is what they need once it has run: the addresses of a market it built,
+///      and a settable mock in place of the one dependency it does not deploy, the price oracle.
+///
+///      The five constructor values are IDENTITY: what this run IS, fixed before it starts and constant
+///      throughout. None of them is a per-call choice, so none of them belongs in a deploy signature - the cut
+///      least of all, since the deploy's phases are fixed and only the middle one is open to it: a cut chosen by a
+///      call could reach that phase only through state one call leaves for the next. Because they are inputs rather
+///      than invented here, two runs cannot accidentally share an owner, a fee receiver, or a salt namespace —
+///      which is precisely what a multi-run test must avoid.
+contract HarborDeployRun is HarborDeployStack {
+    // The well-known forge cheatcode address, referenced directly: this is not a test contract.
+    Vm private constant _vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+
+    /// @dev Who owns every proxy this run deploys, and who its `onlyOwner` calls must come from once the run
+    ///      has handed ownership over. Production returns the Harbor multisig; a test names its own so it can
+    ///      prank as it.
+    address private immutable _owner;
+
+    /// @dev Where this run's deployments send fees. Distinct from `_owner` by construction — production
+    ///      returns the same address for both, which would leave a test measuring one balance for two
+    ///      purposes: fees arriving, and the owner's own holdings.
+    address private immutable _treasury;
+
+    /// @dev Strings cannot be immutable, so these are set once in the constructor and never written again.
+    string private _saltPrefix;
+    string private _network;
+
+    /// @notice Which of a market's contracts a run deploys: the cut of production's deploy a test asks for, so that it
+    ///         stands up what it needs and builds nothing by hand. Each cut names its contracts outright - it is not
+    ///         "everything up to here", which is what lets one skip contracts production deploys before others.
+    ///         With each, the peg's pegged token when the deploy is asked for it.
+    enum Cut {
+        Minter, // the market's leveraged token, its reserve pool and its minter
+        MinterAndGenesis, // ... and its genesis contract, without the stability pools or their manager
+        CollateralPool, // the minter's cut and the stability pool that takes wrapped collateral
+        BothPools, // ... and the one that takes the leveraged token
+        Market, // ... and the manager that coordinates the two
+        Whole // production's own deploy: whatever production deploys
+    }
+
+    /// @notice What this run deploys of each market it is given.
+    Cut public immutable cut;
+
+    constructor(address owner_, address treasury_, string memory saltPrefix_, string memory network_, Cut cut_) {
+        _owner = owner_;
+        _treasury = treasury_;
+        _saltPrefix = saltPrefix_;
+        _network = network_;
+        cut = cut_;
+    }
+
+    /// @dev Phase 2 of the deploy run, cut to this run's `cut` - the only phase a run may change, so the state it
+    ///      starts from and the handover of ownership after it are production's whatever the cut. `Whole` is
+    ///      production's own phase 2. Every other cut deploys, for each market, the contracts it names by the
+    ///      framework's own deploy functions in production's order, each of which configures its contract and grants
+    ///      its roles; the one order that matters is a constructor reading another contract, which is why the minter
+    ///      comes before Genesis and the pools.
+    function _deployAndConfigure(
+        DeploymentTypes.State memory state,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        bool deployPeg,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) internal virtual override {
+        if (cut == Cut.Whole) {
+            super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
+        } else {
+            if (deployPeg) {
+                deployPeggedTokenWithRoles(state, peg, allMarkets);
+            }
+            for (uint256 i = 0; i < marketsToDeploy.length; i++) {
+                Config_MinterMarket market = marketsToDeploy[i];
+                _deployLeveragedTokenWithRoles(state, market);
+                deployReservePool(state, market);
+                deployMinter(state, market);
+                if (cut == Cut.MinterAndGenesis) {
+                    deployGenesis(state, market);
+                }
+                if (cut == Cut.CollateralPool || cut == Cut.BothPools || cut == Cut.Market) {
+                    deployStabilityPool(StabilityPoolType.Collateral, state, market);
+                }
+                if (cut == Cut.BothPools || cut == Cut.Market) {
+                    deployStabilityPool(StabilityPoolType.Leveraged, state, market);
+                }
+                if (cut == Cut.Market) {
+                    deployStabilityPoolManager(state, market);
+                }
+            }
+        }
+    }
+
+    function owner() public view override returns (address) {
+        return _owner;
+    }
+
+    function treasury() public view override returns (address) {
+        return _treasury;
+    }
+
+    /// @dev Overrides `FactoryDeployer`'s accessor, which is `virtual` for exactly this. Answering from
+    ///      constructor state means every address prediction resolves before any deploy call has run, so a
+    ///      test can take a predicted address the moment it has an instance.
+    function saltPrefix() public view override returns (string memory) {
+        return _saltPrefix;
+    }
+
+    /// @dev The counterpart of `saltPrefix()`, which lives in `FactoryDeployer`. This one has no base to
+    ///      override yet because `network` is still a deploy-call parameter there.
+    function network() public view returns (string memory) {
+        return _network;
+    }
+
+    /// @notice Run this deployment: the peg's pegged token if asked for, then each market named.
+    /// @dev The public face of `deployHarborForPeg`, which is `internal`. A run is driven from OUTSIDE —
+    ///      construct it, then tell it to deploy — and an internal function cannot be reached that way, so
+    ///      without this an instance could be built but never used.
+    ///
+    ///      Identity is not a parameter here: the salt prefix and network came from the constructor, so the
+    ///      only inputs are what this particular run deploys.
+    function deploy(
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        bool deployPeg,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) public {
+        deployHarborForPeg(saltPrefix(), peg, allMarkets, network(), deployPeg, marketsToDeploy);
+    }
+
+    /// @notice Deploy the repayment contract for the rebalance dilution exploits, with `debts` owed to `accounts` in
+    ///         `token`, and hand it to the run's owner.
+    /// @dev The public face of the `Repayment` mixin's `deployRepayment`, for the same reason `deploy` exists: a run is
+    ///      driven from outside. It is not part of a peg's deployment, so it builds its own fresh state, as a run with
+    ///      nothing to persist does.
+    function deployRepayment(
+        address token,
+        string memory name_,
+        string memory symbol_,
+        address[] memory accounts,
+        uint256[] memory debts
+    ) public returns (address repayment) {
+        DeploymentTypes.State memory state = DeploymentState.fresh(saltPrefix(), network());
+        state.baoFactory = baoFactory();
+        repayment = deployRepayment(state, rebalanceDilutionRepaymentKey(), token, name_, symbol_, accounts, debts);
+        _transferAllOwnerships();
+    }
+
+    /// @notice Deploy the singleton BaoFactory if needed and register THIS run as a factory operator.
+    /// @dev Idempotent, and called by the run itself, which is what will call `factory.deploy`:
+    ///      `BaoFactoryTestLib.ensureBaoFactory` is `internal`, so it inlines and `address(this)` is this run.
+    ///
+    ///      Call it AFTER selecting a fork: a fork switch resets the operator registration.
+    function ensureFactory() public returns (address factory) {
+        return BaoFactoryTestLib.ensureBaoFactory();
+    }
+
+    /// @notice The market's minter holds no code: this run has not deployed it.
+    error MinterNotDeployed(address minter);
+
+    /// @notice The market's minter reads its price from an address other than the one this run predicts for its
+    ///         oracle.
+    error MinterReadsAnotherOracle(address minter, address wired, address predicted);
+
+    /// @notice The addresses of `config`'s market, which this run has deployed: the deploy's own (`marketAddresses`),
+    ///         from which it built the market. Reverts on a market this run has not deployed.
+    function deployedMarketAddresses(Config_MinterMarket config) public returns (MarketAddresses memory addresses) {
+        _deployedMinter(config);
+        addresses = marketAddresses(config);
+    }
+
+    /// @notice Put a settable mock price oracle where this run wired `config`'s minter to read its price, and return
+    ///         its address.
+    /// @dev The price oracle is the one dependency a run does not deploy - production deploys it separately - and the
+    ///      deploy wires the minter to its predicted address while that address is still codeless. So this is called
+    ///      AFTER the deploy, and checks it: the minter must be deployed, and must read exactly the predicted address,
+    ///      or a mock put there would never be read.
+    ///
+    ///      `vm.etch` copies code, not storage, so the mock would arrive answering zeros and an empty quote name, its
+    ///      constructor never having run. Its state is restored from a mock constructed here, so the two cannot drift.
+    function installMockPriceOracle(Config_MinterMarket config) public returns (address oracle) {
+        address minter = _deployedMinter(config);
+        oracle = wrappedPriceOracleAddress(config);
+        address wired = IMinter(minter).priceOracle();
+        if (wired != oracle) {
+            revert MinterReadsAnotherOracle(minter, wired, oracle);
+        }
+
+        MockWrappedPriceOracle template = new MockWrappedPriceOracle();
+        _vm.etch(oracle, address(template).code);
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = template.latestAnswer();
+        MockWrappedPriceOracle(oracle).setLatestAnswer(minPrice, maxPrice, minRate, maxRate);
+        MockWrappedPriceOracle(oracle).setQuoteName(template.quoteName());
+    }
+
+    /// @dev `config`'s minter; reverts if this run has not deployed it.
+    function _deployedMinter(Config_MinterMarket config) private returns (address minter) {
+        minter = minterAddress(config);
+        if (minter.code.length == 0) {
+            revert MinterNotDeployed(minter);
+        }
+    }
+}
+
+/// @notice A run told the salt prefix the price oracles were deployed under, as `Deploy_<PEG>_mainnet.run` tells one
+///         given an oracle salt.
+contract OracleSaltDeployRun is HarborDeployRun {
+    constructor(
+        address owner_,
+        address treasury_,
+        string memory saltPrefix_,
+        string memory oracleSalt
+    ) HarborDeployRun(owner_, treasury_, saltPrefix_, "mainnet", HarborDeployRun.Cut.Whole) {
+        _setOracleSaltPrefix(oracleSalt);
+    }
+}

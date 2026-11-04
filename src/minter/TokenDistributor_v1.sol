@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -13,7 +13,7 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
-import {ITokenDistributor} from "src/interfaces/ITokenDistributor.sol";
+import {ITokenDistributor} from "@harbor/interfaces/ITokenDistributor.sol";
 
 /// @notice Distributes tokens to addresses.
 /// @author rootminus0x1
@@ -35,7 +35,7 @@ contract TokenDistributor_v1 is
     ITokenDistributor,
     Initializable,
     UUPSUpgradeable,
-    ReentrancyGuardTransientUpgradeable,
+    ReentrancyGuardTransient,
     TokenHolder,
     BaoOwnableRoles
 {
@@ -97,8 +97,6 @@ contract TokenDistributor_v1 is
     /// @param name_ The name given to this distributor.
     function initialize(address owner_, string memory name_) public initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
-        __ReentrancyGuardTransient_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         $.name = name_;
     }

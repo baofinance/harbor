@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Reports each market's stability pool manager, its two stability pools and its minter, using read-only calls:
+# no transaction is sent. The markets are the stability pool managers in the state file; the pools' and the
+# minter's salts are the manager's salt with the contract name changed.
+# For each contract it prints the address, owner() and the implementation, and compares the implementation with
+# the state file. A paused contract's owner() is answered by the pauser its proxy points to.
+# It then simulates one call on each contract: rebalanceable() on a manager, claim() on a pool, collateralRatio()
+# on a minter. A contract upgraded to BaoPauser_v1 reverts with Paused(string), recognized by its selector.
+# The script exits non-zero when an implementation differs from the state file, or when a call fails other than
+# by reverting; a failed call prints cast's full output.
+set -uo pipefail
+
+rpc_url="mainnet"
+if [[ $# -eq 2 && "$1" == "--rpc-url" ]]; then
+  rpc_url="$2"
+elif [[ $# -ne 0 ]]; then
+  echo "Usage: $0 [--rpc-url <url or foundry.toml alias>]   (default mainnet; local is the anvil fork)" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# cast resolves the RPC aliases from the repo's foundry.toml
+cd "$SCRIPT_DIR/.."
+
+STATE_FILE="deployments/mainnet/harbor_v1.state.json"
+salt_prefix=$(jq -r '.saltPrefix' "$STATE_FILE")
+markets=$(jq -r '.proxies | keys[] | select(endswith("::stabilityPoolManager")) | rtrimstr("::stabilityPoolManager")' "$STATE_FILE")
+if [[ -z "$markets" ]]; then
+  echo "no stabilityPoolManager entries found in $STATE_FILE" >&2
+  exit 1
+fi
+
+CONTRACTS=(stabilityPoolManager stabilityPoolCollateral stabilityPoolLeveraged minter)
+declare -A CALLS=(
+  [stabilityPoolManager]='rebalanceable()(bool)'
+  [stabilityPoolCollateral]='claim()'
+  [stabilityPoolLeveraged]='claim()'
+  [minter]='collateralRatio()(uint256)'
+)
+
+paused_selector=$(cast sig 'Paused(string)')
+
+declare -A total paused
+for contract in "${CONTRACTS[@]}"; do
+  total[$contract]=0
+  paused[$contract]=0
+done
+contracts=0
+differing=0
+failed=0
+for market in $markets; do
+  for contract in "${CONTRACTS[@]}"; do
+    key="$market::$contract"
+    contracts=$((contracts + 1))
+    total[$contract]=$((total[$contract] + 1))
+
+    if ! address=$(script/predict --rpc-url "$rpc_url" --porcelain "$salt_prefix::$key" 2>&1); then
+      printf '%s address prediction failed:\n%s\n' "$key" "$address"
+      failed=$((failed + 1))
+      continue
+    fi
+    printf '%s %s\n' "$key" "$address"
+
+    if ! owner=$(cast call "$address" 'owner()(address)' --rpc-url "$rpc_url" 2>&1); then
+      printf '  owner() failed:\n%s\n' "$owner"
+      failed=$((failed + 1))
+      continue
+    fi
+    printf '  %-20s %s\n' "owner()" "$owner"
+
+    if ! implementation=$(cast implementation "$address" --rpc-url "$rpc_url" 2>&1); then
+      printf '  implementation failed:\n%s\n' "$implementation"
+      failed=$((failed + 1))
+      continue
+    fi
+    implementation=$(cast to-check-sum-address "$implementation")
+    implementation_type=$(jq -r --arg a "$implementation" '.implementations[$a].contractType // "not in the state file"' "$STATE_FILE")
+    state_implementation=$(jq -r --arg k "$key" '.proxies[$k].implementation // empty' "$STATE_FILE")
+    if [[ "${implementation,,}" == "${state_implementation,,}" ]]; then
+      printf '  %-20s %s %s, as in the state file\n' "implementation" "$implementation" "$implementation_type"
+    else
+      printf '  %-20s %s %s\n' "implementation" "$implementation" "$implementation_type"
+      if [[ -z "$state_implementation" ]]; then
+        printf '  %-20s no entry for %s - differs\n' "state file has" "$key"
+      else
+        state_implementation_type=$(jq -r --arg a "$state_implementation" '.implementations[$a].contractType // "not in the state file"' "$STATE_FILE")
+        printf '  %-20s %s %s - differs\n' "state file has" "$state_implementation" "$state_implementation_type"
+      fi
+      differing=$((differing + 1))
+    fi
+
+    call=${CALLS[$contract]}
+    label="${call%%(*}()"
+    output=$(cast call "$address" "$call" --rpc-url "$rpc_url" 2>&1)
+    status=$?
+    reverted=$(grep -m1 '^Error: execution reverted' <<<"$output")
+    if [[ $status -eq 0 ]]; then
+      printf '  %-20s returned %s\n' "$label" "$output"
+    elif grep -q "data: \"$paused_selector" <<<"$output"; then
+      printf '  %-20s paused\n' "$label"
+      paused[$contract]=$((paused[$contract] + 1))
+    elif [[ -n "$reverted" ]]; then
+      reason=${reverted#Error: }
+      printf '  %-20s not paused: %s\n' "$label" "${reason#execution reverted: }"
+    else
+      printf '  %-20s failed:\n%s\n' "$label" "$output"
+      failed=$((failed + 1))
+    fi
+  done
+done
+
+echo
+for contract in "${CONTRACTS[@]}"; do
+  printf '%-24s %s of %s paused\n' "$contract" "${paused[$contract]}" "${total[$contract]}"
+done
+if [[ $differing -ne 0 ]]; then
+  echo "$differing of $contracts implementations differ from the state file" >&2
+fi
+if [[ $failed -ne 0 ]]; then
+  echo "$failed of $contracts contracts had a failed call" >&2
+fi
+if [[ $differing -ne 0 || $failed -ne 0 ]]; then
+  exit 1
+fi

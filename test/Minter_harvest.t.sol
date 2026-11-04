@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-//import { Test } from "forge-std/Test.sol";
-
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/math/SignedMath.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "test/Useful.sol";
-import {TestMinterSetUp} from "test/Minter_base.t.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterHarvestSetUp is TestMinterSetUp {
     function setUpConfig() internal virtual override {
@@ -36,11 +35,38 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         harvestReceiver = makeAddr("harvestReceiver");
         harvester = makeAddr("harvester");
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(harvester, harvesterRole);
+        vm.startPrank(owner());
+        IHarborRoles(minter).grantRoles(harvester, harvesterRole);
+        vm.stopPrank();
         deal(address(Deployed.wstETH), harvester, 100 ether);
-        vm.prank(harvester);
+        vm.startPrank(harvester);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// Only the owner or a harvester sweeps: for a stranger and a holder of the zero-fee role it reverts, and the
+    /// owner's and the harvester's sweeps each go through and are announced.
+    function test_sweep_revertsForAnyoneButTheOwnerOrAHarvester() public {
+        address stray = address(new MockERC20("stray", "STRAY", 18));
+        MockERC20(stray).mint(minter, 2 ether);
+
+        address[2] memory unauthorised = [makeAddr("stranger"), zeroFee];
+        for (uint256 i = 0; i < unauthorised.length; i++) {
+            vm.startPrank(unauthorised[i]);
+            vm.expectRevert(IHarborOwnable.Unauthorized.selector);
+            ITokenHolder(minter).sweep(stray, 1 ether, harvestReceiver);
+            vm.stopPrank();
+        }
+
+        address[2] memory allowed = [owner(), harvester];
+        for (uint256 i = 0; i < allowed.length; i++) {
+            vm.startPrank(allowed[i]);
+            vm.expectEmit(minter);
+            emit ITokenHolder.Swept(stray, 1 ether, harvestReceiver);
+            ITokenHolder(minter).sweep(stray, 1 ether, harvestReceiver);
+            vm.stopPrank();
+        }
+        assertEq(IERC20(stray).balanceOf(harvestReceiver), 2 ether, "both sweeps delivered");
     }
 
     function test_harvestInit() public {
@@ -57,9 +83,10 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
     }
 
     function test_harvestPriceChange(uint256 startPrice, uint256 startRate) public {
-        // We need reasonable min amounts for rate & price, otherwise minting pegged tokens rounds down to 0
-        startPrice = bound(startPrice, 1e8, 10000 ether);
-        startRate = bound(startRate, 1e8, 5 ether);
+        // Each of the fixture's 50-token mints must be worth a wei, or it mints nothing: 50e18 x rate x price / 1e36
+        // >= 1 needs rate x price >= 2e16, which floors of 2e8 each meet twice over
+        startPrice = bound(startPrice, 2e8, 10000 ether);
+        startRate = bound(startRate, 2e8, 5 ether);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, startRate);
         setUp_collateral(50 ether, 50 ether); // 100 collateral
@@ -83,9 +110,10 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
     }
 
     function test_harvestRateChange(uint256 startPrice, uint256 startRate) public {
-        // We need reasonable min amounts for rate & price, otherwise minting pegged tokens rounds down to 0
-        startPrice = bound(startPrice, 1e8, 10000 ether);
-        startRate = bound(startRate, 1e8, 5 ether);
+        // Each of the fixture's 50-token mints must be worth a wei, or it mints nothing: 50e18 x rate x price / 1e36
+        // >= 1 needs rate x price >= 2e16, which floors of 2e8 each meet twice over
+        startPrice = bound(startPrice, 2e8, 10000 ether);
+        startRate = bound(startRate, 2e8, 5 ether);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, startRate);
         {
@@ -104,21 +132,25 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         );
 
         // Then rate change
-        for (uint256 r = 0; r < startRate * 2; r += 1e16) {
+        // the sweep starts at the smallest non-zero rate: the oracle never quotes a zero rate, and `harvestable`
+        // divides by the rate it is given
+        for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
+            // The surplus over the wrapped the record needs, that need rounded UP: what a harvest leaves behind must
+            // still cover the record once converted back at the rate, and that conversion rounds down.
             uint256 expectedHarvestable = 0;
             if (r > startRate) {
                 uint256 heldValue = wrappedCollateral;
-                uint256 accountingValue = (collateral * 1e18) / r;
-                expectedHarvestable = heldValue - accountingValue;
+                uint256 accountingValue = Math.ceilDiv(collateral * 1e18, r);
+                expectedHarvestable = heldValue > accountingValue ? heldValue - accountingValue : 0;
             }
             assertEq(
-                IMinter(minter).harvestable(), // 0.699482885940368019
-                expectedHarvestable, // 0
+                IMinter(minter).harvestable(),
+                expectedHarvestable,
                 string.concat(
-                    "harvestable is correct with price=", // 1845.157210154513240346
+                    "harvestable is correct with price=",
                     Strings.toString(startPrice),
-                    ", rate=", // 1.110000000000000000
+                    ", rate=",
                     Strings.toString(r)
                 )
             );
@@ -127,23 +159,23 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
 
     function test_harvestVariableRateChange(uint256 startPrice, uint256 startRate) public {
         startPrice = bound(startPrice, 0, 10000 ether);
-        startRate = bound(startRate, 0, 5 ether); // 1.102235739966061915
+        startRate = bound(startRate, 0, 5 ether);
 
         setUp_collateral(50 ether, 50 ether); // 100 collateral
         uint256 collateral = IMinter(minter).collateralTokenBalance();
         address wrappedCollateralToken = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        uint256 lastRate = startRate;
-        for (uint256 r = 0; r < startRate * 2; r += 1e16) {
+        // the sweep starts at the smallest non-zero rate: the oracle never quotes a zero rate, and `harvestable`
+        // divides by the rate it is given
+        for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
             uint256 wrappedCollateral = IERC20(wrappedCollateralToken).balanceOf(minter);
 
+            // The surplus over the wrapped the record needs, that need rounded UP, as above.
             uint256 expectedHarvestable = 0;
-            if (r > 0) {
-                uint256 accountingValue = (collateral * 1e18) / r;
-                if (wrappedCollateral > accountingValue) {
-                    expectedHarvestable = wrappedCollateral - accountingValue;
-                }
+            uint256 accountingValue = Math.ceilDiv(collateral * 1e18, r);
+            if (wrappedCollateral > accountingValue) {
+                expectedHarvestable = wrappedCollateral - accountingValue;
             }
             assertEq(
                 IMinter(minter).harvestable(),
@@ -160,8 +192,9 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
                 // Harvest
                 uint256 beforeHarvestReceiver = IERC20(wrappedCollateralToken).balanceOf(harvestReceiver);
                 uint256 beforeMinter = IERC20(wrappedCollateralToken).balanceOf(minter);
-                vm.prank(harvester);
+                vm.startPrank(harvester);
                 ITokenHolder(minter).sweep(wrappedCollateralToken, expectedHarvestable, harvestReceiver);
+                vm.stopPrank();
                 assertEq(
                     IERC20(wrappedCollateralToken).balanceOf(harvestReceiver),
                     beforeHarvestReceiver + expectedHarvestable,
@@ -173,7 +206,6 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
                     "minter balance matches"
                 );
             }
-            lastRate = r;
         }
     }
 }

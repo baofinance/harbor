@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ConfigPeg} from "./ConfigPeg.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 
 /// @notice Configuration for GOLD peg.
 /// @dev Deployed pegged token: haGOLD ("Harbor anchored GOLD")
@@ -11,10 +11,7 @@ contract ConfigPeg_GOLD is ConfigPeg {
         return "GOLD";
     }
 
-    function minDeposit() public pure override returns (uint256) {
-        return 2e14;
-    }
-    function minTotalSupply() public pure override returns (uint256) {
+    function aboutADollarInPegged() public pure virtual override returns (uint256) {
         return 2e14;
     }
 }

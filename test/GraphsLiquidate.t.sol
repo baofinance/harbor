@@ -1,89 +1,51 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
+import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
+import {TestMinterMarketConfig_rebalanceThreshold130} from "@harbor-test/config/TestMinterMarketConfig_rebalanceThreshold130.sol";
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
+import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
+import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 
-import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
-
-import "test/Useful.sol";
-import {TestCollateralRatioRangeSetUp} from "test/CollateralRatio.t.sol";
-import {TestGraphs} from "test/Graphs.t.sol";
-
-contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp {
-    string liquidateFile;
-    address stabilityPoolManagerCollateral;
-    address stabilityPoolManagerLeveraged;
-    address stabilityPoolManagerBoth;
+/// @dev The market cut at a rebalance threshold of 1.30: the manager comes from the deploy, configured and granted its
+///      roles by it, and the graphs below rebalance through it.
+abstract contract TestGraphsLiquidateSetUp is GraphTestBase, TestCollateralRatioRangeSetUp {
+    address stabilityPoolManager;
     address bountyReceiver;
-    address treasury;
 
-    function setUpConfig() internal virtual override {
-        setUp_config_likely();
+    function newDeployRun() internal virtual override returns (MarketDeployRun) {
+        return
+            new MockStabilityPoolMarketDeployRun(
+                owner(),
+                treasury(),
+                HarborDeployRun.Cut.Market,
+                new TestMinterMarketConfig_rebalanceThreshold130()
+            );
     }
+
+    function setUp() public virtual override {
+        super.setUp();
+        stabilityPoolManager = deployRun.stabilityPoolManagerAddress(marketConfig);
+        bountyReceiver = makeAddr("bountyReceiver");
+    }
+}
+
+contract TestGraphsLiquidatePartial is TestGraphsLiquidateSetUp {
+    string liquidateFile;
 
     function setUp() public override {
         super.setUp();
-
-        IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
-        IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
-
-        bountyReceiver = makeAddr("bountyReceiver");
-        treasury = makeAddr("treasury");
-
-        address stabilityPoolCollateralEmpty = _setupStabilityPool(wrappedCollateralToken);
-        address stabilityPoolLeveragedEmpty = _setupStabilityPool(leveragedToken);
-
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-
-        // set up the stability pool managers
-        stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
-            ),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
-        );
-        IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
-        IBaoRoles(stabilityPoolLeveragedEmpty).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);
-        vm.stopPrank();
-
-        stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)
-            ),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
-        );
-        IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateralEmpty).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
-        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManagerLeveraged, zeroFeeRole);
-        vm.stopPrank();
-
-        stabilityPoolManagerBoth = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
-        );
-        IStabilityPoolManager(stabilityPoolManagerBoth).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerBoth, rebalancerRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerBoth, rebalancerRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManagerBoth, zeroFeeRole);
-        vm.stopPrank();
 
         liquidateFile = openFile(
             "liquidate_partial",
@@ -123,50 +85,33 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         uint256 afterPrice_both;
     }
 
-    function doOneCollateralRatio() internal override {
+    /// @dev Three scenarios from one state: the market's manager rebalancing out of the collateral pool alone, the
+    ///      leveraged pool alone, and both. Each scenario fills its own pool(s) under the snapshot - the manager takes
+    ///      from whichever pools hold pegged - and the snapshot puts the next one back where the first began.
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         PartialMeasures memory m;
         m.beforePegged = IMinter(minter).peggedTokenBalance();
         m.beforeCR = IMinter(minter).collateralRatio();
         m.beforePrice = IMinter(minter).leveragedTokenPrice();
 
         uint256 snap = vm.snapshotState();
-        if (IStabilityPoolManager(stabilityPoolManagerCollateral).rebalanceable()) {
-            IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
-            m.afterCR_collateral = IMinter(minter).collateralRatio();
-            m.afterPrice_collateral = IMinter(minter).leveragedTokenPrice();
-        } else {
-            m.afterCR_collateral = m.beforeCR;
-            m.afterPrice_collateral = m.beforePrice;
-        }
-        m.afterPegged_collateral = IMinter(minter).peggedTokenBalance();
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
+        (m.afterCR_collateral, m.afterPrice_collateral, m.afterPegged_collateral) = _rebalanceAndRead(m);
         vm.revertToState(snap);
 
-        if (IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalanceable()) {
-            IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
-            m.afterCR_leveraged = IMinter(minter).collateralRatio();
-            m.afterPrice_leveraged = IMinter(minter).leveragedTokenPrice();
-        } else {
-            m.afterCR_leveraged = m.beforeCR;
-            m.afterPrice_leveraged = m.beforePrice;
-        }
-        m.afterPegged_leveraged = IMinter(minter).peggedTokenBalance();
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        (m.afterCR_leveraged, m.afterPrice_leveraged, m.afterPegged_leveraged) = _rebalanceAndRead(m);
         vm.revertToState(snap);
 
-        if (IStabilityPoolManager(stabilityPoolManagerBoth).rebalanceable()) {
-            IStabilityPoolManager(stabilityPoolManagerBoth).rebalance(bountyReceiver, 0);
-            m.afterCR_both = IMinter(minter).collateralRatio();
-            m.afterPrice_both = IMinter(minter).leveragedTokenPrice();
-        } else {
-            m.afterCR_both = m.beforeCR;
-            m.afterPrice_both = m.beforePrice;
-        }
-        m.afterPegged_both = IMinter(minter).peggedTokenBalance();
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        (m.afterCR_both, m.afterPrice_both, m.afterPegged_both) = _rebalanceAndRead(m);
         vm.revertToState(snap);
 
         writeLine(
             liquidateFile,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 m.afterCR_collateral,
                 m.afterCR_leveraged,
                 m.afterCR_both,
@@ -181,57 +126,51 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
             )
         );
     }
+
+    /// @dev Rebalance if the market asks for one, then read the collateral ratio, the leveraged price and the pegged
+    ///      supply; where no rebalance runs, the ratio and the price are the ones before it.
+    function _rebalanceAndRead(
+        PartialMeasures memory m
+    ) private returns (uint256 collateralRatioAfter, uint256 leveragedPriceAfter, uint256 peggedAfter) {
+        if (IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable()) {
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+            collateralRatioAfter = IMinter(minter).collateralRatio();
+            leveragedPriceAfter = IMinter(minter).leveragedTokenPrice();
+        } else {
+            collateralRatioAfter = m.beforeCR;
+            leveragedPriceAfter = m.beforePrice;
+        }
+        peggedAfter = IMinter(minter).peggedTokenBalance();
+    }
 }
 
-contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
+contract TestGraphsLiquidate is TestGraphsLiquidateSetUp {
     string liquidateFile;
     string toFile;
-    address stabilityPoolManager;
-    address bountyReceiver;
-    address treasury;
-    uint256 peggedForSPCRatio;
-    uint256 peggedForSPLRatio;
+    uint256 collateralPoolShare;
+    uint256 leveragedPoolShare;
     address user;
 
-    constructor(uint256 peggedForSPCRatio_, uint256 peggedForSPLRatio_) {
-        peggedForSPCRatio = peggedForSPCRatio_;
-        peggedForSPLRatio = peggedForSPLRatio_;
+    /// @param collateralPoolShare_ Share of the minter's pegged deposited into the collateral pool, as a 1e18 fraction.
+    /// @param leveragedPoolShare_ Share deposited into the leveraged pool, as a 1e18 fraction.
+    constructor(uint256 collateralPoolShare_, uint256 leveragedPoolShare_) {
+        collateralPoolShare = collateralPoolShare_;
+        leveragedPoolShare = leveragedPoolShare_;
     }
 
-    function setUpConfig() internal virtual override {
-        setUp_config_likely();
-    }
-
-    function setUp() public override {
+    function setUp() public virtual override {
         super.setUp();
         uint256 minterPegged = IMinter(minter).peggedTokenBalance();
 
-        uint256 peggedForSPC = (peggedForSPCRatio * minterPegged) / 1 ether;
-        uint256 peggedForSPL = (peggedForSPLRatio * minterPegged) / 1 ether;
-        if (peggedForSPC > 0) {
-            IStabilityPool(stabilityPoolCollateral).deposit(peggedForSPC, address(this), 0);
+        uint256 peggedForCollateralPool = (collateralPoolShare * minterPegged) / 1 ether;
+        uint256 peggedForLeveragedPool = (leveragedPoolShare * minterPegged) / 1 ether;
+        if (peggedForCollateralPool > 0) {
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(peggedForCollateralPool, address(this), 0);
         }
-        if (peggedForSPL > 0) {
-            IStabilityPool(stabilityPoolLeveraged).deposit(peggedForSPL, address(this), 0);
+        if (peggedForLeveragedPool > 0) {
+            IStabilityPool_v3(stabilityPoolLeveraged).deposit(peggedForLeveragedPool, address(this), 0);
         }
         user = address(this);
-        bountyReceiver = makeAddr("bountyReceiver");
-        treasury = makeAddr("treasury");
-
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-
-        // set up the stability pool managers
-        stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
-        );
-        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManager, rebalancerRole);
-        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManager, rebalancerRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManager, zeroFeeRole);
-        vm.stopPrank();
 
         liquidateFile = openFile(
             "liquidate",
@@ -282,8 +221,8 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         uint256 stabilityPoolLeveragedLeveraged;
         uint256 userCollateral;
         uint256 userLeveraged;
-        uint256 userBalanceSPCollateral;
-        uint256 userBalanceSPLeveraged;
+        uint256 userBalanceCollateralPool;
+        uint256 userBalanceLeveragedPool;
         uint256 leveragedTokenPrice;
     }
 
@@ -295,20 +234,23 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         m.stabilityPoolLeveragedPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
         m.stabilityPoolCollateralCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
         m.stabilityPoolLeveragedLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
-        m.userCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user, wrappedCollateralToken);
-        m.userLeveraged = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(user, leveragedToken);
-        m.userBalanceSPCollateral = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user);
-        m.userBalanceSPLeveraged = IStabilityPool(stabilityPoolLeveraged).assetBalanceOf(user);
+        m.userCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user,
+            aa(wrappedCollateralToken)
+        )[0];
+        m.userLeveraged = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(user, aa(leveragedToken))[0];
+        m.userBalanceCollateralPool = IERC20(stabilityPoolCollateral).balanceOf(user);
+        m.userBalanceLeveragedPool = IERC20(stabilityPoolLeveraged).balanceOf(user);
         m.leveragedTokenPrice = IMinter(minter).leveragedTokenPrice();
     }
 
-    function doOneCollateralRatio() internal override {
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
         Measures memory pre = _readMeasures();
 
         uint256 snap = vm.snapshotState();
 
-        if (IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
-            IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        if (IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable()) {
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
         }
 
         Measures memory post = _readMeasures();
@@ -318,7 +260,7 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         writeLine(
             liquidateFile,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 pre.collateralRatio,
                 post.collateralRatio,
                 pre.minterPegged,
@@ -334,15 +276,15 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         writeLine(
             toFile,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 post.userCollateral,
                 post.stabilityPoolCollateralCollateral,
                 post.userLeveraged,
                 post.stabilityPoolLeveragedLeveraged,
                 0,
                 post.minterCollateral,
-                post.userBalanceSPCollateral,
-                post.userBalanceSPLeveraged,
+                post.userBalanceCollateralPool,
+                post.userBalanceLeveragedPool,
                 post.leveragedTokenPrice
             )
         );
@@ -359,7 +301,9 @@ contract TestGraphsLiquidateAllCollateral is TestGraphsLiquidate {
 contract TestGraphsLiquidateAllLeveraged is TestGraphsLiquidate {
     constructor() TestGraphsLiquidate(0, 1 ether) {}
 
-    function context() internal pure override returns (string memory) {
+    /// @dev Left overridable: this is the variant that converts the most pegged into leveraged, so it is the
+    ///      one a candidate conversion rule is compared against.
+    function context() internal pure virtual override returns (string memory) {
         return "_all_leveraged";
     }
 }
@@ -410,12 +354,8 @@ contract TestGraphsLiquidatePartialBoth51 is TestGraphsLiquidate {
 
 //////////////////////
 
-contract TestGraphsLiquidateParameters is TestGraphs, TestCollateralRatioRangeSetUp {
+contract TestGraphsLiquidateParameters is GraphTestBase, TestCollateralRatioRangeSetUp {
     string file;
-
-    function setUpConfig() internal virtual override {
-        setUp_config_likely();
-    }
 
     function setUp() public override {
         super.setUp();
@@ -438,17 +378,18 @@ contract TestGraphsLiquidateParameters is TestGraphs, TestCollateralRatioRangeSe
         vm.closeFile(file);
     }
 
-    function doOneCollateralRatio() internal override {
-        (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter(minter)
-            .redeemPeggedForCollateralRatio(1.01 ether);
-        (uint256 peggedForCollateral125, uint256 peggedForLeveraged125) = IMinter(minter)
-            .redeemPeggedForCollateralRatio(1.25 ether);
-        (uint256 peggedForCollateral150, uint256 peggedForLeveraged150) = IMinter(minter)
-            .redeemPeggedForCollateralRatio(1.50 ether);
+    function doOneCollateralRatio(uint256 collateralRatio) internal override {
+        // the unconstrained intercepts (no headroom caps, no holdings split) - the removed 1-arg's behaviour
+        (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter_v3(minter)
+            .redeemPeggedForCollateralRatio(1.01 ether, type(uint256).max, type(uint256).max, 0, 0);
+        (uint256 peggedForCollateral125, uint256 peggedForLeveraged125) = IMinter_v3(minter)
+            .redeemPeggedForCollateralRatio(1.25 ether, type(uint256).max, type(uint256).max, 0, 0);
+        (uint256 peggedForCollateral150, uint256 peggedForLeveraged150) = IMinter_v3(minter)
+            .redeemPeggedForCollateralRatio(1.50 ether, type(uint256).max, type(uint256).max, 0, 0);
         writeLine(
             file,
             ua(
-                currentCollateralRatio,
+                collateralRatio,
                 peggedForCollateral101,
                 peggedForLeveraged101,
                 peggedForCollateral125,

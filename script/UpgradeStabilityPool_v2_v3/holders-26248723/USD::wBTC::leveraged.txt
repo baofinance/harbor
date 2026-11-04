@@ -1,0 +1,4 @@
+# Holders: USD::wBTC::leveraged
+# address: 0xC5492515fAcfEe2d0C8B475FF3b57B3b79497456
+# to-block: 26248723
+# source: Transfer recipients (Etherscan), blocks 24049000-26248723

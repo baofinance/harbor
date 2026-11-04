@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {LibString} from "@solady/utils/LibString.sol";
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
+
 /// @notice Base contract for all Harbor configuration contracts.
 /// @dev Config contracts provide keys via methods, not string parsing.
 abstract contract ConfigBase {
@@ -20,6 +23,7 @@ interface IMarketConfig {
 /// @dev Provides type safety for minter market config parameters.
 ///      Concrete configs must provide peg() and collateral() methods via inherited components.
 ///      This contract doesn't declare the methods to avoid diamond inheritance conflicts.
+///      Concrete configs implement IHarborConfig — see script/config/IHarborConfig.sol.
 abstract contract Config_MinterMarket {
     // Methods provided by ConfigPeg_* and ConfigCollateral_* components via inheritance
 }
@@ -28,9 +32,24 @@ abstract contract Config_MinterMarket {
 /// @dev Provides type safety for price market config parameters.
 abstract contract Config_PriceMarket {}
 
-/// @notice Library for computing minter market salt from configuration.
-/// @dev Used by deployment scripts to generate salt for minter market configs.
+/// @notice A market's identity: the pair of names every key and address for that market derives from.
+/// @dev The deploy layer keys everything off this pair. It exists as a named type because the identity has
+///      two sources — a `Config_MinterMarket` where this repo configured the market, and the bare names
+///      where it did not (fork verification against a live market, hand-written Safe batches). Both produce
+///      the same `Market`, so the resolvers need only one primitive form.
+struct Market {
+    string peg;
+    string collateral;
+}
+
+/// @notice Library for computing minter market identifiers from configuration.
+/// @dev Used by deployment scripts for salt, token names/symbols, and oracle keys.
 library MinterMarketConfigLib {
+    /// @notice The market identity a config describes.
+    function market(Config_MinterMarket config) internal view returns (Market memory) {
+        return Market({peg: peg(config), collateral: collateral(config)});
+    }
+
     /// @notice Get the peg identifier from a market config.
     /// @param config The minter market config contract.
     /// @return The peg identifier (e.g., "BTC", "ETH").
@@ -49,7 +68,7 @@ library MinterMarketConfigLib {
     /// @param config The minter market config contract.
     /// @return The salt in "peg::collateral" format (e.g., "BTC::stETH").
     function salt(Config_MinterMarket config) internal view returns (string memory) {
-        return string.concat(peg(config), "::", collateral(config));
+        return SaltString.key(peg(config), collateral(config));
     }
 
     /// @notice Computes the price oracle key for a minter market config.
@@ -57,6 +76,31 @@ library MinterMarketConfigLib {
     /// @param config The minter market config contract.
     /// @return The key in "collateral::peg::wrappedPriceAggregator" format (e.g., "fxUSD::BTC::wrappedPriceAggregator").
     function priceOracleKey(Config_MinterMarket config) internal view returns (string memory) {
-        return string.concat(collateral(config), "::", peg(config), "::wrappedPriceAggregator");
+        return SaltString.key(collateral(config), peg(config), "wrappedPriceAggregator");
+    }
+
+    /// @notice The markets a collateral filter selects from a peg's markets.
+    /// @param markets All configured markets of a peg.
+    /// @param collateralFilter "*" for all, "" for none, or one collateral's name.
+    /// @return The selected markets.
+    /// @dev Reverts if no market has the collateral named.
+    function parseCollateralFilter(
+        Config_MinterMarket[] memory markets,
+        string memory collateralFilter
+    ) internal view returns (Config_MinterMarket[] memory) {
+        if (LibString.eq(collateralFilter, "*")) {
+            return markets;
+        }
+        if (bytes(collateralFilter).length == 0) {
+            return new Config_MinterMarket[](0);
+        }
+        for (uint256 i = 0; i < markets.length; i++) {
+            if (LibString.eq(collateral(markets[i]), collateralFilter)) {
+                Config_MinterMarket[] memory result = new Config_MinterMarket[](1);
+                result[0] = markets[i];
+                return result;
+            }
+        }
+        revert(string.concat("Market not found for collateral: ", collateralFilter));
     }
 }

@@ -1,0 +1,4 @@
+# Holders: MCAP::pegged
+# address: 0x0C5CC55959DBDE5d9fa05064da754D6A298E9833
+# to-block: 26204708
+# source: Transfer recipients (Etherscan), blocks 24049000-26204708

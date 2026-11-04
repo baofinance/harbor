@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
@@ -15,8 +15,8 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IGenesis} from "src/interfaces/IGenesis.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IGenesis} from "@harbor/interfaces/IGenesis.sol";
 
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
@@ -38,7 +38,7 @@ contract Genesis_v1 is
     Initializable,
     UUPSUpgradeable,
     ContextUpgradeable,
-    ReentrancyGuardTransientUpgradeable,
+    ReentrancyGuardTransient,
     BaoOwnable,
     TokenHolder,
     IGenesis
@@ -104,8 +104,6 @@ contract Genesis_v1 is
         // initialise all the state variables
         _initializeOwner(owner_);
         __Context_init();
-        __UUPSUpgradeable_init();
-        __ReentrancyGuardTransient_init();
 
         emit GenesisBegins();
     }

@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {ConfigPriceVolatilityBase} from "@harbor-script/config/volatility/ConfigPriceVolatilityBase.sol";
 
 /// @notice Volatility configuration for 105% rebalance threshold markets.
-contract ConfigPriceVolatility_105_stable {
-    function rebalanceThreshold() public pure virtual returns (uint256) {
+contract ConfigPriceVolatility_105_stable is ConfigPriceVolatilityBase {
+    function rebalanceThreshold() public pure virtual override returns (uint256) {
         return 1.05e18;
     }
 
-    function minterConfig() public pure returns (IMinter.Config memory) {
+    function minterConfig() public view virtual override returns (IMinter.Config memory) {
         uint256[] memory mintPeggedBounds = new uint256[](6);
         mintPeggedBounds[0] = 1.06e18;
         mintPeggedBounds[1] = 1.15e18;

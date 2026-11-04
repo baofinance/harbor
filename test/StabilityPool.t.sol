@@ -8,83 +8,33 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
-import {IMintable} from "@bao/interfaces/IMintable.sol";
+import {Token} from "@bao/Token.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
-import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
-// New version for testing upgrades
-contract StabilityPool_vN is StabilityPool_v2 {
-    // Keep the same constructor signature
-    constructor(
-        address minter_,
-        address liquidationToken_
-    ) StabilityPool_v2(minter_, liquidationToken_, 3600, 90000, 1 ether) {}
-
-    // Add a new function to verify the upgrade worked
-    function version() external pure returns (string memory) {
-        return "v2";
-    }
-}
-
-// used to expose internal functions
-contract MockStabilityPool is StabilityPool_v2 {
-    constructor(
-        address minter_,
-        address liquidationToken_
-    ) StabilityPool_v2(minter_, liquidationToken_, 3600, 90000, 1 ether) {}
-
-    /// @notice Exposes the product value for testing purposes
-    function __totalSupply() external view returns (TokenBalance memory) {
-        return _getStabilityPoolStorage().totalAssetSupply;
-    }
-
-    /// @notice Exposes the notifyReward function for testing purposes
-    function __notifyReward(address rewardToken, uint256 rewardAmount) external {
-        return _notifyReward(rewardToken, rewardAmount);
-    }
-
-    /// @notice Exposes the notifyReward function for testing purposes
-    function __notifyLoss(uint256 lossAmount) external {
-        _notifyLoss(lossAmount);
-    }
-
-    function __distributePendingReward() external {
-        _distributePendingReward();
-    }
-
-    function __getCompoundedBalance(
-        uint256 initialBalance,
-        uint128 initialProduct,
-        uint128 currentProduct
-    ) external pure returns (uint256) {
-        return _getCompoundedBalance(initialBalance, initialProduct, currentProduct);
-    }
-}
-
-// serves no other purpose than making the foundry traces more informative
-contract MockSTEAM is MintableBurnableERC20_v1 {}
+import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
+import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {MarketDeployRun} from "@harbor-test/harness/MarketDeployRun.sol";
+import {MockStabilityPoolMarketDeployRun} from "@harbor-test/harness/MockStabilityPoolMarketDeployRun.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
+import {MockSTEAM} from "@harbor-test/mocks/MockSTEAM.sol";
+import {StabilityPool_vN} from "@harbor-test/mocks/StabilityPool_vN.sol";
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
-    uint256 internal constant EARLY_WITHDRAWAL_FEE = 0.025 ether;
-    address internal constant FEE_ADDRESS = 0x3dFc49e5112005179Da613BdE5973229082dAc35;
-    uint256 internal constant WITHDRAWAL_START_DELAY = 3600;
-    uint256 internal constant WITHDRAWAL_END_WINDOW = 90000;
     address stabilityPoolCollateral;
     address steam; // the reward token formerly known as STEAM
     address user1;
@@ -93,33 +43,41 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address rebalancer;
     address rewardManager;
 
-    function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
-        string memory liquidation = IERC20Metadata(liquidationToken).symbol();
-        string memory pegged = IERC20Metadata(IMinter(minter).PEGGED_TOKEN()).symbol();
-        string memory wrappedCollateral = IERC20Metadata(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).symbol();
+    /// @dev The suite's own actors and reward token. Each pool the run deploys has them granted and registered
+    ///      afterwards (`_grantPoolTestRoles`).
+    function setUpFork() internal virtual override {
+        super.setUpFork();
 
-        string memory SPName = string.concat(pegged, "x", wrappedCollateral, "~", liquidation);
-        address stabilityPoolToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
-                abi.encodeCall(
-                    MintableBurnableERC20_v1.initialize,
-                    (owner, "StabilityPool Token", string.concat("lp", SPName))
-                )
-            )
-        );
-        vm.label(stabilityPoolToken, string.concat("lp", SPName));
+        steam = address(new MockSTEAM());
+        vm.label(steam, "STEAM");
 
-        // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v2
-        stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v2.sol",
-            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
-        );
-        vm.label(stabilityPool, SPName);
+        rewardDepositor = makeAddr("rewardDepositor");
+        rebalancer = makeAddr("rebalancer");
+        // A real address, not the zero one it defaulted to: registering reward tokens is `onlyOwnerOrRoles`,
+        // so a reward manager distinct from the owner is what keeps the ROLE path covered rather than the
+        // owner path standing in for it.
+        rewardManager = makeAddr("rewardManager");
+    }
 
-        IBaoRoles(stabilityPoolToken).grantRoles(address(this), IMintableRole(stabilityPoolToken).MINTER_ROLE());
-        IMintable(stabilityPoolToken).mint(stabilityPool, 1 ether);
+    /// @dev The pool suites read pool internals, so the run puts `MockStabilityPool` behind each pool it
+    ///      deploys; this level of the suites uses the collateral pool alone.
+    function newDeployRun() internal virtual override returns (MarketDeployRun) {
+        return
+            new MockStabilityPoolMarketDeployRun(
+                owner(),
+                treasury(),
+                HarborDeployRun.Cut.CollateralPool,
+                new TestMinterMarketConfig()
+            );
+    }
 
+    /// @dev The roles and reward token this SUITE needs, which the deploy has no reason to know about: it
+    ///      grants the pool's roles to the predicted manager, not to test actors, and `steam` is a reward
+    ///      token that exists only here. Shared because every pool the suites stand up needs the same.
+    /// @dev Granted after the deploy, as the owner the run handed the pool to - test-actor glue, kept out of
+    ///      the deploy so the run's sequence stays production's.
+    function _grantPoolTestRoles(address stabilityPool) internal {
+        vm.startPrank(owner());
         IBaoRoles(stabilityPool).grantRoles(
             rewardManager,
             IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE()
@@ -128,287 +86,597 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             rewardDepositor,
             IMultipleRewardDistributor(stabilityPool).REWARD_DEPOSITOR_ROLE()
         );
-        IBaoRoles(stabilityPool).grantRoles(rebalancer, IStabilityPool(stabilityPool).REBALANCER_ROLE());
-
-        IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken);
+        IBaoRoles(stabilityPool).grantRoles(rebalancer, IStabilityPool_v3(stabilityPool).REBALANCER_ROLE());
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam);
-        if (liquidationToken != wrappedCollateralToken) {
-            IMultipleRewardDistributor(stabilityPool).registerRewardToken(wrappedCollateralToken);
-        }
-
-        IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
-        IBaoOwnable(stabilityPool).transferOwnership(owner);
+        vm.stopPrank();
     }
 
     function setUp() public virtual override {
         super.setUp();
 
-        steam = address(new MockSTEAM());
-        vm.label(steam, "STEAM");
-
-        rewardDepositor = makeAddr("rewardDepositor");
-        rebalancer = makeAddr("rebalancer");
-
-        stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
-        // fee settings are now initialized via initialize(owner, fee, address)
+        // Deployed by the run, already carrying its config, its reward tokens and the roles the deploy grants.
+        // Only what is test-specific is added below.
+        stabilityPoolCollateral = deployRun.stabilityPoolAddress(
+            marketConfig,
+            HarborDeployer.StabilityPoolType.Collateral
+        );
+        vm.label(stabilityPoolCollateral, "stabilityPoolCollateral");
+        _grantPoolTestRoles(stabilityPoolCollateral);
 
         user1 = makeAddr("user1");
-        vm.prank(user1);
+        vm.startPrank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
         user2 = makeAddr("user2");
-        vm.prank(user2);
+        vm.startPrank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
     }
 
     function _beginWithdrawal(address user) internal {
-        vm.prank(user);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user);
+        vm.startPrank(user);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user);
         vm.warp(start + 1);
     }
 
-    function test_initOnly(address sp, address liquidateTo) internal view {
-        assertEq(StabilityPool_v2(sp).owner(), owner);
-        assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
-        assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
-        assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
+    function test_initOnly(address stabilityPool) internal view {
+        assertEq(IBaoOwnable(stabilityPool).owner(), owner());
+        assertEq(IStabilityPool_v3(stabilityPool).MINTER(), minter);
+        assertEq(IStabilityPool_v3(stabilityPool).ASSET_TOKEN(), peggedToken);
+        assertEq(IERC20(stabilityPool).totalSupply(), 0);
     }
 }
 
 contract TestStabilityPoolInit is TestStabilityPoolSetUp {
     using SafeERC20 for IERC20;
 
+    /// The deployed pool is owned by the market owner, serves the market's minter, takes its pegged token, and starts
+    /// with nothing deposited.
     function test_initOnly() public view {
-        test_initOnly(stabilityPoolCollateral, wrappedCollateralToken);
+        test_initOnly(stabilityPoolCollateral);
     }
 
-    // Test for _authorizeUpgrade function (coverage for function 192)
+    /// Only the owner upgrades the pool: for anyone else it reverts, and the owner's upgrade installs the new
+    /// implementation.
     function testUpgrade() public {
         // Only owner can upgrade
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
+        vm.stopPrank();
 
-        // Create the V2 implementation
-        StabilityPool_vN implementationV2 = new StabilityPool_vN(minter, wrappedCollateralToken);
+        address newImplementation = address(new StabilityPool_vN(minter, peggedToken));
 
         // Perform the upgrade as the owner
-        vm.prank(owner);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(implementationV2), "");
+        vm.startPrank(owner());
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(newImplementation, "");
+        vm.stopPrank();
 
         // Verify the upgrade was successful by calling the new version function
         assertEq(
             StabilityPool_vN(stabilityPoolCollateral).version(),
-            "v2",
+            "v3",
             "Upgrade should succeed and new function should be available"
+        );
+    }
+
+    /// Holding a role is no licence to upgrade: an account the owner has granted every role is refused, upgrading to a
+    /// real implementation, and the pool keeps the implementation it had.
+    function test_upgrade_byAHolderOfEveryRole_reverts() public {
+        address roleHolder = makeAddr("roleHolder");
+        vm.startPrank(owner());
+        IBaoRoles(stabilityPoolCollateral).grantRoles(roleHolder, type(uint256).max);
+        vm.stopPrank();
+        address newImplementation = address(new StabilityPool_vN(minter, peggedToken));
+        address implementationBefore = UnsafeUpgrades.getImplementationAddress(stabilityPoolCollateral);
+
+        vm.startPrank(roleHolder);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(newImplementation, "");
+        vm.stopPrank();
+
+        assertEq(
+            UnsafeUpgrades.getImplementationAddress(stabilityPoolCollateral),
+            implementationBefore,
+            "the implementation is unchanged"
         );
     }
 }
 
 contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
-    address stabilityPoolToken;
-
-    function setUp() public virtual override(TestStabilityPoolSetUp) {
-        super.setUp();
-        stabilityPoolToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
+    /// @dev A pool implementation built from the market config, as the deploy builds one. Building it reads the
+    ///      config - external calls - so it must not sit under a cheatcode that binds to the next call.
+    function _newStabilityPoolImplementation() private returns (address implementation) {
+        implementation = address(
+            new StabilityPool_v3(
+                minter,
+                peggedToken,
+                marketConfig.stabilityPoolWithdrawalDelay(),
+                marketConfig.stabilityPoolWithdrawalPeriod(),
+                marketConfig.aboutADollarInPegged(),
+                "Test SP",
+                "tSP"
             )
         );
     }
 
+    /// Constructing the implementation disables its initializers, so only a proxy in front of it can be initialised.
     function test_initEventsImplementation() public {
+        // Hoisted: the config reads are external calls, and the `expectEmit` below binds to the NEXT call - which
+        // must be the construction, not these reads.
+        uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
+        uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollarInPegged();
+
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
         address(
-            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
+            new StabilityPool_v3(
+                minter,
+                peggedToken,
+                withdrawalDelay,
+                withdrawalPeriod,
+                minTotalAssetSupply,
+                "Test SP",
+                "tSP"
+            )
         );
     }
 
-    function test_initEvents(address liquidateTo) internal {
-        address sp = address(
-            new StabilityPool_v2(minter, liquidateTo, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
+    /// A pool cannot be built for a zero minter: the constructor refuses it.
+    function test_constructor_aZeroMinter_reverts() public {
+        // Hoisted: the config reads are external calls, and the `expectRevert` below binds to the NEXT call - which
+        // must be the construction, not these reads.
+        uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
+        uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollarInPegged();
+
+        vm.expectRevert(Token.ZeroAddress.selector);
+        new StabilityPool_v3(
+            address(0),
+            peggedToken,
+            withdrawalDelay,
+            withdrawalPeriod,
+            minTotalAssetSupply,
+            "Test SP",
+            "tSP"
         );
+    }
+
+    /// A pool cannot be built for a zero pegged token: the constructor refuses it.
+    function test_constructor_aZeroPeggedToken_reverts() public {
+        // Hoisted: the config reads are external calls, and the `expectRevert` below binds to the NEXT call - which
+        // must be the construction, not these reads.
+        uint256 withdrawalDelay = marketConfig.stabilityPoolWithdrawalDelay();
+        uint256 withdrawalPeriod = marketConfig.stabilityPoolWithdrawalPeriod();
+        uint256 minTotalAssetSupply = marketConfig.aboutADollarInPegged();
+
+        vm.expectRevert(Token.ZeroAddress.selector);
+        new StabilityPool_v3(
+            minter,
+            address(0),
+            withdrawalDelay,
+            withdrawalPeriod,
+            minTotalAssetSupply,
+            "Test SP",
+            "tSP"
+        );
+    }
+
+    /// A pool calls neither its minter nor its pegged token when it is built, so it builds before either exists - or
+    /// while either is paused - and keeps both as given.
+    function test_constructor_beforeItsMinterAndPeggedTokenExist_keepsBoth() public {
+        address futureMinter = makeAddr("futureMinter");
+        address futurePeggedToken = makeAddr("futurePeggedToken");
+
+        address pool = address(
+            new StabilityPool_v3(futureMinter, futurePeggedToken, 3600, 90000, 1 ether, "Test SP", "tSP")
+        );
+
+        assertEq(IStabilityPool_v3(pool).MINTER(), futureMinter, "the minter as given");
+        assertEq(IStabilityPool_v3(pool).ASSET_TOKEN(), futurePeggedToken, "the pegged token as given");
+    }
+
+    /// The implementation's initializers are disabled when it is constructed, so initialising it directly reverts.
+    function test_initialize_onTheImplementation_reverts() public {
+        address implementation = _newStabilityPoolImplementation();
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        StabilityPool_v3(implementation).initialize(address(this), owner());
+    }
+
+    /// The deployed pool, initialised once by its deploy, refuses a second initialisation.
+    function test_initialize_aSecondTime_reverts() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        StabilityPool_v3(stabilityPoolCollateral).initialize(address(this), owner());
+    }
+
+    /// Initialising a proxy points it at the implementation, makes the deployer its owner and marks it initialised;
+    /// handed to the market owner, it is a pool like the deployed one.
+    function test_initEvents() public {
+        address implementation = _newStabilityPoolImplementation();
+
         vm.expectEmit();
-        emit IERC1967.Upgraded(address(sp));
+        emit IERC1967.Upgraded(implementation);
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 
-        address spProxy = UnsafeUpgrades.deployUUPSProxy(
-            sp, // "StabilityPool_v2.sol",
-            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+        address stabilityPool = UnsafeUpgrades.deployUUPSProxy(
+            implementation, // "StabilityPool_v3.sol",
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner()))
         );
-        IBaoOwnable(spProxy).transferOwnership(owner);
+        IBaoOwnable(stabilityPool).transferOwnership(owner());
 
-        test_initOnly(spProxy, liquidateTo);
+        test_initOnly(stabilityPool);
     }
 
-    function test_initEventsCollateral() public {
-        test_initEvents(wrappedCollateralToken);
-    }
-
-    function test_initEventsLeveraged() public {
-        test_initEvents(leveragedToken);
-    }
-
-    function test_initialize_invalidFee_reverts() public {
-        address spImpl = address(
-            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
+    /// A pool fresh from initialisation charges no fee and names no receiver: the deploy sets both, through the same
+    /// setters the owner uses afterwards.
+    function test_initialize_setsNoFeeAndNoReceiver() public {
+        address stabilityPool = UnsafeUpgrades.deployUUPSProxy(
+            _newStabilityPoolImplementation(),
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner()))
         );
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
-        UnsafeUpgrades.deployUUPSProxy(
-            spImpl,
-            abi.encodeCall(StabilityPool_v2.initialize, (owner, 1 ether + 1, FEE_ADDRESS))
-        );
-    }
-
-    function test_initialize_invalidFeeAddress_reverts() public {
-        address spImpl = address(
-            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
-        );
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
-        UnsafeUpgrades.deployUUPSProxy(
-            spImpl,
-            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, address(0)))
-        );
+        assertEq(IStabilityPool_v3(stabilityPool).earlyWithdrawalFeeRatio(), 0, "no fee");
+        assertEq(IStabilityPool_v3(stabilityPool).feeReceiver(), address(0), "no receiver");
     }
 }
 
 contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
+    /// Only the owner grants the pool's roles: for anyone else it reverts, and the owner's grant takes effect.
     function test_access() public {
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
+        uint256 rebalancerRole = IStabilityPool_v3(stabilityPoolCollateral).REBALANCER_ROLE();
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
 
-        vm.prank(owner);
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
+        vm.stopPrank();
+        assertTrue(
+            IBaoRoles(stabilityPoolCollateral).hasAllRoles(address(this), rebalancerRole),
+            "the owner's grant takes effect"
+        );
     }
 
-    function _depositWithdraw(address receiver) private {
+    /// A depositor's round trip through the pool: a deposit beyond the caller's balance reverts in the token;
+    /// deposits and withdrawals move tokens and stake one-for-one; a withdrawal beyond the stake reverts; the
+    /// last holder's full withdrawal stops at the pool's supply floor, which stays theirs; a deposit-all takes the
+    /// caller's whole balance; and a deposit that would credit less than the caller's minimum reverts.
+    function test_depositWithdraw() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // more than holding
         setUp_collateral(20 ether, 0 ether);
         deal(peggedToken, user1, 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price, "user1 has");
-        vm.expectRevert(); // should be amount exceeds balance, but hey-ho BaoUSD
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
+        // user1 holds 10*price but deposits 20*price; the OZ-ERC20 pegged token's transferFrom reverts on
+        // insufficient balance (allowance is max from setUp), and SafeERC20 bubbles it unchanged.
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 10 * price, 20 * price)
+        );
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(20 * price, user1, 0);
+        vm.stopPrank();
         // 1 deposit -----------------------------------------------------------
 
         // $2 deposit
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
-        vm.prank(user1);
-        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(2 * price, receiver, 0);
+        vm.startPrank(user1);
+        uint256 deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+        vm.stopPrank();
         // 2 deposit ------------------------------------------------------------------------------
         assertEq(deposited, 2 * price, "returned value");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 2 * price);
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 2 * price);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 2 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 8 * price);
 
         // $3 withdrawal
         _beginWithdrawal(user1);
-        vm.prank(user1);
+        vm.startPrank(user1);
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPool.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
+            abi.encodeWithSelector(IStabilityPool_v3.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
         );
-        IStabilityPool(stabilityPoolCollateral).withdraw(3 * price, receiver, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(3 * price, user1, 0);
+        vm.stopPrank();
         // 1 withdraw ---------------------------------------------
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 2 * price);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 2 * price);
 
         // $5 second deposit
-        vm.prank(user1);
-        deposited = IStabilityPool(stabilityPoolCollateral).deposit(5 * price, receiver, 0);
+        vm.startPrank(user1);
+        deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(5 * price, user1, 0);
+        vm.stopPrank();
         // 3 deposit ------------------------------------------------------------
         assertEq(deposited, 5 * price, "returned value 5");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 7 * price);
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 7 * price);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 7 * price);
 
         // withdraw some
         _beginWithdrawal(user1);
-        vm.prank(user1);
-        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(4 * price, receiver, 0);
+        vm.startPrank(user1);
+        uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(4 * price, user1, 0);
+        vm.stopPrank();
         // 2 withdraw ---------------------------------------------------------------------------
         assertEq(withdrawn, 4 * price, "withdraw 4");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 3 * price);
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 3 * price);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 3 * price);
 
-        // withdraw rest
+        // withdraw rest - the last holder is capped at the headroom, so the floor stays behind (and stays theirs)
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         _beginWithdrawal(user1);
-        vm.prank(user1);
-        withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, receiver, 0);
+        vm.startPrank(user1);
+        withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        vm.stopPrank();
         // 3 withdraw ---------------------------------------------------------------------------
-        assertEq(withdrawn, 3 * price - 1 ether, "withdraw 3 (-1)"); // include the minimum pool size
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 1 ether);
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 1 ether);
+        assertEq(withdrawn, 3 * price - floor, "withdraw 3 (capped at the floor)");
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), floor);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), floor);
 
-        // deposit -1
-        vm.prank(user1);
-        deposited = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, receiver, 0);
+        // deposit all remaining - on top of the retained floor, restoring the full 10
+        vm.startPrank(user1);
+        deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(type(uint256).max, user1, 0);
+        vm.stopPrank();
         // 4 deposit ------------------------------------------------------------------------------
-        assertEq(deposited, 10 * price - 1 ether, "returned value 10");
+        assertEq(deposited, 10 * price - floor, "returned value 10 less the floor already held");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 10 * price);
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 10 * price);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0);
 
         // check min deposit amount
         setUp_collateral(1 ether, 0 ether); // add more minter
         deal(address(peggedToken), user1, 3 * price);
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPool.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
+            abi.encodeWithSelector(IStabilityPool_v3.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
         );
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(1 * price, receiver, 2 * price);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 2 * price);
+        vm.stopPrank();
         // 5 deposit ------------------------------------------------------------------
     }
 
-    function test_depositWithdraw1() public {
-        _depositWithdraw(user1);
+    /// A deposit made for another account takes the caller's tokens and credits the receiver's stake: the caller
+    /// gains no stake, the receiver's own tokens are untouched, and the event names the caller as the payer.
+    function test_deposit_forAnotherAccount_takesTheCallersTokensAndCreditsTheReceiver() public {
+        (uint256 callerHolds, ) = setUp_collateral(2 ether, 0 ether, user1);
+        (uint256 receiverHolds, ) = setUp_collateral(2 ether, 0 ether, user2);
+        uint256 amount = callerHolds / 4;
+
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.Deposit(user1, user2, amount);
+        uint256 deposited = IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user2, 0);
+        vm.stopPrank();
+
+        assertEq(deposited, amount, "the whole amount is deposited");
+        assertEq(IERC20(peggedToken).balanceOf(user1), callerHolds - amount, "the caller pays the amount");
+        assertEq(IERC20(peggedToken).balanceOf(user2), receiverHolds, "the receiver's own tokens are untouched");
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), amount, "the pool holds the amount");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), amount, "the receiver is credited");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "the caller is credited nothing");
     }
 
-    function test_depositWithdraw2() private {
-        _depositWithdraw(user2);
+    /// A deposit says what it did, in order: the deposit (who paid, for whom, how much), the receiver's new stake - what
+    /// it held plus the deposit, with no loss - and the mint of the shares to the receiver. A top-up for another
+    /// account, so the payer, the receiver, the amount and the new stake are each told apart.
+    function test_deposit_emitsDepositThenTheReceiversNewBalanceThenAMint() public {
+        (uint256 callerHolds, ) = setUp_collateral(2 ether, 0 ether, user1);
+        (uint256 receiverHolds, ) = setUp_collateral(2 ether, 0 ether, user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(receiverHolds, user2, 0);
+        vm.stopPrank();
+        uint256 balanceBefore = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 amount = callerHolds / 4;
+
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.Deposit(user1, user2, amount);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.UserDepositChange(user2, balanceBefore + amount, 0);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IERC20.Transfer(address(0), user2, amount);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user2, 0);
+        vm.stopPrank();
     }
 
-    function test_requestWithdrawal_applies_startDelay_and_window() public {
-        vm.prank(user1);
-        uint256 nowTs = block.timestamp;
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start, uint64(nowTs + WITHDRAWAL_START_DELAY));
-        assertEq(end, start + uint64(WITHDRAWAL_END_WINDOW));
+    /// A deposit of nothing reverts, naming the pegged token: an amount of 0 from a holder of pegged, and the
+    /// deposit-all sentinel from a holder of none.
+    function test_deposit_ofNothing_revertsZeroInputBalance() public {
+        setUp_collateral(2 ether, 0 ether, user1);
+        assertEq(IERC20(peggedToken).balanceOf(user2), 0, "fixture: user2 holds no pegged");
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, peggedToken));
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(0, user1, 0);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, peggedToken));
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(type(uint256).max, user2, 0);
+        vm.stopPrank();
     }
 
-    function test_getWithdrawalWindow_matches_config() public view {
-        // window immutables set in constructor; fee and address already configured in setUp()
+    /// A deposit credited to the zero address reverts, naming it; the same deposit credited to the caller succeeds.
+    function test_deposit_toTheZeroAddress_reverts() public {
+        (uint256 amount, ) = setUp_collateral(2 ether, 0 ether, user1);
 
-        (uint64 startDelay, uint64 endWindow) = IStabilityPool(stabilityPoolCollateral).getWithdrawalWindow();
-        assertEq(startDelay, uint64(WITHDRAWAL_START_DELAY));
-        assertEq(endWindow, uint64(WITHDRAWAL_END_WINDOW));
-    }
-
-    function test_requestWithdrawal_reverts_when_window_unconfigured() public {
-        // Deploy a fresh pool proxy but skip configuring window/fee
-        address unconfigured = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, wrappedCollateralToken)),
-            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, address(0), 0);
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user1, 0),
+            amount,
+            "to the caller it succeeds"
         );
-        IBaoOwnable(unconfigured).transferOwnership(owner);
+        vm.stopPrank();
+    }
 
-        // With immutables defaulting to constructor values, proxy cannot change window; this scenario no longer applies
-        // Request should succeed if implementation had valid immutables; skip this legacy negative test
+    /// A withdrawal paid to the zero address reverts, naming it - for the depositor, inside their window - and the
+    /// same withdrawal paid to the depositor succeeds.
+    function test_withdraw_toTheZeroAddress_reverts() public {
+        (uint256 amount, ) = setUp_collateral(2 ether, 0 ether, user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(amount, user1, 0);
+        vm.stopPrank();
+        _beginWithdrawal(user1);
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.InvalidReceiver.selector, address(0)));
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount / 2, address(0), 0);
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount / 2, user1, 0),
+            amount / 2,
+            "to the depositor it succeeds"
+        );
+        vm.stopPrank();
+    }
+
+    /// A withdrawal debits the caller's own stake, so paying for another account's deposit gives the payer nothing
+    /// to withdraw: inside its own window, and even naming the stake's owner as the receiver, the payer's withdrawal
+    /// reverts against its zero balance.
+    function test_withdraw_revertsForThePayerOfADepositForAnotherAccount() public {
+        (uint256 payment, ) = setUp_collateral(2 ether, 0 ether, user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(payment, user2, 0);
+        vm.stopPrank();
+
+        _beginWithdrawal(user1);
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.WithdrawAmountExceedsBalance.selector, payment, 0));
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(payment, user2, 0);
+        vm.stopPrank();
+    }
+
+    /// A withdrawal pays whichever receiver the caller names: it debits the caller's stake - here one another
+    /// account paid for - and sends the tokens to the receiver, not to the caller.
+    function test_withdraw_toAnotherAccount_debitsTheCallersStakeAndPaysTheReceiver() public {
+        (uint256 payment, ) = setUp_collateral(2 ether, 0 ether, user1);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(payment, user2, 0);
+        vm.stopPrank();
+        address receiver = makeAddr("receiver");
+        uint256 amount = payment / 4;
+
+        _beginWithdrawal(user2);
+        vm.startPrank(user2);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.Withdraw(user2, receiver, amount);
+        uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(amount, receiver, 0);
+        vm.stopPrank();
+
+        assertEq(withdrawn, amount, "inside the window, the whole amount is withdrawn");
+        assertEq(IERC20(peggedToken).balanceOf(receiver), amount, "the receiver is paid");
+        assertEq(IERC20(peggedToken).balanceOf(user2), 0, "the caller is paid nothing");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), payment - amount, "the caller's stake is debited");
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), payment - amount, "the pool pays it out");
+    }
+
+    /// @notice previewDeposit forecasts exactly what deposit credits — for an explicit amount and for
+    ///         the deposit-all sentinel — so a caller pricing a deposit never has to assume it is 1:1.
+    ///         This is the guard that keeps the two in step if a deposit charge is ever introduced.
+    function test_previewDeposit_matchesWhatDepositCredits() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(20 ether, 0 ether);
+        deal(peggedToken, user1, 10 * price);
+
+        vm.startPrank(user1);
+        uint256 previewedExplicit = IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(4 * price);
+        uint256 creditedExplicit = IStabilityPool_v3(stabilityPoolCollateral).deposit(4 * price, user1, 0);
+        assertEq(previewedExplicit, creditedExplicit, "explicit amount: forecast matches the credit");
+
+        // The sentinel resolves against the caller's remaining balance, exactly as deposit reads it.
+        uint256 previewedAll = IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(type(uint256).max);
+        assertEq(previewedAll, 6 * price, "deposit-all previews the caller's whole remaining balance");
+        uint256 creditedAll = IStabilityPool_v3(stabilityPoolCollateral).deposit(type(uint256).max, user1, 0);
+        vm.stopPrank();
+        assertEq(previewedAll, creditedAll, "deposit-all: forecast matches the credit");
+    }
+
+    /// The deposit-all sentinel from a holder of nothing previews nothing: a forecast does not revert, as the deposit
+    /// itself does.
+    function test_previewDeposit_ofEverythingWithNothing_isZero() public {
+        assertEq(IERC20(peggedToken).balanceOf(user2), 0, "fixture: user2 holds no pegged");
+        vm.startPrank(user2);
+        uint256 previewed = IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(type(uint256).max);
+        vm.stopPrank();
+        assertEq(previewed, 0, "deposit-all of nothing previews 0");
+    }
+
+    /// previewDeposit forecasts the credit only: it applies neither the floor nor the ceiling on the resulting total,
+    /// which deposit checks after crediting. On an empty pool an amount under the floor, and one above the ceiling,
+    /// each preview as themselves.
+    function test_previewDeposit_appliesNeitherTheFloorNorTheCeiling() public view {
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "fixture: the pool is empty");
+        uint256 underTheFloor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY() - 1;
+        uint256 overTheCeiling = IStabilityPool_v3(stabilityPoolCollateral).MAX_TOTAL_ASSET_SUPPLY() + 1;
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(underTheFloor),
+            underTheFloor,
+            "an amount under the floor previews as itself"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(overTheCeiling),
+            overTheCeiling,
+            "an amount above the ceiling previews as itself"
+        );
+    }
+
+    /// A withdrawal request says which window it opens; a later request replaces that window with its own, and says so
+    /// again.
+    function test_requestWithdrawal_emitsItsWindow_andASecondReplacesTheFirst() public {
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalWindow();
+        uint64 start = uint64(block.timestamp) + startDelay;
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequested(user1, start, start + endWindow);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 hours);
+        uint64 secondStart = uint64(block.timestamp) + startDelay;
+        vm.startPrank(user1);
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3.WithdrawalRequested(user1, secondStart, secondStart + endWindow);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+
+        (uint64 requestStart, uint64 requestEnd) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
+        assertEq(requestStart, secondStart, "the second request's start replaces the first's");
+        assertEq(requestEnd, secondStart + endWindow, "the second request's end replaces the first's");
+    }
+
+    /// A withdrawal request opens the configured window: it starts the configured delay after the request and stays
+    /// open for the configured period.
+    function test_requestWithdrawal_applies_startDelay_and_window() public {
+        uint256 requestedAt = block.timestamp;
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
+        assertEq(start, requestedAt + marketConfig.stabilityPoolWithdrawalDelay(), "opens after the configured delay");
+        assertEq(end, start + marketConfig.stabilityPoolWithdrawalPeriod(), "open for the configured period");
+    }
+
+    /// The pool reports the withdrawal window its market's config sets.
+    function test_withdrawalWindow_matches_config() public view {
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalWindow();
+        assertEq(startDelay, marketConfig.stabilityPoolWithdrawalDelay(), "the configured delay");
+        assertEq(endWindow, marketConfig.stabilityPoolWithdrawalPeriod(), "the configured period");
     }
 }
 
 contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
-    using DecrementalFloatingPoint for uint128;
+    using DecrementalFloatingPoint_v2 for uint128;
 
+    /// A balance compounds by the ratio of the pool's current product to its product at deposit: scaled by the ratio
+    /// of their magnitudes, then divided by 1e9 for each exponent rung between them, rounding down - and zero beyond
+    /// eight rungs.
     function test_CompoundedAmount_() public view {
-        // Test data structure: [initialAmount, initialExponent, initialMagnitude, currentExponent, currentMagnitude, expectedResult]
+        // Each case: [initialAmount, initialExponent, initialMagnitude, currentExponent, currentMagnitude,
+        // expectedResult]
         uint256[6][16] memory testCases;
 
         // No change (exponentDiff = 0, same magnitude)
@@ -427,11 +695,10 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         testCases[4] = [uint256(1e18), 0, 1e36, 2, 1e36, 1]; // divided by SCALE_FACTOR^2 (1e18)
 
         // Maximum allowed exponent change (exponentDiff = 8)
-        testCases[5] = [uint256(1e27), 0, 1e36, 8, 1e36, 0]; // 1e27 / 1e9^8 = 1e27 / 1e72 = very small, rounds to 1 due to integer math
+        testCases[5] = [uint256(1e27), 0, 1e36, 8, 1e36, 0]; // 1e27 / 1e9^8 = 1e27 / 1e72, rounds down to 0
 
-        // Add a more realistic test case for large exponent differences that might still have a result:
-        // alternative: Use much larger initial amount
-        testCases[6] = [uint256(1e45), 0, 1e36, 8, 1e36, 0]; // 1e45 / 1e72 = 1e-27, but this exceeds uint256
+        // A much larger balance still rounds down to nothing at the maximum change: only 1e72 and above survive it
+        testCases[6] = [uint256(1e45), 0, 1e36, 8, 1e36, 0]; // 1e45 / 1e72, rounds down to 0
 
         // Or test a smaller exponent difference:
         testCases[7] = [uint256(1e36), 0, 1e36, 4, 1e36, 1e0]; // 1e36 / 1e36 = 1
@@ -452,13 +719,13 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         testCases[12] = [uint256(1e18), 0, 5e35, 0, 1e36, 2e18];
 
         // Complex case with both exponent and magnitude changes
-        testCases[13] = [uint256(2e18), 1, 8e35, 3, 4e35, 1]; // (2e18 * 4e35 / 8e35) / 1e18 = 1e9
+        testCases[13] = [uint256(2e18), 1, 8e35, 3, 4e35, 1]; // (2e18 * 4e35 / 8e35) / 1e9^2 = 1e18 / 1e18 = 1
 
-        // Maximum uint104 boundary test
-        testCases[14] = [uint256(type(uint104).max), 0, 1e36, 0, 1e36, type(uint104).max];
+        // The widest amount the balance record stores (uint128), unchanged
+        testCases[14] = [uint256(type(uint128).max), 0, 1e36, 0, 1e36, type(uint128).max];
 
         // Precision loss edge case
-        testCases[15] = [uint256(1e12), 0, 1e36, 3, 1e27, 0]; // Very small result due to multiple scale factors
+        testCases[15] = [uint256(1e12), 0, 1e36, 3, 1e27, 0]; // (1e12 * 1e27 / 1e36) / 1e9^3 = 1e3 / 1e27, rounds to 0
 
         for (uint i = 0; i < testCases.length; i++) {
             uint256 initialAmount = testCases[i][0];
@@ -468,13 +735,13 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
             uint120 currentMagnitude = uint120(testCases[i][4]);
             uint256 expectedResult = testCases[i][5];
 
-            uint128 initialFP = DecrementalFloatingPoint.encode(initialExponent, initialMagnitude);
-            uint128 currentFP = DecrementalFloatingPoint.encode(currentExponent, currentMagnitude);
+            uint128 initialProduct = DecrementalFloatingPoint_v2.encode(initialExponent, initialMagnitude);
+            uint128 currentProduct = DecrementalFloatingPoint_v2.encode(currentExponent, currentMagnitude);
 
             uint256 actualResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
                 initialAmount,
-                initialFP,
-                currentFP
+                initialProduct,
+                currentProduct
             );
 
             assertEq(actualResult, expectedResult, string(abi.encodePacked("Test case ", vm.toString(i), " failed")));
@@ -483,43 +750,94 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
 
     function test_CompoundedAmountEdgeCases() public view {
         // Test the boundary at exponent difference = 8 vs 9
-        uint128 initialFP = DecrementalFloatingPoint.encode(0, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+        uint128 initialProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
 
         // Exactly 8 exponent difference - should work
-        uint128 maxAllowedFP = DecrementalFloatingPoint.encode(8, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+        uint128 maxAllowedProduct = DecrementalFloatingPoint_v2.encode(
+            8,
+            DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION
+        );
         uint256 result8 = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
             1e72,
-            initialFP,
-            maxAllowedFP
+            initialProduct,
+            maxAllowedProduct
         );
-        assertGt(result8, 0, "8 exponent difference should produce non-zero result");
+        assertEq(result8, 1, "8 exponent difference: 1e72 / 1e9^8 = 1");
 
         // 9 exponent difference - should return 0
-        uint128 tooMuchFP = DecrementalFloatingPoint.encode(9, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
-        uint256 result9 = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(1e27, initialFP, tooMuchFP);
+        uint128 tooMuchProduct = DecrementalFloatingPoint_v2.encode(9, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint256 result9 = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
+            1e27,
+            initialProduct,
+            tooMuchProduct
+        );
         assertEq(result9, 0, "9 exponent difference should return 0");
+    }
+
+    /// The ceiling rescale the reward divisor moves through on a loss takes nothing to nothing.
+    function test_scaleAdjustedValueCeil_isZero_forAZeroValue() public view {
+        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 toProduct = DecrementalFloatingPoint_v2.encode(1, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(0, toProduct, fromProduct),
+            0,
+            "nothing rescales to nothing"
+        );
+    }
+
+    /// A product only ever falls, so a rescale to an earlier exponent than its own has no value: it gives 0 rather
+    /// than underflowing the exponent difference.
+    function test_scaleAdjustedValueCeil_isZero_whenTheProductRose() public view {
+        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(3, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 toProduct = DecrementalFloatingPoint_v2.encode(1, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e27, toProduct, fromProduct),
+            0,
+            "a rescale to an earlier exponent gives 0"
+        );
+    }
+
+    /// Like the floor rescale, the ceiling rescale reaches eight exponent rungs and no further: past eight it gives 0
+    /// (1e9^9 has no representation), and at exactly eight 1e72 still rescales to 1 - rounded up from exactly 1.
+    function test_scaleAdjustedValueCeil_pastEightRungsIsZero_atEightRescales() public view {
+        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 eightRungsOn = DecrementalFloatingPoint_v2.encode(8, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        uint128 nineRungsOn = DecrementalFloatingPoint_v2.encode(9, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e72, eightRungsOn, fromProduct),
+            1,
+            "eight rungs: 1e72 / 1e9^8 = 1"
+        );
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e72, nineRungsOn, fromProduct),
+            0,
+            "nine rungs: past the reach of the rescale"
+        );
     }
     function test_CompoundedAmountScaleFactorProgression() public view {
         // Test that each exponent increment divides by SCALE_FACTOR
-        uint256 initialAmount = 1e27; // Large enough to avoid precision loss
-        uint128 baseFP = DecrementalFloatingPoint.encode(0, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+        uint256 initialAmount = 1e72; // 1e9^8: every one of the eight rungs divides it exactly, leaving at least 1
+        uint128 baseProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
 
         uint256 previousResult = initialAmount;
 
         for (uint8 exponent = 1; exponent <= 8; exponent++) {
-            uint128 currentFP = DecrementalFloatingPoint.encode(exponent, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+            uint128 currentProduct = DecrementalFloatingPoint_v2.encode(
+                exponent,
+                DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION
+            );
             uint256 currentResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
                 initialAmount,
-                baseFP,
-                currentFP
+                baseProduct,
+                currentProduct
             );
 
             // Each step should divide by SCALE_FACTOR (1e9)
-            uint256 expectedResult = previousResult / DecrementalFloatingPoint.SCALE_FACTOR;
+            uint256 expectedResult = previousResult / DecrementalFloatingPoint_v2.SCALE_FACTOR;
 
-            // Allow for minor rounding differences due to integer division
-            assertTrue(
-                currentResult == expectedResult || currentResult == expectedResult - 1,
+            assertEq(
+                currentResult,
+                expectedResult,
                 string(abi.encodePacked("Scale factor progression failed at exponent ", vm.toString(exponent)))
             );
 
@@ -531,18 +849,18 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         // Verify that compoundedAmount is consistent with the mul function's behavior
 
         uint256 initialAmount = 1e18;
-        uint128 initialFP = DecrementalFloatingPoint.init();
+        uint128 initialProduct = DecrementalFloatingPoint_v2.init();
 
         // Apply a factor using mul
         uint128 factor = 5e17; // 0.5
-        uint128 afterMulFP = initialFP.mul(factor);
+        uint128 afterMulProduct = initialProduct.mul(factor);
 
         // Calculate what the balance should be
         uint256 expectedBalance = (initialAmount * factor) / 1e18;
         uint256 actualBalance = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
             initialAmount,
-            initialFP,
-            afterMulFP
+            initialProduct,
+            afterMulProduct
         );
 
         assertEq(actualBalance, expectedBalance, "CompoundedAmount should be consistent with mul operation");
@@ -550,70 +868,18 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
 
     function test_CompoundedAmountOverflowSafety_() public view {
         // Test with maximum values to ensure no overflow
-        uint256 maxAmount = type(uint104).max; // Maximum storable amount
-        uint128 maxMagnitudeFP = DecrementalFloatingPoint.encode(0, type(uint120).max);
-        uint128 minMagnitudeFP = DecrementalFloatingPoint.encode(0, 1);
+        uint256 maxAmount = type(uint128).max; // the widest amount the balance record stores
+        uint128 maxMagnitudeProduct = DecrementalFloatingPoint_v2.encode(0, type(uint120).max);
+        uint128 minMagnitudeProduct = DecrementalFloatingPoint_v2.encode(0, 1);
 
         // This should not overflow or revert
         uint256 result = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
             maxAmount,
-            minMagnitudeFP,
-            maxMagnitudeFP
+            minMagnitudeProduct,
+            maxMagnitudeProduct
         );
 
-        // Result should be very large but not overflow
-        assertTrue(result >= maxAmount, "Result should be at least the initial amount when magnitude increases");
-    }
-
-    function test_DustThresholdNecessity_() public view {
-        uint256[3] memory testAmounts = [uint256(1000), 1e18, 1e24];
-
-        for (uint i = 0; i < testAmounts.length; i++) {
-            uint256 initialDeposit = testAmounts[i];
-
-            // Simulate maximum precision loss scenario
-            uint128 initialFP = DecrementalFloatingPoint.init();
-            uint128 maxLossFP = DecrementalFloatingPoint.encode(1, DecrementalFloatingPoint.MIN_PRECISION);
-
-            uint256 rawResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
-                initialDeposit,
-                initialFP,
-                maxLossFP
-            );
-            uint256 dustThreshold = initialDeposit / DecrementalFloatingPoint.SCALE_FACTOR;
-
-            // Test that dust threshold is 1 billionth of original
-            assertEq(dustThreshold, initialDeposit / 1e9, "Dust threshold should be 1/1e9 of initial");
-
-            // For large deposits, dust should be meaningful
-            if (initialDeposit >= 1e18) {
-                assertTrue(dustThreshold >= 1e9, "Dust threshold should be meaningful for large deposits");
-            }
-
-            // Raw result should be <= initial (only losses, no gains)
-            assertTrue(rawResult <= initialDeposit, "Compounded balance should not exceed initial deposit");
-
-            // Verify uint104 casting behavior
-            if (rawResult > type(uint104).max) {
-                // This would truncate - assert this is handled properly
-                assertTrue(false, "Result exceeds uint104 - needs handling");
-            }
-
-            // Economic significance test - less than 1 wei in most tokens is meaningless
-            bool economicallyMeaningless = rawResult > 0 && rawResult < 100; // 100 wei threshold
-            if (economicallyMeaningless && rawResult < dustThreshold) {
-                assertTrue(
-                    rawResult < dustThreshold,
-                    "Economically meaningless amounts should be below dust threshold"
-                );
-            }
-        }
-
-        // Edge case: exactly at threshold
-        uint256 testAmount = 1e18;
-        uint256 exactThreshold = testAmount / DecrementalFloatingPoint.SCALE_FACTOR;
-
-        // The current logic uses `<` so exactly at threshold is NOT dusted
-        assertFalse(exactThreshold < exactThreshold, "Amount exactly at threshold should not be dusted");
+        // The full product, under 2^248: no overflow, and nothing lost
+        assertEq(result, maxAmount * type(uint120).max, "the amount scaled by the whole magnitude ratio");
     }
 }

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 # Parse arguments
-network="mainnet"
+rpc_url="mainnet"
 salt_input=""
 porcelain=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --network)
-      network="$2"
+    --rpc-url)
+      rpc_url="$2"
       shift 2
       ;;
     --porcelain)
@@ -23,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$salt_input" ]]; then
-  echo "Usage: predict [--network <network>] [--porcelain] <salt>"
+  echo "Usage: predict [--rpc-url <url or foundry.toml alias>] [--porcelain] <salt>"
   exit 1
 fi
 
@@ -35,7 +36,7 @@ else
   factory="0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
 fi
 
-address=$(cast call "$factory" "predictAddress(bytes32)(address)" $salt --rpc-url "$network")
+address=$(cast call "$factory" "predictAddress(bytes32)(address)" $salt --rpc-url "$rpc_url")
 
 if [[ "$porcelain" == true ]]; then
   echo "$address"
@@ -45,8 +46,8 @@ fi
 echo "factory:        $factory"
 echo "address:        ${address} https://etherscan.io/address/${address}#code"
 echo "                ------------------------------------------"
-implementation=$(cast implementation ${address} --rpc-url "$network")
+implementation=$(cast implementation ${address} --rpc-url "$rpc_url")
 echo "implementation: ${implementation} https://etherscan.io/address/${implementation}#code"
 
-owner=$(cast call "$address" "owner()(address)" --rpc-url "$network")
+owner=$(cast call "$address" "owner()(address)" --rpc-url "$rpc_url")
 echo "owner/multisig: ${owner}"

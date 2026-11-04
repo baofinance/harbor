@@ -2,7 +2,7 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IPriceOracle} from "src/interfaces/IPriceOracle.sol";
+import {IPriceOracle} from "@harbor/interfaces/IPriceOracle.sol";
 
 contract MockPriceOracle is IPriceOracle {
     uint256 public latestAnswer;

@@ -1,0 +1,284 @@
+#!/usr/bin/env bash
+# capture-holders — discover every account that has ever held a position in each Harbor stability pool, or held
+# each Harbor pegged and leveraged token, via the Etherscan `logs/getLogs` API, up to a pinned block.
+#
+# Each target is named by its salt in the deployment state file, which also records its address:
+#   - a stability pool (`<peg>::<collateral>::stabilityPool{Collateral,Leveraged}`): every `owner` of its
+#     `UserDepositChange` events. An account is checkpointed - and gets a per-user reward snapshot - exactly when its
+#     deposit changes (deposit -> receiver, withdraw -> sender, liquidation -> account), and each of those emits
+#     `UserDepositChange(owner, ...)`.
+#   - a token (`<peg>::pegged`, `<peg>::<collateral>::leveraged`): every recipient `to` of its `Transfer` events. An
+#     account can hold the token only after some was sent to it.
+# The zero address is never listed: it is where a burn sends tokens, not a holder.
+#
+# Why Etherscan (not cast logs): see etherscan-logs.sh beside this script, which reads the logs.
+#
+# Output, under --out-dir (default tmp/holders/): one file per target, `<salt>.txt` - comment lines carrying its
+# address, the event read and the block scanned to, then one checksummed address per line - and `manifest.txt`, whose
+# `to-block:` line is the block the scan ran to. `HolderCaptureLib.sol` beside this script reads a capture. A rerun at
+# the same block writes the same files.
+#
+# A list is everyone who had ever held the position or token AT THE SCANNED BLOCK; anyone who joined since is absent.
+# So an upgrade that copies per-user state needs a capture at its own block (--to-block), taken with the pools frozen
+# so the set cannot change underneath it. A capture at a past block, such as an incident's, never goes stale.
+#
+# A list deliberately OVER-approximates: it includes accounts that have since left with a zero balance. That is
+# wanted: a zero-balance depositor can still hold unclaimed rewards, and it is invisible to the
+# sum(balanceOf) == totalSupply completeness check precisely because its balance is 0. Deciding which of the accounts
+# a given use must touch is that use's business.
+#
+# Requires ETHERSCAN_KEY in .env or the environment (sourced, never printed).
+# Usage:
+#   capture-holders                       # scan at latest (the resolved block is recorded in each file)
+#   capture-holders --dry-run             # print each target's salt and address, no API calls
+#   capture-holders --to-block <number>   # pin a specific block - USE THIS for a migration or an incident
+#   capture-holders --rerun               # redo the capture in --out-dir at ITS OWN block (retry a
+#                                         # failed/buggy run without moving the goalposts)
+#   capture-holders --out-dir tmp/holders-rerun   # for an independent cross-check capture
+#   capture-holders --peg <peg> --collateral <name>  # add one market to the capture in --out-dir, in the words
+#                                         # script/deploy uses: its two pools and leveraged token. '*' takes every market
+#                                         # of the peg and its pegged token. One folder holds one block, so a --to-block
+#                                         # other than the folder's manifest's is refused. The manifest counts the
+#                                         # folder's files.
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Load env for ETHERSCAN_KEY.
+# shellcheck source=/dev/null
+[[ -f .env ]] && source .env
+# shellcheck source=etherscan-logs.sh
+source script/holders/etherscan-logs.sh
+
+# ── Configuration ────────────────────────────────────────────────────────────
+
+FROM_BLOCK=24049000   # first harbor mainnet deployment
+TO_BLOCK="latest"     # default: resolved to a concrete block NOW (recorded in the output files)
+RERUN=false           # --rerun: repeat the capture in --out-dir at ITS block, from its manifest
+STATE_FILE="deployments/mainnet/harbor_v1.state.json"
+OUT_DIR="tmp/holders"
+DRY_RUN=false
+RPC="mainnet"   # foundry alias, used to resolve `latest` when --to-block is not given
+PEG=""          # --peg and --collateral: scan only their targets; neither: scan every target
+COLLATERAL=""
+
+# topic0 = keccak("UserDepositChange(address,uint256,uint256)"); its owner is topic 1
+USER_DEPOSIT_CHANGE="0x5fa7d0e13a31540b6d42936e522173de31fa0c53aa5aff71e63c60fe02b2b50e"
+# topic0 = keccak("Transfer(address,address,uint256)"); its recipient is topic 2
+TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from-block) FROM_BLOCK="$2"; shift 2 ;;
+    --to-block)   TO_BLOCK="$2"; shift 2 ;;
+    --rerun)      RERUN=true; shift ;;
+    --out-dir)    OUT_DIR="$2"; shift 2 ;;
+    --dry-run)    DRY_RUN=true; shift ;;
+    --peg)        PEG=$(echo "$2" | tr '[:lower:]' '[:upper:]'); shift 2 ;;
+    --collateral) COLLATERAL="$2"; shift 2 ;;
+    -h|--help)    sed -n '2,/^$/p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -n "$PEG" && -z "$COLLATERAL" ]]; then
+  echo "ERROR: --peg needs --collateral: a collateral's name, or '*' for every market of the peg" >&2
+  exit 1
+fi
+if [[ -z "$PEG" && -n "$COLLATERAL" ]]; then
+  echo "ERROR: --collateral needs --peg" >&2
+  exit 1
+fi
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+# Every pool and token the state file records, one "<salt> <address>" per line.
+targets() {
+  local entries
+  if ! entries=$(jq -r '.proxies | to_entries[] | "\(.key) \(.value.address)"' "$STATE_FILE"); then
+    echo "ERROR: failed reading $STATE_FILE" >&2
+    exit 1
+  fi
+  # Under pipefail a no-match grep (status 1) would fail the whole function and be indistinguishable
+  # from a real failure, so admit it as the empty result it is while still propagating grep's error
+  # status 2. The caller decides what an empty set means; this function only reports it faithfully.
+  printf '%s\n' "$entries" \
+    | { grep -E '::(stabilityPoolCollateral|stabilityPoolLeveraged|pegged|leveraged) ' || [[ $? -eq 1 ]]; } \
+    | sort
+}
+
+# Every address in topic $3 of the $2 events of contract $1 across [FROM_BLOCK, TO_BLOCK], one a line, never the
+# zero address. Returns non-zero when the logs cannot be read.
+fetch_accounts() {
+  local address="$1" topic0="$2" topic="$3"
+  etherscan_logs "$address" "$FROM_BLOCK" "$TO_BLOCK" "$topic0" | python3 -c '
+import json, sys
+topic = int(sys.argv[1])
+for line in sys.stdin:
+    topics = json.loads(line).get("topics", [])
+    if len(topics) > topic:
+        account = "0x" + topics[topic][-40:]
+        if int(account, 16) != 0:
+            print(account)
+' "$topic"
+  local statuses=("${PIPESTATUS[@]}")
+  ((statuses[0] == 0 && statuses[1] == 0))
+}
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+# targets' exit status cannot escape a process substitution, so a failed state-file read would leave
+# TARGETS empty and the run would report "0 targets" as though that were the answer. Capture, check, then load.
+if ! targets_found=$(targets); then
+  echo "ERROR: could not determine the pools and tokens from $STATE_FILE" >&2
+  exit 1
+fi
+TARGETS=()
+if [[ -n "$targets_found" ]]; then
+  mapfile -t TARGETS <<<"$targets_found"
+fi
+if [[ -n "$PEG" ]]; then
+  prefix="${PEG}::"
+  if [[ "$COLLATERAL" != "*" ]]; then
+    prefix="${PEG}::${COLLATERAL}::"
+  fi
+  named=()
+  for target in "${TARGETS[@]}"; do
+    if [[ "$target" == "$prefix"* ]]; then
+      named+=("$target")
+    fi
+  done
+  if [[ ${#named[@]} -eq 0 ]]; then
+    echo "ERROR: no pool or token in $STATE_FILE has a salt starting '${prefix}'" >&2
+    exit 1
+  fi
+  TARGETS=("${named[@]}")
+fi
+pool_count=0
+token_count=0
+for target in "${TARGETS[@]}"; do
+  if [[ "${target%% *}" == *::stabilityPool* ]]; then
+    pool_count=$((pool_count + 1))
+  else
+    token_count=$((token_count + 1))
+  fi
+done
+echo "# ${pool_count} stability pools and ${token_count} tokens from $STATE_FILE" >&2
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "# DRY RUN — salt -> address (no API calls)" >&2
+  for target in "${TARGETS[@]}"; do
+    printf '%-44s %s\n' "${target%% *}" "${target##* }"
+  done
+  exit 0
+fi
+
+: "${ETHERSCAN_KEY:?Set ETHERSCAN_KEY in .env or environment}"
+
+# --rerun: repeat an existing capture AT ITS OWN BLOCK, taken from its manifest. This is
+# the retry path - the capture failed part way, or its mechanics were wrong and the code
+# has been fixed - and re-running it must NOT quietly advance to a newer block, because
+# then the retry answers a different question than the run it replaces and the two cannot
+# be compared. Reproducing a capture and taking a fresh one are different acts; --rerun is
+# the first, plain (or --to-block) is the second.
+if [[ "$RERUN" == true ]]; then
+  rerun_manifest="${OUT_DIR}/manifest.txt"
+  if [[ ! -f "$rerun_manifest" ]]; then
+    echo "ERROR: --rerun needs a previous capture at ${OUT_DIR}/ (no manifest.txt)" >&2
+    exit 1
+  fi
+  TO_BLOCK=$(awk -F': *' '/^to-block:/ {print $2; exit}' "$rerun_manifest")
+  if [[ ! "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: no usable 'to-block:' in ${rerun_manifest} (got: '${TO_BLOCK}')" >&2
+    exit 1
+  fi
+  echo "# rerun: reusing block ${TO_BLOCK} from ${rerun_manifest}" >&2
+fi
+
+# Resolve "latest" to a concrete block NOW, so the scan and the file headers all use the
+# SAME block. The concrete number is written into the output files (never the word
+# "latest"), which makes the capture reproducible and self-documenting (each file records
+# its "# to-block: <N>"). (set -e does not catch failures in command-substitution
+# assignments, so check the result explicitly.)
+if [[ "$TO_BLOCK" == "latest" ]]; then
+  TO_BLOCK=$(cast block-number --rpc-url "$RPC") || { echo "ERROR: cast block-number failed (rpc: $RPC)" >&2; exit 1; }
+  echo "# resolved latest -> block ${TO_BLOCK}" >&2
+fi
+if [[ ! "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: --to-block must be a number or 'latest' (got: ${TO_BLOCK})" >&2
+  exit 1
+fi
+
+# One folder holds one block: a market added to a capture is scanned to the block the rest were.
+if [[ -n "$PEG" && -f "${OUT_DIR}/manifest.txt" ]]; then
+  folder_block=$(awk -F': *' '/^to-block:/ {print $2; exit}' "${OUT_DIR}/manifest.txt")
+  if [[ "$folder_block" != "$TO_BLOCK" ]]; then
+    echo "ERROR: ${OUT_DIR}/ holds block ${folder_block}, and this run scans to block ${TO_BLOCK}" >&2
+    exit 1
+  fi
+fi
+
+echo "# scanning blocks ${FROM_BLOCK} -> ${TO_BLOCK} (Etherscan)" >&2
+mkdir -p "$OUT_DIR"
+
+for target in "${TARGETS[@]}"; do
+  salt="${target%% *}"
+  address="${target##* }"
+  if [[ "$salt" == *::stabilityPool* ]]; then
+    topic0="$USER_DEPOSIT_CHANGE"
+    topic=1
+    source="UserDepositChange owners"
+  else
+    topic0="$TRANSFER"
+    topic=2
+    source="Transfer recipients"
+  fi
+  out_file="${OUT_DIR}/${salt}.txt"
+  echo "  scanning ${salt} (${address})..." >&2
+
+  # fetch_accounts returns non-zero on an API/curl failure, but in a process substitution that status
+  # cannot stop this script - mapfile would just record an empty list and the header-only file
+  # below would look like a target with no holders. Capture the output and check the status first
+  # (pipefail makes the pipeline carry fetch_accounts' failure past the successful sort), so a
+  # failed scan aborts before anything is written.
+  if ! accounts_found=$(fetch_accounts "$address" "$topic0" "$topic" | sort -uf); then
+    echo "ERROR: holder discovery failed for ${salt} (${address}) - ${out_file} not written" >&2
+    exit 1
+  fi
+  accounts=()
+  if [[ -n "$accounts_found" ]]; then
+    mapfile -t accounts <<<"$accounts_found"
+  fi
+
+  {
+    echo "# Holders: ${salt}"
+    echo "# address: ${address}"
+    echo "# to-block: ${TO_BLOCK}"
+    echo "# source: ${source} (Etherscan), blocks ${FROM_BLOCK}-${TO_BLOCK}"
+    for account in "${accounts[@]}"; do
+      [[ -z "$account" ]] && continue
+      cast to-check-sum-address "$account"
+    done
+  } > "$out_file"
+  echo "    ${salt}: ${#accounts[@]} holders -> ${out_file}" >&2
+done
+
+# A run naming a market adds to the folder, so the counts below are of its files, not of this run's targets.
+if [[ -n "$PEG" ]]; then
+  pool_count=$(find "$OUT_DIR" -maxdepth 1 -name '*::stabilityPool*.txt' | wc -l)
+  token_count=$(find "$OUT_DIR" -maxdepth 1 \( -name '*::pegged.txt' -o -name '*::leveraged.txt' \) | wc -l)
+fi
+
+# Manifest: the one file a consumer must read to use this capture. It carries the block
+# the scan ran to, so a checker forks at the block the holders were captured at rather
+# than being told separately - the two can then never disagree, which is the whole class
+# of bug that a hand-maintained "capture block" constant invites.
+{
+  echo "# Harbor holder capture"
+  echo "to-block: ${TO_BLOCK}"
+  echo "from-block: ${FROM_BLOCK}"
+  echo "pools: ${pool_count}"
+  echo "tokens: ${token_count}"
+} > "${OUT_DIR}/manifest.txt"
+
+echo "# done -> ${OUT_DIR}/ (manifest.txt carries to-block ${TO_BLOCK})" >&2

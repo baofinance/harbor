@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1785929872000,
+  "meta": {
+    "description": "UpdateHarvestCut_MCAP --salt harbor_v1"
+  },
+  "transactions": [
+    {
+      "to": "0x52DC69cbdC6Ef508b7419A456dD36967DAEfD538",
+      "value": "0",
+      "data": "0x3ab51d600000000000000000000000000000000000000000000000000dbd2fc137a30000"
+    },
+    {
+      "to": "0x1298ab1957ee023E228d57bE2db73494b649E52F",
+      "value": "0",
+      "data": "0x3ab51d600000000000000000000000000000000000000000000000000dbd2fc137a30000"
+    }
+  ]
+}

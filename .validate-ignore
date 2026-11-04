@@ -1,0 +1,11 @@
+# Syntax: check file
+# Supported checks: naming, pragma, storage, upgrades, bare-imports, relative-imports, broadcast-scope
+
+# These contracts predate the filename=contract-name convention. The class
+# names intentionally omit the _v2 suffix (they are abstract bases, not
+# deployed contracts) while the files carry _v2 to distinguish from v1.
+naming src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol
+naming src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
+
+# A deployed contract's source takes no exception here for being deployed: deployed.json records the
+# commit whose source builds each deployed contract's bytecode, so the source in the tree may be edited.

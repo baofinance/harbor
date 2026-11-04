@@ -1,0 +1,5 @@
+# Holders: SILVER::stETH::stabilityPoolLeveraged
+# address: 0x4C0F988b3c0C58F5ea323238E9d62B79582738e6
+# to-block: 25272609
+# source: UserDepositChange owners (Etherscan), blocks 24049000-25272609
+0xb9ab9578a34a05c86124c399735fdE44dEc80E7F

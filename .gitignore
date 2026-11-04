@@ -2,7 +2,6 @@
 .env
 
 # put your personal stuff in your personal vscode settings file
-.vscode/settings.json
 
 # libraries
 node_modules
@@ -10,6 +9,9 @@ venv
 
 # wake
 .wake/
+
+# claude
+.claude/settings.local.json
 
 # generated files
 cache/
@@ -34,6 +36,7 @@ __pycache__/
 # generated results not used for regression testing
 results/*.svg
 results/*.png
+results/*.pdf
 
 # Ignores development broadcast logs
 !/broadcast
@@ -55,3 +58,8 @@ docs/
 
 # temp or prliminary files
 *.*-
+.wake
+pytypes
+*.py[cod]
+.hypothesis/
+wake-coverage.cov

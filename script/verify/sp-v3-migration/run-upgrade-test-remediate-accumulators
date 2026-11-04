@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+
+cd "$PROJECT_ROOT"
+
+# ── Configuration ──────────────────────────────────────────────────────────────
+
+FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help)
+      echo "Usage: $(basename "$0")"
+      echo ""
+      echo "Runs the accumulator V1→V2 force migration verification on local anvil."
+      echo ""
+      echo "Steps:"
+      echo "  1. Start anvil fork"
+      echo "  2. Deploy and execute remediation Safe batch locally"
+      echo "  3. Run post-remediation assertions"
+      echo ""
+      echo "Environment variables:"
+      echo "  FORGE_VERBOSITY     Forge verbosity flag (default: -vv)"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+prompt() {
+  local msg="$1"
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "$msg"
+  echo "──────────────────────────────────────────────────────────────"
+  read -rn1 -p "Ready? [Y/n] " response
+  echo ""
+  if [[ "$response" =~ ^[Nn]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+}
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+echo "======================================================================"
+echo "  Accumulator V1→V2 Force Migration Verification"
+echo "======================================================================"
+
+# ── Step 1: Start anvil ──────────────────────────────────────────────────────
+
+prompt "Start anvil fork:  script/anvil --block latest"
+
+# ── Step 2: Deploy and execute remediation ────────────────────────────────────
+
+echo ""
+echo "Deploying ForceMigrateAccumulator_v1, executing remediation locally..."
+./script/run-script Remediate_Accumulators --network mainnet --salt harbor_v1 --broadcast --local
+
+# ── Step 3: Run assertions ────────────────────────────────────────────────────
+
+echo ""
+echo "Running post-remediation assertions..."
+forge test \
+  --match-path script/test/SPv3MigrationTest.t.sol \
+  --fork-url local $FORGE_VERBOSITY
+
+echo ""
+echo "Done."

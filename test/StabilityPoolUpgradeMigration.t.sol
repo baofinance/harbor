@@ -1,73 +1,62 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Vm} from "forge-std/Vm.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
-import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {ITokenHolder} from "@bao/TokenHolder.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
-import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
+import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol";
 
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 
 /// @title TestStabilityPoolUpgradeMigration
-/// @notice Tests that upgrading StabilityPool_v1 → StabilityPool_v2 via UUPS proxy preserves
+/// @notice Tests that upgrading StabilityPool_v2 → StabilityPool_v3 via UUPS proxy preserves
 ///         all state and produces identical results at every lifecycle stage.
 ///         Each scenario is run with 3 liquidation variants: none, partial, complete.
 contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
-    uint256 price;
+    /// @dev What each liquidation here pays the pool, in wrapped collateral. Non-zero, so the collateral claimable
+    ///      the tests compare across the upgrade is something; its size is free, every comparison being an equality.
+    uint256 internal constant LIQUIDATION_PROCEEDS = 1 ether;
 
-    /// @dev Override to deploy with StabilityPool_v1 implementation instead of MockStabilityPool (v2)
-    function _setupStabilityPool(address liquidationToken) internal override returns (address stabilityPool) {
-        string memory liquidation = IERC20Metadata(liquidationToken).symbol();
-        string memory pegged = IERC20Metadata(IMinter(minter).PEGGED_TOKEN()).symbol();
-        string memory wrappedCollateral = IERC20Metadata(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).symbol();
+    /// @dev Liquidates the pool as its rebalancer, with the amounts each test states.
+    StabilityPoolActions internal poolActions;
 
-        string memory SPName = string.concat(pegged, "x", wrappedCollateral, "~", liquidation);
-        address stabilityPoolToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()),
-                abi.encodeCall(
-                    MintableBurnableERC20_v1.initialize,
-                    (owner, "StabilityPool Token", string.concat("lp", SPName))
-                )
-            )
-        );
-        vm.label(stabilityPoolToken, string.concat("lp", SPName));
-
-        // Deploy with StabilityPool_v1 implementation (NOT MockStabilityPool which is v2)
+    /// @dev Builds a pool on the PREVIOUS implementation, which is what mainnet proxies run today: v3 is not
+    ///      deployed, so v2 is the thing an upgrade starts from. Deliberately a hand-built fixture rather than
+    ///      a deploy: the deploy stands up v3, and nothing in production produces a v2 pool any more.
+    function _setupStabilityPoolV2(address liquidationToken) internal returns (address stabilityPool) {
+        // Deploy with StabilityPool_v2 implementation — this is what production proxies currently run
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(
-                new StabilityPool_v1(
+                new StabilityPool_v2(
                     minter,
                     liquidationToken,
-                    EARLY_WITHDRAWAL_FEE,
-                    FEE_ADDRESS,
-                    WITHDRAWAL_START_DELAY,
-                    WITHDRAWAL_END_WINDOW,
-                    1 ether
+                    marketConfig.stabilityPoolWithdrawalDelay(),
+                    marketConfig.stabilityPoolWithdrawalPeriod(),
+                    marketConfig.aboutADollarInPegged()
                 )
             ),
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(
+                StabilityPool_v2.initialize,
+                (owner(), marketConfig.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
+            )
         );
-        vm.label(stabilityPool, SPName);
-
-        IBaoRoles(stabilityPoolToken).grantRoles(address(this), IMintableRole(stabilityPoolToken).MINTER_ROLE());
-        IMintable(stabilityPoolToken).mint(stabilityPool, 1 ether);
 
         IBaoRoles(stabilityPool).grantRoles(
             rewardManager,
@@ -85,39 +74,43 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             IMultipleRewardDistributor(stabilityPool).registerRewardToken(wrappedCollateralToken);
         }
 
-        IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
-        IBaoOwnable(stabilityPool).transferOwnership(owner);
+        IBaoOwnable(stabilityPool).transferOwnership(owner());
     }
 
     function setUp() public override {
         super.setUp();
-        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        // The suite upgrades FROM v2, so the pool under test has to BE a v2. The deploy above stands up a v3
+        // one; replace it, and re-point the depositor approvals the base granted against the old address.
+        stabilityPoolCollateral = _setupStabilityPoolV2(wrappedCollateralToken);
+        vm.label(stabilityPoolCollateral, "stabilityPoolCollateral(v2)");
+
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
+
+        poolActions = new StabilityPoolActions(stabilityPoolCollateral, rebalancer);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Helpers — copies of StabilityPoolManager logic
+    // Helpers — the pool's own interfaces, driven with the amounts each test states
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @dev Copies StabilityPoolManager's liquidation flow:
-    ///      sweep pegged tokens → deal collateral → transfer to pool → notifyLiquidation
-    ///      Pattern from test/StabilityPoolRebalance.t.sol:68-78
-    function _liquidate(uint256 assets) internal returns (uint256 returned) {
-        returned = (assets * 1 ether) / price;
+    /// @dev Liquidate the pool while it is still v2: `assets` of its pegged taken and `returned` of wrapped collateral
+    ///      paid, then v2's two-argument `notifyLiquidation`, which credits the pool's own LIQUIDATION_TOKEN. The sweep
+    ///      and the payment go through the driver, whose calls v2 carries too; once the proxy runs v3 a test calls
+    ///      `poolActions.liquidate` instead.
+    function _liquidateOnV2(uint256 assets, uint256 returned) internal {
+        poolActions.sweepAndFund(wrappedCollateralToken, assets, returned);
         vm.startPrank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(
-            IStabilityPool(stabilityPoolCollateral).ASSET_TOKEN(),
-            assets,
-            rebalancer
-        );
-        deal(wrappedCollateralToken, rebalancer, returned);
-        IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, returned);
         IStabilityPool(stabilityPoolCollateral).notifyLiquidation(assets, returned);
         vm.stopPrank();
     }
 
-    /// @dev Copies StabilityPoolManager's reward deposit flow:
-    ///      deal tokens → approve → depositReward
-    ///      Pattern from StabilityPoolManager_v1:406-412
+    /// @dev Deposit `amount` of `token` as a reward, as the pool's reward depositor: deal it, approve, `depositReward`.
     function _depositReward(address token, uint256 amount) internal {
         deal(token, rewardDepositor, amount);
         vm.startPrank(rewardDepositor);
@@ -126,139 +119,259 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.stopPrank();
     }
 
-    /// @dev Deposit pegged tokens into the stability pool for a user
-    function _deposit(address user, uint256 amount) internal {
-        deal(peggedToken, user, amount);
-        vm.prank(user);
-        IStabilityPool(stabilityPoolCollateral).deposit(amount, user, 0);
+    /// @dev What the steam stream now running pays over its whole period: its rate times the period. A stream carries
+    ///      the queued remainder of the one before it, so this is read from the pool, not taken from the deposit - and
+    ///      read as the stream starts, before a later deposit replaces its rate.
+    function _steamStreamed() internal view returns (uint256) {
+        (, , uint256 rate, ) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(steam);
+        return rate * IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
     }
 
-    /// @dev Deploy v2 implementation and upgrade the proxy
-    function _upgradeToV2() internal {
-        // Deploy impl BEFORE prank — constructor makes external calls that consume prank
-        address v2Impl = address(
-            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
+    /// @dev Deposit pegged tokens into the stability pool for a user. The pool is v2 before the upgrade and v3 after,
+    ///      so the deposit goes through the base `IStabilityPool` v2 implements, whose `deposit` v3 carries too.
+    function _deposit(address user, uint256 amount) internal {
+        deal(peggedToken, user, amount);
+        vm.startPrank(user);
+        IStabilityPool(stabilityPoolCollateral).deposit(amount, user, 0);
+        vm.stopPrank();
+    }
+
+    /// @dev Migrate the proxy to v3 exactly as production will: deploy the throwaway StabilityPool_v3_Upgrader as a
+    /// temporary implementation and call `migrateAndUpgrade`, which in one transaction widen-copies the reward streams,
+    /// writes the reward-divisor gap, and reinstates the real v3 implementation. The gap is `supply - Sum(balanceOf)`
+    /// read from the v2 pool pre-upgrade (see `_ledgerGap`), so the v3 divisor (`supply - gap`) equals Sum(balanceOf).
+    /// @dev What the upgrade to v3 is made of: the new implementation, taking the floor the v2 proxy already lives
+    ///      with; the upgrader; the ledger gap and the holders read from the v2 pool. Prepared apart from the call that
+    ///      runs the upgrade, so a test can bind a cheatcode to that call alone - the constructors and the ledger read
+    ///      make external calls that would otherwise consume it.
+    struct Upgrade {
+        address v3Impl;
+        address upgraderImpl;
+        int256 gap;
+        address[] holders;
+    }
+
+    function _prepareUpgrade() internal returns (Upgrade memory u) {
+        u.v3Impl = address(
+            new StabilityPool_v3(
+                minter,
+                peggedToken,
+                marketConfig.stabilityPoolWithdrawalDelay(),
+                marketConfig.stabilityPoolWithdrawalPeriod(),
+                IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+                "StabilityPool",
+                "SP"
+            )
         );
-        vm.prank(owner);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v2Impl, "");
+        u.gap = _ledgerGap();
+        u.holders = new address[](2);
+        u.holders[0] = user1;
+        u.holders[1] = user2;
+        u.upgraderImpl = address(new StabilityPool_v3_Upgrader(owner()));
+    }
+
+    /// @dev Run the prepared upgrade as the owner, taking `deductions` back as the pool is migrated: one call.
+    function _upgrade(Upgrade memory u, IStabilityPool_v3_Upgrader.Deduction[] memory deductions) internal {
+        vm.startPrank(owner());
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(
+            u.upgraderImpl,
+            abi.encodeCall(IStabilityPool_v3_Upgrader.migrateAndUpgrade, (u.gap, u.holders, deductions, u.v3Impl))
+        );
+        vm.stopPrank();
+    }
+
+    /// @dev The upgrade to v3 with nothing taken back.
+    function _upgradeToV3() internal {
+        _upgrade(_prepareUpgrade(), new IStabilityPool_v3_Upgrader.Deduction[](0));
+    }
+
+    /// @dev The ledger gap over the test's holders: `totalAssetSupply - Sum(assetBalanceOf)`, read from the v2 pool
+    /// pre-upgrade (v2 has no gap field). Fed to the upgrader so the v3 divisor (`supply - gap`) equals Sum(balanceOf).
+    function _ledgerGap() internal view returns (int256 gap) {
+        uint256 sum = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1) +
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        gap = int256(IStabilityPool(stabilityPoolCollateral).totalAssetSupply()) - int256(sum);
+    }
+
+    /// @dev The exponent of the supply's product, read from the first slot of the pool's namespace, where v2 and v3
+    ///      alike hold the product in the low 128 bits (see `test_upgradeFromV2_SlotLevelStorageIdentical`).
+    function _productExponent() internal view returns (uint8) {
+        return
+            DecrementalFloatingPoint_v2.exponent(
+                uint128(uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE)))
+            );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 1. FreshPool — single test (liquidation N/A for empty pool)
     // ═══════════════════════════════════════════════════════════════════════
 
-    function test_upgradeFromV1_FreshPool() public {
+    function test_upgradeFromV2_FreshPool() public {
         // Upgrade empty pool
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Post-upgrade: all operations should work
-        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), 0, "Empty pool after upgrade");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply(), 0, "Empty pool after upgrade");
 
         // Deposit
         _deposit(user1, 100 ether);
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
             100 ether,
             "Deposit works post-upgrade"
         );
 
-        // Reward
+        // Reward: the sole holder is owed all that streamed
         _depositReward(steam, 10 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0); // distribute pending
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        assertGt(claimable, 0, "Rewards accumulate post-upgrade");
+        uint256 claimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
+        assertEq(claimable, streamed, "Rewards accumulate post-upgrade: the sole holder is owed the whole stream");
 
-        // Liquidate
-        uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
-        _liquidate(totalSupply / 2);
-        assertApproxEqRel(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+        // Liquidate: half the pool divides exactly, so nothing is carried and the balance is exactly halved
+        uint256 totalSupply = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply();
+        poolActions.liquidate(wrappedCollateralToken, totalSupply / 2, LIQUIDATION_PROCEEDS);
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), 0, "fixture: the half loss divides");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
             50 ether,
-            0.01e18,
             "Partial liquidation works post-upgrade"
         );
 
-        // Claim
+        // Claim: it pays what was claimable
         uint256 steamBefore = IERC20(steam).balanceOf(user1);
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-        assertGt(IERC20(steam).balanceOf(user1) - steamBefore, 0, "Claim works post-upgrade");
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        assertEq(
+            IERC20(steam).balanceOf(user1) - steamBefore,
+            claimable,
+            "Claim works post-upgrade: it pays the claimable"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 1b. A PLAIN upgrade is not a migration
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice A plain `upgradeToAndCall(v3Impl, "")` erases every holder's reward accounting, so the v2 -> v3 upgrade
+    /// MUST route through StabilityPool_v3_Upgrader. V3 reads per-user snapshots from a new mapping
+    /// (`userRewardSnapshot`) and never falls back to the v2 one it supersedes, so unless the upgrader copies them
+    /// across, a migrated holder reads zero `claimed` and a zero checkpoint `integral` - the latter making their next
+    /// accrual start from the beginning of the pool's history rather than from where they left off.
+    ///
+    /// This pins the shape of the queued transaction: it is the difference between an implementation swap and a
+    /// migration, and only the calldata distinguishes them.
+    function test_plainUpgradeToV3_erasesHolderRewardAccounting() public {
+        _deposit(user1, 100 ether);
+        _depositReward(steam, 10 ether);
+        vm.warp(block.timestamp + 1 weeks);
+        _depositReward(steam, 0); // distribute pending
+
+        // Claim so the holder has BOTH kinds of reward state: a settled `claimed` history and a live checkpoint.
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+
+        uint256 claimedBefore = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
+        assertGt(claimedBefore, 0, "holder must have claimed history for this test to mean anything");
+
+        // The upgrade the deploy script would queue for a contract that needed no data migration.
+        address v3Impl = address(
+            new StabilityPool_v3(
+                minter,
+                peggedToken,
+                marketConfig.stabilityPoolWithdrawalDelay(),
+                marketConfig.stabilityPoolWithdrawalPeriod(),
+                IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+                "StabilityPool",
+                "SP"
+            )
+        );
+        vm.startPrank(owner());
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
+        vm.stopPrank();
+
+        // The asset ledger is in the pool's own namespace, so it survives - which is what makes the loss easy to miss.
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
+            100 ether,
+            "asset balance survives a plain upgrade - only the REWARD accounting is lost"
+        );
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            0,
+            "claimed history erased: the holder can re-claim rewards already paid out"
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 2. AfterDeposits — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_AfterDeposits(bool doPartialLiq, bool doCompleteLiq) internal {
-        // Build state on v1
+    function _test_upgradeFromV2_AfterDeposits(bool doPartialLiq, bool doCompleteLiq) internal {
+        // Build state on v2
         _deposit(user1, 100 ether);
         _deposit(user2, 50 ether);
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidate(30 ether);
+            _liquidateOnV2(30 ether, LIQUIDATION_PROCEEDS);
         }
 
-        // Snapshot and record v1 results
-        uint256 snap = vm.snapshotState();
-        uint256 v1_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 v1_bal2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
-        uint256 v1_total = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 balance1OnV2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 balance2OnV2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        uint256 supplyOnV2 = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
 
-        // Revert and upgrade
-        vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // Record v2 results
-        uint256 v2_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 v2_bal2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
-        uint256 v2_total = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
+            balance1OnV2,
+            "user1 balance preserved after upgrade"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user2),
+            balance2OnV2,
+            "user2 balance preserved after upgrade"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply(),
+            supplyOnV2,
+            "total supply preserved after upgrade"
+        );
 
-        // Assert identical
-        assertEq(v2_bal1, v1_bal1, "user1 balance preserved after upgrade");
-        assertEq(v2_bal2, v1_bal2, "user2 balance preserved after upgrade");
-        assertEq(v2_total, v1_total, "total supply preserved after upgrade");
-
-        // Post-upgrade: operations work
-        if (v2_bal1 > 0) {
-            _deposit(user1, 10 ether);
-            assertEq(
-                IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-                v2_bal1 + 10 ether,
-                "Deposit works post-upgrade"
-            );
-        } else {
-            // After complete liquidation, deposit fresh
-            _deposit(user1, 10 ether);
-            assertEq(
-                IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-                10 ether,
-                "Fresh deposit after complete liq"
-            );
-        }
+        // A deposit after the upgrade adds to what the holder has - after a complete liquidation, their share of the
+        // floor, which a loss never takes.
+        _deposit(user1, 10 ether);
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
+            balance1OnV2 + 10 ether,
+            "Deposit works post-upgrade"
+        );
     }
 
-    function test_upgradeFromV1_AfterDeposits_NoLiquidation() public {
-        _test_upgradeFromV1_AfterDeposits(false, false);
+    function test_upgradeFromV2_AfterDeposits_NoLiquidation() public {
+        _test_upgradeFromV2_AfterDeposits(false, false);
     }
 
-    function test_upgradeFromV1_AfterDeposits_PartialLiquidation() public {
-        _test_upgradeFromV1_AfterDeposits(true, false);
+    function test_upgradeFromV2_AfterDeposits_PartialLiquidation() public {
+        _test_upgradeFromV2_AfterDeposits(true, false);
     }
 
-    function test_upgradeFromV1_AfterDeposits_CompleteLiquidation() public {
-        _test_upgradeFromV1_AfterDeposits(false, true);
+    function test_upgradeFromV2_AfterDeposits_CompleteLiquidation() public {
+        _test_upgradeFromV2_AfterDeposits(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 3. AfterRewards — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_AfterRewards(bool doPartialLiq, bool doCompleteLiq) internal {
-        // Build state on v1
+    function _test_upgradeFromV2_AfterRewards(bool doPartialLiq, bool doCompleteLiq) internal {
+        // Build state on v2
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
         vm.warp(block.timestamp + 1 weeks);
@@ -266,85 +379,235 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Apply liquidation (creates wrappedCollateral reward)
         if (doCompleteLiq) {
-            _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidate(20 ether);
+            _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
         }
 
-        // Snapshot and record v1 results
-        uint256 snap = vm.snapshotState();
-        uint256 v1_claimSteam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+        uint256 steamClaimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        uint256 collateralClaimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
             user1,
             wrappedCollateralToken
         );
-        uint256 v1_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 v1_total = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(collateralClaimableOnV2, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(collateralClaimableOnV2, 0, "fixture: no liquidation, no collateral claimable");
+        }
+        uint256 balance1OnV2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 supplyOnV2 = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
 
-        // Revert and upgrade
-        vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // Record v2 results
-        uint256 v2_claimSteam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v2_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-            user1,
-            wrappedCollateralToken
+        uint256 steamClaimableOnV3 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[
+            0
+        ];
+        assertEq(steamClaimableOnV3, steamClaimableOnV2, "steam claimable preserved");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(wrappedCollateralToken))[0],
+            collateralClaimableOnV2,
+            "collateral claimable preserved"
         );
-        uint256 v2_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 v2_total = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
-
-        // Assert identical
-        assertEq(v2_claimSteam, v1_claimSteam, "steam claimable preserved");
-        assertEq(v2_claimCol, v1_claimCol, "collateral claimable preserved");
-        assertEq(v2_bal1, v1_bal1, "user1 balance preserved");
-        assertEq(v2_total, v1_total, "total supply preserved");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
+            balance1OnV2,
+            "user1 balance preserved"
+        );
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply(), supplyOnV2, "total supply preserved");
 
         // Post-upgrade: claim works
-        if (v2_claimSteam > 0) {
+        if (steamClaimableOnV3 > 0) {
             uint256 steamBefore = IERC20(steam).balanceOf(user1);
-            vm.prank(user1);
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
+            vm.startPrank(user1);
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+            vm.stopPrank();
             assertEq(
                 IERC20(steam).balanceOf(user1) - steamBefore,
-                v2_claimSteam,
+                steamClaimableOnV3,
                 "Claim matches claimable post-upgrade"
             );
         }
     }
 
-    function test_upgradeFromV1_AfterRewards_NoLiquidation() public {
-        _test_upgradeFromV1_AfterRewards(false, false);
+    function test_upgradeFromV2_AfterRewards_NoLiquidation() public {
+        _test_upgradeFromV2_AfterRewards(false, false);
     }
 
-    function test_upgradeFromV1_AfterRewards_PartialLiquidation() public {
-        _test_upgradeFromV1_AfterRewards(true, false);
+    function test_upgradeFromV2_AfterRewards_PartialLiquidation() public {
+        _test_upgradeFromV2_AfterRewards(true, false);
     }
 
-    function test_upgradeFromV1_AfterRewards_CompleteLiquidation() public {
-        _test_upgradeFromV1_AfterRewards(false, true);
+    function test_upgradeFromV2_AfterRewards_CompleteLiquidation() public {
+        _test_upgradeFromV2_AfterRewards(false, true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Deductions — rewards taken back as the pool is migrated
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev Two depositors, user1 with twice user2's deposit, and a steam reward streamed to its end with neither
+    ///      checkpointed since: what each may claim is accrued against the pool's integral, not settled in its record,
+    ///      so a deduction has to settle it first to count it. Returns what user1 may claim.
+    function _streamARewardToTwoDepositors() internal returns (uint256 user1MayClaim) {
+        _deposit(user1, 100 ether);
+        _deposit(user2, 50 ether);
+        _depositReward(steam, 10 ether);
+        vm.warp(block.timestamp + 1 weeks);
+        user1MayClaim = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        assertGt(user1MayClaim, 0, "fixture: user1 has a reward to take from");
+    }
+
+    function _oneDeduction(
+        address account,
+        address token,
+        uint256 amount
+    ) internal pure returns (IStabilityPool_v3_Upgrader.Deduction[] memory one) {
+        one = new IStabilityPool_v3_Upgrader.Deduction[](1);
+        one[0] = IStabilityPool_v3_Upgrader.Deduction({account: account, token: token, amount: amount});
+    }
+
+    function _claimableOnV3(address account, address token) internal view returns (uint256) {
+        return IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(account, aa(token))[0];
+    }
+
+    /// @notice A reward taken back as the pool is migrated: the holder may then claim exactly what it could, less the
+    ///         amount - what accrued since its last checkpoint counted - the owner receives the tokens from the pool,
+    ///         the other holder is untouched, and the holder's claim pays the rest and counts only that as claimed.
+    function test_upgradeFromV2_aDeductionIsTakenFromTheHolderAndPaidToTheOwner() public {
+        uint256 user1MayClaim = _streamARewardToTwoDepositors();
+        uint256 user2MayClaim = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, steam);
+        uint256 cut = user1MayClaim / 3;
+        uint256 poolHeld = IERC20(steam).balanceOf(stabilityPoolCollateral);
+        uint256 ownerHeld = IERC20(steam).balanceOf(owner());
+        Upgrade memory u = _prepareUpgrade();
+
+        vm.expectEmit(stabilityPoolCollateral);
+        emit IStabilityPool_v3_Upgrader.RewardDeducted(user1, steam, cut);
+        _upgrade(u, _oneDeduction(user1, steam, cut));
+
+        assertEq(_claimableOnV3(user1, steam), user1MayClaim - cut, "user1 may claim what it could, less the cut");
+        assertEq(_claimableOnV3(user2, steam), user2MayClaim, "user2 is untouched");
+        assertEq(IERC20(steam).balanceOf(owner()), ownerHeld + cut, "the owner receives the cut");
+        assertEq(IERC20(steam).balanceOf(stabilityPoolCollateral), poolHeld - cut, "from the pool");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            0,
+            "user1 has claimed nothing"
+        );
+
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(aa(steam));
+        vm.stopPrank();
+        assertEq(IERC20(steam).balanceOf(user1), user1MayClaim - cut, "user1 claims the rest");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            user1MayClaim - cut,
+            "and that is what it has claimed"
+        );
+    }
+
+    /// @notice Two deductions in two tokens from two holders: each holder may claim exactly what it could, less the
+    ///         amount, in the token taken, and what it could in the other; the owner receives both tokens from the
+    ///         pool.
+    function test_upgradeFromV2_twoDeductionsInTwoTokensAreEachTakenAndPaid() public {
+        _streamARewardToTwoDepositors();
+        // A partial liquidation pays the pool wrapped collateral, a second reward token both holders share.
+        _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
+        uint256 user1Steam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        uint256 user2Steam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, steam);
+        uint256 user1Collateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            wrappedCollateralToken
+        );
+        uint256 user2Collateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user2,
+            wrappedCollateralToken
+        );
+        assertGt(user2Collateral, 0, "fixture: user2 has collateral to take from");
+        uint256 steamCut = user1Steam / 2;
+        uint256 collateralCut = user2Collateral / 4;
+        uint256 ownerSteam = IERC20(steam).balanceOf(owner());
+        uint256 ownerCollateral = IERC20(wrappedCollateralToken).balanceOf(owner());
+        uint256 poolSteam = IERC20(steam).balanceOf(stabilityPoolCollateral);
+        uint256 poolCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
+        IStabilityPool_v3_Upgrader.Deduction[] memory two = new IStabilityPool_v3_Upgrader.Deduction[](2);
+        two[0] = IStabilityPool_v3_Upgrader.Deduction({account: user1, token: steam, amount: steamCut});
+        two[1] = IStabilityPool_v3_Upgrader.Deduction({
+            account: user2,
+            token: wrappedCollateralToken,
+            amount: collateralCut
+        });
+
+        _upgrade(_prepareUpgrade(), two);
+
+        assertEq(_claimableOnV3(user1, steam), user1Steam - steamCut, "user1's steam, less its cut");
+        assertEq(_claimableOnV3(user1, wrappedCollateralToken), user1Collateral, "user1's collateral, untouched");
+        assertEq(_claimableOnV3(user2, steam), user2Steam, "user2's steam, untouched");
+        assertEq(
+            _claimableOnV3(user2, wrappedCollateralToken),
+            user2Collateral - collateralCut,
+            "user2's collateral, less its cut"
+        );
+        assertEq(IERC20(steam).balanceOf(owner()), ownerSteam + steamCut, "the owner receives the steam cut");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(owner()),
+            ownerCollateral + collateralCut,
+            "and the collateral cut"
+        );
+        assertEq(IERC20(steam).balanceOf(stabilityPoolCollateral), poolSteam - steamCut, "the pool pays the steam");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
+            poolCollateral - collateralCut,
+            "and the collateral"
+        );
+    }
+
+    /// @notice A deduction above what the holder may claim is refused, naming the holder, the token, the amount and
+    ///         what it may claim; the pool stays as it was, on v2.
+    function test_upgradeFromV2_aDeductionAboveTheClaimable_reverts() public {
+        uint256 user1MayClaim = _streamARewardToTwoDepositors();
+        Upgrade memory u = _prepareUpgrade();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IStabilityPool_v3_Upgrader.DeductionExceedsReward.selector,
+                user1,
+                steam,
+                user1MayClaim + 1,
+                user1MayClaim
+            )
+        );
+        _upgrade(u, _oneDeduction(user1, steam, user1MayClaim + 1));
+
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
+            user1MayClaim,
+            "user1 may still claim it all"
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 4. AfterPartialClaim — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_AfterPartialClaim(bool doPartialLiq, bool doCompleteLiq) internal {
-        // Build state on v1
+    function _test_upgradeFromV2_AfterPartialClaim(bool doPartialLiq, bool doCompleteLiq) internal {
+        // Build state on v2
         _deposit(user1, 100 ether);
 
         // Week 1: distribute rewards and claim
         _depositReward(steam, 10 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0); // distribute pending
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidate(20 ether);
+            _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
         }
 
         // Week 2: distribute more rewards
@@ -352,127 +615,135 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0); // distribute pending
 
-        // Snapshot and record v1 results
-        uint256 snap = vm.snapshotState();
-        uint256 v1_claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
-        uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+        uint256 claimedOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
+        uint256 claimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        uint256 collateralClaimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
             user1,
             wrappedCollateralToken
         );
-        uint256 v1_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(collateralClaimableOnV2, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(collateralClaimableOnV2, 0, "fixture: no liquidation, no collateral claimable");
+        }
+        uint256 balance1OnV2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
-        // Revert and upgrade
-        vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // Record v2 results
-        uint256 v2_claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
-        uint256 v2_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v2_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-            user1,
-            wrappedCollateralToken
+        uint256 claimedOnV3 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0];
+        uint256 claimableOnV3 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
+        assertEq(claimedOnV3, claimedOnV2, "claimed preserved");
+        assertEq(claimableOnV3, claimableOnV2, "claimable preserved");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(wrappedCollateralToken))[0],
+            collateralClaimableOnV2,
+            "collateral claimable preserved"
         );
-        uint256 v2_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-
-        // Assert identical
-        assertEq(v2_claimed, v1_claimed, "claimed preserved");
-        assertEq(v2_claimable, v1_claimable, "claimable preserved");
-        assertEq(v2_claimCol, v1_claimCol, "collateral claimable preserved");
-        assertEq(v2_bal1, v1_bal1, "balance preserved");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1), balance1OnV2, "balance preserved");
 
         // Post-upgrade: claim remaining
-        if (v2_claimable > 0) {
-            vm.prank(user1);
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-            uint256 totalClaimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
-            assertEq(totalClaimed, v2_claimed + v2_claimable, "Total claimed = previous + remaining");
+        if (claimableOnV3 > 0) {
+            vm.startPrank(user1);
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+            vm.stopPrank();
+            uint256 totalClaimed = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0];
+            assertEq(totalClaimed, claimedOnV3 + claimableOnV3, "Total claimed = previous + remaining");
         }
     }
 
-    function test_upgradeFromV1_AfterPartialClaim_NoLiquidation() public {
-        _test_upgradeFromV1_AfterPartialClaim(false, false);
+    function test_upgradeFromV2_AfterPartialClaim_NoLiquidation() public {
+        _test_upgradeFromV2_AfterPartialClaim(false, false);
     }
 
-    function test_upgradeFromV1_AfterPartialClaim_PartialLiquidation() public {
-        _test_upgradeFromV1_AfterPartialClaim(true, false);
+    function test_upgradeFromV2_AfterPartialClaim_PartialLiquidation() public {
+        _test_upgradeFromV2_AfterPartialClaim(true, false);
     }
 
-    function test_upgradeFromV1_AfterPartialClaim_CompleteLiquidation() public {
-        _test_upgradeFromV1_AfterPartialClaim(false, true);
+    function test_upgradeFromV2_AfterPartialClaim_CompleteLiquidation() public {
+        _test_upgradeFromV2_AfterPartialClaim(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 5. MidRewardPeriod — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_MidRewardPeriod(bool doPartialLiq, bool doCompleteLiq) internal {
-        // Build state on v1
+    function _test_upgradeFromV2_MidRewardPeriod(bool doPartialLiq, bool doCompleteLiq) internal {
+        // Build state on v2
         _deposit(user1, 100 ether);
         _depositReward(steam, 7 ether); // ~1 ether/day over 1-week period
+        uint256 streamed = _steamStreamed();
 
         // Warp halfway through period
         vm.warp(block.timestamp + 3.5 days);
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidate(20 ether);
+            _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
         }
 
-        // Snapshot and record v1 results
-        uint256 snap = vm.snapshotState();
-        uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+        uint256 claimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        uint256 collateralClaimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
             user1,
             wrappedCollateralToken
         );
-        uint256 v1_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        // a liquidation pays the holder collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(collateralClaimableOnV2, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(collateralClaimableOnV2, 0, "fixture: no liquidation, no collateral claimable");
+        }
+        uint256 balance1OnV2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
-        // Revert and upgrade
-        vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // Record v2 results
-        uint256 v2_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v2_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-            user1,
-            wrappedCollateralToken
+        uint256 claimableOnV3 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
+        assertEq(claimableOnV3, claimableOnV2, "mid-period claimable preserved");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(wrappedCollateralToken))[0],
+            collateralClaimableOnV2,
+            "mid-period collateral claimable preserved"
         );
-        uint256 v2_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-
-        // Assert identical
-        assertEq(v2_claimable, v1_claimable, "mid-period claimable preserved");
-        assertEq(v2_claimCol, v1_claimCol, "mid-period collateral claimable preserved");
-        assertEq(v2_bal1, v1_bal1, "mid-period balance preserved");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
+            balance1OnV2,
+            "mid-period balance preserved"
+        );
 
         // Post-upgrade: warp remaining 3.5 days and verify rewards complete
         vm.warp(block.timestamp + 3.5 days);
         _depositReward(steam, 0); // distribute remaining
-        uint256 finalClaimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        // After full period, should have ~7 ether of rewards (minus rate truncation)
-        assertGt(finalClaimable, v2_claimable, "More rewards after remaining period");
+        // after the full period the sole holder is owed the whole stream, across the upgrade
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0],
+            streamed,
+            "the whole stream after the remaining period"
+        );
     }
 
-    function test_upgradeFromV1_MidRewardPeriod_NoLiquidation() public {
-        _test_upgradeFromV1_MidRewardPeriod(false, false);
+    function test_upgradeFromV2_MidRewardPeriod_NoLiquidation() public {
+        _test_upgradeFromV2_MidRewardPeriod(false, false);
     }
 
-    function test_upgradeFromV1_MidRewardPeriod_PartialLiquidation() public {
-        _test_upgradeFromV1_MidRewardPeriod(true, false);
+    function test_upgradeFromV2_MidRewardPeriod_PartialLiquidation() public {
+        _test_upgradeFromV2_MidRewardPeriod(true, false);
     }
 
-    function test_upgradeFromV1_MidRewardPeriod_CompleteLiquidation() public {
-        _test_upgradeFromV1_MidRewardPeriod(false, true);
+    function test_upgradeFromV2_MidRewardPeriod_CompleteLiquidation() public {
+        _test_upgradeFromV2_MidRewardPeriod(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 6. MultiUserLazyMigration — 3 liquidation variants
+    // 6. EqualHolders — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_MultiUserLazyMigration(bool doPartialLiq, bool doCompleteLiq) internal {
-        // Build state on v1 — equal deposits for easy comparison
+    /// @dev Two equal holders through the upgrade, one of them checkpointing after it and the other not. The upgrader
+    ///      copies both holders' reward snapshots before v3 runs, so a checkpoint after the upgrade changes nothing
+    ///      either one can claim: they read alike, claim alike, and earn alike from later rewards.
+    function _test_upgradeFromV2_EqualHolders(bool doPartialLiq, bool doCompleteLiq) internal {
+        // Build state on v2 — equal deposits for easy comparison
         _deposit(user1, 100 ether);
         _deposit(user2, 100 ether);
 
@@ -483,45 +754,50 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Apply liquidation
         if (doCompleteLiq) {
-            _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+            _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
         } else if (doPartialLiq) {
-            _liquidate(40 ether);
+            _liquidateOnV2(40 ether, LIQUIDATION_PROCEEDS);
         }
 
-        // Upgrade to v2 (no snapshot/revert — testing post-upgrade behavior directly)
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // user1 interacts → triggers V1→V2 migration
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(user1);
+        // user1 checkpoints after the upgrade; user2 does not
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).checkpoint(user1);
+        vm.stopPrank();
 
-        // user2 has NOT interacted → still on V1 storage
-
-        // Both should have equal claimable (equal deposits, equal shares)
-        uint256 claimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 claimable2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, steam);
-        assertEq(claimable1, claimable2, "Equal steam claimable (migrated vs unmigrated)");
+        uint256 claimable1 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
+        uint256 claimable2 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0];
+        assertEq(claimable1, claimable2, "Equal steam claimable, checkpointed after the upgrade or not");
 
         // Collateral rewards: equal for equal depositors
-        uint256 colClaimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+        uint256 colClaimable1 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
             user1,
-            wrappedCollateralToken
-        );
-        uint256 colClaimable2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            aa(wrappedCollateralToken)
+        )[0];
+        uint256 colClaimable2 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
             user2,
-            wrappedCollateralToken
-        );
-        assertEq(colClaimable1, colClaimable2, "Equal collateral claimable (migrated vs unmigrated)");
+            aa(wrappedCollateralToken)
+        )[0];
+        // a liquidation pays the holders collateral, so the comparison below compares something; without one, nothing
+        if (doCompleteLiq || doPartialLiq) {
+            assertGt(colClaimable1, 0, "fixture: the liquidation left collateral claimable to compare");
+        } else {
+            assertEq(colClaimable1, 0, "fixture: no liquidation, no collateral claimable");
+        }
+        assertEq(colClaimable1, colClaimable2, "Equal collateral claimable, checkpointed after the upgrade or not");
 
         // Both claim → verify equal amounts for both reward tokens
         uint256 steam1Before = IERC20(steam).balanceOf(user1);
         uint256 steam2Before = IERC20(steam).balanceOf(user2);
         uint256 col1Before = IERC20(wrappedCollateralToken).balanceOf(user1);
         uint256 col2Before = IERC20(wrappedCollateralToken).balanceOf(user2);
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-        vm.prank(user2);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user2);
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
         assertEq(
             IERC20(steam).balanceOf(user1) - steam1Before,
             IERC20(steam).balanceOf(user2) - steam2Before,
@@ -535,174 +811,186 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Deposit more rewards → verify both accumulate correctly going forward
         _depositReward(steam, 10 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0); // distribute
 
-        uint256 newClaimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 newClaimable2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, steam);
+        uint256 newClaimable1 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
+        uint256 newClaimable2 = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0];
 
-        // After complete liquidation, balances are 0, so new rewards may not accumulate to users
-        if (!doCompleteLiq) {
-            assertGt(newClaimable1, 0, "user1 accumulates new rewards post-upgrade");
-            assertEq(newClaimable1, newClaimable2, "Equal new rewards for equal depositors");
-        }
+        // after a complete liquidation too: the holders keep their shares of the floor, so later rewards reach them -
+        // equal holders, half the stream each
+        assertEq(newClaimable1, streamed / 2, "user1 accumulates half the new stream post-upgrade");
+        assertEq(newClaimable1, newClaimable2, "Equal new rewards for equal depositors");
     }
 
-    function test_upgradeFromV1_MultiUserLazyMigration_NoLiquidation() public {
-        _test_upgradeFromV1_MultiUserLazyMigration(false, false);
+    function test_upgradeFromV2_EqualHolders_NoLiquidation() public {
+        _test_upgradeFromV2_EqualHolders(false, false);
     }
 
-    function test_upgradeFromV1_MultiUserLazyMigration_PartialLiquidation() public {
-        _test_upgradeFromV1_MultiUserLazyMigration(true, false);
+    function test_upgradeFromV2_EqualHolders_PartialLiquidation() public {
+        _test_upgradeFromV2_EqualHolders(true, false);
     }
 
-    function test_upgradeFromV1_MultiUserLazyMigration_CompleteLiquidation() public {
-        _test_upgradeFromV1_MultiUserLazyMigration(false, true);
+    function test_upgradeFromV2_EqualHolders_CompleteLiquidation() public {
+        _test_upgradeFromV2_EqualHolders(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 7. RarePath — V2 integral=0 with V2 timestamp!=0 (Path 2 coverage)
+    // 7. A holder checkpointed at a new exponent before any reward there
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Tests the rare migration path where V2 integral=0 but V2 timestamp!=0.
-    ///         This occurs when a user is checkpointed at a new exponent (after complete
-    ///         liquidation shifts the exponent) where no rewards have been distributed yet.
-    ///         Verifies: Path 3->2 migration, Path 2 read, Path 2->1 transition, Path 1 read.
-    function test_upgradeFromV1_RarePath_ZeroIntegralAfterExponentShift() public {
-        // Build state on v1: deposit, earn rewards, claim
-        _deposit(user1, 100 ether);
+    /// @notice A holder whose first checkpoint at a new exponent comes before any reward is credited there - their
+    ///         snapshot of that exponent's reward integral is 0 - keeps their claimed record and earns every reward
+    ///         that follows. On v2 a holder of ten billion floors earns and claims; a loss to the floor, a fall of
+    ///         1e-10 and so past the 1e-9 that steps the product's exponent, moves the pool to exponent 1; after the
+    ///         upgrade the holder deposits again, checkpointing at exponent 1, where nothing is credited yet.
+    function test_upgradeFromV2_aHolderCheckpointedAtANewExponent_earnsTheRewardsThatFollow() public {
+        _deposit(user1, IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY() * 1e10);
         _depositReward(steam, 10 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0); // distribute pending
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-        uint256 v1Claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
-        assertGt(v1Claimed, 0, "V1 claimed > 0 before liquidation");
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        uint256 claimedOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
+        assertGt(claimedOnV2, 0, "fixture: the holder has claimed on v2");
 
-        // Complete liquidation shifts exponent (e.g. 0 -> 1)
-        _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+        _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
+        assertEq(_productExponent(), 1, "fixture: the loss to the floor stepped the product's exponent");
 
-        // Upgrade to v2 BEFORE re-depositing - V1 data still untouched
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // Re-deposit triggers _checkpoint on v2:
-        // - Reads V1 data via Path 3 (V2 mapping empty)
-        // - User has 0 shares (complete liquidation), so claimable = pending = 0
-        // - Writes V2: integral = tokenToExponentToIntegral(steam, newExponent) = 0
-        // - V2 now has: integral=0, timestamp=now, pending=0, claimed=v1Claimed
-        // -> Path 2 is active for subsequent reads
+        // the deposit checkpoints the holder at exponent 1, where no reward is credited yet
         _deposit(user1, 50 ether);
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            claimedOnV2,
+            "the claimed record is kept through the upgrade"
+        );
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0],
+            0,
+            "nothing is owed at the new exponent before a reward is credited there"
+        );
 
-        // Verify claimed preserved through lazy migration
-        uint256 v2Claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
-        assertEq(v2Claimed, v1Claimed, "Claimed preserved through Path 3 -> Path 2 migration");
-
-        // No new rewards yet - claimable should be 0
-        uint256 claimableBeforeRewards = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        assertEq(claimableBeforeRewards, 0, "No claimable before new rewards (Path 2 read)");
-
-        // Distribute new rewards at new exponent - global integral becomes > 0
+        // a reward credited at exponent 1, on top of the holder's zero snapshot there: the sole holder is owed the whole
+        // stream, read across the flush into the integral, which may cost it a wei
         _depositReward(steam, 10 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
+        uint256 firstClaimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
+        assertLe(firstClaimable, streamed, "the holder earns the reward credited after their checkpoint: never more");
+        assertGe(
+            firstClaimable + 1,
+            streamed,
+            "the holder earns the reward credited after their checkpoint: all of it"
+        );
 
-        // Path 2 read: user's V2 integral=0, global integral > 0 -> delta > 0 -> claimable > 0
-        uint256 path2Claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        assertGt(path2Claimable, 0, "Path 2 read works: claimable with integral=0 base");
-
-        // Checkpoint transitions Path 2 -> Path 1 (writes integral > 0)
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(user1);
-
-        // Distribute more rewards - verify Path 1 works
+        // a checkpoint carries it into the holder's pending, and the next reward adds to it
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).checkpoint(user1);
+        vm.stopPrank();
         _depositReward(steam, 10 ether);
+        streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
+        uint256 totalClaimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0];
+        assertLe(totalClaimable, firstClaimable + streamed, "and the rewards after that: never more");
+        assertGe(totalClaimable + 1, firstClaimable + streamed, "and the rewards after that: all of them");
 
-        // path1Claimable includes path2Claimable (in pending) plus new rewards
-        uint256 path1Claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        assertGt(path1Claimable, path2Claimable, "Path 1 read: includes pending from Path 2 + new rewards");
-
-        // Claim everything and verify total
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-        uint256 totalClaimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
-        assertEq(totalClaimed, v1Claimed + path1Claimable, "Total claimed = v1 + all post-upgrade rewards");
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            claimedOnV2 + totalClaimable,
+            "Total claimed = what was claimed on v2 + all post-upgrade rewards"
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 8. MidWithdrawal — withdrawal request on v1, complete on v2
+    // 8. MidWithdrawal — withdrawal request on v2, complete on v3
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Tests that a pending withdrawal request initiated on v1 survives
-    ///         the upgrade and can be completed on v2 with correct amounts.
-    function test_upgradeFromV1_MidWithdrawal() public {
-        // Build state on v1: deposit and earn rewards
+    /// @notice A withdrawal request made on v2 keeps its window through the upgrade, but makes nothing fee-free: v2
+    ///         recorded no amount with it. Withdrawn in that window on v3, the amount pays the fee, and the balance and
+    ///         the rewards carry through the upgrade unchanged.
+    function test_upgradeFromV2_MidWithdrawal() public {
+        // Build state on v2: deposit and earn rewards
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
 
         // Partial liquidation so collateral rewards exist too
-        _liquidate(20 ether);
+        _liquidateOnV2(20 ether, LIQUIDATION_PROCEEDS);
 
-        // Initiate withdrawal on v1
-        vm.prank(user1);
+        // Initiate withdrawal on v2
+        vm.startPrank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 v1Start, uint64 v1End) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertGt(v1Start, 0, "Withdrawal request exists on v1");
+        vm.stopPrank();
+        (uint64 startOnV2, uint64 endOnV2) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        assertGt(startOnV2, 0, "Withdrawal request exists on v2");
 
-        // Snapshot v1 state
-        uint256 snap = vm.snapshotState();
-        uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+        uint256 balanceOnV2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 claimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        uint256 collateralClaimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
             user1,
             wrappedCollateralToken
         );
+        assertGt(collateralClaimableOnV2, 0, "fixture: the liquidation left collateral claimable to compare");
 
-        // Revert and upgrade
-        vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Verify withdrawal request preserved
-        (uint64 v2Start, uint64 v2End) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(v2Start, v1Start, "Withdrawal start preserved");
-        assertEq(v2End, v1End, "Withdrawal end preserved");
+        (uint64 startOnV3, uint64 endOnV3) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
+        assertEq(startOnV3, startOnV2, "Withdrawal start preserved");
+        assertEq(endOnV3, endOnV2, "Withdrawal end preserved");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).withdrawalFeeFreeAmount(user1),
+            0,
+            "a request carried from v2 makes nothing fee-free"
+        );
 
         // Verify balances and claimable preserved
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), v1_bal, "Balance preserved");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balanceOnV2, "Balance preserved");
         assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
-            v1_claimable,
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0],
+            claimableOnV2,
             "Steam claimable preserved"
         );
         assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken),
-            v1_claimCol,
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(wrappedCollateralToken))[0],
+            collateralClaimableOnV2,
             "Collateral claimable preserved"
         );
 
-        // Warp into withdrawal window and complete withdrawal on v2
-        vm.warp(v2Start + 1);
+        // Warp into withdrawal window and complete withdrawal on v3: inside the window, but nothing is fee-free
+        vm.warp(startOnV3 + 1);
+        uint256 fee = (50 ether * IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio()) / 1 ether;
+        assertGt(fee, 0, "fixture: the pool charges a fee");
         uint256 peggedBefore = IERC20(peggedToken).balanceOf(user1);
-        vm.prank(user1);
-        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(50 ether, user1, 0);
-        assertEq(withdrawn, 50 ether, "Withdraw correct amount on v2");
-        assertEq(IERC20(peggedToken).balanceOf(user1) - peggedBefore, 50 ether, "Pegged tokens received");
+        vm.startPrank(user1);
+        uint256 withdrawn = IStabilityPool_v3(stabilityPoolCollateral).withdraw(50 ether, user1, 0);
+        vm.stopPrank();
+        assertEq(withdrawn, 50 ether - fee, "the withdrawal in the carried window pays the fee");
+        assertEq(IERC20(peggedToken).balanceOf(user1) - peggedBefore, 50 ether - fee, "Pegged tokens received");
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            v1_bal - 50 ether,
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            balanceOnV2 - 50 ether,
             "Balance reduced after withdrawal"
         );
 
-        // Claim rewards post-withdrawal
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-        assertGt(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam),
-            0,
-            "Steam claimed post-withdraw"
+        // Claim rewards post-withdrawal: nothing streams after the upgrade, so the claim is the steam preserved through it
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            claimableOnV2,
+            "Steam claimed post-withdraw: what was claimable through the upgrade"
         );
     }
 
@@ -710,102 +998,155 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     // 9. MultipleExponentShifts — exponent 0→1→2 before upgrade
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Tests that rewards accumulated across multiple exponent shifts (complete
-    ///         liquidations) on v1 are correctly preserved through upgrade. Exercises the
-    ///         _claimableFrom loop that sums integrals across exponent boundaries.
-    function test_upgradeFromV1_MultipleExponentShifts() public {
-        // Exponent 0: deposit and earn rewards
-        _deposit(user1, 100 ether);
+    /// @notice Rewards credited at later exponents than a holder's snapshot survive the upgrade: v3's claim walks the
+    ///         per-exponent reward integrals from the holder's exponent up to the pool's, and reads what v2 read. On v2,
+    ///         user1 deposits ten billion floors at exponent 0 and never touches the pool again; a loss to the floor
+    ///         steps the exponent to 1; a reward follows; user2 brings the pool back to ten billion floors; a second
+    ///         loss steps it to 2; another reward. So user1's claim spans two exponent steps and user2's one.
+    function test_upgradeFromV2_MultipleExponentShifts() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        // Exponent 0: user1 deposits and earns
+        _deposit(user1, floor * 1e10);
         _depositReward(steam, 10 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
 
-        // First complete liquidation: exponent 0 → 1
-        // Use actual pegged balance for sweep (totalAssetSupply includes MIN_TOTAL_ASSET_SUPPLY residual)
-        _liquidate(IERC20(peggedToken).balanceOf(stabilityPoolCollateral));
+        // A loss to the floor - a fall of 1e-10 - steps the exponent to 1. v2's sweep is uncapped, so it takes the
+        // floor's backing too and the pool then holds less pegged than its supply: each liquidation asks for the
+        // pegged held, and the loss notified is capped at the floor.
+        _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), LIQUIDATION_PROCEEDS);
+        assertEq(_productExponent(), 1, "fixture: the first loss stepped the exponent to 1");
 
-        // Exponent 1: re-deposit and earn more rewards
-        _deposit(user1, 80 ether);
+        // Exponent 1: a reward credited above user1's snapshot; then user2 brings the pool back to ten billion floors
         _depositReward(steam, 8 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
+        _deposit(user2, floor * 1e10 - IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
 
-        // Second complete liquidation: exponent 1 → 2
-        _liquidate(IERC20(peggedToken).balanceOf(stabilityPoolCollateral));
+        // A second loss to the floor steps the exponent to 2
+        _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), LIQUIDATION_PROCEEDS);
+        assertEq(_productExponent(), 2, "fixture: the second loss stepped the exponent to 2");
 
-        // Exponent 2: re-deposit and earn more rewards
-        _deposit(user1, 60 ether);
+        // Exponent 2: a reward above both snapshots
         _depositReward(steam, 6 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
 
-        // Snapshot and record v1 results
-        uint256 snap = vm.snapshotState();
-        uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-            user1,
-            wrappedCollateralToken
+        assertEq(
+            DecrementalFloatingPoint_v2.exponent(
+                uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user1, 2))))
+            ),
+            0,
+            "fixture: user1's snapshot is two exponent steps old"
         );
-        uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        assertEq(
+            DecrementalFloatingPoint_v2.exponent(
+                uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user2, 2))))
+            ),
+            1,
+            "fixture: user2's snapshot is one exponent step old"
+        );
+        address[2] memory holders = [user1, user2];
+        uint256[2] memory steamClaimableOnV2;
+        uint256[2] memory collateralClaimableOnV2;
+        uint256[2] memory balanceOnV2;
+        for (uint256 i = 0; i < 2; i++) {
+            steamClaimableOnV2[i] = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(holders[i], steam);
+            collateralClaimableOnV2[i] = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+                holders[i],
+                wrappedCollateralToken
+            );
+            balanceOnV2[i] = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(holders[i]);
+        }
+        assertGt(steamClaimableOnV2[0], 10 ether, "fixture: user1's claim reaches past the first reward's exponent");
+        assertGt(collateralClaimableOnV2[0], 0, "fixture: the liquidation left collateral claimable to compare");
 
-        // Revert and upgrade
-        vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // Assert identical
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
-            v1_claimable,
-            "Steam claimable preserved across 2 exponent shifts"
-        );
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken),
-            v1_claimCol,
-            "Collateral claimable preserved across 2 exponent shifts"
-        );
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            v1_bal,
-            "Balance preserved across 2 exponent shifts"
-        );
+        for (uint256 i = 0; i < 2; i++) {
+            assertEq(
+                IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(holders[i], aa(steam))[0],
+                steamClaimableOnV2[i],
+                string.concat("Steam claimable preserved across the exponent steps: ", vm.getLabel(holders[i]))
+            );
+            assertEq(
+                IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
+                    holders[i],
+                    aa(wrappedCollateralToken)
+                )[0],
+                collateralClaimableOnV2[i],
+                string.concat("Collateral claimable preserved across the exponent steps: ", vm.getLabel(holders[i]))
+            );
+            assertEq(
+                IERC20(stabilityPoolCollateral).balanceOf(holders[i]),
+                balanceOnV2[i],
+                string.concat("Balance preserved across the exponent steps: ", vm.getLabel(holders[i]))
+            );
+        }
 
         // Post-upgrade: claim and verify total
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-        uint256 totalSteam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
-        assertEq(totalSteam, v1_claimable, "Full steam amount claimed post-upgrade");
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        uint256 totalSteam = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0];
+        assertEq(totalSteam, steamClaimableOnV2[0], "Full steam amount claimed post-upgrade");
 
-        // Post-upgrade: new rewards accumulate at exponent 2
+        // Post-upgrade: new rewards accumulate at exponent 2 - user2's share of the stream. The divisor is the supply
+        // less the upgrader's gap, the sum of the balances (user1's ten billion floors, written down two exponent steps,
+        // hold a ten-billionth). A holder earns on its unfloored compounded share: its stored amount scaled by the pool's
+        // magnitude over its own, and down a scale factor for each exponent step since it was written - read from its
+        // balance slot (product in the low 128 bits, amount in the high). The claim floors its share of the old and the
+        // new integral together, so the new stream's part can carry a wei either way; the integral's own floors are
+        // worth far less than a wei here.
         _depositReward(steam, 5 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
-        assertGt(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
-            0,
-            "New rewards accumulate post-upgrade at exponent 2"
+        uint256 expected;
+        {
+            uint256 balanceWord = uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user2, 2)));
+            uint128 userProduct = uint128(balanceWord);
+            uint128 poolProduct = uint128(uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE)));
+            uint256 steps = DecrementalFloatingPoint_v2.exponent(poolProduct) -
+                DecrementalFloatingPoint_v2.exponent(userProduct);
+            expected =
+                steamClaimableOnV2[1] +
+                Math.mulDiv(
+                    streamed,
+                    (balanceWord >> 128) * DecrementalFloatingPoint_v2.magnitude(poolProduct),
+                    DecrementalFloatingPoint_v2.magnitude(userProduct) *
+                        uint256(DecrementalFloatingPoint_v2.SCALE_FACTOR) ** steps *
+                        (balanceOnV2[0] + balanceOnV2[1])
+                );
+        }
+        assertApproxEqAbs(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0],
+            expected,
+            1,
+            "New rewards accumulate post-upgrade at exponent 2: user2's unfloored share of the stream"
         );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 10. ReDepositAfterPartialLiquidation — product mismatch on v1
+    // 10. ReDepositAfterPartialLiquidation — product mismatch on v2
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Tests upgrade when a user has re-deposited after partial liquidation on v1,
+    /// @notice Tests upgrade when a user has re-deposited after partial liquidation on v2,
     ///         creating a product that differs from their initial deposit product.
-    ///         The re-deposit triggers a v1 checkpoint that updates the user's product,
+    ///         The re-deposit triggers a v2 checkpoint that updates the user's product,
     ///         so the upgrade must handle this intermediate product state correctly.
-    function test_upgradeFromV1_ReDepositAfterPartialLiquidation() public {
-        // Initial deposit on v1
+    function test_upgradeFromV2_ReDepositAfterPartialLiquidation() public {
+        // Initial deposit on v2
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
 
         // Partial liquidation changes the product (magnitude decreases)
-        _liquidate(50 ether);
+        _liquidateOnV2(50 ether, LIQUIDATION_PROCEEDS);
         uint256 balAfterLiq = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
-        // Re-deposit on v1 — triggers v1 checkpoint, user's product updates to current
+        // Re-deposit on v2 — triggers a v2 checkpoint, user's product updates to current
         _deposit(user1, 40 ether);
         uint256 balAfterRedeposit = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         assertEq(balAfterRedeposit, balAfterLiq + 40 ether, "Re-deposit added to compounded balance");
@@ -815,54 +1156,285 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
 
-        // Snapshot and record v1 results
-        uint256 snap = vm.snapshotState();
-        uint256 v1_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
-        uint256 v1_claimCol = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+        uint256 claimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        uint256 collateralClaimableOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
             user1,
             wrappedCollateralToken
         );
-        uint256 v1_bal = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        assertGt(collateralClaimableOnV2, 0, "fixture: the liquidation left collateral claimable to compare");
+        uint256 balanceOnV2 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
-        // Revert and upgrade
-        vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
-        // Assert identical
         assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
-            v1_claimable,
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0],
+            claimableOnV2,
             "Steam claimable preserved after re-deposit + partial liq"
         );
         assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, wrappedCollateralToken),
-            v1_claimCol,
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(wrappedCollateralToken))[0],
+            collateralClaimableOnV2,
             "Collateral claimable preserved after re-deposit + partial liq"
         );
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            v1_bal,
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            balanceOnV2,
             "Balance preserved after re-deposit + partial liq"
         );
 
-        // Post-upgrade: claim works
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
-        assertGt(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam),
-            0,
+        // Post-upgrade: claim works - it pays the steam preserved through the upgrade
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            claimableOnV2,
             "Claim works after product mismatch upgrade"
         );
 
-        // Post-upgrade: another partial liquidation + new rewards work
-        _liquidate(20 ether);
+        // Post-upgrade: another partial liquidation + new rewards work - the sole holder is owed the whole new stream
+        poolActions.liquidate(wrappedCollateralToken, 20 ether, LIQUIDATION_PROCEEDS);
         _depositReward(steam, 5 ether);
+        uint256 streamed = _steamStreamed();
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
-        assertGt(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
-            0,
-            "New rewards accumulate after post-upgrade liquidation"
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, aa(steam))[0],
+            streamed,
+            "New rewards accumulate after post-upgrade liquidation: the whole stream"
         );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Slot-level storage equivalence — the evidence behind skipping OZ's
+    // storage-layout check for the uint104 → uint128 widening of
+    // TokenBalance.amount (upgrades-core rejects any size-changing retype and
+    // ignores annotations on struct members; see bin/validate).
+    // ═══════════════════════════════════════════════════════════════════════
+
+    bytes32 internal constant STABILITYPOOL_STORAGE =
+        0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
+
+    /// @dev First slot of a TokenBalance stored in a mapping at member offset `member` of the
+    /// ERC-7201 namespace, keyed by `account`.
+    function _mappedSlot(address account, uint256 member) internal pure returns (bytes32 slot) {
+        return keccak256(abi.encode(account, uint256(STABILITYPOOL_STORAGE) + member));
+    }
+
+    /// @dev What the pool's getters read, held in memory so the slot-level test can compare them across the upgrade.
+    struct PoolGetters {
+        uint40[] historyUpdatedAt;
+        uint256[] historyAmount;
+        uint64 withdrawalStart;
+        uint64 withdrawalEnd;
+        uint256 earlyWithdrawalFee;
+        address feeAddress;
+        uint64 withdrawalStartDelay;
+        uint64 withdrawalEndWindow;
+        uint256 lastAssetLossError;
+    }
+
+    /// @notice The v2 → v3 upgrade leaves every storage slot BYTE-IDENTICAL. The widened
+    /// TokenBalance layout occupies the first slot's former zero padding (v2: product 16B +
+    /// amount 13B + 3B padding; v3: product 16B + amount 16B) and v2's `updatedAt` keeps its own
+    /// second slot in both, so raw v2 data reads back unchanged through v3 code. Verified over
+    /// rich state — a decayed product, a loaded loss-error queue, reward snapshots, a pending
+    /// withdrawal request and several history rows — then exercised past the old uint104
+    /// ceiling to show the reclaimed bytes are live and the neighbours untouched.
+    function test_upgradeFromV2_SlotLevelStorageIdentical() public {
+        // Rich v2 state, including a near-scale deposit that is still legal under uint104.
+        _deposit(user1, 1e31);
+        vm.warp(block.timestamp + 1 hours);
+        _deposit(user2, 123456789012345678901);
+        vm.warp(block.timestamp + 1 hours);
+        _liquidateOnV2(3e30, LIQUIDATION_PROCEEDS);
+        _depositReward(steam, 1e21);
+        vm.warp(block.timestamp + 1 days);
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+
+        // The slots that hold TokenBalance data plus their neighbours in the namespace, and both slots of every history
+        // row (a row is a TimestampedBalance: product | amount, then updatedAt).
+        uint256 historyLength = uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(STABILITYPOOL_STORAGE) + 4)));
+        assertGt(historyLength, 2, "fixture: several history rows");
+        bytes32[] memory slots = new bytes32[](10 + 2 * historyLength);
+        slots[0] = STABILITYPOOL_STORAGE; // totalAssetSupply: product | amount
+        slots[1] = bytes32(uint256(STABILITYPOOL_STORAGE) + 1); // totalAssetSupply: unusedInV3
+        slots[2] = _mappedSlot(user1, 2); // assetBalances[user1]: product | amount
+        slots[3] = bytes32(uint256(_mappedSlot(user1, 2)) + 1); // assetBalances[user1]: unusedInV3
+        slots[4] = _mappedSlot(user2, 2);
+        slots[5] = bytes32(uint256(_mappedSlot(user2, 2)) + 1);
+        slots[6] = bytes32(uint256(STABILITYPOOL_STORAGE) + 4); // totalAssetSupplyHistoryLength
+        slots[7] = bytes32(uint256(STABILITYPOOL_STORAGE) + 5); // lastAssetLossError
+        slots[8] = _mappedSlot(user1, 6); // withdrawalRequests[user1]: start | end
+        slots[9] = bytes32(uint256(STABILITYPOOL_STORAGE) + 7); // feePayment
+        for (uint256 i = 0; i < historyLength; i++) {
+            bytes32 row = keccak256(abi.encode(i, uint256(STABILITYPOOL_STORAGE) + 3));
+            slots[10 + 2 * i] = row; // history[i]: product | amount
+            slots[11 + 2 * i] = bytes32(uint256(row) + 1); // history[i]: updatedAt
+        }
+
+        bytes32[] memory before = new bytes32[](slots.length);
+        for (uint256 i = 0; i < slots.length; i++) {
+            before[i] = vm.load(stabilityPoolCollateral, slots[i]);
+        }
+        uint256 supplyBefore = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 balance1Before = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 balance2Before = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        uint256 claimableBefore = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        // what the getters read on v2, through v2's interface
+        PoolGetters memory gettersOnV2;
+        gettersOnV2.historyUpdatedAt = new uint40[](historyLength);
+        gettersOnV2.historyAmount = new uint256[](historyLength);
+        for (uint256 i = 0; i < historyLength; i++) {
+            (gettersOnV2.historyUpdatedAt[i], gettersOnV2.historyAmount[i]) = IStabilityPool(stabilityPoolCollateral)
+                .totalAssetSupplyHistory(i);
+        }
+        (gettersOnV2.withdrawalStart, gettersOnV2.withdrawalEnd) = IStabilityPool(stabilityPoolCollateral)
+            .getWithdrawalRequest(user1);
+        gettersOnV2.earlyWithdrawalFee = IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee();
+        gettersOnV2.feeAddress = IStabilityPool(stabilityPoolCollateral).getFeeAddress();
+        (gettersOnV2.withdrawalStartDelay, gettersOnV2.withdrawalEndWindow) = IStabilityPool(stabilityPoolCollateral)
+            .getWithdrawalWindow();
+        gettersOnV2.lastAssetLossError = IStabilityPool(stabilityPoolCollateral).lastAssetLossError();
+
+        _upgradeToV3();
+
+        for (uint256 i = 0; i < slots.length; i++) {
+            assertEq(vm.load(stabilityPoolCollateral, slots[i]), before[i], "slot must be byte-identical");
+        }
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply(), supplyBefore, "totalSupply preserved");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1), balance1Before, "user1 preserved");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user2), balance2Before, "user2 preserved");
+        // every getter reads through v3's interface what it read on v2
+        for (uint256 i = 0; i < historyLength; i++) {
+            (uint40 updatedAt, uint256 amount) = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupplyHistory(i);
+            assertEq(updatedAt, gettersOnV2.historyUpdatedAt[i], "history row's time preserved");
+            assertEq(amount, gettersOnV2.historyAmount[i], "history row's supply preserved");
+        }
+        {
+            (uint64 start, uint64 end) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalRequest(user1);
+            assertEq(start, gettersOnV2.withdrawalStart, "withdrawal request's start preserved");
+            assertEq(end, gettersOnV2.withdrawalEnd, "withdrawal request's end preserved");
+        }
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).earlyWithdrawalFeeRatio(),
+            gettersOnV2.earlyWithdrawalFee,
+            "early-withdrawal fee preserved"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).feeReceiver(),
+            gettersOnV2.feeAddress,
+            "fee address preserved"
+        );
+        {
+            (uint64 startDelay, uint64 endWindow) = IStabilityPool_v3(stabilityPoolCollateral).withdrawalWindow();
+            assertEq(startDelay, gettersOnV2.withdrawalStartDelay, "withdrawal start delay preserved");
+            assertEq(endWindow, gettersOnV2.withdrawalEndWindow, "withdrawal window preserved");
+        }
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
+            gettersOnV2.lastAssetLossError,
+            "carried loss error preserved"
+        );
+        // Claimable is NOT preserved — and must not be: the upgrade seeds rewardDivisorGap = supply - Sum(balanceOf),
+        // so v3 divides pending rewards by Sum(balanceOf) where v2 divided by supply. With two unequal holders after a
+        // liquidation those differ by the flooring residual, so v3 distributes the fraction v2 locked and claimable
+        // rises by exactly the divisor ratio. All of user1's steam claimable here is pending (the only reward is
+        // deposited after both checkpoints), so it scales as 1/divisor: expected = claimableBefore * supply / Sum.
+        address[] memory tokens = new address[](1);
+        tokens[0] = steam;
+        uint256 postClaimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user1, tokens)[0];
+        uint256 v3Divisor = balance1Before + balance2Before; // supply - gap == Sum(balanceOf)
+        uint256 expectedClaimable = (claimableBefore * supplyBefore) / v3Divisor;
+        // expectedClaimable floors the real ratio (claimableBefore * supply / Sum) once, losing < 1 wei; postClaimable
+        // equals that real ratio to within < 1 wei under its own construction (pending-only claimable scales purely as
+        // 1/divisor with no divisor-independent term, and the integral floor is amplified by balance/MAGNITUDE ~
+        // 1e31/1e36 < 1). So the two agree to <= 1 wei - far below the ~137-wei divisor uplift, so the band still
+        // rejects the old v2-preserved value.
+        uint256 tol = 1;
+        assertApproxEqAbs(postClaimable, expectedClaimable, tol, "claimable rises by the divisor ratio");
+        assertDiscriminates(postClaimable, expectedClaimable, tol, claimableBefore, "not the v2-preserved value");
+
+        // The reclaimed bytes are live: cross the old uint104 ceiling, then decode the raw slot
+        // and confirm the neighbours are untouched. After a deposit the account is freshly
+        // checkpointed, so its stored raw amount equals the view and its product snapshot equals
+        // the supply product.
+        _deposit(user1, 15e30);
+        uint256 userWord = uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user1, 2)));
+        uint256 supplyWord = uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE));
+        assertGt(uint128(userWord >> 128), uint256(type(uint104).max), "amount now occupies bytes above uint104");
+        assertEq(
+            uint256(uint128(userWord >> 128)),
+            IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1),
+            "stored amount equals the view after the fresh checkpoint"
+        );
+        assertEq(uint128(userWord), uint128(supplyWord), "product snapshot equals the supply product");
+        assertEq(
+            vm.load(stabilityPoolCollateral, bytes32(uint256(_mappedSlot(user1, 2)) + 1)),
+            before[3],
+            "unusedInV3 keeps its own slot as v2 wrote it, untouched by the widened amount"
+        );
+    }
+
+    /// @dev Whether any access in `accesses` read or wrote the pool's storage at `slot`.
+    function _poolSlotAccessed(Vm.AccountAccess[] memory accesses, bytes32 slot) internal view returns (bool) {
+        for (uint256 i = 0; i < accesses.length; i++) {
+            Vm.StorageAccess[] memory storageAccesses = accesses[i].storageAccesses;
+            for (uint256 j = 0; j < storageAccesses.length; j++) {
+                if (storageAccesses[j].account == stabilityPoolCollateral && storageAccesses[j].slot == slot) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// @notice v3 never reads or writes `unusedInV3`, the second slot of an account's balance record and of the total
+    /// supply's, where v2 kept a time: after the upgrade, no deposit, transfer, withdrawal, reward deposit, claim,
+    /// liquidation or balance read touches it.
+    function test_upgradeFromV2_poolNeverTouchesTheTimeV2Left() public {
+        _deposit(user1, 100 ether);
+        vm.warp(block.timestamp + 1 hours);
+        _deposit(user2, 100 ether);
+        vm.warp(block.timestamp + 1 days);
+        _upgradeToV3();
+        // funded before the recording, which then holds only the pool's own calls and the liquidation's
+        deal(peggedToken, user1, 10 ether);
+        deal(steam, rewardDepositor, 1 ether);
+        vm.startPrank(rewardDepositor);
+        IERC20(steam).approve(stabilityPoolCollateral, 1 ether);
+        vm.stopPrank();
+
+        vm.startStateDiffRecording();
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(10 ether, user1, 0);
+        IERC20(stabilityPoolCollateral).transfer(user2, 5 ether);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(1 ether, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 1 ether);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 1 hours);
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        poolActions.liquidate(wrappedCollateralToken, 30 ether, LIQUIDATION_PROCEEDS);
+        IStabilityPool_v3(stabilityPoolCollateral).assetBalanceOf(user1);
+        IERC20(stabilityPoolCollateral).balanceOf(user2);
+        Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
+
+        bytes32[3] memory records = [STABILITYPOOL_STORAGE, _mappedSlot(user1, 2), _mappedSlot(user2, 2)];
+        for (uint256 i = 0; i < records.length; i++) {
+            // the first slot shows the record was in use, so the second's absence is not an unrecorded access
+            assertTrue(_poolSlotAccessed(accesses, records[i]), "fixture: the record's product and amount are used");
+            assertFalse(
+                _poolSlotAccessed(accesses, bytes32(uint256(records[i]) + 1)),
+                "the record's unusedInV3 is never read or written"
+            );
+        }
     }
 }

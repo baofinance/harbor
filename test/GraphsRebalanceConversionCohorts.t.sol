@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+
+import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
+import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundReleaseSetUp.sol";
+
+/// @notice Graphs what successive cohorts end up with, having converted the same pegged into leveraged at
+/// different points on one market's way down.
+///
+/// This is the only graph here whose points share a market. Each cohort's conversion mints leveraged, which
+/// dilutes every cohort before it, so the points are not independent samples of a state - they are one
+/// history, and each is measured in the market the earlier ones left behind.
+///
+/// Every cohort is valued at a COMMON final state, because that is the only way to compare them: leveraged
+/// is fungible, so what separates the cohorts is how many tokens each was given for its pegged.
+///
+/// Converting when leveraged is cheap buys more of it, so cohorts would end up with different amounts even if
+/// every conversion were fair - that is market exposure, not unfairness, and it is what the fair
+/// counterfactual line accounts for. A cohort that gave up `A` of pegged value at a leveraged price of `p`
+/// should hold `A/p` leveraged, worth `A x final price / p` at the end. The gap between that and what it
+/// actually holds is what the conversion's pricing did to it, and nothing else.
+///
+/// The cohorts stay at or above the minter's `MINIMUM_COLLATERAL_RATIO`, the lowest collateral ratio at
+/// which it converts pegged into leveraged at all; below it the conversion reverts.
+contract TestGraphsRebalanceConversionCohorts is GraphTestBase, TestConversionBoundReleaseSetUp {
+    /// @dev Each cohort gives up this share of the pegged outstanding at the time - large enough that its
+    ///      conversion moves the market for the cohorts after it, which is the effect being graphed.
+    uint256 private constant COHORT_SHARE_OF_PEGGED = 0.02 ether;
+
+    /// @dev The market falls from here, and is brought back to here to value everyone.
+    uint256 private constant START_AND_FINISH = 1.3 ether;
+
+    uint256 private constant COHORTS = 14;
+
+    struct Cohort {
+        uint256 collateralRatio; // where the market was when this cohort converted
+        uint256 peggedValueIn; // what it gave up
+        uint256 leveragedOut; // what it was given
+        uint256 leveragedPriceAtConversion; // what leveraged was worth at that moment
+    }
+
+    string private file;
+
+    function setUp() public virtual override {
+        super.setUp();
+        file = openFile(
+            "rebalance_conversion_cohorts",
+            sa(
+                "collateral ratio the cohort converted at",
+                "value per anchor given up, at the common final state",
+                "value per anchor a fair conversion would have left it with",
+                "actual over fair"
+            )
+        );
+    }
+
+    function test_whatEachCohortEndsUpWith() public {
+        Cohort[COHORTS] memory cohorts;
+
+        // Down from the starting collateral ratio towards the floor, the distance above it halving each
+        // time, so the cohorts crowd into the region just above where conversion stops.
+        uint256 floor = IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO();
+        uint256 aboveTheFloor = START_AND_FINISH - floor;
+        for (uint256 i = 0; i < COHORTS; i++) {
+            marketActions.setCollateralRatioByPrice(floor + aboveTheFloor);
+            aboveTheFloor = aboveTheFloor / 2;
+
+            uint256 peggedIn = Math.mulDiv(IMinter(minter).peggedTokenBalance(), COHORT_SHARE_OF_PEGGED, 1 ether);
+            uint256 leveragedPrice = IMinter_v3(minter).leveragedTokenPrice();
+            uint256 peggedPrice = IMinter_v3(minter).peggedTokenPrice();
+
+            (, uint256 leveragedOut) = IMinter_v3(minter).freeRedeemPeggedToken(0, peggedIn, address(this));
+
+            cohorts[i] = Cohort({
+                collateralRatio: IMinter(minter).collateralRatio(),
+                peggedValueIn: Math.mulDiv(peggedIn, peggedPrice, 1 ether),
+                leveragedOut: leveragedOut,
+                leveragedPriceAtConversion: leveragedPrice
+            });
+        }
+
+        // Back to where the market started, so that what separates the cohorts is their conversions and
+        // not where each happened to be left.
+        marketActions.setCollateralRatioByPrice(START_AND_FINISH);
+        uint256 finalLeveragedPrice = IMinter_v3(minter).leveragedTokenPrice();
+
+        for (uint256 i = 0; i < COHORTS; i++) {
+            Cohort memory cohort = cohorts[i];
+
+            uint256 actual = Math.mulDiv(
+                Math.mulDiv(cohort.leveragedOut, finalLeveragedPrice, 1 ether),
+                1 ether,
+                cohort.peggedValueIn
+            );
+            // A fair conversion would have handed over `peggedValueIn / leveragedPriceAtConversion` leveraged,
+            // so this is what that holding would be worth now, per unit of pegged value given up.
+            uint256 fair = cohort.leveragedPriceAtConversion == 0
+                ? 0
+                : Math.mulDiv(finalLeveragedPrice, 1 ether, cohort.leveragedPriceAtConversion);
+
+            writeLine(
+                file,
+                ua(cohort.collateralRatio, actual, fair, fair == 0 ? 0 : Math.mulDiv(actual, 1 ether, fair))
+            );
+        }
+        vm.closeFile(file);
+    }
+}

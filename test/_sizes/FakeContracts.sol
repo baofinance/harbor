@@ -13,9 +13,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
 contract FakeUUPSUpgradeable is UUPSUpgradeable, AccessControlUpgradeable {
-    function initialize() external initializer {
-        __UUPSUpgradeable_init();
-    }
+    function initialize() external initializer {}
 
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
 }

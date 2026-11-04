@@ -18,9 +18,9 @@ interface IStabilityPoolManager {
     event Rebalanced(uint256 liquidated, uint256 forWrappedCollateral, uint256 forLeveraged);
     /// @notice Emitted when harvest happens.
     event Harvested(uint256 amount);
-    /// @notice Emitted when the fee receiving contract is updated.
-    /// @param oldFeeReceiver The address of previous fee receiving contract.
-    /// @param newFeeReceiver The address of the new (current) fee receiving contract.
+    /// @notice Emitted when the cut receiver is updated.
+    /// @param oldFeeReceiver The previous cut receiver.
+    /// @param newFeeReceiver The new (current) cut receiver.
     event UpdateFeeReceiver(address indexed oldFeeReceiver, address indexed newFeeReceiver);
 
     /*//////////////////////////////////////////////////////////////
@@ -62,7 +62,7 @@ interface IStabilityPoolManager {
     /// @notice Returns the collateral ratio at which rebalancing should occur
     /// @return The rebalance collateral ratio
     function rebalanceThreshold() external view returns (uint256);
-    /// @notice Returns the address of the fee receiver contract
+    /// @notice Returns the cut receiver - who receives the harvest cut and the no-pool catch-all
     function feeReceiver() external view returns (address);
 
     /*//////////////////////////////////////////////////////////////
@@ -82,8 +82,8 @@ interface IStabilityPoolManager {
     /// This form the target collateral ration when a rebalance is performed
     /// @param newRatio The new collateral ratio threshold, must be >= 1
     function updateRebalanceThreshold(uint256 newRatio) external;
-    /// @notice Updates the fee receiver to the given address
-    /// @param feeReceiver_ The new fee receiver
+    /// @notice Updates the cut receiver to the given (non-zero) address
+    /// @param feeReceiver_ The new cut receiver (the harvest fee destination)
     function updateFeeReceiver(address feeReceiver_) external;
     /// @notice update the ratio sent to the feeReceiver, if any
     function updateHarvestCutRatio(uint256 harvestCutRatio_) external;

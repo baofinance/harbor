@@ -1,0 +1,6 @@
+# Logs: EUR::stETH::minter
+# address: 0x68911ea33E11bc77e07f6dA4db6cd23d723641cE
+# from-block: 26204584
+# to-block: 26204584
+# source: every log (Etherscan getLogs), blocks 26204584-26204584
+# format: block, log index, timestamp, transaction hash, data, topics

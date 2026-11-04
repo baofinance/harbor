@@ -4,17 +4,17 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
+import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "test/Useful.sol";
-import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
-import {TestGraphs} from "test/Graphs.t.sol";
+import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
+import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 
-contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
+contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, GraphTestBase {
     // TODO: collateral ratio
     // TODO: leveraged Ratio
     // TODO: pegged price on depeg
@@ -34,8 +34,8 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.prank(owner());
+        IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
         assertEq(0, IERC20(wrappedCollateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
 
@@ -43,26 +43,12 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
         setUp_config_likely();
     }
 
-    function redeem(
-        uint256 amountOfPegged,
-        uint256 amoutOfLeveraged,
-        address recipient
-    ) internal returns (uint256 collateralForPegged, uint256 collateralForLeveraged) {
-        // recipient must have the amount of tokens being redeemed
-        if (amountOfPegged > 0) {
-            (collateralForPegged, ) = IMinter(minter).freeRedeemPeggedToken(amountOfPegged, 0, recipient);
-        }
-        if (amoutOfLeveraged > 0) {
-            collateralForLeveraged = IMinter(minter).freeMintLeveragedToken(amoutOfLeveraged, recipient);
-        }
-    }
-
     function openFile(string memory name) internal returns (string memory file) {
         file = openFile(
             string.concat("basicCalculations-", name),
             sa(
                 "Collateral",
-                "Price",
+                "Collateral Price",
                 "Pegged",
                 "PeggedTokenPrice",
                 "Leveraged",
@@ -79,85 +65,51 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
         writeOneLine(file, 0);
     }
 
-    function safeCollateral() internal view returns (int256 collateral_) {
-        try IMinter(minter).collateralTokenBalance() returns (uint256 c) {
-            collateral_ = int256(c);
-        } catch {
-            collateral_ = NaN;
-        }
+    // The views are read directly: none of them reverts at any state these scenarios reach - the oracle is never
+    // asked for a zero price - so a revert is an error and fails the test. Each value is converted with SafeCast, so
+    // one too large for a signed column reverts rather than wrapping into a plausible number.
+
+    function safeCollateral() internal view returns (int256) {
+        return SafeCast.toInt256(IMinter(minter).collateralTokenBalance());
     }
 
     function safePrice() internal view returns (int256) {
         (uint256 uprice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        return int256(uprice);
+        return SafeCast.toInt256(uprice);
     }
 
-    function safePegged() internal view returns (int256 pegged_) {
-        try IMinter(minter).peggedTokenBalance() returns (uint256 p) {
-            pegged_ = int256(p);
-        } catch {
-            pegged_ = NaN;
-        }
+    function safePegged() internal view returns (int256) {
+        return SafeCast.toInt256(IMinter(minter).peggedTokenBalance());
     }
 
-    function safePeggedTokenPrice() internal view returns (int256 peggedTokenPrice_) {
-        try IMinter(minter).peggedTokenPrice() returns (uint256 p) {
-            peggedTokenPrice_ = int256(p);
-        } catch {
-            peggedTokenPrice_ = NaN;
-        }
+    function safePeggedTokenPrice() internal view returns (int256) {
+        return SafeCast.toInt256(IMinter(minter).peggedTokenPrice());
     }
 
-    function safeLeveraged() internal view returns (int256 leveraged_) {
-        try IMinter(minter).leveragedTokenBalance() returns (uint256 l) {
-            leveraged_ = int256(l);
-        } catch {
-            leveraged_ = NaN;
-        }
+    function safeLeveraged() internal view returns (int256) {
+        return SafeCast.toInt256(IMinter(minter).leveragedTokenBalance());
     }
 
-    function safeLeveragedTokenPrice() internal view returns (int256 leveragedTokenPrice_) {
-        try IMinter(minter).leveragedTokenPrice() returns (uint256 l) {
-            leveragedTokenPrice_ = int256(l);
-        } catch {
-            leveragedTokenPrice_ = NaN;
-        }
+    function safeLeveragedTokenPrice() internal view returns (int256) {
+        return SafeCast.toInt256(IMinter(minter).leveragedTokenPrice());
     }
 
-    function safeCollateralRatio() internal view returns (int256 collateralRatio_) {
-        try IMinter(minter).collateralRatio() returns (uint256 cr) {
-            collateralRatio_ = int256(cr);
-        } catch {
-            collateralRatio_ = NaN;
-        }
+    function safeCollateralRatio() internal view returns (int256) {
+        return SafeCast.toInt256(IMinter(minter).collateralRatio());
     }
 
-    function safeLeverageRatio() internal view returns (int256 leverageRatio_) {
-        try IMinter(minter).leverageRatio() returns (uint256 lr) {
-            leverageRatio_ = int256(lr);
-        } catch {
-            leverageRatio_ = NaN;
-        }
+    /// @dev With no residual the minter reports the maximum - a claim of nothing rather than a leverage - so that
+    ///      point is a break in the line, not a number.
+    function safeLeverageRatio() internal view returns (int256) {
+        uint256 leverageRatio_ = IMinter(minter).leverageRatio();
+        return leverageRatio_ == type(uint256).max ? NaN : SafeCast.toInt256(leverageRatio_);
     }
 
     function safeInvariant() internal view returns (int256) {
-        int256 collateral = safeCollateral();
-        int256 price = safePrice();
-        int256 pegged = safePegged();
-        int256 peggedTokenPrice = safePeggedTokenPrice();
-        int256 leveraged = safeLeveraged();
-        int256 leveragedTokenPrice = safeLeveragedTokenPrice();
-        if (
-            collateral == NaN ||
-            price == NaN ||
-            pegged == NaN ||
-            peggedTokenPrice == NaN ||
-            leveraged == NaN ||
-            leveragedTokenPrice == NaN
-        ) {
-            return NaN;
-        }
-        return (collateral * price - pegged * peggedTokenPrice - leveraged * leveragedTokenPrice) / 1 ether;
+        int256 collateralValue = safeCollateral() * safePrice();
+        int256 peggedValue = safePegged() * safePeggedTokenPrice();
+        int256 leveragedValue = safeLeveraged() * safeLeveragedTokenPrice();
+        return (collateralValue - peggedValue - leveragedValue) / 1 ether;
     }
 
     function writeOneLine(string memory file, int256 commandStatus) internal {
@@ -187,7 +139,8 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
 
         string memory file = openFile("priceChange");
 
-        for (uint256 price = 0; price <= midway * 2; price += 10) {
+        // don't start at a zero price as it reverts
+        for (uint256 price = 10; price <= midway * 2; price += 10) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(price * 1 ether);
             writeOneLine(file);
         }
@@ -232,19 +185,11 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
 
         string memory file = openFile("redeemPegged");
 
-        int256 commandStatus = 0; // 0 = success
+        // The pegged supply is a whole number of redemptions, so none reverts, and any revert fails the test.
         for (uint256 i = 0; i <= iterations; i++) {
-            writeOneLine(file, commandStatus);
+            writeOneLine(file);
             if (IMinter(minter).peggedTokenBalance() > 0) {
-                try IMinter(minter).freeRedeemPeggedToken(price * 1 ether, 0, address(this)) {
-                    commandStatus = 0; // 0 = success
-                } catch {
-                    // unexpected revert
-                    commandStatus = NaN;
-                }
-            } else {
-                // expected revert
-                commandStatus = 0;
+                IMinter(minter).freeRedeemPeggedToken(price * 1 ether, 0, address(this));
             }
         }
 
@@ -274,19 +219,11 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
 
         string memory file = openFile("redeemLeveraged");
 
-        int256 commandStatus = 0; // 0 = success
+        // The leveraged supply is a whole number of redemptions, so none reverts, and any revert fails the test.
         for (uint256 i = 0; i <= iterations; i++) {
-            writeOneLine(file, commandStatus);
+            writeOneLine(file);
             if (IMinter(minter).leveragedTokenBalance() > 0) {
-                try IMinter(minter).freeRedeemLeveragedToken(price * 1 ether, address(this)) {
-                    commandStatus = 0; // 0 = success
-                } catch {
-                    // unexpected revert
-                    commandStatus = NaN;
-                }
-            } else {
-                // expected revert
-                commandStatus = 0;
+                IMinter(minter).freeRedeemLeveragedToken(price * 1 ether, address(this));
             }
         }
 

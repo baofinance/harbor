@@ -4,13 +4,13 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {LinearMultipleRewardDistributor} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -113,7 +113,7 @@ import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMult
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
 
 abstract contract MultipleRewardCompoundingAccumulator is
-    ReentrancyGuardTransientUpgradeable,
+    ReentrancyGuardTransient,
     LinearMultipleRewardDistributor,
     IMultipleRewardAccumulator
 {
@@ -165,6 +165,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
      * Variables *
      *************/
 
+    /// @custom:storage-location erc7201:bao.storage.MultipleRewardCompoundingAccumulator
     struct MultipleRewardCompoundingAccumulatorStorage {
         /// @inheritdoc IMultipleRewardAccumulator
         mapping(address => address) rewardReceiver;

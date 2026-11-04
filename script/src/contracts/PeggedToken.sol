@@ -1,23 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {MintableBurnableERC20_v2} from "@bao/MintableBurnableERC20_v2.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Harbor pegged token deployment logic.
 /// @dev Pegged tokens are one per peg (ETH, BTC, GOLD, EUR), shared by all markets with that peg.
 /// @dev If a pegged token already exists, logs the manual grantRoles transactions required.
-abstract contract PeggedToken is HarborFactoryDeployer {
+abstract contract PeggedToken is HarborDeployer {
     using LibString for string;
 
     // ========== PEGGED TOKEN DEPLOYMENT ==========
+
+    /// @notice Deploy MintableBurnableERC20_v2 impl only, record in state.
+    function deployPeggedTokenImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory key
+    ) internal virtual returns (address impl) {
+        impl = address(new MintableBurnableERC20_v2());
+        _reportImplementation(impl);
+
+        _recordImplementation(stateData, key, "@bao/MintableBurnableERC20_v2.sol", "MintableBurnableERC20_v2", impl);
+    }
 
     /// @notice Deploy a pegged token and grant minter roles to all markets using this peg.
     /// @dev If the pegged token already exists at the predicted address, logs manual TX requirements.
@@ -27,36 +37,27 @@ abstract contract PeggedToken is HarborFactoryDeployer {
         Config_MinterMarket[] memory marketConfigs
     ) internal returns (address peggedToken) {
         string memory pegKey = pegConfig.key();
-        string memory tokenKey = string.concat(pegKey, "::pegged");
+        string memory tokenKey = peggedTokenKey(pegKey);
 
-        console.log("    > %s", tokenKey);
+        _reportContract(tokenKey);
 
         // Check if pegged token already exists at predicted address
-        peggedToken = _predictAddress(tokenKey);
+        peggedToken = peggedTokenAddress(pegKey);
         bool alreadyDeployed = peggedToken.code.length > 0;
 
         if (alreadyDeployed) {
-            console.log("        Already deployed at: %s", peggedToken);
+            _reportDetail("Already deployed at:", peggedToken);
         } else {
-            console.log("        Name:   %s", pegConfig.name());
-            console.log("        Symbol: %s", pegConfig.symbol());
+            _reportToken(pegConfig.name(), pegConfig.symbol());
 
-            address impl = address(new MintableBurnableERC20_v1());
-            console.log("        Impl:   %s", impl);
+            address impl = deployPeggedTokenImplementation(stateData, tokenKey);
 
             bytes memory initData = abi.encodeCall(
-                MintableBurnableERC20_v1.initialize,
-                (owner(), pegConfig.name(), pegConfig.symbol())
+                MintableBurnableERC20_v2.initialize,
+                (deployerOwner(), owner(), pegConfig.name(), pegConfig.symbol())
             );
 
-            peggedToken = _deployProxyAndRecord(
-                stateData,
-                tokenKey,
-                impl,
-                "@bao/MintableBurnableERC20_v1.sol",
-                "MintableBurnableERC20_v1",
-                initData
-            );
+            peggedToken = _deployProxyAndRecord(stateData, tokenKey, impl, initData);
         }
 
         // Grant minter roles for each market
@@ -68,12 +69,12 @@ abstract contract PeggedToken is HarborFactoryDeployer {
                 string.concat("Market config peg '", configPeg, "' does not match pegged token '", pegKey, "'")
             );
 
-            string memory marketKey = MinterMarketConfigLib.salt(marketConfigs[i]);
-            address minter = _predictAddress(marketKey, "minter");
+            string memory marketKey = MinterMarketConfigLib.salt(market);
+            address minter = minterAddress(market);
             uint256 roles = IMintableRole(peggedToken).MINTER_ROLE() | IBurnableRole(peggedToken).BURNER_ROLE();
 
             if (alreadyDeployed) {
-                _logManualRoleGrant(tokenKey, peggedToken, minter, marketKey, roles, "MINTER | BURNER");
+                _reportManualRoleGrant(tokenKey, peggedToken, minter, marketKey, roles, "MINTER | BURNER");
             } else {
                 _grantRoles(tokenKey, peggedToken, minter, marketKey, roles, "MINTER | BURNER");
             }

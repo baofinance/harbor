@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Upgrade markets of a peg to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2, named in the words script/deploy
+# uses.
+#
+# Thin wrapper around run-script, which runs the Upgrade_MarketsToV3_<network> Solidity script. The script reads the
+# markets from UPGRADE_PEG and UPGRADE_COLLATERAL, because Deployer.run(string) calls build() with no arguments, and the
+# campaign's tests read the same two. They are set here from the required flags, over anything already in the shell.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<EOF
+Usage:
+  $0 --network <net> --salt <salt> --peg <peg> --collateral <name> [options]
+
+Required:
+  --network <net>      Network name (e.g., mainnet)
+  --salt <salt>        Salt prefix (e.g., harbor_v1)
+  --peg <peg>          Which peg's markets to upgrade (BTC, ETH, EUR, GOLD, MCAP, SILVER, USD)
+  --collateral <name>  Collateral of the market to upgrade (e.g., stETH, fxUSD), or '*' for every market of the peg
+
+Options:
+  --account <name>     Foundry keystore account name (required for non-local)
+  --local              Use local anvil (auto-impersonate, local state directory)
+  --timestamp          Add timestamp to local state directory (requires --local)
+  --resume             Resume a previous broadcast
+  -h, --help           Show this help message
+EOF
+}
+
+NETWORK=""
+SALT=""
+PEG=""
+COLLATERAL=""
+PASSTHROUGH_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --peg)
+      PEG=$2
+      shift 2
+      ;;
+    --collateral)
+      COLLATERAL=$2
+      shift 2
+      ;;
+    --network)
+      NETWORK=$2
+      PASSTHROUGH_ARGS+=(--network "$2")
+      shift 2
+      ;;
+    --salt)
+      SALT=$2
+      PASSTHROUGH_ARGS+=(--salt "$2")
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      PASSTHROUGH_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$NETWORK" ]] || { echo "❌ --network required" >&2; exit 1; }
+[[ -n "$SALT" ]] || { echo "❌ --salt required" >&2; exit 1; }
+[[ -n "$PEG" ]] || { echo "❌ --peg required" >&2; exit 1; }
+[[ -n "$COLLATERAL" ]] || { echo "❌ --collateral required: a collateral's name, or '*' for every market of the peg" >&2; exit 1; }
+
+export UPGRADE_PEG
+export UPGRADE_COLLATERAL
+UPGRADE_PEG=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')
+UPGRADE_COLLATERAL="$COLLATERAL"
+
+echo "  Peg:        $UPGRADE_PEG" >&2
+echo "  Collateral: $UPGRADE_COLLATERAL" >&2
+
+exec "$SCRIPT_DIR/run-script" "Upgrade_MarketsToV3_${NETWORK}" --broadcast "${PASSTHROUGH_ARGS[@]}"

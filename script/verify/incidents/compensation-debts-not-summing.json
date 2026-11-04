@@ -1,0 +1,12 @@
+{
+  "accounts": ["0x0e4d5032c0B076cB132a10347d940BfBB8354869"],
+  "cuts": [0],
+  "debts": [5],
+  "feesPegged": 0,
+  "feesWrapped": 0,
+  "market": "BTC::stETH",
+  "totalCut": 0,
+  "totalDebt": 6,
+  "unclaimedLeveraged": [0],
+  "unclaimedLeveragedValue": [0]
+}
