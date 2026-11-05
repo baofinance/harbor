@@ -21,6 +21,7 @@
     "test:long": "./lib/bao-base/run test-long",
     "test:python": "./lib/bao-base/run pytest \"$(pwd)/tests/toolchain\"",
     "gas": "./lib/bao-base/run duration-of regression-of gas",
+    "gas:usd": "./lib/bao-base/run gas-usd",
     "coverage": "./lib/bao-base/run regression-of coverage",
     "wake": "uv run wake detect all src",
     "slither": "./lib/bao-base/run slither",
