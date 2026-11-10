@@ -743,6 +743,7 @@ contract StabilityPool_v3 is
         // As we don't allow pool emptying it is (1 - assetLossPerUnitStaked) which is always > 0 and < 1.
         uint128 newProductFactor = uint128(DecrementalFloatingPoint_v2.FACTOR_PRECISION) -
             uint128(assetLossPerUnitStaked);
+        // Reverts `LossProductExponentOverflow` where the product's exponent would pass its last value.
         supply.product = supply.product.mul(newProductFactor);
 
         // Rescale the divisor to the new product with the CEIL (>= the floor-rescaled balances) and store the gap

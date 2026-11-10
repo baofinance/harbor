@@ -1108,6 +1108,70 @@ contract TestMinterRedeemPeggedAcrossBands is TestMinterSetUp {
         vm.stopPrank();
     }
 
+    /// Where a redemption would pay nothing its call reverts, so no pegged is redeemed. The dry run reports that:
+    /// nothing redeemed, no fee, and the fee ratio of the band the market is in, as wherever nothing is used. A wei of
+    /// pegged is worth a two-thousandth of a wei of collateral.
+    function test_redeemPeggedDryRun_ofTooLittleToBePaidAWei_reportsNothingRedeemed() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        int256 bandRatio = IMinter_v3(minter).redeemPeggedTokenIncentiveRatio();
+        assertEq(bandRatio, 0.008 ether, "fixture: the market's band charges 0.8%");
+
+        (int256 ratio, uint256 fee, , uint256 redeemed, uint256 paid, , ) = IMinter(minter).redeemPeggedTokenDryRun(1);
+
+        assertEq(paid, 0, "a wei of pegged pays nothing");
+        assertEq(redeemed, 0, "so none is redeemed");
+        assertEq(fee, 0, "no fee is charged");
+        assertEq(ratio, bandRatio, "and the ratio is the band's");
+    }
+
+    /// The same in a band that pays a subsidy, from a funded reserve: nothing is redeemed, so no subsidy is drawn, and
+    /// the ratio is the band's, a subsidy's.
+    function test_redeemPeggedDryRun_ofTooLittleToBePaidAWei_inABandThatPaysASubsidy_reportsNoSubsidy() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 10 ether, user); // a ratio of 1.1
+        int256 bandRatio = IMinter_v3(minter).redeemPeggedTokenIncentiveRatio();
+        assertEq(bandRatio, -0.003 ether, "fixture: the market's band pays a subsidy of 0.3%");
+        assertGt(IERC20(wrappedCollateralToken).balanceOf(reservePool), 0, "fixture: the reserve is funded");
+
+        (int256 ratio, uint256 fee, uint256 subsidy, uint256 redeemed, uint256 paid, , ) = IMinter(minter)
+            .redeemPeggedTokenDryRun(1);
+
+        assertEq(paid, 0, "a wei of pegged pays nothing");
+        assertEq(redeemed, 0, "so none is redeemed");
+        assertEq(subsidy, 0, "no subsidy is drawn");
+        assertEq(fee, 0, "no fee is charged");
+        assertEq(ratio, bandRatio, "and the ratio is the band's");
+    }
+
+    /// The same where the pegged is worth a wei of collateral and the fee leaves none of it to pay: 2,000 wei of pegged
+    /// redeem for one wei, the 0.8% fee leaves under a wei, and that rounds down to nothing. The call reverts as
+    /// returning nothing, so the dry run reports no fee and nothing redeemed: the wei is not reported as a fee.
+    function test_redeemPeggedDryRun_whereTheFeeLeavesNothingToPay_reportsNoFeeAndNothingRedeemed() public {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether, 1 ether);
+        setUp_collateral(100 ether, 80 ether, user); // a ratio of 1.8
+        int256 bandRatio = IMinter_v3(minter).redeemPeggedTokenIncentiveRatio();
+        assertEq(bandRatio, 0.008 ether, "fixture: the market's band charges 0.8%");
+        uint256 worthAWei = 2000;
+        (uint256 paidFreeOfTheFee, ) = IMinter_v3(minter).freeRedeemDryRun(worthAWei, 0);
+        assertEq(paidFreeOfTheFee, 1, "fixture: free of the fee, the pegged pays a wei");
+
+        (int256 ratio, uint256 fee, , uint256 redeemed, uint256 paid, , ) = IMinter(minter).redeemPeggedTokenDryRun(
+            worthAWei
+        );
+
+        assertEq(paid, 0, "the fee leaves nothing to pay");
+        assertEq(redeemed, 0, "so none is redeemed");
+        assertEq(fee, 0, "no fee is charged");
+        assertEq(ratio, bandRatio, "and the ratio is the band's");
+
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(minter, worthAWei);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).redeemPeggedToken(worthAWei, user, 0);
+        vm.stopPrank();
+    }
+
     /// The sentinel redeems the caller's whole balance - here only part of the minter's supply - paying what a
     /// redemption of exactly that balance pays.
     function test_redeemPegged_withTheMaxSentinel_redeemsTheCallersWholeBalance() public {

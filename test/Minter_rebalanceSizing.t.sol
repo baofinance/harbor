@@ -37,6 +37,9 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
     /// @dev The target the split tests ask for, from the ratio of 1.03 `_setUpSplit` leaves.
     uint256 private constant SPLIT_TARGET = 1.1 ether;
 
+    /// @dev The target asked of the smallest market, the stability pool manager's threshold in its own tests.
+    uint256 private constant SMALLEST_MARKET_TARGET = 1.3 ether;
+
     function setUpConfig() internal virtual override {
         setUp_config_likely();
     }
@@ -232,6 +235,66 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         assertEq(forLeveraged, Math.ceilDiv(3 * fullLeveraged, 4), "three quarters of the leveraged intercept");
         _redeem(forCollateral, forLeveraged);
         assertGe(IMinter_v3(minter).collateralRatio(), SPLIT_TARGET, "the trade reaches the target");
+    }
+
+    /// Each weighted leg is rounded up, so the two can together be a wei more than the pegged outstanding. That takes
+    /// a market where the collateral route alone redeems the whole supply, and a collateral pool that holds nearly all
+    /// the deposits: its leg rounds up to the whole supply and the leveraged pool's to a wei. The minter redeems no
+    /// more than it has minted, and cuts legs that ask for more: the collateral leg in proportion, rounded down, and
+    /// the leveraged leg the rest. The sizing answers with the legs cut that way, so the collateral leg gives up the
+    /// wei. A market of 100,000 wei of pegged at a ratio of 1.02, asked to reach 1.3.
+    function test_split_whereTheRoundedLegsPassThePeggedOutstanding_sizesThemAsTheRedemptionCutsThem() public {
+        setUp_collateral(50, 1);
+        uint256 supply = IMinter_v3(minter).peggedTokenBalance();
+        assertEq(supply, 100_000, "fixture: 100,000 wei of pegged");
+        assertEq(IMinter_v3(minter).collateralRatio(), 1.02 ether, "fixture: at a ratio of 1.02");
+        assertEq(
+            _collateralRouteTo(SMALLEST_MARKET_TARGET),
+            supply,
+            "fixture: the collateral route alone takes the whole supply"
+        );
+
+        (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            SMALLEST_MARKET_TARGET,
+            type(uint256).max,
+            type(uint256).max,
+            1_000_000 ether,
+            2 ether
+        );
+
+        assertEq(forLeveraged, 1, "the leveraged pool's leg rounds up to a wei");
+        assertEq(forCollateral, supply - 1, "the collateral pool's leg is the rest of the supply, not all of it");
+    }
+
+    /// For pools that can give no more than they hold - as a stability pool, whose headroom is within its deposits -
+    /// the two legs are never together more than the pegged outstanding, whatever the pools hold, one or both nothing
+    /// included, and whatever the target: pegged swept from the pools beyond it would not be redeemed. In the same
+    /// market, where the collateral route alone takes the whole supply for every target.
+    function testFuzz_split_forPoolsThatGiveNoMoreThanTheyHold_neverSizesMoreThanThePeggedOutstanding(
+        uint256 holdingCollateral,
+        uint256 holdingLeveraged,
+        uint256 collateralHeadroom,
+        uint256 leveragedHeadroom,
+        uint256 target
+    ) public {
+        setUp_collateral(50, 1);
+        uint256 supply = IMinter_v3(minter).peggedTokenBalance();
+        holdingCollateral = bound(holdingCollateral, 0, 1e12 ether);
+        holdingLeveraged = bound(holdingLeveraged, 0, 1e12 ether);
+        collateralHeadroom = bound(collateralHeadroom, 0, holdingCollateral);
+        leveragedHeadroom = bound(leveragedHeadroom, 0, holdingLeveraged);
+        target = bound(target, IMinter_v3(minter).collateralRatio() + 1, 2 ether);
+        assertEq(_collateralRouteTo(target), supply, "fixture: the collateral route alone takes the whole supply");
+
+        (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
+            target,
+            collateralHeadroom,
+            leveragedHeadroom,
+            holdingCollateral,
+            holdingLeveraged
+        );
+
+        assertLe(forCollateral + forLeveraged, supply, "the legs together are within the pegged outstanding");
     }
 
     /// A leg over its pool's headroom is held at the headroom, and the shortfall slides along the target line onto

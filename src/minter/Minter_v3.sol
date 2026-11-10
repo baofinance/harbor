@@ -576,7 +576,6 @@ contract Minter_v3 is
         peggedIn = _redeemableQuiet(peggedIn, peggedTokenBalance_);
         OracleReading memory reading = _readOracle($.priceOracle);
         (price, rate) = (reading.maxPrice, reading.maxRate); // the edges the redeem reads
-        peggedRedeemed = peggedIn;
         // slither-disable-next-line unused-return a dry run does not touch the backing record
         (wrappedFee, wrappedSubsidy, wrappedCollateralReturned, ) = MinterAdjustments_v1.redeemPeggedAdjustments(
             $.incentiveConfig[Config_v2.REDEEM_PEGGED],
@@ -590,13 +589,18 @@ contract Minter_v3 is
             ),
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
         );
-        // The ratio is measured against the wrapped the redemption takes from the backing: what it pays, less the
-        // reserve's subsidy, plus the fee.
-        uint256 wrappedRedeemedFor = wrappedCollateralReturned + wrappedFee - wrappedSubsidy;
         // slither-disable-next-line incorrect-equality
-        if (wrappedRedeemedFor == 0) {
+        if (wrappedCollateralReturned == 0) {
+            // The call reverts a redemption that pays nothing, so it redeems no pegged and charges no fee, and its dry
+            // run says the same: nothing redeemed, no fee, and the ratio of the band the market is in, as wherever
+            // nothing is used. A subsidy is part of what is paid, so where nothing is paid there is none.
+            wrappedFee = 0;
             incentiveRatio = _lookupIncentiveRatio(Config_v2.REDEEM_PEGGED, reading);
         } else {
+            peggedRedeemed = peggedIn;
+            // The ratio is measured against the wrapped the redemption takes from the backing: what it pays, less the
+            // reserve's subsidy, plus the fee.
+            uint256 wrappedRedeemedFor = wrappedCollateralReturned + wrappedFee - wrappedSubsidy;
             uint256 incentive;
             int256 sign;
             if (wrappedFee > wrappedSubsidy) {
@@ -745,14 +749,18 @@ contract Minter_v3 is
         }
         MinterStorage storage $ = _getMinterStorage();
 
-        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(_msgSender(), address(this), wrappedAmount);
-
         // The collateral is valued at the min rate for the same reason the record is: the conservative edge
         // never credits more backing than the donation stands up.
-        uint256 collateralAdded = MinterValuationLib.wrappedAsCollateral(
-            wrappedAmount,
-            _readOracle($.priceOracle).minRate
-        );
+        uint256 rate = _readOracle($.priceOracle).minRate;
+        uint256 collateralAdded = MinterValuationLib.wrappedAsCollateral(wrappedAmount, rate);
+        // A donation worth no collateral at that rate - the rate at zero, or an amount below a wei of collateral -
+        // would be taken and add nothing to the backing, so it is refused before any token moves.
+        if (collateralAdded == 0) {
+            revert DonationAddsNoCollateral(wrappedAmount, rate);
+        }
+
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(_msgSender(), address(this), wrappedAmount);
+
         uint256 backing = $.underlyingCollateral + collateralAdded;
         $.underlyingCollateral = backing;
 
@@ -1211,7 +1219,7 @@ contract Minter_v3 is
             MinterStorage storage $ = _getMinterStorage();
             uint256 peggedTokenBalance_ = $.peggedTokenBalance;
             // At most what this minter minted, as the fee-paying redeem: where it minted none, the same revert.
-            (peggedForCollateral, peggedForLeveraged) = _freeRedeemLegs(
+            (peggedForCollateral, peggedForLeveraged) = MinterValuationLib.freeRedeemLegs(
                 peggedForCollateral,
                 peggedForLeveraged,
                 _redeemable(PEGGED_TOKEN, peggedForCollateral + peggedForLeveraged, peggedTokenBalance_)
@@ -1293,7 +1301,7 @@ contract Minter_v3 is
         uint256 backing = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         // The legs the call redeems: at most what this minter minted, and none where it minted none.
-        (peggedForCollateral, peggedForLeveraged) = _freeRedeemLegs(
+        (peggedForCollateral, peggedForLeveraged) = MinterValuationLib.freeRedeemLegs(
             peggedForCollateral,
             peggedForLeveraged,
             _redeemableQuiet(peggedForCollateral + peggedForLeveraged, peggedTokenBalance_)
@@ -1314,23 +1322,6 @@ contract Minter_v3 is
                 backing,
                 reading
             );
-        }
-    }
-
-    /// @notice The legs of a zero-fee pegged redemption cut to `peggedIn`, the most of them this minter can redeem, where
-    /// they ask for more: both in proportion and the total exactly `peggedIn` - the collateral leg rounded down, so the
-    /// least collateral leaves the backing, and the conversion leg the rest, so a redemption of one leg stays one leg.
-    /// @dev Shared by `freeRedeemPeggedToken` and `freeRedeemDryRun`, so a call and its dry run redeem the same legs.
-    function _freeRedeemLegs(
-        uint256 peggedForCollateral,
-        uint256 peggedForLeveraged,
-        uint256 peggedIn
-    ) private pure returns (uint256 forCollateral, uint256 forLeveraged) {
-        (forCollateral, forLeveraged) = (peggedForCollateral, peggedForLeveraged);
-        uint256 peggedAskedFor = peggedForCollateral + peggedForLeveraged;
-        if (peggedAskedFor > peggedIn) {
-            forCollateral = Math.mulDiv(peggedForCollateral, peggedIn, peggedAskedFor);
-            forLeveraged = peggedIn - forCollateral;
         }
     }
 

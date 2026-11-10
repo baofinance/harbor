@@ -152,6 +152,11 @@ interface IMinter_v3 is IToken {
     error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 minimum);
     error NoRedeemableTokens(address redeemingToken);
 
+    /// @dev Thrown by a donation that would add no collateral to the backing: `wrappedAmount` of wrapped collateral is
+    /// worth less than a wei of collateral at `rate`, the low edge of the wrap rate, which is the edge a donation is
+    /// credited at. No token is taken.
+    error DonationAddsNoCollateral(uint256 wrappedAmount, uint256 rate);
+
     /// @dev Thrown when recognising an impairment would change nothing, the record not exceeding the holding.
     error NothingToRecognise(uint256 backing);
 
@@ -201,7 +206,7 @@ interface IMinter_v3 is IToken {
     // solhint-disable-next-line func-name-mixedcase
     function HARVESTER_ROLE() external view returns (uint256);
 
-    /// @notice returns the role that, with the owner and the zero-fee role, may donate wrapped collateral as backing
+    /// @notice returns the role that, with the owner, may donate wrapped collateral as backing
     // solhint-disable-next-line func-name-mixedcase
     function DONOR_ROLE() external view returns (uint256);
 
@@ -310,6 +315,11 @@ interface IMinter_v3 is IToken {
     ///         exceeds its headroom is capped there and the shortfall slides along the target-ratio line into the
     ///         co-pool's leg (each leg still redeemed for its own token). The unconstrained `redeemPeggedForCollateralRatio`
     ///         is this with no caps and no holdings (returning the two line intercepts).
+    ///         For pools that can give no more than they hold - as a stability pool, whose headroom is within its
+    ///         supply - the two legs are together never more than the pegged this minter has minted: where rounding
+    ///         each up would take them a wei past it, they are cut as `freeRedeemPeggedToken` cuts legs that ask for
+    ///         more than it can redeem. The two intercepts of the unconstrained form are not legs of one redemption,
+    ///         and together can be more.
     /// @param targetCollateralRatio The collateral ratio to reach (1e18-scaled).
     /// @param maxCollateralPegged The most pegged the collateral pool may give up (its `maxAssetLoss` headroom).
     /// @param maxLeveragedPegged The most pegged the leveraged pool may give up (its `maxAssetLoss` headroom).
@@ -416,10 +426,12 @@ interface IMinter_v3 is IToken {
     /// @return fee The amount deducted in wrapped collateral from 'peggedIn' as a fee.
     /// @return subsidy The amount in wrapped collateral added to 'collateralReturned' taken from the reserve pool.
     /// This takes into account the possibility the reserve pool may be exhausted by this action.
-    /// @return peggedRedeemed The amount of pegged tokens that would be redeemed.
+    /// @return peggedRedeemed The amount of pegged tokens that would be redeemed. None where nothing would be
+    /// returned: the call reverts there, `ReturnZeroAmount` unless one of its earlier checks reverts first. The fee
+    /// and the subsidy are then zero and the incentive ratio the band's.
     /// @return wrappedCollateralReturned The amount of collateral returned to the caller including from the reserve pool (if a subsidy has been configured)
-    /// None where `rate` is zero: no amount of wrapped collateral pays a collateral amount there, and the fee and the
-    /// subsidy are zero with it.
+    /// None from an offer too small to be paid a wei once the fee is taken. None where `rate` is zero either: no amount
+    /// of wrapped collateral pays a collateral amount there.
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function redeemPeggedTokenDryRun(
@@ -601,6 +613,10 @@ interface IMinter_v3 is IToken {
     /// This is the one way to contribute collateral as *cover*. Transferring wrapped collateral to this contract
     /// instead leaves the record untouched, so it becomes harvestable yield for the stability pools and moves
     /// neither the collateral ratio nor either token's price.
+    ///
+    /// A donation is credited at the low edge of the wrap rate. One worth less than a wei of collateral there - any
+    /// amount where that edge is zero - would add nothing to the backing, and reverts `DonationAddsNoCollateral`
+    /// before any token is taken.
     /// @param wrappedAmount The wrapped collateral to give. Must be non-zero.
     function donateWrappedCollateral(uint256 wrappedAmount) external;
 

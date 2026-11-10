@@ -91,7 +91,8 @@ interface IStabilityPoolManager_v2 {
     ///         during which `rebalance` reverts, the minter has backing on record and pegged of its own outstanding,
     ///         and a pool has deposits above its floor to give.
     /// @dev It does not ask how much. Where all the pools can give is too little to be paid a wei, it is true and
-    ///      `rebalance` reverts `NoTokensToLiquidate`.
+    ///      `rebalance` reverts `NoTokensToLiquidate`. Nor does it ask whether each pool can record its loss: where one
+    ///      cannot, it is true and `rebalance` reverts `IStabilityPool_v3.LossProductExponentOverflow`.
     function rebalanceable() external view returns (bool);
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
@@ -141,7 +142,9 @@ interface IStabilityPoolManager_v2 {
     ///      every redemption a rebalance makes is an update the minter reverts until the rate recovers or the
     ///      impairment is recognised. A rebalance that makes no redemption, as no leg would be paid anything, reverts
     ///      `NoTokensToLiquidate` whether or not the record is overstated: with both edges of the wrap rate at zero
-    ///      no collateral leg is paid anything.
+    ///      no collateral leg is paid anything. A pool's own errors are passed up unchanged too:
+    ///      `IStabilityPool_v3.LossProductExponentOverflow` where a pool the rebalance draws on cannot record the loss,
+    ///      which stops the rebalance whatever the other pool could give.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 

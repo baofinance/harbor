@@ -7,6 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
@@ -271,6 +272,70 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             1e8 + 2e8 + (3e10 ether - left) / 1e10,
             left,
             "fixture: the three balances make up the supply exactly"
+        );
+    }
+
+    // The product's exponent has eight bits, and a loss that would take it past the last value they hold, 255, is
+    // refused by name: recorded, the exponent would wrap to a low one and every balance would be revalued. Each round
+    // here fills the pool to its ceiling and loses all of it above the floor, the smallest factor a loss can have. That
+    // steps the exponent once from a full magnitude and twice from the least - 1, 3, 5 and so on - reaching 255 after
+    // 128 rounds with the magnitude at its least, where any further loss needs a step. The pool goes on serving its
+    // holders there: one who joins leaves with their deposit, and one from two steps back claims the reward paid then.
+    function test_aLossThatWouldPassTheProductsLastExponent_isRefused_andThePoolStillServesItsHolders() public {
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 ceiling = IStabilityPool_v3(stabilityPoolCollateral).MAX_TOTAL_ASSET_SUPPLY();
+        for (uint256 round = 1; round <= 128; round++) {
+            uint256 toTheCeiling = ceiling - IERC20(stabilityPoolCollateral).totalSupply();
+            deal(peggedToken, user1, toTheCeiling);
+            vm.startPrank(user1);
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(toTheCeiling, user1, 0);
+            vm.stopPrank();
+            // the last round pays a reward, to the balances from before its loss
+            collateralPoolActions.liquidate(wrappedCollateralToken, ceiling - floor, round == 128 ? REWARD_AMOUNT : 0);
+        }
+        uint128 product = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
+        assertEq(DecrementalFloatingPoint_v2.exponent(product), 255, "fixture: the product is at its last exponent");
+        assertEq(
+            DecrementalFloatingPoint_v2.magnitude(product),
+            DecrementalFloatingPoint_v2.MIN_PRECISION,
+            "fixture: and at its least magnitude"
+        );
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "fixture: the pool is at its floor");
+
+        // user2 joins, so the pool has deposits above its floor to lose
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
+
+        // Half of user2's deposit lost would take the magnitude to about half its least: one step, past the last.
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPool_v3.LossProductExponentOverflow.selector, uint8(255), uint8(1))
+        );
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 2, 0);
+
+        _beginWithdrawal(user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
+        assertEq(IERC20(peggedToken).balanceOf(user2), INITIAL_BALANCE, "user2 leaves with the whole deposit");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "and the pool is back at its floor");
+
+        // user1 held the whole pool when the reward was paid, at exponent 253, so the whole reward is user1's, to the
+        // wei: every round's loss leaves a 1e18th of a supply of 1e36, so each balance and the reward's share of the
+        // supply divide exactly, and user1's balance is the supply itself.
+        uint256 claimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
+            user1,
+            aa(wrappedCollateralToken)
+        )[0];
+        assertEq(claimable, REWARD_AMOUNT, "the whole reward is claimable");
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user1);
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(user1) - heldBefore,
+            claimable,
+            "the claim, read across the last two exponents, pays what was claimable"
         );
     }
 

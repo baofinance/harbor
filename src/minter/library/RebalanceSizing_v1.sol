@@ -3,6 +3,8 @@ pragma solidity 0.8.30;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
+
 /// @title RebalanceSizing_v1
 /// @author rootminus0x1
 /// @notice Works out how much pegged token each stability pool gives up in a rebalance.
@@ -64,6 +66,16 @@ library RebalanceSizing_v1 {
             uint256 collateralFraction = Math.mulDiv(holdingCollateral, 1 ether, holdingCollateral + weightedLeveraged);
             peggedForCollateral = Math.mulDiv(fullCollateral, collateralFraction, 1 ether, Math.Rounding.Ceil);
             peggedForLeveraged = Math.mulDiv(fullLeveraged, 1 ether - collateralFraction, 1 ether, Math.Rounding.Ceil);
+            // Each rounded up, the two can together be a wei more than the pegged outstanding, where the collateral
+            // intercept is the whole of it. The redemption takes no more than is outstanding and cuts legs that ask
+            // for more, so the point is cut here as the redemption would cut it: a pool is then asked for exactly the
+            // pegged that is redeemed for it. The fitting below keeps the total within the outstanding: it moves the
+            // point along the line or inside it, where no two legs total more than the collateral intercept.
+            (peggedForCollateral, peggedForLeveraged) = MinterValuationLib.freeRedeemLegs(
+                peggedForCollateral,
+                peggedForLeveraged,
+                peggedTokenBalance
+            );
         }
 
         // Fit the point into the [0, maxCollateralPegged] x [0, maxLeveragedPegged] headroom box. A leg above its

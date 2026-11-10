@@ -10,7 +10,8 @@ import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol"
 /// @notice The valuation arithmetic shared between the Minter and the libraries it delegates to.
 /// @dev Internal, so its code is compiled into every consumer rather than deployed once. That is the point: the
 ///      Minter and `MinterAdjustments_v1` must agree to the wei on what the collateral ratio is, which band a
-///      ratio falls in, and what a pegged token is worth. One definition compiled into both is what guarantees it.
+///      ratio falls in, and what a pegged token is worth, and the Minter and `RebalanceSizing_v1` on the legs a
+///      zero-fee redemption takes. One definition compiled into each is what guarantees it.
 ///      Being internal it saves the Minter nothing in size, and it is not meant to - see `MinterAdjustments_v1`
 ///      for the code that actually leaves.
 ///
@@ -331,6 +332,28 @@ library MinterValuationLib {
             // rises as the collateral falls, and that is what the token is. What is bounded is the leverage
             // SOLD, by the minter reverting any leveraged mint below the min CR.
             ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
+        }
+    }
+
+    /// @notice The legs of a zero-fee pegged redemption cut to `redeemable`, the most pegged the minter can redeem,
+    /// where together they ask for more: both in proportion and the total exactly `redeemable` - the collateral leg
+    /// rounded down, so the least collateral leaves the backing, and the conversion leg the rest, so a redemption of
+    /// one leg stays one leg. Legs within `redeemable` are returned as they are.
+    /// @dev The one rule for the redemption, its dry run and the sizing of a rebalance, so the legs a rebalance is sized
+    ///      with are the legs the redemption takes.
+    /// @param collateralLeg The pegged asked to be redeemed for collateral.
+    /// @param leveragedLeg The pegged asked to be converted into leveraged tokens.
+    /// @param redeemable The most pegged the two legs may total.
+    function freeRedeemLegs(
+        uint256 collateralLeg,
+        uint256 leveragedLeg,
+        uint256 redeemable
+    ) internal pure returns (uint256 forCollateral, uint256 forLeveraged) {
+        (forCollateral, forLeveraged) = (collateralLeg, leveragedLeg);
+        uint256 peggedAskedFor = collateralLeg + leveragedLeg;
+        if (peggedAskedFor > redeemable) {
+            forCollateral = Math.mulDiv(collateralLeg, redeemable, peggedAskedFor);
+            forLeveraged = redeemable - forCollateral;
         }
     }
 }

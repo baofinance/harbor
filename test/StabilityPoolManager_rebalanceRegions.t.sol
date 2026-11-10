@@ -15,6 +15,8 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
+import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
+import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/StabilityPoolManager.t.sol";
 
@@ -1265,6 +1267,71 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     }
 
     /*//////////////////////////////////////////////////////////////
+                    A POOL THAT CANNOT RECORD A LOSS
+    //////////////////////////////////////////////////////////////*/
+
+    /// A pool keeps the product of its losses with an exponent of eight bits. At the last exponent, with the magnitude
+    /// at its least, it can record no further loss, and its error passes up through the rebalance unchanged: the
+    /// rebalance is refused whole, whatever the other pool could give, though one is still offered. Once the pool's
+    /// holders have withdrawn to its floor the rebalance draws on the other pool alone, and reaches the threshold.
+    function test_aPoolThatCannotRecordALoss_stopsTheRebalanceWithItsOwnError_untilItIsBackAtItsFloor() public {
+        // The collateral pool is taken to its last exponent by its rebalancer, the manager: 128 rounds, each filling it
+        // to its ceiling with pegged minted in other markets and losing all of that above its floor.
+        StabilityPoolActions asTheManager = new StabilityPoolActions(stabilityPoolCollateral, stabilityPoolManager);
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 ceiling = IStabilityPool_v3(stabilityPoolCollateral).MAX_TOTAL_ASSET_SUPPLY();
+        for (uint256 round = 1; round <= 128; round++) {
+            uint256 toTheCeiling = ceiling - _poolSupply(stabilityPoolCollateral);
+            _mintPegged(dave, toTheCeiling);
+            vm.startPrank(dave);
+            IERC20(peggedToken).approve(stabilityPoolCollateral, toTheCeiling);
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(toTheCeiling, dave, 0);
+            vm.stopPrank();
+            asTheManager.liquidate(wrappedCollateralToken, ceiling - floor, 0);
+        }
+        deal(peggedToken, stabilityPoolManager, 0); // what the rounds swept: a manager holds no pegged between rebalances
+        assertEq(
+            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            255,
+            "fixture: the collateral pool's loss product is at its last exponent"
+        );
+        assertEq(_poolSupply(stabilityPoolCollateral), floor, "fixture: and the pool is at its floor");
+
+        _depositFor(stabilityPoolCollateral, alice, 2_500);
+        _depositFor(stabilityPoolLeveraged, carol, 2_500);
+        uint256 threshold = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
+        assertLt(IMinter(minter).collateralRatio(), threshold, "fixture: the market is below its threshold");
+        (uint256 forCollateral, uint256 forLeveraged) = _legsToTheThreshold(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss()
+        );
+        assertGt(forCollateral, 0, "fixture: the rebalance would draw on the collateral pool");
+        assertGt(forLeveraged, 0, "fixture: and on the leveraged pool");
+
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPool_v3.LossProductExponentOverflow.selector, uint8(255), uint8(1))
+        );
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        vm.startPrank(alice);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, alice, 0);
+        vm.stopPrank();
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(), 0, "the collateral pool is at its floor");
+        uint256 leveragedPoolSupply = _poolSupply(stabilityPoolLeveraged);
+
+        uint256 taken = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        assertEq(
+            leveragedPoolSupply - _poolSupply(stabilityPoolLeveraged),
+            taken,
+            "the leveraged pool alone gives up what the rebalance takes"
+        );
+        assertEq(_poolSupply(stabilityPoolCollateral), floor, "the collateral pool is left at its floor");
+        assertGe(IMinter(minter).collateralRatio(), threshold, "and the threshold is reached");
+    }
+
+    /*//////////////////////////////////////////////////////////////
                             EACH HOLDER'S SHARE
     //////////////////////////////////////////////////////////////*/
 
@@ -1501,5 +1568,50 @@ contract StabilityPoolManagerRebalanceBelowAPriceOfOneTest is TestStabilityPoolM
             "the leveraged pool keeps its pegged"
         );
         assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged), 0, "the leveraged pool is paid nothing");
+    }
+}
+
+/// @notice The step by both legs in the smallest of markets: 100,000 wei of pegged at a ratio of 1.02, the pools holding
+///         pegged minted in other markets of the peg. There the collateral route alone redeems the minter's whole
+///         supply, and the two legs weighted by the pools' deposits round up to a wei more than it.
+contract StabilityPoolManagerRebalanceOfTheWholeSupplyTest is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
+    function setUp() public virtual override {
+        super.setUp();
+        setUp_collateral(50, 1, user);
+        _mintPegged(user, 1_000_002 ether);
+    }
+
+    /// The pools give up exactly the pegged the minter redeems. The minter redeems no more than it has minted, so legs
+    /// sized a wei past that would take a wei from the collateral pool's holders that the minter does not burn, and
+    /// leave it in the manager.
+    function test_whereTheLegsWouldRoundPastTheMintersSupply_thePoolsGiveUpOnlyWhatIsRedeemed() public {
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, 1_000_000 ether);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1_000_000 ether, user, 0);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, 2 ether);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(2 ether, user, 0);
+        vm.stopPrank();
+        uint256 mintedHere = IMinter(minter).peggedTokenBalance();
+        assertEq(mintedHere, 100_000, "fixture: the minter has minted 100,000 wei of pegged");
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolManager), 0, "fixture: the manager holds no pegged");
+        uint256 peggedInExistence = IERC20(peggedToken).totalSupply();
+        uint256 collateralPoolSupply = IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply();
+        uint256 leveragedPoolSupply = IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply();
+
+        uint256 taken = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        assertEq(taken, mintedHere, "the rebalance takes what the minter has minted, and no more");
+        assertEq(peggedInExistence - IERC20(peggedToken).totalSupply(), taken, "all it takes is burned");
+        assertEq(
+            leveragedPoolSupply - IStabilityPool_v3(stabilityPoolLeveraged).totalAssetSupply(),
+            1,
+            "the leveraged pool gives up its wei"
+        );
+        assertEq(
+            collateralPoolSupply - IStabilityPool_v3(stabilityPoolCollateral).totalAssetSupply(),
+            mintedHere - 1,
+            "the collateral pool gives up the rest, not the whole"
+        );
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolManager), 0, "and the manager keeps none");
     }
 }

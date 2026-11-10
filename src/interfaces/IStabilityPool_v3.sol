@@ -116,6 +116,12 @@ interface IStabilityPool_v3 {
     /// @dev Thrown when the minimum total asset supply is zero (the reward-integral floor requires it to be positive)
     error InvalidMinTotalAssetSupply(uint256 minTotalAssetSupply);
 
+    /// @dev Thrown by a loss the pool cannot record. A holder's balance is their deposit times the product of the
+    ///      factors of the losses since. The pool keeps that product as a magnitude and a count of the times the
+    ///      magnitude has been scaled up by 1e9: the exponent, which has eight bits. `exponent` is the count before the
+    ///      loss and `increase` what the loss would add to it, taking it past 255, the last value it holds.
+    error LossProductExponentOverflow(uint8 exponent, uint8 increase);
+
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -169,6 +175,8 @@ interface IStabilityPool_v3 {
     ///         their share of the minimum. The rebalancer queries this before a liquidation so it never asks the pool
     ///         to absorb more than this; the pool also enforces the same bound internally as a backstop. Zero when
     ///         supply is at or below the floor.
+    /// @dev It measures the floor alone. A loss within it is still refused, `LossProductExponentOverflow`, where it
+    ///      would take the exponent of the pool's loss product past its last value.
     function maxAssetLoss() external view returns (uint256 amount);
 
     /// @notice An account's withdrawal request; both 0 when it has none.
@@ -257,7 +265,8 @@ interface IStabilityPool_v3 {
     ///         market sells leverage, collateral where it does not (`IMinter_v3.leveragedMintable`).
     /// @dev `rewardToken` must be one of the pool's active reward tokens, else the call reverts
     ///      `NotActiveRewardToken`: a reward accrued in a token no claim walks would be stranded. Callable by the
-    ///      `REBALANCER_ROLE`.
+    ///      `REBALANCER_ROLE`. A loss that would take the exponent of the pool's loss product past its last value
+    ///      reverts `LossProductExponentOverflow`, and nothing of the liquidation is recorded.
     /// @param rewardToken The token the proceeds are in, already transferred to the pool.
     /// @param liquidated The asset removed from the pool by the liquidation.
     /// @param returned The amount of `rewardToken` distributed to the holders.

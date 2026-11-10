@@ -690,24 +690,26 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
     }
 
     /// With both edges of the wrap rate at zero no amount of wrapped collateral pays a collateral amount, so a pegged
-    /// redemption returns nothing. Its dry run reports that before the loss is recognised, in a band that charges a
-    /// fee, and after, in the band below the peg that pays a subsidy from a funded reserve.
-    function test_atAZeroRate_thePeggedRedeemDryRunReportsNothingReturned() public {
+    /// redemption returns nothing and redeems nothing. Its dry run reports that before the loss is recognised, in a
+    /// band that charges a fee, and after, in the band below the peg that pays a subsidy from a funded reserve.
+    function test_atAZeroRate_thePeggedRedeemDryRunReportsNothingReturnedOrRedeemed() public {
         (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
         deal(wrappedCollateralToken, reservePool, 1 ether);
         _setRate(0);
         assertTrue(_recordOverstatesTheHolding(), "precondition: the loss is unrecognised");
 
-        (int256 ratio, uint256 fee, uint256 subsidy, , uint256 returned, , ) = IMinter_v3(minter)
+        (int256 ratio, uint256 fee, uint256 subsidy, uint256 redeemed, uint256 returned, , ) = IMinter_v3(minter)
             .redeemPeggedTokenDryRun(peggedTokens / 10);
         assertGt(ratio, 0, "precondition: unrecognised, the market is in a band that charges a fee");
         assertEq(returned, 0, "unrecognised: nothing is returned");
+        assertEq(redeemed, 0, "before recognition: no pegged is redeemed");
         assertEq(fee, 0, "unrecognised: no fee is charged");
 
         _recogniseImpairment();
-        (ratio, fee, subsidy, , returned, , ) = IMinter_v3(minter).redeemPeggedTokenDryRun(peggedTokens / 10);
+        (ratio, fee, subsidy, redeemed, returned, , ) = IMinter_v3(minter).redeemPeggedTokenDryRun(peggedTokens / 10);
         assertLt(ratio, 0, "precondition: recognised, the market is in a band that pays a subsidy");
         assertEq(returned, 0, "recognised: nothing is returned");
+        assertEq(redeemed, 0, "after recognition: no pegged is redeemed");
         assertEq(fee, 0, "recognised: no fee is charged");
         assertEq(subsidy, 0, "recognised: no subsidy is paid, though the reserve is funded");
     }
