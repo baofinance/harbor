@@ -504,8 +504,8 @@ contract StabilityPoolManager_v2 is
             collateralPaid += collateral;
         }
 
-        // Nothing taken - both pools at their floors, or none of the minter's pegged outstanding - reverts by name
-        // rather than pass as a rebalance.
+        // Nothing taken - both pools at their floors, none of the minter's pegged outstanding, or no leg that would be
+        // paid anything - reverts by name rather than pass as a rebalance.
         // slither-disable-next-line incorrect-equality
         if (peggedLiquidated == 0) {
             revert NoTokensToLiquidate(PEGGED_TOKEN);
@@ -523,7 +523,8 @@ contract StabilityPoolManager_v2 is
     ///      of the ceiling in `terms`, and the cut receiver's cut ratio of it. With `leveragedPoolPaidInCollateral`
     ///      both pools' pegged take the collateral route and the collateral is shared between them in proportion to
     ///      the pegged each gave up; without it the leveraged pool's pegged is converted and the pool is paid in
-    ///      leveraged tokens.
+    ///      leveraged tokens. The minter reverts a redemption with a leg that would be paid nothing, so such a leg is
+    ///      not taken: the one leg of the collateral route, or either leg of the two.
     /// @return peggedLiquidated The pegged actually taken from the two pools.
     /// @return collateralPaid The collateral paid to the pools, after the bounty and the cut.
     /// @return leveragedPaid The leveraged tokens paid to the leveraged pool, after the bounty and the cut.
@@ -547,6 +548,10 @@ contract StabilityPoolManager_v2 is
                 }
                 // slither-disable-next-line unused-return no pegged is converted, so no leveraged is minted
                 (uint256 collateralOut, ) = IMinter_v3(MINTER).freeRedeemDryRun(pegged, 0);
+                // The two pools' pegged is one leg here. Where it would be paid nothing, nothing is taken.
+                if (collateralOut == 0) {
+                    return (0, 0, 0);
+                }
                 previewForCollateralPool = Math.mulDiv(collateralOut, peggedFromCollateralPool, pegged);
                 previewForLeveragedPool = collateralOut - previewForCollateralPool;
             } else {
@@ -554,6 +559,15 @@ contract StabilityPoolManager_v2 is
                     peggedFromCollateralPool,
                     peggedFromLeveragedPool
                 );
+                // Each pool's pegged is its own leg here. A leg that would be paid nothing is not taken, so a pool with
+                // too little above its floor to be paid a wei does not stop the other pool's leg, which goes on as it
+                // was sized.
+                if (previewForCollateralPool == 0) {
+                    peggedFromCollateralPool = 0;
+                }
+                if (previewForLeveragedPool == 0) {
+                    peggedFromLeveragedPool = 0;
+                }
             }
             peggedFromCollateralPool = _capLiquidation(
                 peggedFromCollateralPool,

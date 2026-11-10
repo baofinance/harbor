@@ -158,8 +158,8 @@ abstract contract MarketUnderTest {
     /// @dev Rebalance, reporting whether THE RULE UNDER TEST reverted it.
     ///
     /// This is not the tolerance that was rejected earlier and must not be read as it. That one caught
-    /// `NoTokensToLiquidate`, which is an EMPTY POOL - a defect in how the market was set up, and rightly
-    /// fixed by setting it up properly rather than by catching the symptom. This catches exactly one thing,
+    /// `NoTokensToLiquidate`, a rebalance with nothing to take, which there was an EMPTY POOL - a defect in how
+    /// the market was set up, and rightly fixed by setting it up properly rather than by catching the symptom. This catches exactly one thing,
     /// `BelowMinimumCollateralRatio`, which a rule throws BY DESIGN where it declines to mint leveraged. That revert
     /// is not a failure of the measurement; it is the single behaviour the rule exists to exhibit, and a
     /// measurement that crashed on it could not report the one thing it was run to see. Anything else

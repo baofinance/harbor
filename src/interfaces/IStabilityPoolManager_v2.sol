@@ -65,8 +65,8 @@ interface IStabilityPoolManager_v2 {
     error CollateralRatioNotBelowRebalanceThreshold(uint256 currentCollateralRatio, uint256 rebalanceThreshold);
 
     /// @dev Thrown by `rebalance` when it takes no pegged from the pools: neither has a deposit - a supply of zero,
-    ///      whatever pegged they hold - or neither can give any, or the minter has none of its own pegged outstanding
-    ///      to redeem.
+    ///      whatever pegged they hold - or neither can give any, or what they can give would be paid nothing, or the
+    ///      minter has none of its own pegged outstanding to redeem.
     error NoTokensToLiquidate(address token);
 
     /// @dev Thrown by `rebalance` when the pegged it took from the pools is less than the caller's minimum.
@@ -90,8 +90,8 @@ interface IStabilityPoolManager_v2 {
     ///         rebalance threshold, the minter is not halted by an unrecognised impairment (`IMinter_v3.impairment`),
     ///         during which `rebalance` reverts, the minter has backing on record and pegged of its own outstanding,
     ///         and a pool has deposits above its floor to give.
-    /// @dev It does not ask how much. With a pool a few wei above its floor it is true, and `rebalance` reverts with
-    ///      the minter's `IMinter_v3.ReturnZeroAmount` where that pegged would be paid nothing.
+    /// @dev It does not ask how much. Where all the pools can give is too little to be paid a wei, it is true and
+    ///      `rebalance` reverts `NoTokensToLiquidate`.
     function rebalanceable() external view returns (bool);
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
@@ -125,17 +125,20 @@ interface IStabilityPoolManager_v2 {
     ///         rata to their supplies, to the floor or the threshold if that is lower, all paid in collateral; then,
     ///         from the floor, the step by both legs. Each pool gives up no more than its headroom
     ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
+    ///         A leg of the redemption that would be paid nothing is not taken. In the step by both legs each pool's
+    ///         pegged is its own leg: a pool whose leg is too small to be paid a wei is left out, and the other pool's
+    ///         leg goes on as it was sized, which can leave the ratio short of the threshold by what the leg left out
+    ///         would have added. By the collateral route the two pools' pegged is one leg, taken whole or not at all.
     ///         Where the backing is worth no more than the pegged the minter has minted - a ratio at or below the peg -
     ///         the first step lifts nothing: a pegged token redeems for its share of the backing and takes that share
     ///         with it. The step takes all the pegged the minter has minted that the pools can give, and pays each
     ///         pool its pegged's share of the backing in collateral.
     /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold, `NoTokensToLiquidate` when
     ///      it takes no pegged, and `InsufficientLiquidation` when both steps together take less than
-    ///      `minPeggedLiquidated`. The minter's own errors are passed up unchanged. `IMinter_v3.ReturnZeroAmount`: a
-    ///      step's pegged would be paid nothing, being too little to be worth a wei of collateral or of leveraged
-    ///      token, or redeemed at a minter with no backing. `IMinter_v3.UnrecognisedImpairment`: the minter's record
-    ///      of its backing overstates what it holds, and every redemption a rebalance makes is an update the minter
-    ///      reverts until the rate recovers or the impairment is recognised.
+    ///      `minPeggedLiquidated`. The minter's own errors are passed up unchanged, among them
+    ///      `IMinter_v3.UnrecognisedImpairment`: while the minter's record of its backing overstates what it holds,
+    ///      every redemption a rebalance makes is an update the minter reverts until the rate recovers or the
+    ///      impairment is recognised.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 

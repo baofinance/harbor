@@ -102,7 +102,8 @@ abstract contract LiquidateMeasurement is GraphTestBase, Array, RatioSweepMeasur
     /// Only `ReturnZeroAmount` is tolerated: deep below the peg a leg would hand back nothing and the market
     /// says so by name, which is a located limit and belongs on the graph as a point where nothing moved.
     /// Anything else propagates - a broad catch would draw a flat line over a real failure, and a flat line
-    /// is exactly what this graph shows when a rule cannot act.
+    /// is exactly what this graph shows when a rule cannot act. That includes `NoTokensToLiquidate`, which is
+    /// what `StabilityPoolManager_v2` reverts with there: it takes no leg that would hand back nothing.
     function _tryRebalance() internal {
         if (!_canRebalance()) {
             return;

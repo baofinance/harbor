@@ -163,7 +163,7 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_reb
     }
 
     /// A minter that has lost its whole holding, and recognised the loss, has nothing to pay a pool with. No
-    /// rebalance is offered, and one sent anyway reverts with the minter's error for a redemption that pays nothing.
+    /// rebalance is offered, and one sent anyway takes nothing and reverts by the rebalance's own name.
     function test_onceALossOfTheWholeHoldingIsRecognised_noRebalanceIsOffered() public {
         uint256 wholeHolding = IERC20(wrappedCollateralToken).balanceOf(minter);
         vm.startPrank(minter);
@@ -188,7 +188,7 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_reb
         );
 
         assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
-        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
     }
 
