@@ -192,6 +192,49 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_reb
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
     }
 
+    /// With both edges of the wrap rate at zero a wrapped token converts to no collateral, so no collateral leg is
+    /// paid anything. Here, below the minter's floor, the rebalance's one step is the collateral route: it takes
+    /// nothing and reverts by its own name, though the loss is unrecognised.
+    function test_atAZeroRate_belowTheFloor_theRebalanceTakesNothing() public {
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        _setRate(0);
+        (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+        assertGt(recorded, held, "precondition: the loss is unrecognised");
+        assertFalse(IMinter_v3(minter).leveragedMintable(), "precondition: the market sells no leverage");
+
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+    }
+
+    /// From the minter's floor the leveraged pool's pegged is converted, which a zero rate does not stop. So a
+    /// redemption is sent, and the minter's guard on the unrecognised loss answers it: the minter's error is passed
+    /// up.
+    function test_atAZeroRate_withALeveragedLeg_theRebalanceRevertsWithTheMintersError() public {
+        _setRate(0);
+        (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+        assertGt(recorded, held, "precondition: the loss is unrecognised");
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "precondition: the market sells leverage");
+
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.UnrecognisedImpairment.selector, recorded, held));
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+    }
+
+    /// Once a loss that took the rate to zero is recognised the minter has no backing on record. No rebalance is
+    /// offered, and one sent anyway takes nothing and reverts by its own name.
+    function test_atAZeroRate_onceRecognised_theRebalanceTakesNothing() public {
+        _setRate(0);
+        vm.startPrank(owner());
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
+        (uint256 recorded, uint256 held) = IMinter_v3(minter).impairment();
+        assertEq(recorded, 0, "precondition: the minter has no backing on record");
+        assertEq(held, 0, "precondition: and none in hand, so it is not halted");
+
+        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+    }
+
     /// A rate that recovers lifts the halt with no owner call: the guard states a condition about the present.
     function test_rebalanceResumesWhenTheRateRecovers() public {
         uint256 rateBefore = _rate();

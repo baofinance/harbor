@@ -126,9 +126,10 @@ interface IStabilityPoolManager_v2 {
     ///         from the floor, the step by both legs. Each pool gives up no more than its headroom
     ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
     ///         A leg of the redemption that would be paid nothing is not taken. In the step by both legs each pool's
-    ///         pegged is its own leg: a pool whose leg is too small to be paid a wei is left out, and the other pool's
-    ///         leg goes on as it was sized, which can leave the ratio short of the threshold by what the leg left out
-    ///         would have added. By the collateral route the two pools' pegged is one leg, taken whole or not at all.
+    ///         pegged is its own leg: a pool whose leg would be paid nothing is left out as a pool at its floor is,
+    ///         and the legs are sized again without it, so the other pool's leg covers the distance where it can.
+    ///         Where neither leg would be paid anything, neither is taken. By the collateral route the two pools'
+    ///         pegged is one leg, taken whole or not at all.
     ///         Where the backing is worth no more than the pegged the minter has minted - a ratio at or below the peg -
     ///         the first step lifts nothing: a pegged token redeems for its share of the backing and takes that share
     ///         with it. The step takes all the pegged the minter has minted that the pools can give, and pays each
@@ -138,7 +139,9 @@ interface IStabilityPoolManager_v2 {
     ///      `minPeggedLiquidated`. The minter's own errors are passed up unchanged, among them
     ///      `IMinter_v3.UnrecognisedImpairment`: while the minter's record of its backing overstates what it holds,
     ///      every redemption a rebalance makes is an update the minter reverts until the rate recovers or the
-    ///      impairment is recognised.
+    ///      impairment is recognised. A rebalance that makes no redemption, as no leg would be paid anything, reverts
+    ///      `NoTokensToLiquidate` whether or not the record is overstated: with both edges of the wrap rate at zero
+    ///      no collateral leg is paid anything.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 

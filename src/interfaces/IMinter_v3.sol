@@ -645,6 +645,11 @@ interface IMinter_v3 is IToken {
     /// @dev Redeems at most the pegged this minter minted, as `redeemPeggedToken` does: where the two legs ask for
     /// more, both are cut in proportion to exactly that - the collateral leg rounded down and the conversion leg the
     /// rest - and the caller keeps the pegged not redeemed. Where it minted none, reverts `NoRedeemableTokens`.
+    /// Reverts `ReturnZeroAmount` for a leg that would be paid nothing, burning nothing: too little pegged to be worth
+    /// a wei of what it is redeemed for, or a collateral leg at a minter with no backing on record. Two checks come
+    /// before it: `UnrecognisedImpairment` while the record of the backing overstates the holding, which with both
+    /// edges of the wrap rate at zero is any record above zero, and `BelowMinimumCollateralRatio` for a conversion
+    /// asked for below `MINIMUM_COLLATERAL_RATIO`.
     /// @param peggedForCollateral the amount of peggedToken to redeem for collateral.
     /// @param peggedForLeveraged the amount of peggedToken to redeem for leveraged tokens.
     /// @param receiver The address of receiver for collateral token.
@@ -702,6 +707,8 @@ interface IMinter_v3 is IToken {
     ///         call reverts `BelowMinimumCollateralRatio` for together with any collateral leg beside it, or a
     ///         redemption from a minter that minted none - both legs report zero. A redeem with no conversion is not
     ///         judged.
+    ///         With both edges of the wrap rate at zero the collateral leg reports zero: a wrapped token converts to
+    ///         no collateral there, so the call would pay the leg nothing.
     /// @param peggedForCollateral The pegged amount redeemed for wrapped collateral.
     /// @param peggedForLeveraged The pegged amount redeemed for leveraged tokens.
     /// @return wrappedCollateralOut The wrapped collateral that `peggedForCollateral` would return.

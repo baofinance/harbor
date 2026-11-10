@@ -608,6 +608,44 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertEq(actualLeveraged, forecastLeveraged, "free redeem dry run must match its call");
     }
 
+    /// With both edges of the wrap rate at zero a wrapped token converts to no collateral, so no amount of it pays a
+    /// collateral amount. The free redeem's dry run answers that its collateral leg pays nothing, and still
+    /// forecasts the conversion leg, which pays no collateral. It reports where its call reverts on the unrecognised
+    /// loss, as every dry run does.
+    function test_atAZeroRate_theFreeRedeemDryRunReportsNoCollateral() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether, "fixture: a leveraged token is worth one pegged");
+        _setRate(0);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the loss is unrecognised");
+
+        (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(peggedTokens / 10, 0);
+        assertEq(collateralOut, 0, "the collateral leg pays nothing at a zero rate");
+        assertEq(leveragedOut, 0, "and no pegged was to be converted");
+
+        (collateralOut, leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(peggedTokens / 10, peggedTokens / 10);
+        assertEq(collateralOut, 0, "with both legs the collateral leg pays nothing");
+        assertEq(leveragedOut, peggedTokens / 10, "and the conversion leg forecasts a leveraged token a pegged");
+    }
+
+    /// Once a loss that took the rate to zero is recognised, the record is zero as well. A free redeem then pays
+    /// nothing and reverts by name, and its dry run reports the nothing.
+    function test_atAZeroRate_onceRecognised_theFreeRedeemRevertsByName() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        _setRate(0);
+        _recogniseImpairment();
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "precondition: the record is zero");
+        uint256 redeeming = peggedTokens / 10;
+
+        (uint256 forecast, ) = IMinter_v3(minter).freeRedeemDryRun(redeeming, 0);
+        assertEq(forecast, 0, "the dry run reports that nothing is paid");
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, redeeming);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).freeRedeemPeggedToken(redeeming, 0, zeroFee);
+        vm.stopPrank();
+    }
+
     /// The zero-fee mint is how Genesis opens a market. It prices from the same backing as everything
     /// else and must not be exempt from a recognised impairment.
     ///

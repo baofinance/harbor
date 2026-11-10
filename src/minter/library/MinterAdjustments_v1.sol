@@ -664,7 +664,11 @@ library MinterAdjustments_v1 {
                 underlyingCollateral_,
                 price
             );
-            wrappedCollateralOut = underlyingCollateralOutE36 / rate;
+            // At a rate of zero a wrapped token converts to no collateral, so no amount of it pays a collateral
+            // amount: the leg pays nothing, which the dry run reports and the call reverts by name.
+            if (rate > 0) {
+                wrappedCollateralOut = underlyingCollateralOutE36 / rate;
+            }
         }
 
         if (peggedForLeveraged > 0) {

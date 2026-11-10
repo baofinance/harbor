@@ -467,6 +467,11 @@ contract StabilityPoolManager_v2 is
                     peggedFromCollateralPool = pegged - maxLossLeveraged;
                 }
             }
+            (peggedFromCollateralPool, peggedFromLeveragedPool) = _clampLegs(
+                peggedFromCollateralPool,
+                peggedFromLeveragedPool,
+                true
+            );
             (peggedLiquidated, collateralPaid, ) = _liquidate(
                 peggedFromCollateralPool,
                 peggedFromLeveragedPool,
@@ -480,18 +485,11 @@ contract StabilityPoolManager_v2 is
         // The minter splits the distance between them by their supplies, each within its pool's headroom, the shortfall
         // of one sliding into the other's leg.
         if (IMinter_v3(MINTER).leveragedMintable() && IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
-            uint256 peggedFromCollateralPool;
-            uint256 peggedFromLeveragedPool;
-            {
-                (, uint256 collateralPoolSupply, uint256 leveragedPoolSupply) = _poolSupplies();
-                (peggedFromCollateralPool, peggedFromLeveragedPool) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
-                    rebalanceThreshold_,
-                    IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
-                    IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss(),
-                    collateralPoolSupply,
-                    leveragedPoolSupply
-                );
-            }
+            (uint256 peggedFromCollateralPool, uint256 peggedFromLeveragedPool) = _legsTo(
+                rebalanceThreshold_,
+                IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
+                IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss()
+            );
             uint256 pegged;
             uint256 collateral;
             (pegged, collateral, leveragedPaid) = _liquidate(
@@ -518,13 +516,95 @@ contract StabilityPoolManager_v2 is
         _compoundRegistered();
     }
 
-    /// @dev One step of a rebalance: take `peggedFromCollateralPool` and `peggedFromLeveragedPool` from the two pools,
-    ///      redeem them, and pay each pool - less the keeper's bounty ratio of each payment, within the pool's share
-    ///      of the ceiling in `terms`, and the cut receiver's cut ratio of it. With `leveragedPoolPaidInCollateral`
-    ///      both pools' pegged take the collateral route and the collateral is shared between them in proportion to
-    ///      the pegged each gave up; without it the leveraged pool's pegged is converted and the pool is paid in
-    ///      leveraged tokens. The minter reverts a redemption with a leg that would be paid nothing, so such a leg is
-    ///      not taken: the one leg of the collateral route, or either leg of the two.
+    /// @dev The legs of the step by both legs: what the minter sizes to lift the market to `target` with no more than
+    ///      `maxFromCollateralPool` and `maxFromLeveragedPool` from the pools, weighted by their supplies, then clamped
+    ///      (`_clampLegs`). A pool that may give pegged and yet is left with no leg, as when its leg would be paid
+    ///      nothing, is sized out as a pool at its floor is: the legs are sized again with nothing from it. Where one
+    ///      pool is left out, the other's leg then covers the distance where it can. Where both are, both are sized
+    ///      out and nothing is taken. Each such pass takes a pool out, so there are at most two.
+    function _legsTo(
+        uint256 target,
+        uint256 maxFromCollateralPool,
+        uint256 maxFromLeveragedPool
+    ) private view returns (uint256 peggedFromCollateralPool, uint256 peggedFromLeveragedPool) {
+        (, uint256 collateralPoolSupply, uint256 leveragedPoolSupply) = _poolSupplies();
+        (peggedFromCollateralPool, peggedFromLeveragedPool) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
+            target,
+            maxFromCollateralPool,
+            maxFromLeveragedPool,
+            collateralPoolSupply,
+            leveragedPoolSupply
+        );
+        (peggedFromCollateralPool, peggedFromLeveragedPool) = _clampLegs(
+            peggedFromCollateralPool,
+            peggedFromLeveragedPool,
+            false
+        );
+        bool collateralPoolLeftOut = peggedFromCollateralPool == 0 && maxFromCollateralPool > 0;
+        bool leveragedPoolLeftOut = peggedFromLeveragedPool == 0 && maxFromLeveragedPool > 0;
+        if (collateralPoolLeftOut || leveragedPoolLeftOut) {
+            (peggedFromCollateralPool, peggedFromLeveragedPool) = _legsTo(
+                target,
+                collateralPoolLeftOut ? 0 : maxFromCollateralPool,
+                leveragedPoolLeftOut ? 0 : maxFromLeveragedPool
+            );
+        }
+    }
+
+    /// @dev Clamp one step's legs before anything is swept, so the swept, redeemed and notified pegged all agree. The
+    ///      dry run gives each pool's proceeds. The minter reverts a redemption with a leg that would be paid nothing,
+    ///      so such a leg is not taken: the one leg of the collateral route (`leveragedPoolPaidInCollateral`), where
+    ///      nothing is then taken, or either leg of the two. Each pool's share is then held within what its reward
+    ///      integral can absorb and within its headroom (`_capLiquidation`): pegged is burned in the redeem, so this
+    ///      must precede it, and the dry run turns the proceeds bound into a pegged bound.
+    /// @return The pegged to take from the collateral pool and from the leveraged pool.
+    function _clampLegs(
+        uint256 peggedFromCollateralPool,
+        uint256 peggedFromLeveragedPool,
+        bool leveragedPoolPaidInCollateral
+    ) private view returns (uint256, uint256) {
+        uint256 previewForCollateralPool;
+        uint256 previewForLeveragedPool;
+        if (leveragedPoolPaidInCollateral) {
+            uint256 pegged = peggedFromCollateralPool + peggedFromLeveragedPool;
+            // slither-disable-next-line incorrect-equality
+            if (pegged == 0) {
+                return (0, 0);
+            }
+            // slither-disable-next-line unused-return no pegged is converted, so no leveraged is minted
+            (uint256 collateralOut, ) = IMinter_v3(MINTER).freeRedeemDryRun(pegged, 0);
+            // The two pools' pegged is one leg here. Where it would be paid nothing, nothing is taken.
+            if (collateralOut == 0) {
+                return (0, 0);
+            }
+            previewForCollateralPool = Math.mulDiv(collateralOut, peggedFromCollateralPool, pegged);
+            previewForLeveragedPool = collateralOut - previewForCollateralPool;
+        } else {
+            (previewForCollateralPool, previewForLeveragedPool) = IMinter_v3(MINTER).freeRedeemDryRun(
+                peggedFromCollateralPool,
+                peggedFromLeveragedPool
+            );
+            // Each pool's pegged is its own leg here. A leg that would be paid nothing is not taken, so a pool with
+            // too little above its floor to be paid a wei does not stop the other pool's leg.
+            if (previewForCollateralPool == 0) {
+                peggedFromCollateralPool = 0;
+            }
+            if (previewForLeveragedPool == 0) {
+                peggedFromLeveragedPool = 0;
+            }
+        }
+        return (
+            _capLiquidation(peggedFromCollateralPool, previewForCollateralPool, _STABILITY_POOL_COLLATERAL),
+            _capLiquidation(peggedFromLeveragedPool, previewForLeveragedPool, _STABILITY_POOL_LEVERAGED)
+        );
+    }
+
+    /// @dev One step of a rebalance: take the clamped legs `peggedFromCollateralPool` and `peggedFromLeveragedPool`
+    ///      from the two pools, redeem them, and pay each pool - less the keeper's bounty ratio of each payment, within
+    ///      the pool's share of the ceiling in `terms`, and the cut receiver's cut ratio of it. With
+    ///      `leveragedPoolPaidInCollateral` both pools' pegged take the collateral route and the collateral is shared
+    ///      between them in proportion to the pegged each gave up; without it the leveraged pool's pegged is converted
+    ///      and the pool is paid in leveraged tokens.
     /// @return peggedLiquidated The pegged actually taken from the two pools.
     /// @return collateralPaid The collateral paid to the pools, after the bounty and the cut.
     /// @return leveragedPaid The leveraged tokens paid to the leveraged pool, after the bounty and the cut.
@@ -534,53 +614,6 @@ contract StabilityPoolManager_v2 is
         bool leveragedPoolPaidInCollateral,
         RebalanceTerms memory terms
     ) private returns (uint256 peggedLiquidated, uint256 collateralPaid, uint256 leveragedPaid) {
-        // Clamp each pool's share before sweeping, so the swept, redeemed and notified pegged all agree: its proceeds
-        // within what its reward integral can absorb, its loss within its headroom. Pegged is burned in the redeem, so
-        // this must precede it; the dry run turns the proceeds bound into a pegged bound.
-        {
-            uint256 previewForCollateralPool;
-            uint256 previewForLeveragedPool;
-            if (leveragedPoolPaidInCollateral) {
-                uint256 pegged = peggedFromCollateralPool + peggedFromLeveragedPool;
-                // slither-disable-next-line incorrect-equality
-                if (pegged == 0) {
-                    return (0, 0, 0);
-                }
-                // slither-disable-next-line unused-return no pegged is converted, so no leveraged is minted
-                (uint256 collateralOut, ) = IMinter_v3(MINTER).freeRedeemDryRun(pegged, 0);
-                // The two pools' pegged is one leg here. Where it would be paid nothing, nothing is taken.
-                if (collateralOut == 0) {
-                    return (0, 0, 0);
-                }
-                previewForCollateralPool = Math.mulDiv(collateralOut, peggedFromCollateralPool, pegged);
-                previewForLeveragedPool = collateralOut - previewForCollateralPool;
-            } else {
-                (previewForCollateralPool, previewForLeveragedPool) = IMinter_v3(MINTER).freeRedeemDryRun(
-                    peggedFromCollateralPool,
-                    peggedFromLeveragedPool
-                );
-                // Each pool's pegged is its own leg here. A leg that would be paid nothing is not taken, so a pool with
-                // too little above its floor to be paid a wei does not stop the other pool's leg, which goes on as it
-                // was sized.
-                if (previewForCollateralPool == 0) {
-                    peggedFromCollateralPool = 0;
-                }
-                if (previewForLeveragedPool == 0) {
-                    peggedFromLeveragedPool = 0;
-                }
-            }
-            peggedFromCollateralPool = _capLiquidation(
-                peggedFromCollateralPool,
-                previewForCollateralPool,
-                _STABILITY_POOL_COLLATERAL
-            );
-            peggedFromLeveragedPool = _capLiquidation(
-                peggedFromLeveragedPool,
-                previewForLeveragedPool,
-                _STABILITY_POOL_LEVERAGED
-            );
-        }
-
         // The redeem and the payments run on what the sweeps actually took, never more pegged than is held, or a pool
         // would be left backing supply it no longer has.
         peggedFromCollateralPool = _sweepPegged(_STABILITY_POOL_COLLATERAL, peggedFromCollateralPool);
