@@ -235,6 +235,23 @@ contract StabilityPoolManagerImpairmentTest is TestStabilityPoolManagerSetUp_reb
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
     }
 
+    /// A rise in the wrap rate leaves the minter holding more than its record needs: yield, which a harvest takes.
+    /// With the rate then at zero the minter reports nothing harvestable, so a harvest has nothing to take: none is
+    /// reported by the manager, and one sent anyway reverts by its own name.
+    function test_atAZeroRate_aHarvestHasNothingToTake() public {
+        _setRate((_rate() * 110) / 100);
+        assertGt(
+            IStabilityPoolManager_v2(stabilityPoolManager).harvestable(),
+            0,
+            "precondition: at the risen rate there is yield to harvest"
+        );
+        _setRate(0);
+
+        assertEq(IStabilityPoolManager_v2(stabilityPoolManager).harvestable(), 0, "nothing is harvestable");
+        vm.expectRevert(IStabilityPoolManager_v2.NoHarvestable.selector);
+        IStabilityPoolManager_v2(stabilityPoolManager).harvest(bountyReceiver, 0);
+    }
+
     /// A rate that recovers lifts the halt with no owner call: the guard states a condition about the present.
     function test_rebalanceResumesWhenTheRateRecovers() public {
         uint256 rateBefore = _rate();

@@ -188,9 +188,9 @@ library MinterAdjustments_v1 {
         //
         // Ceiled, so the wrapped taken covers the whole of what the slices take rather than falling a wei short of
         // it. The band walk never takes more than was offered, so this cannot exceed `wrappedCollateralIn`.
-        maxWrappedCollateralIn = Math.ceilDiv(w.underlyingCollateralUsedE36, cr.rate);
+        maxWrappedCollateralIn = MinterValuationLib.collateralAsWrappedCeil(w.underlyingCollateralUsedE36, cr.rate);
         // the exact fee rounded down; the backing keeps the rest of what was taken
-        wrappedFee = w.underlyingFeeE54 / (cr.rate * 1 ether);
+        wrappedFee = MinterValuationLib.collateralAsWrapped(w.underlyingFeeE54, cr.rate * 1 ether);
         // What stays behind, through the conversion the holding is valued by.
         underlyingCollateralAdded = MinterValuationLib.wrappedAsCollateral(
             maxWrappedCollateralIn - wrappedFee,
@@ -329,17 +329,21 @@ library MinterAdjustments_v1 {
         // The subsidy the reserve can fund - all of it, or the reserve's whole balance - and the whole wei of it the
         // reserve sends. Compared in wrapped, so a large reserve is never multiplied up past what the arithmetic holds.
         uint256 underlyingSubsidyE54 = w.underlyingSubsidyE54;
-        if (underlyingSubsidyE54 / rateE36 >= reserveWrappedCapacity) {
+        if (MinterValuationLib.collateralAsWrapped(underlyingSubsidyE54, rateE36) >= reserveWrappedCapacity) {
             underlyingSubsidyE54 = reserveWrappedCapacity * rateE36;
         }
-        wrappedSubsidy = underlyingSubsidyE54 / rateE36;
+        wrappedSubsidy = MinterValuationLib.collateralAsWrapped(underlyingSubsidyE54, rateE36);
         uint256 underlyingRedeemedForE36 = cr.underlyingCollateral * 1 ether - w.underlyingCollateralHeldE36;
-        uint256 wrappedRedeemedFor = underlyingRedeemedForE36 / cr.rate; // the whole wei the backing releases
+        // the whole wei the backing releases
+        uint256 wrappedRedeemedFor = MinterValuationLib.collateralAsWrapped(underlyingRedeemedForE36, cr.rate);
         // The redeemer is paid what the pegged redeems for, less the fee, plus the subsidy, rounded down once from the
         // exact figure - within the whole wei released and sent; the fee is what that leaves. A slice's fee never
         // exceeds its collateral, so the subtraction holds.
         wrappedCollateralReturned = Math.min(
-            (underlyingRedeemedForE36 * 1 ether - w.underlyingFeeE54 + underlyingSubsidyE54) / rateE36,
+            MinterValuationLib.collateralAsWrapped(
+                underlyingRedeemedForE36 * 1 ether - w.underlyingFeeE54 + underlyingSubsidyE54,
+                rateE36
+            ),
             wrappedRedeemedFor + wrappedSubsidy
         );
         wrappedFee = wrappedRedeemedFor + wrappedSubsidy - wrappedCollateralReturned;
@@ -485,7 +489,10 @@ library MinterAdjustments_v1 {
         // The wrapped kept for the trader - the whole input, plus the subsidy, less the fee - rounded down once from
         // the exact figure; the fee is what that leaves. Rounding the subsidy and the fee each on their own as well
         // would cost the trader a wei the exact figure does not.
-        uint256 wrappedKept = (wrappedCollateralIn * rateE36 + w.underlyingSubsidyE54 - w.underlyingFeeE54) / rateE36;
+        uint256 wrappedKept = MinterValuationLib.collateralAsWrapped(
+            wrappedCollateralIn * rateE36 + w.underlyingSubsidyE54 - w.underlyingFeeE54,
+            rateE36
+        );
         // Valued by the same conversion the holding is, so the record and the collateral behind it move together to
         // the wei.
         uint256 collateralAdded = MinterValuationLib.wrappedAsCollateral(wrappedKept, cr.rate);
@@ -503,7 +510,8 @@ library MinterAdjustments_v1 {
         // what the call does, which is to revert.
         if (leveragedMinted > 0) {
             maxWrappedCollateralIn = wrappedCollateralIn;
-            wrappedSubsidy = w.underlyingSubsidyE54 / rateE36; // rounded down: never more than the reserve can cover
+            // rounded down: never more than the reserve can cover
+            wrappedSubsidy = MinterValuationLib.collateralAsWrapped(w.underlyingSubsidyE54, rateE36);
             wrappedFee = wrappedCollateralIn + wrappedSubsidy - wrappedKept;
             underlyingCollateralAdded = collateralAdded;
         }
@@ -617,7 +625,10 @@ library MinterAdjustments_v1 {
             band--;
         }
         // the redeemer is paid the collateral less the exact fee, rounded down once
-        wrappedCollateralOut = (w.underlyingCollateralRemovedE36 * 1e18 - w.underlyingFeeE54) / (cr.rate * 1e18);
+        wrappedCollateralOut = MinterValuationLib.collateralAsWrapped(
+            w.underlyingCollateralRemovedE36 * 1e18 - w.underlyingFeeE54,
+            cr.rate * 1e18
+        );
         // A redemption that pays nothing redeems nothing - nothing burned, charged or removed - so that a dry run
         // reports what the call does, which is to revert: an offer whose payout, or whose very claim, rounds to
         // nothing, and a walk that starts in a band that disallows.
@@ -633,7 +644,9 @@ library MinterAdjustments_v1 {
                 Math.Rounding.Ceil
             );
             // the fee receiver takes the rest of the wrapped that leaves
-            wrappedFee = w.underlyingCollateralRemovedE36 / cr.rate - wrappedCollateralOut;
+            wrappedFee =
+                MinterValuationLib.collateralAsWrapped(w.underlyingCollateralRemovedE36, cr.rate) -
+                wrappedCollateralOut;
             // Ceiled straight from the accumulator, which is exact here: the wrapped leaving is a single floored
             // conversion of it, so ceiling covers that floor without a second conversion of its own. Round-tripping
             // through the wrapped amount instead would discard up to one rate's worth of collateral each time, which
@@ -664,11 +677,8 @@ library MinterAdjustments_v1 {
                 underlyingCollateral_,
                 price
             );
-            // At a rate of zero a wrapped token converts to no collateral, so no amount of it pays a collateral
-            // amount: the leg pays nothing, which the dry run reports and the call reverts by name.
-            if (rate > 0) {
-                wrappedCollateralOut = underlyingCollateralOutE36 / rate;
-            }
+            // Nothing at a rate of zero, which the dry run reports and the call reverts by name.
+            wrappedCollateralOut = MinterValuationLib.collateralAsWrapped(underlyingCollateralOutE36, rate);
         }
 
         if (peggedForLeveraged > 0) {

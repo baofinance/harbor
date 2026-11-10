@@ -714,6 +714,11 @@ contract Minter_v3 is
     function harvestable() external view returns (uint256 wrappedAmount) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 rate = _readOracle($.priceOracle).minRate;
+        // At a rate of zero the holding is worth nothing, so there is no yield in it: nothing is harvestable, whatever
+        // the record says. The measure below divides by the rate and has no answer there.
+        if (rate == 0) {
+            return 0;
+        }
         uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
         // The wrapped the record needs, rounded UP: what a harvest leaves behind must still cover the record at this
         // rate once converted back, and that conversion rounds down. Rounded down here, a full harvest would leave the
@@ -1436,7 +1441,7 @@ contract Minter_v3 is
             price,
             leveragedTokenBalance_
         );
-        collateralOut = underlyingCollateralOutE36 / reading.maxRate;
+        collateralOut = MinterValuationLib.collateralAsWrapped(underlyingCollateralOutE36, reading.maxRate);
         // A redemption that would pay nothing burns nothing and debits nothing, whether the residual is gone or the
         // offer's share of it rounds to nothing: the fee-paying redemption reverts on the same condition, by the same
         // name.

@@ -60,6 +60,25 @@ library MinterValuationLib {
         return Math.mulDiv(wrappedAmount, rate, 1 ether, Math.Rounding.Ceil);
     }
 
+    /// @notice The wrapped collateral a collateral amount converts to at a given rate, rounded down.
+    /// @dev None at a rate of zero. A wrapped token is worth no collateral there, so no amount of it stands for a
+    /// collateral amount, and what would be paid, taken or charged in wrapped collateral is nothing.
+    /// @param collateral The collateral amount, at 1e18 times the scale of `rate`: at 1e36 for the rate as the oracle
+    /// gives it, at 1e54 for that rate times 1e18.
+    /// @param rate The wrapped-to-collateral rate, or that rate times 1e18.
+    function collateralAsWrapped(uint256 collateral, uint256 rate) internal pure returns (uint256) {
+        return rate == 0 ? 0 : collateral / rate;
+    }
+
+    /// @notice The same conversion rounded up.
+    /// @dev None at a rate of zero, as for `collateralAsWrapped`. No amount of wrapped collateral covers a collateral
+    /// amount above zero there, so a caller that needs one covered has to treat a rate of zero itself.
+    /// @param collateral The collateral amount, at 1e18 times the scale of `rate`.
+    /// @param rate The wrapped-to-collateral rate, or that rate times 1e18.
+    function collateralAsWrappedCeil(uint256 collateral, uint256 rate) internal pure returns (uint256) {
+        return rate == 0 ? 0 : Math.ceilDiv(collateral, rate);
+    }
+
     /// @notice The leveraged tokens that `collateralAdded` buys: the one definition every leveraged mint uses,
     /// fee-paying or free.
     /// @dev Into a market that already has leveraged tokens, the added value's share of the residual, counted in
