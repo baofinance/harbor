@@ -15,6 +15,7 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/StabilityPoolManager.t.sol";
 
 /// @notice What a rebalance does in each region of the collateral ratio.
@@ -23,8 +24,10 @@ import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/
 /// both legs at once: the collateral pool's pegged redeemed for collateral, the leveraged pool's converted into
 /// leveraged tokens. Below the floor it sells none, so the rebalance first takes BOTH pools' pegged by the collateral
 /// route, pro rata to what each has had deposited, until the ratio reaches the floor - paying the leveraged pool in collateral for
-/// that part - and then goes on from the floor by both legs. At or below the peg a redemption takes its share of the
-/// backing with it, so no amount redeemed moves the ratio; there is nothing to repair and the rebalance reverts.
+/// that part - and then goes on from the floor by both legs. At or below the peg a pegged token redeems for its share
+/// of the backing and takes that share with it, so no amount redeemed moves the ratio: the rebalance takes all both
+/// pools can give by the collateral route and pays each its pegged's share of the backing, exchanging the pools'
+/// deposits for collateral at the market's own price. A rebalance that can take nothing reverts.
 ///
 /// The market: 100 of collateral backing 200,000 pegged, and 25 more behind the leveraged tokens, at the mock's price
 /// of 2,000 - a ratio of 1.25. Each test places it by price, which leaves the backing where it is.
@@ -438,8 +441,9 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     }
 
     /// Pools too small to lift the market to the floor give up everything above their own floors, all of it by the
-    /// collateral route and paid in collateral. The market is lifted as far as that goes, still short of the floor,
-    /// and still rebalanceable for when the pools refill.
+    /// collateral route and paid in collateral. The market is lifted as far as that goes, still short of the floor.
+    /// With the pools at their floors no rebalance is offered, and one is offered again once a pool has a deposit to
+    /// give.
     function test_poolsTooSmallToReachTheFloor_liftTheMarketAsFarAsTheyGo() public {
         _fillPools(2_000, 2_000);
         marketActions.setCollateralRatioByPrice(_insideTheBand());
@@ -468,7 +472,16 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         uint256 reached = IMinter(minter).collateralRatio();
         assertGt(reached, start, "the market is lifted");
         assertLt(reached, _floor(), "but not to the floor");
-        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "and is still rebalanceable");
+        assertFalse(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
+            "with both pools at their floors no rebalance is offered"
+        );
+
+        _depositFor(stabilityPoolCollateral, alice, 1_000);
+        assertTrue(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
+            "one is offered again once a pool has a deposit to give"
+        );
     }
 
     /// Where the threshold sits at or below the floor, the whole distance is below the floor, so the collateral route
@@ -690,30 +703,394 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     }
 
     /*//////////////////////////////////////////////////////////////
-                    AT OR BELOW THE PEG: REVERTS
+        AT OR BELOW THE PEG: BOTH POOLS, AT THE MARKET'S OWN PRICE
     //////////////////////////////////////////////////////////////*/
 
-    /// At exactly the peg the collateral is worth exactly the pegged claim, so a redemption at par takes the two in
-    /// the same measure and leaves the ratio at one: nothing to repair, and the rebalance reverts by name.
-    function test_atThePeg_theRebalanceReverts() public {
+    /// Below the peg the minter sizes the whole pegged supply, so a rebalance takes all both pools can give - their
+    /// deposits down to their floors - by the collateral route, in one step, and pays both in collateral. No leveraged
+    /// token is minted.
+    function test_belowThePeg_bothPoolsGiveUpAllTheyCanAndArePaidCollateral() public {
         _fillPools(3_000, 6_000);
-        marketActions.setCollateralRatioByPrice(1 ether);
-        assertEq(IMinter(minter).collateralRatio(), 1 ether, "the market is exactly at the peg");
-        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        assertLt(IMinter(minter).collateralRatio(), 1 ether, "the market is below the peg");
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
+        uint256 depositedInCollateralPool = _poolSupply(stabilityPoolCollateral);
+        uint256 depositedInLeveragedPool = _poolSupply(stabilityPoolLeveraged);
+        uint256 leveragedSupply = IERC20(leveragedToken).totalSupply();
 
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, 1 ether));
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both pools");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
+        _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        assertEq(
+            paid[0].pegged,
+            depositedInCollateralPool - IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "the collateral pool gives up its deposits down to its floor"
+        );
+        assertEq(
+            paid[1].pegged,
+            depositedInLeveragedPool - IStabilityPool_v3(stabilityPoolLeveraged).MIN_TOTAL_ASSET_SUPPLY(),
+            "the leveraged pool gives up its deposits down to its floor"
+        );
+        assertEq(IERC20(leveragedToken).totalSupply(), leveragedSupply, "no leveraged token is minted");
+    }
+
+    /// Below the peg a pegged token is a claim on its share of the backing, whatever the collateral is priced at, and
+    /// that share is what each pool is paid for each pegged it gives up - less collateral than the pegged's face
+    /// value buys.
+    function test_belowThePeg_eachPoolIsPaidItsPeggedsShareOfTheBacking() public {
+        _fillPools(3_000, 6_000);
+        uint256 price = marketActions.setCollateralRatioByPrice(0.9 ether);
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 supply = IMinter(minter).peggedTokenBalance();
+        (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        assertEq(rate, 1 ether, "fixture: a wrapped collateral token is one collateral token");
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both pools");
+        // 125 of collateral backs 200,000 pegged - one part in 1,600 - and each pool gives up a whole multiple of
+        // 1,600 wei, so no division on the way rounds: each payment is its share exactly.
+        assertEq(
+            paid[0].returned,
+            Math.mulDiv(paid[0].pegged, backing, supply),
+            "the collateral pool is paid its pegged's share of the backing"
+        );
+        assertEq(
+            paid[1].returned,
+            Math.mulDiv(paid[1].pegged, backing, supply),
+            "the leveraged pool is paid its pegged's share of the backing"
+        );
+        assertLt(
+            paid[0].returned + paid[1].returned,
+            Math.mulDiv(paid[0].pegged + paid[1].pegged, 1 ether, price),
+            "less collateral than the pegged's face value buys"
+        );
+    }
+
+    /// Each pegged redeemed below the peg takes its share of the backing with it, so the rebalance leaves the collateral
+    /// ratio where it found it, whatever it takes: it exchanges the pools' deposits and repairs nothing.
+    function test_belowThePeg_theRatioIsWhereItWas() public {
+        _fillPools(3_000, 6_000);
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        uint256 ratioBefore = IMinter(minter).collateralRatio();
+        uint256 supplyBefore = IMinter(minter).peggedTokenBalance();
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both pools");
+        assertEq(
+            IMinter(minter).peggedTokenBalance(),
+            supplyBefore - paid[0].pegged - paid[1].pegged,
+            "the pegged the pools gave up is redeemed"
+        );
+        // The backing and the pegged supply fall in the same proportion, and here neither division rounds.
+        assertEq(IMinter(minter).collateralRatio(), ratioBefore, "the collateral ratio is where it was");
+    }
+
+    /// At exactly the peg the backing is worth exactly the pegged claim, so a pegged token's share of the backing is its
+    /// face value: the rebalance takes all both pools can give, pays each the face value of its pegged in collateral,
+    /// and leaves the market exactly at the peg.
+    function test_atThePeg_bothPoolsAreConvertedAtFaceValue() public {
+        _fillPools(3_000, 6_000);
+        uint256 price = marketActions.setCollateralRatioByPrice(1 ether);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "the market is exactly at the peg");
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
+        uint256 depositedInCollateralPool = _poolSupply(stabilityPoolCollateral);
+        uint256 depositedInLeveragedPool = _poolSupply(stabilityPoolLeveraged);
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both pools");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
+        _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        assertEq(
+            paid[0].pegged,
+            depositedInCollateralPool - IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "the collateral pool gives up its deposits down to its floor"
+        );
+        assertEq(
+            paid[1].pegged,
+            depositedInLeveragedPool - IStabilityPool_v3(stabilityPoolLeveraged).MIN_TOTAL_ASSET_SUPPLY(),
+            "the leveraged pool gives up its deposits down to its floor"
+        );
+        // The price is 1,600 and each pool gives up a whole multiple of 1,600 wei, so neither payment rounds.
+        assertEq(
+            paid[0].returned,
+            Math.mulDiv(paid[0].pegged, 1 ether, price),
+            "the collateral pool is paid its pegged's face value in collateral"
+        );
+        assertEq(
+            paid[1].returned,
+            Math.mulDiv(paid[1].pegged, 1 ether, price),
+            "the leveraged pool is paid its pegged's face value in collateral"
+        );
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "the market is left exactly at the peg");
+    }
+
+    /// A zero collateral price reads as a ratio of zero. A pegged token's share of the backing needs no price, so the
+    /// rebalance takes all both pools can give and pays each its pegged's share of the backing in kind, as at any
+    /// price below the peg.
+    function test_atAZeroPrice_bothPoolsArePaidTheirPeggedsShareOfTheBackingInKind() public {
+        _fillPools(3_000, 6_000);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(0);
+        assertEq(IMinter(minter).collateralRatio(), 0, "the market reads a ratio of zero");
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 supply = IMinter(minter).peggedTokenBalance();
+        uint256 depositedInCollateralPool = _poolSupply(stabilityPoolCollateral);
+        uint256 depositedInLeveragedPool = _poolSupply(stabilityPoolLeveraged);
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both pools");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
+        _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        assertEq(
+            paid[0].pegged,
+            depositedInCollateralPool - IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "the collateral pool gives up its deposits down to its floor"
+        );
+        assertEq(
+            paid[1].pegged,
+            depositedInLeveragedPool - IStabilityPool_v3(stabilityPoolLeveraged).MIN_TOTAL_ASSET_SUPPLY(),
+            "the leveraged pool gives up its deposits down to its floor"
+        );
+        // as below the peg at any price: one part in 1,600, of whole multiples of 1,600 wei, so nothing rounds
+        assertEq(
+            paid[0].returned,
+            Math.mulDiv(paid[0].pegged, backing, supply),
+            "the collateral pool is paid its pegged's share of the backing"
+        );
+        assertEq(
+            paid[1].returned,
+            Math.mulDiv(paid[1].pegged, backing, supply),
+            "the leveraged pool is paid its pegged's share of the backing"
+        );
+    }
+
+    /// @dev Pegged tokens minted outside this market - as another market of the peg mints them - deposited with this
+    ///      market's own, so the pools have 150,000 and 300,000 deposited against the 200,000 its minter minted.
+    function _fillPoolsBeyondTheMintersSupply()
+        private
+        returns (uint256 depositedInCollateralPool, uint256 depositedInLeveragedPool)
+    {
+        depositedInCollateralPool = 150_000 ether;
+        depositedInLeveragedPool = 300_000 ether;
+        _mintPegged(user, 300_000 ether);
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, depositedInCollateralPool);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, depositedInLeveragedPool);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(depositedInCollateralPool, user, 0);
+        IStabilityPool_v3(stabilityPoolLeveraged).deposit(depositedInLeveragedPool, user, 0);
+        vm.stopPrank();
+        assertGt(
+            depositedInCollateralPool + depositedInLeveragedPool,
+            IMinter(minter).peggedTokenBalance(),
+            "fixture: the pools have more deposited than the minter minted"
+        );
+    }
+
+    /// A pool takes pegged tokens whichever market of the peg minted them, so the two pools can have more deposited
+    /// than this market's minter minted. The minter redeems only its own: below the peg the rebalance takes exactly
+    /// the supply it minted, each pool its share by deposits, pays out the whole backing in proportion, and leaves the
+    /// minter with no pegged outstanding and no backing. The pools keep the rest of their deposits.
+    function test_belowThePeg_poolsWithMoreDepositedThanTheMinterMinted_giveUpOnlyWhatItMinted() public {
+        (uint256 depositedInCollateralPool, uint256 depositedInLeveragedPool) = _fillPoolsBeyondTheMintersSupply();
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        uint256 minted = IMinter(minter).peggedTokenBalance();
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        (, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        assertEq(rate, 1 ether, "fixture: a wrapped collateral token is one collateral token");
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both pools");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
+        _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        assertEq(paid[0].pegged + paid[1].pegged, minted, "the pools give up exactly what the minter minted");
+        assertEq(
+            paid[0].pegged,
+            Math.mulDiv(minted, depositedInCollateralPool, depositedInCollateralPool + depositedInLeveragedPool),
+            "the collateral pool its share, by what the two have had deposited"
+        );
+        assertEq(paid[0].returned + paid[1].returned, backing, "the pools are paid the whole backing");
+        assertEq(
+            paid[0].returned,
+            Math.mulDiv(backing, paid[0].pegged, minted),
+            "each in proportion to the pegged it gave up"
+        );
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "the minter has no pegged outstanding");
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "and no backing");
+        assertEq(
+            _poolSupply(stabilityPoolCollateral),
+            depositedInCollateralPool - paid[0].pegged,
+            "the collateral pool keeps the rest of its deposits"
+        );
+        assertEq(
+            _poolSupply(stabilityPoolLeveraged),
+            depositedInLeveragedPool - paid[1].pegged,
+            "the leveraged pool keeps the rest of its deposits"
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    OFFERED ON EITHER POOL'S DEPOSITS
+    //////////////////////////////////////////////////////////////*/
+
+    /// A rebalance is offered when the collateral pool alone has deposits above its floor to give, nobody having
+    /// deposited in the leveraged pool.
+    function test_withDepositsInTheCollateralPoolAlone_aRebalanceIsOffered() public {
+        _depositFor(stabilityPoolCollateral, alice, 3_000);
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        assertGt(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            0,
+            "precondition: the collateral pool has deposits to give"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss(),
+            0,
+            "precondition: the leveraged pool has none"
+        );
+
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
+    }
+
+    /// A rebalance is offered when the leveraged pool alone has deposits above its floor to give, nobody having
+    /// deposited in the collateral pool.
+    function test_withDepositsInTheLeveragedPoolAlone_aRebalanceIsOffered() public {
+        _depositFor(stabilityPoolLeveraged, carol, 6_000);
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            0,
+            "precondition: the collateral pool has no deposits to give"
+        );
+        assertGt(
+            IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss(),
+            0,
+            "precondition: the leveraged pool has some"
+        );
+
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    NOTHING TO TAKE: REVERTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// Above the minter's floor a rebalance is one step by both legs. With both pools at their floors that step has
+    /// nothing to take: the rebalance reverts by name rather than succeed with nothing done, and none is offered,
+    /// though the market is still below its threshold.
+    function test_aboveTheFloor_withBothPoolsAtTheirFloors_theRebalanceRevertsAndIsNotOffered() public {
+        _fillPools(500, 500);
+        marketActions.setCollateralRatioByPrice(1.1 ether);
+        Liquidation[] memory paid = _rebalance(0);
+        assertEq(paid.length, 2, "precondition: the first rebalance drew on both pools");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            0,
+            "precondition: the collateral pool is at its floor"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss(),
+            0,
+            "precondition: the leveraged pool is at its floor"
+        );
+        assertTrue(IMinter_v3(minter).leveragedMintable(), "precondition: the market sells leverage");
+        assertLt(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "precondition: the market is still below its threshold"
+        );
+
+        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
     }
 
-    /// Below the peg each pegged redeemed takes its pro rata share of the backing with it, so the ratio stays where it
-    /// is for any amount. The pools keep their pegged for when the price brings the market back above the peg.
-    function test_belowThePeg_theRebalanceReverts() public {
+    /// Below the minter's floor, where a rebalance starts by the collateral route, both pools at their floors leave
+    /// it nothing to take as well. It reverts by name rather than succeed with nothing done, and none is offered,
+    /// though the market is still below its threshold.
+    function test_withBothPoolsAtTheirFloors_theRebalanceRevertsAndIsNotOffered() public {
+        _fillPools(2_000, 2_000);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
+        Liquidation[] memory paid = _rebalance(0);
+        assertEq(paid.length, 2, "precondition: the first rebalance drew on both pools");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            0,
+            "precondition: the collateral pool is at its floor"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss(),
+            0,
+            "precondition: the leveraged pool is at its floor"
+        );
+        assertLt(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "precondition: the market is still below its threshold"
+        );
+
+        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+    }
+
+    /// With nothing to take, the revert says so whatever minimum the caller asked for: it is not reported as a
+    /// rebalance that took less than the minimum.
+    function test_withNothingToTake_theRevertSaysSo_whateverMinimumTheCallerAsksFor() public {
+        _fillPools(2_000, 2_000);
+        marketActions.setCollateralRatioByPrice(_insideTheBand());
+        Liquidation[] memory paid = _rebalance(0);
+        assertEq(paid.length, 2, "precondition: the first rebalance drew on both pools");
+
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 1 ether);
+    }
+
+    /// Below the peg one rebalance takes all the pools can give and leaves the ratio where it was, so the next has
+    /// nothing to take: it reverts by name, and none is offered while the pools stay at their floors.
+    function test_belowThePeg_afterOneRebalance_theNextRevertsAndIsNotOffered() public {
         _fillPools(3_000, 6_000);
         marketActions.setCollateralRatioByPrice(0.9 ether);
-        uint256 ratio = IMinter(minter).collateralRatio();
-        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
+        Liquidation[] memory paid = _rebalance(0);
+        assertEq(paid.length, 2, "precondition: the first rebalance drew on both pools");
+        assertLt(IMinter(minter).collateralRatio(), 1 ether, "precondition: the market is still below the peg");
 
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, ratio));
+        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+    }
+
+    /// Once a rebalance has redeemed every pegged token the minter minted, the minter has none left to redeem:
+    /// whatever the pools still have deposited, a rebalance reverts by name and none is offered.
+    function test_withNoPeggedOfTheMintersOutstanding_theRebalanceRevertsAndIsNotOffered() public {
+        _fillPoolsBeyondTheMintersSupply();
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        Liquidation[] memory paid = _rebalance(0);
+        assertEq(paid.length, 2, "precondition: the first rebalance drew on both pools");
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "precondition: the minter has no pegged outstanding");
+        assertGt(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            0,
+            "precondition: the collateral pool could still give"
+        );
+        assertGt(
+            IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss(),
+            0,
+            "precondition: the leveraged pool could still give"
+        );
+        assertLt(
+            IMinter(minter).collateralRatio(),
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold(),
+            "precondition: the emptied market reads a ratio below its threshold"
+        );
+
+        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, peggedToken));
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
     }
 
@@ -759,6 +1136,71 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         assertEq(paid.length, 2, "both pools, by the collateral route only");
         _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
         _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        _assertEachHolderTookTheirShare(collateralPool, paid);
+        _assertEachHolderTookTheirShare(leveragedPool, paid);
+    }
+
+    /// Below the peg both pools give up all they can and are paid in collateral, and every holder of each gives up
+    /// their share of what their pool gave up and is credited their share of the collateral it was paid; nobody is
+    /// credited a leveraged token. Alice holds in both pools, and each of her positions follows its own pool.
+    function test_belowThePeg_eachHolderGivesUpAndIsPaidTheirShareInCollateral() public {
+        _setRebalanceBountyRatio();
+        _fillPoolsWithHolders();
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        PoolBeforeRebalance memory collateralPool = _beforeRebalance(stabilityPoolCollateral, _collateralPoolHolders());
+        PoolBeforeRebalance memory leveragedPool = _beforeRebalance(stabilityPoolLeveraged, _leveragedPoolHolders());
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 2, "one step, both pools");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
+        _assertPayment(paid[1], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        _assertEachHolderTookTheirShare(collateralPool, paid);
+        _assertEachHolderTookTheirShare(leveragedPool, paid);
+    }
+
+    /// Below the peg, with deposits in the collateral pool alone, it alone is drawn on: its one holder gives up all
+    /// the pool can give and is credited the collateral it was paid, and the leveraged pool, which nobody has
+    /// deposited in, gives up nothing and is paid nothing.
+    function test_belowThePeg_withDepositsInTheCollateralPoolAlone_itAloneIsDrawnOn() public {
+        _setRebalanceBountyRatio();
+        _depositFor(stabilityPoolCollateral, alice, 3_000);
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        PoolBeforeRebalance memory collateralPool = _beforeRebalance(stabilityPoolCollateral, aa(alice));
+        PoolBeforeRebalance memory leveragedPool = _beforeRebalance(stabilityPoolLeveraged, new address[](0));
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 1, "the collateral pool alone");
+        _assertPayment(paid[0], stabilityPoolCollateral, wrappedCollateralToken, "collateral pool");
+        assertEq(
+            paid[0].pegged,
+            collateralPool.supply - IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "it gives up its deposits down to its floor"
+        );
+        _assertEachHolderTookTheirShare(collateralPool, paid);
+        _assertEachHolderTookTheirShare(leveragedPool, paid);
+    }
+
+    /// Below the peg, with deposits in the leveraged pool alone, it alone is drawn on: its one holder gives up all
+    /// the pool can give and is credited the collateral it was paid - no leveraged token - and the collateral pool,
+    /// which nobody has deposited in, gives up nothing and is paid nothing.
+    function test_belowThePeg_withDepositsInTheLeveragedPoolAlone_itAloneIsDrawnOn() public {
+        _setRebalanceBountyRatio();
+        _depositFor(stabilityPoolLeveraged, carol, 6_000);
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        PoolBeforeRebalance memory collateralPool = _beforeRebalance(stabilityPoolCollateral, new address[](0));
+        PoolBeforeRebalance memory leveragedPool = _beforeRebalance(stabilityPoolLeveraged, aa(carol));
+
+        Liquidation[] memory paid = _rebalance(0);
+
+        assertEq(paid.length, 1, "the leveraged pool alone");
+        _assertPayment(paid[0], stabilityPoolLeveraged, wrappedCollateralToken, "leveraged pool");
+        assertEq(
+            paid[0].pegged,
+            leveragedPool.supply - IStabilityPool_v3(stabilityPoolLeveraged).MIN_TOTAL_ASSET_SUPPLY(),
+            "it gives up its deposits down to its floor"
+        );
         _assertEachHolderTookTheirShare(collateralPool, paid);
         _assertEachHolderTookTheirShare(leveragedPool, paid);
     }

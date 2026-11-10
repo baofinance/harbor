@@ -64,11 +64,9 @@ interface IStabilityPoolManager_v2 {
     /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
     error CollateralRatioNotBelowRebalanceThreshold(uint256 currentCollateralRatio, uint256 rebalanceThreshold);
 
-    /// @dev Thrown when a rebalance is attempted with the collateral ratio at or below the peg. There a pegged token
-    ///      redeemed for collateral takes its share of the backing with it, so no amount redeemed moves the ratio.
-    error CollateralRatioNotAbovePeg(uint256 collateralRatio);
-
-    /// @dev Thrown by `rebalance` when neither pool has a deposit - a supply of zero - whatever pegged they hold.
+    /// @dev Thrown by `rebalance` when it takes no pegged from the pools: neither has a deposit - a supply of zero,
+    ///      whatever pegged they hold - or neither can give any, or the minter has none of its own pegged outstanding
+    ///      to redeem.
     error NoTokensToLiquidate(address token);
 
     /// @dev Thrown by `rebalance` when the pegged it took from the pools is less than the caller's minimum.
@@ -88,9 +86,12 @@ interface IStabilityPoolManager_v2 {
     function stabilityPools() external view returns (address[] memory);
     function hasStabilityPool(address stabilityPool) external view returns (bool);
     function harvestable() external view returns (uint256);
-    /// @notice Whether a rebalance would run and have something to repair: the collateral ratio is above the peg and
-    ///         below the rebalance threshold, and the minter is not halted by an unrecognised impairment
-    ///         (`IMinter_v3.impairment`), during which `rebalance` reverts.
+    /// @notice Whether a rebalance has pegged to take and backing to pay for it: the collateral ratio is below the
+    ///         rebalance threshold, the minter is not halted by an unrecognised impairment (`IMinter_v3.impairment`),
+    ///         during which `rebalance` reverts, the minter has backing on record and pegged of its own outstanding,
+    ///         and a pool has deposits above its floor to give.
+    /// @dev It does not ask how much. With a pool a few wei above its floor it is true, and `rebalance` reverts with
+    ///      the minter's `IMinter_v3.ReturnZeroAmount` where that pegged would be paid nothing.
     function rebalanceable() external view returns (bool);
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
@@ -102,14 +103,14 @@ interface IStabilityPoolManager_v2 {
     ///         this, the rest of the slice going to the cut receiver. Zero is no ceiling.
     function harvestBountyCeiling() external view returns (uint256);
     /// @notice The most a rebalance pays its caller in all, measured in wrapped collateral - a payment in leveraged
-    ///         tokens counted as the collateral those tokens were minted for. Shared between the two pools by the
-    ///         pegged each holds when the rebalance starts, each pool's legs drawing on its share; what a leg does not
-    ///         pay the caller stays with the pool. Zero is no ceiling.
+    ///         tokens counted as the collateral those tokens were minted for. Shared between the two pools by what
+    ///         each has had deposited - its supply - when the rebalance starts, each pool's legs drawing on its share;
+    ///         what a leg does not pay the caller stays with the pool. Zero is no ceiling.
     function rebalanceBountyCeiling() external view returns (uint256);
     /// @notice Returns the collateral ratio at which rebalancing should occur
     /// @return The rebalance collateral ratio
     function rebalanceThreshold() external view returns (uint256);
-    /// @notice Returns the cut receiver - who receives the harvest cut and the no-pool catch-all
+    /// @notice Returns the cut receiver - who receives the harvest cut, the rebalance cut and the no-pool catch-all
     function feeReceiver() external view returns (address);
 
     /*//////////////////////////////////////////////////////////////
@@ -124,11 +125,17 @@ interface IStabilityPoolManager_v2 {
     ///         rata to their supplies, to the floor or the threshold if that is lower, all paid in collateral; then,
     ///         from the floor, the step by both legs. Each pool gives up no more than its headroom
     ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
-    /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold,
-    ///      `CollateralRatioNotAbovePeg` at or below the peg, `NoTokensToLiquidate` when neither pool has a deposit,
-    ///      and `InsufficientLiquidation` when both steps together take less than `minPeggedLiquidated`. While the minter's record of its backing overstates what it holds,
-    ///      the minter's own `IMinter_v3.UnrecognisedImpairment` is passed up unchanged: every redemption a rebalance
-    ///      makes is an update the minter reverts until the rate recovers or the impairment is recognised.
+    ///         Where the backing is worth no more than the pegged the minter has minted - a ratio at or below the peg -
+    ///         the first step lifts nothing: a pegged token redeems for its share of the backing and takes that share
+    ///         with it. The step takes all the pegged the minter has minted that the pools can give, and pays each
+    ///         pool its pegged's share of the backing in collateral.
+    /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold, `NoTokensToLiquidate` when
+    ///      it takes no pegged, and `InsufficientLiquidation` when both steps together take less than
+    ///      `minPeggedLiquidated`. The minter's own errors are passed up unchanged. `IMinter_v3.ReturnZeroAmount`: a
+    ///      step's pegged would be paid nothing, being too little to be worth a wei of collateral or of leveraged
+    ///      token, or redeemed at a minter with no backing. `IMinter_v3.UnrecognisedImpairment`: the minter's record
+    ///      of its backing overstates what it holds, and every redemption a rebalance makes is an update the minter
+    ///      reverts until the rate recovers or the impairment is recognised.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 

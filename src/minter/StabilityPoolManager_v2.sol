@@ -77,8 +77,8 @@ contract StabilityPoolManager_v2 is
         uint256 harvestBountyRatio;
         /// @notice Percentage-based cut for harvesting (as a ratio of the harvested amount)
         uint256 harvestCutRatio;
-        /// @notice The receiver of the harvest cut and the no-pool catch-all. Seeded to the owner at initialize,
-        /// retargetable via updateFeeReceiver, and never zero.
+        /// @notice The receiver of the harvest cut, the rebalance cut and the no-pool catch-all. Seeded to the owner at
+        /// initialize, retargetable via updateFeeReceiver, and never zero.
         // @custom:security non-reentrant
         address feeReceiver;
         /// @notice Gross harvest yield owed to the collateral pool but not yet streamed - deferred past its per-period
@@ -202,12 +202,14 @@ contract StabilityPoolManager_v2 is
 
     /// @inheritdoc IStabilityPoolManager_v2
     function rebalanceable() external view returns (bool rebalanceable_) {
-        uint256 collateralRatio_ = IMinter_v3(MINTER).collateralRatio();
         (uint256 recorded, uint256 held) = IMinter_v3(MINTER).impairment();
         rebalanceable_ =
-            collateralRatio_ > 1 ether &&
-            collateralRatio_ < _getStabilityPoolManagerStorage().rebalanceThreshold &&
-            recorded <= held;
+            IMinter_v3(MINTER).collateralRatio() < _getStabilityPoolManagerStorage().rebalanceThreshold &&
+            recorded <= held &&
+            recorded > 0 &&
+            IMinter_v3(MINTER).peggedTokenBalance() > 0 &&
+            (IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss() > 0 ||
+                IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss() > 0);
     }
 
     /// @inheritdoc IStabilityPoolManager_v2
@@ -414,12 +416,6 @@ contract StabilityPoolManager_v2 is
             if (collateralRatio_ >= rebalanceThreshold_) {
                 revert CollateralRatioNotBelowRebalanceThreshold(collateralRatio_, rebalanceThreshold_);
             }
-            // At or below the peg a pegged token redeemed for collateral takes its share of the backing with it, so no
-            // amount redeemed moves the collateral ratio: there is nothing to repair. The pools keep their pegged for
-            // when the price brings the market back above the peg, where it does.
-            if (collateralRatio_ <= 1 ether) {
-                revert CollateralRatioNotAbovePeg(collateralRatio_);
-            }
             (uint256 totalPoolSupply, uint256 collateralPoolSupply, uint256 leveragedPoolSupply) = _poolSupplies();
             // slither-disable-next-line incorrect-equality
             if (totalPoolSupply == 0) {
@@ -440,6 +436,12 @@ contract StabilityPoolManager_v2 is
         // Below the minter's floor it sells no leverage, so the leveraged pool cannot convert. Both pools' pegged take
         // the collateral route to the floor - or to the threshold, if that is lower - each pool its share of what the
         // two have had deposited, within its headroom, the excess sliding to the other. Both are paid in collateral.
+        // Where the backing is worth no more than the pegged the minter has minted - a ratio at or below the peg - no
+        // amount reaches the floor: a pegged token redeems for its share of the backing and takes that share with it.
+        // The minter then sizes all the pegged it has minted, so the step takes all of it the pools can give and does
+        // not lift the ratio. A ratio that reads exactly the peg can hide backing worth more than the pegged by less
+        // than the ratio's last digit. That market is above the peg: the step is sized to reach the floor, and leaves
+        // only the dust of pegged that the excess backs there.
         if (!IMinter_v3(MINTER).leveragedMintable()) {
             uint256 peggedFromCollateralPool;
             uint256 peggedFromLeveragedPool;
@@ -502,6 +504,12 @@ contract StabilityPoolManager_v2 is
             collateralPaid += collateral;
         }
 
+        // Nothing taken - both pools at their floors, or none of the minter's pegged outstanding - reverts by name
+        // rather than pass as a rebalance.
+        // slither-disable-next-line incorrect-equality
+        if (peggedLiquidated == 0) {
+            revert NoTokensToLiquidate(PEGGED_TOKEN);
+        }
         if (peggedLiquidated < minPeggedLiquidated) {
             revert InsufficientLiquidation(PEGGED_TOKEN, peggedLiquidated, minPeggedLiquidated);
         }
@@ -688,9 +696,9 @@ contract StabilityPoolManager_v2 is
     ///      proceeds for that leg. Two bounds: the reward integral (`maxLiquidationReward` - the proceeds are
     ///      distributed immediately as the pool's reward and must not overflow it; scale the pegged down so the linear
     ///      proceeds land at the cap) and the solvency headroom (`maxAssetLoss` - a loss may take the pool only to its
-    ///      MIN floor). Both were silently applied downstream before (the reward path could revert on overflow, the
-    ///      loss path capped inside `_capToFloor`); surfacing them here lets the rebalance size the sweep to what the
-    ///      pool accepts up front. Called for each leg.
+    ///      MIN floor). The pool enforces both itself, later - its reward path can revert on overflow, its loss path
+    ///      caps inside `_capToFloor` - so applying them here first sizes the sweep to what the pool accepts. Called
+    ///      for each leg.
     function _capLiquidation(uint256 pegged, uint256 returned, address pool) private view returns (uint256) {
         // slither-disable-next-line incorrect-equality avoids divide by 0
         if (pegged == 0) {

@@ -1854,10 +1854,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// @notice An impairment deeper than the leveraged buffer can absorb, and the recovery out of it. The oracles floor
     ///         the reported rate today, so the market halts before it can get this far and the path has never been
     ///         exercised; the planned widening of those bounds turns it from a halt into a state the protocol has
-    ///         to carry. Leveraged is wiped and the pegged depegs, and no rebalance can help: below the peg a
-    ///         redemption takes its share of the backing with it, so the rebalance reverts by name and the pool
-    ///         keeps its pegged. Once the collateral recovers past the rebalance threshold the market has to come back
-    ///         with it.
+    ///         to carry. Leveraged is wiped and the pegged depegs. A rebalance there repairs nothing - below the peg a
+    ///         redemption takes its share of the backing with it - but it runs, exchanging the pool's pegged for
+    ///         collateral at the market's own price, and it must still conserve at this depth. Once the collateral
+    ///         recovers past the rebalance threshold the market has to come back with it.
     function test_deepImpairment_wipesLeveragedThenRecovers() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
@@ -1881,20 +1881,18 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         (, , , uint256 leveragedCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
         assertEq(leveragedCollateralOut, 0, "leveraged redemption reverts while it stands behind an uncovered pegged");
 
-        // below the peg there is nothing a rebalance can repair: it reverts by name, and the pool keeps its pegged
-        // for when the price brings the market back above the peg
-        uint256 depeggedRatio = IMinter(minter).collateralRatio();
-        uint256 poolPeggedHeld = IERC20(pegged).balanceOf(stabilityPool);
-        address keeper = makeAddr("keeper");
-        assertFalse(
+        // below the peg a rebalance is offered and delivers the pool collateral for its pegged, and it must still
+        // conserve at this depth
+        assertTrue(
             IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
-            "a wiped-out market is not offered one"
+            "a market below the peg is offered a rebalance"
         );
-        vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
-        );
-        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(keeper, 0);
-        assertEq(IERC20(pegged).balanceOf(stabilityPool), poolPeggedHeld, "the pool keeps its pegged");
+        uint256 injected = _rebalance();
+        assertGt(injected, 0, "the rebalance delivers collateral with the pegged uncovered");
+
+        StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        _assertRewardConserved(stabilityPool, _allActors(), g);
+        _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
 
         // the collateral recovers past the rebalance threshold, and the market has to come back with it
         uint256 recovered = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold() + 0.01 ether;

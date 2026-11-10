@@ -16,7 +16,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | config                                           |  79541 | 7.954e+04 |
 | donateWrappedCollateral                          |  82080 | 8.208e+04 |
 | feeReceiver                                      |   2442 | 2.442e+03 |
-| freeMintLeveragedToken                           | 147864 | 1.479e+05 |
+| freeMintLeveragedToken                           | 154015 | 1.540e+05 |
 | freeMintPeggedToken                              | 171843 | 1.718e+05 |
 | freeRedeemDryRun                                 |  36107 | 3.611e+04 |
 | freeRedeemLeveragedToken                         |  91972 | 9.197e+04 |
@@ -81,12 +81,12 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | initialize               |  94276 | 9.428e+04 |
 | owner                    |   4633 | 4.633e+03 |
 | proxiableUUID            |    375 | 3.750e+02 |
-| rebalance                | 889164 | 8.892e+05 |
+| rebalance                | 889163 | 8.892e+05 |
 | rebalanceBountyCeiling   |   2346 | 2.346e+03 |
 | rebalanceBountyRatio     |   2399 | 2.399e+03 |
 | rebalanceCutRatio        |   2348 | 2.348e+03 |
 | rebalanceThreshold       |   2348 | 2.348e+03 |
-| rebalanceable            |  45007 | 4.501e+04 |
+| rebalanceable            |  66799 | 6.680e+04 |
 | removeYieldVault         |  30031 | 3.003e+04 |
 | stabilityPools           |    926 | 9.260e+02 |
 | supportsInterface        |    647 | 6.470e+02 |
@@ -131,7 +131,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | initialize                    | 160736 | 1.607e+05 |
 | isActiveRewardToken           |   2786 | 2.786e+03 |
 | lastAssetLossError            |   2402 | 2.402e+03 |
-| maxAssetLoss                  |    593 | 5.930e+02 |
+| maxAssetLoss                  |   2593 | 2.593e+03 |
 | maxDepositReward              |   6280 | 6.280e+03 |
 | maxLiquidationReward          |   3629 | 3.629e+03 |
 | nonces                        |   2588 | 2.588e+03 |

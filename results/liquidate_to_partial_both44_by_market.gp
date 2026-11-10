@@ -33,9 +33,10 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #
 #   - The DEPLOYED rule lands on the 1.3 threshold from 0.5 upward, and less below, where the pools run out
 #     before the threshold does - sub-peg included, by converting the pool's pegged into tokens worth nothing.
-#   - The TREE and the UPGRADE sit on the unliquidated line `y = x` at and below the peg: `rebalance()` is
-#     refused there (`CollateralRatioNotAbovePeg`), because a pegged redeemed for collateral takes its share of
-#     the backing with it and no amount redeemed moves the ratio. From just above the peg they reach 1.3 - at
+#   - The TREE and the UPGRADE sit on the unliquidated line `y = x` at and below the peg: a pegged redeemed
+#     for collateral takes its share of the backing with it and no amount redeemed moves the ratio, so the
+#     liquidation there takes both pools' pegged down to their floors, pays both in collateral at the market's
+#     own price, and leaves the ratio where it was. From just above the peg they reach 1.3 - at
 #     1.02 as at 1.25 - in TWO STEPS within one call: both pools give up pegged by the collateral route until
 #     the ratio reaches the floor of 1.0526, and from the floor both legs run and land where the deployed rule
 #     lands, with the deployed rule's own figures. The two files agree at every ratio: the upgrade behaves on
@@ -54,10 +55,9 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # reason. Where a rule did nothing, before and after coincide.
 #
 # THE BOTTOM PANEL IS WHAT THE DEPOSITOR IS LEFT HOLDING, in leveraged tokens, on a linear axis as the original
-# drew it. The tree hands over none below the floor: at and below the peg the depositor keeps their pegged,
-# worth what it is worth, and has not traded it for tokens worth nothing; between the peg and the floor the
-# leveraged pool is paid in COLLATERAL, which this column does not count. From the floor up the tree hands over
-# what the deployed rule does.
+# drew it. The tree hands over none below the floor: there - at and below the peg as between the peg and the
+# floor - the leveraged pool is paid in COLLATERAL, which this column does not count, and has not traded its
+# pegged for tokens worth nothing. From the floor up the tree hands over what the deployed rule does.
 
 set colorsequence default
 set xrange [0:1.62]

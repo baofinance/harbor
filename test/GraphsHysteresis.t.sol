@@ -26,9 +26,9 @@ contract GraphsHysteresisDeployedV3 is HysteresisMeasurement, DeployedMarket {
 contract GraphsHysteresisLocal is HysteresisMeasurement, LocalMarket {}
 
 /// @notice THE SAME SEQUENCE FROM ABOVE THE FLOOR: a ratio of 1.1, between the leverage cap's floor at 1.0526
-///         and the threshold at 1.3, where every rule can rebalance and every round succeeds. The question
-///         changes from "who can rebalance here" to "who holds their terms and their leverage across sixteen
-///         rounds that all go through". Files carry `_from110`.
+///         and the threshold at 1.3, where every rule mints leveraged tokens and every round reaches the
+///         threshold. The question changes from "what does a round pay where it can repair nothing" to "who holds
+///         their terms and their leverage across sixteen rounds that all repair". Files carry `_from110`.
 abstract contract HysteresisAboveTheFloor is HysteresisMeasurement {
     function roundCollateralRatio() internal pure override returns (uint256) {
         return 1.1 ether;

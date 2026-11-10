@@ -14,8 +14,9 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 import {TestStabilityPoolManagerSetUp_rebalanceThreshold130} from "@harbor-test/StabilityPoolManager.t.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
-/// @dev The market's one manager, rebalancing whichever pool a test fills: every test here puts pegged in one pool
-///      and leaves the other empty, so each rebalance takes from that pool alone.
+/// @dev The market's one manager, rebalancing whichever pool a test fills. Most tests here put pegged in one pool
+///      and leave the other empty, so the rebalance takes from that pool alone. The tests of the bounty and the cut
+///      below the peg fill both, three to one.
 contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
     function setUp() public override {
         super.setUp();
@@ -50,8 +51,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         // (2) ----------------------------------------------------------------------------------------
         assertEq(liquidated, supplyBefore - floor, "liquidation removes everything above the floor");
 
-        // at or below the peg there is nothing a rebalance can repair: it reverts by name, and the pool keeps
-        // its pegged for when the price brings the market back above the peg
+        // below the peg a rebalance is offered, and it too removes the pool's balance down to the floor
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1.09
         price /= 2;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // depeg: CR = 0.54
@@ -59,14 +59,11 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         vm.stopPrank();
         supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
-        uint256 depeggedRatio = IMinter_v3(minter).collateralRatio();
-        assertFalse(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "no rebalance is offered");
-        vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
-        );
-        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        assertLt(IMinter_v3(minter).collateralRatio(), 1 ether, "the market is below the peg");
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
+        liquidated = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
         // (3) ----------------------------------------------------------------------------------------
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore, "the pool keeps its pegged");
+        assertEq(liquidated, supplyBefore - floor, "below the peg liquidation removes everything above the floor");
 
         price *= 2;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // back above the peg
@@ -666,6 +663,118 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
             r.leveragedToLeveragedPool,
             r.redeemedLeveraged[0] - r.bountyInLeveraged - r.cutInLeveraged,
             "the leveraged pool receives its proceeds less its bounty and its cut"
+        );
+    }
+
+    /// Below the peg both pools' pegged is redeemed for collateral in one redemption, shared between them in proportion
+    /// to the pegged each gave up, and each pool's payment pays the caller its bounty and the cut receiver its cut as
+    /// above the peg: their ratios of that payment, in wrapped collateral, the pool receiving the rest.
+    function test_belowThePeg_eachPoolsPaymentPaysTheBountyAndTheCut() public {
+        _setUpBothPoolsThreeToOne();
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        uint256 cutRatio = 0.02 ether;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, 0, cutRatio);
+        vm.stopPrank();
+
+        RebalanceRecord memory r = _rebalanceRecorded();
+
+        assertEq(r.redeemedPegged.length, 1, "one step: both pools by the collateral route");
+        assertEq(r.redeemedLeveraged[0], 0, "no leveraged token is minted");
+        assertEq(
+            r.redeemedPegged[0],
+            r.peggedFromCollateralPool + r.peggedFromLeveragedPool,
+            "the one redemption is of both pools' pegged"
+        );
+        uint256 forCollateralPool = Math.mulDiv(
+            r.redeemedCollateral[0],
+            r.peggedFromCollateralPool,
+            r.redeemedPegged[0]
+        );
+        uint256 forLeveragedPool = r.redeemedCollateral[0] - forCollateralPool;
+        assertEq(
+            r.bountyInCollateral,
+            (forCollateralPool * REBALANCE_BOUNTY_RATIO) / 1 ether +
+                (forLeveragedPool * REBALANCE_BOUNTY_RATIO) / 1 ether,
+            "the caller is paid its ratio of each pool's payment"
+        );
+        assertEq(
+            r.cutInCollateral,
+            (forCollateralPool * cutRatio) / 1 ether + (forLeveragedPool * cutRatio) / 1 ether,
+            "the cut receiver is paid its ratio of each pool's payment"
+        );
+        assertEq(
+            r.collateralToCollateralPool,
+            forCollateralPool -
+                (forCollateralPool * REBALANCE_BOUNTY_RATIO) / 1 ether -
+                (forCollateralPool * cutRatio) / 1 ether,
+            "the collateral pool receives its payment less its bounty and its cut"
+        );
+        assertEq(
+            r.collateralToLeveragedPool,
+            forLeveragedPool -
+                (forLeveragedPool * REBALANCE_BOUNTY_RATIO) / 1 ether -
+                (forLeveragedPool * cutRatio) / 1 ether,
+            "the leveraged pool receives its payment less its bounty and its cut, in collateral"
+        );
+        assertEq(r.leveragedToLeveragedPool, 0, "the leveraged pool is paid no leveraged token");
+        assertEq(r.bountyInLeveraged, 0, "the caller is paid no leveraged token");
+        assertEq(r.cutInLeveraged, 0, "nor is the cut receiver");
+    }
+
+    /// Below the peg the bounty ceiling is shared between the pools by what each has had deposited, as above it: with
+    /// deposits of 3 : 1 and a ceiling that binds, the collateral pool's payment pays the caller three quarters of the
+    /// ceiling and the leveraged pool's one quarter, both in wrapped collateral, and each pool keeps what the ceiling
+    /// withholds. The cut is not bounded by it.
+    function test_belowThePeg_theBountyCeilingIsSharedByThePoolsDeposits() public {
+        _setUpBothPoolsThreeToOne();
+        marketActions.setCollateralRatioByPrice(0.9 ether);
+        uint256 ceiling = 0.004 ether;
+        uint256 cutRatio = 0.02 ether;
+        vm.startPrank(owner());
+        IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(REBALANCE_BOUNTY_RATIO, ceiling, cutRatio);
+        vm.stopPrank();
+
+        RebalanceRecord memory r = _rebalanceRecorded();
+
+        assertEq(r.redeemedPegged.length, 1, "one step: both pools by the collateral route");
+        uint256 forCollateralPool = Math.mulDiv(
+            r.redeemedCollateral[0],
+            r.peggedFromCollateralPool,
+            r.redeemedPegged[0]
+        );
+        uint256 forLeveragedPool = r.redeemedCollateral[0] - forCollateralPool;
+        uint256 collateralPoolCap = Math.mulDiv(ceiling, 3, 4);
+        uint256 leveragedPoolCap = Math.mulDiv(ceiling, 1, 4);
+        assertGt(
+            (forCollateralPool * REBALANCE_BOUNTY_RATIO) / 1 ether,
+            collateralPoolCap,
+            "precondition: the collateral pool's slice exceeds its cap"
+        );
+        assertGt(
+            (forLeveragedPool * REBALANCE_BOUNTY_RATIO) / 1 ether,
+            leveragedPoolCap,
+            "precondition: the leveraged pool's slice exceeds its cap"
+        );
+        assertEq(
+            r.bountyInCollateral,
+            collateralPoolCap + leveragedPoolCap,
+            "the caller is paid three quarters of the ceiling from one payment and a quarter from the other"
+        );
+        assertEq(
+            r.cutInCollateral,
+            (forCollateralPool * cutRatio) / 1 ether + (forLeveragedPool * cutRatio) / 1 ether,
+            "the whole cut of each pool's payment"
+        );
+        assertEq(
+            r.collateralToCollateralPool,
+            forCollateralPool - collateralPoolCap - (forCollateralPool * cutRatio) / 1 ether,
+            "the collateral pool receives its payment less its capped bounty and its cut"
+        );
+        assertEq(
+            r.collateralToLeveragedPool,
+            forLeveragedPool - leveragedPoolCap - (forLeveragedPool * cutRatio) / 1 ether,
+            "the leveraged pool receives its payment less its capped bounty and its cut"
         );
     }
 }

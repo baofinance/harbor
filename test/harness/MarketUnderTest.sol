@@ -184,11 +184,12 @@ abstract contract MarketUnderTest {
     /// @dev Is there a rebalance to perform? BOTH halves of the question: that the market wants one, and that
     /// a pool holds something to satisfy it with.
     ///
-    /// `rebalanceable()` answers only the first - the ratio is above the peg and below the threshold - and knows
-    /// nothing about the pools' balances. A loop taking it as the whole precondition eventually calls a
-    /// rebalance with nothing to convert, which the DEPLOYED manager reports by reverting
-    /// `NoTokensToLiquidate`. So the missing half of the predicate arrived as a crash, and the fix is to ask
-    /// the whole question rather than to tolerate the answer.
+    /// The DEPLOYED manager's `rebalanceable()` answers only the first - the ratio is below the threshold - and
+    /// knows nothing about the pools' balances; this tree's also asks that a pool has deposits above its floor to
+    /// give. A loop taking the deployed one as the whole precondition eventually calls a rebalance with nothing to
+    /// convert, which the deployed manager reports by reverting `NoTokensToLiquidate`. So the missing half of the
+    /// predicate arrived as a crash, and the fix is to ask the whole question of either manager rather than to
+    /// tolerate the answer.
     function _canRebalance() internal view returns (bool) {
         if (!IStabilityPoolManager(market.manager).rebalanceable()) {
             return false;

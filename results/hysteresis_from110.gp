@@ -15,8 +15,8 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background r
 
 # Sixteen rebalances, each from a collateral ratio of 1.1 - ABOVE the leverage floor of 1.0526 and below the
 # 1.3 threshold, where every rule can rebalance and every round goes through. The same experiment as
-# `hysteresis.gp`, whose sequence from 0.6 the tree refuses to enter; here the question is whether a rule holds
-# its terms and its leverage across sixteen rounds that all succeed. Three files: the DEPLOYED contracts, the
+# `hysteresis.gp`, whose rounds from 0.6 repair nothing under the tree's rule; here the question is whether a rule
+# holds its terms and its leverage across sixteen rounds that all repair. Three files: the DEPLOYED contracts, the
 # TREE on a local deploy, and the V3 UPGRADE - this tree's minter, manager and pools behind the deployed
 # proxies. Colour is the rule, solid and dashed are the two quantities of each panel, marker is the market
 # (`style.gp`); the tree and the upgrade share a colour because they are the same rule.

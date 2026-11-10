@@ -166,24 +166,19 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
             uint256 collateralPoolAfter = IERC20(pegged).balanceOf(stabilityPoolCollateral);
             liquidFracE18 = ((collateralPoolBefore - collateralPoolAfter) * 1 ether) / collateralPoolBefore;
         } catch (bytes memory reason) {
-            // Only the manager's two reverts, which leave nothing liquidated and so no row: at or above its threshold
-            // there is nothing to rebalance, and at or below the peg nothing a rebalance could repair. The ratio and
-            // threshold are the ones it judged, since a reverted call leaves both as they were.
+            // Only the manager's revert at or above its threshold, where there is nothing to rebalance: it leaves nothing
+            // liquidated and so no row. The ratio and threshold are the ones it judged, since a reverted call leaves
+            // both as they were.
             uint256 collateralRatio_ = IMinter(minter).collateralRatio();
             uint256 rebalanceThreshold_ = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
             assertEq(
                 reason,
-                collateralRatio_ >= rebalanceThreshold_
-                    ? abi.encodeWithSelector(
-                        IStabilityPoolManager_v2.CollateralRatioNotBelowRebalanceThreshold.selector,
-                        collateralRatio_,
-                        rebalanceThreshold_
-                    )
-                    : abi.encodeWithSelector(
-                        IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector,
-                        collateralRatio_
-                    ),
-                "a rebalance reverts only because the market is above its threshold or at or below the peg"
+                abi.encodeWithSelector(
+                    IStabilityPoolManager_v2.CollateralRatioNotBelowRebalanceThreshold.selector,
+                    collateralRatio_,
+                    rebalanceThreshold_
+                ),
+                "a rebalance reverts only because the market is at or above its threshold"
             );
             liquidFracE18 = 0;
         }
