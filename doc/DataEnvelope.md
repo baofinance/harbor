@@ -85,8 +85,8 @@ and each depositor's `assetBalances[user]`:
 |---|---|--:|
 | a deposit / balance | `assetBalances[user].amount` (uint128) | ~3e20 |
 | total supply | `totalAssetSupply.amount` (uint128) | ~3e20 |
-| the compounding loss factor | `TokenBalance.product` (uint128 DecrementalFloatingPoint: exponent + magnitude) | dynamic range far beyond a plain uint128 |
-| accrued reward per share | `tokenToExponentToIntegral[token][exponent]` (uint256, bucketed per exponent) | effectively unbounded |
+| the compounding loss factor | `TokenBalance.mantissa` and `TokenBalance.exponent` (the pair `LossProduct`: a 120-bit mantissa and a 64-bit exponent) | dynamic range far beyond a plain uint128 |
+| accrued reward per share | `tokenToExponentToIntegral[token][exponent]` (uint256, bucketed per uint64 exponent) | effectively unbounded |
 | a holder's claimable / claimed | `pending` / `claimed` (uint256) | effectively unbounded (uncapped accrual) |
 | a harvest deposit (paid out over the reward period) | `RewardData_v2 { uint256 queued, uint128 rate, uint40 … }` | `maxDepositReward` per period ≈ 1.16e17 × MIN (integral headroom) |
 
@@ -103,7 +103,7 @@ binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN
 | harvest `rate` | uint80 | uint128 | widening |
 | harvest `queued` | uint96 — capped the empty-pool re-queue | uint256 — full width | widening |
 | reward `pending` / `claimed` (a holder's accrual) | uint128 — reverted a claim past ~`3e20` | uint256 | widening |
-| the loss factor `product` | (already) uint128 DecrementalFloatingPoint | unchanged | representation |
+| the loss factor `product` | uint128 DecrementalFloatingPoint, its 8-bit exponent wrapping past 255 | the pair `LossProduct`: the same 16 bytes as the mantissa, and a 64-bit exponent in bytes the record left unused | representation + widening |
 | deploy config | no floor / cap / delay bounds | `MIN > 0`; `MAX = MIN × F` cap; withdrawal delay & window ≤ 1 year | fail-safe on input |
 
 ### 2.3 The limits the tests located
@@ -165,8 +165,8 @@ Two families, under the one guarantee — **no known silent failures**.
 - **Algebra — full-precision intermediates / re-ordering** (`Math.mulDiv`, divide-before-multiply):
   the value never needs a wide field. The Minter's per-band pricing is built on this.
 - **Range-extending representation (floating point)** — more dynamic range in the *same* bits than a
-  plain integer: `product` is a DecrementalFloatingPoint (exponent + magnitude in one uint128); the
-  reward integral is bucketed per exponent, so each bucket stays bounded.
+  plain integer: the loss factor is the pair `LossProduct` (a 120-bit mantissa and a 64-bit exponent);
+  the reward integral is bucketed per exponent, so each bucket stays bounded.
 - **Deferral / partial processing** — don't require the whole value at once: a harvest deposits up to
   one period's `maxDepositReward` and leaves the excess harvestable, drained across subsequent periods.
   (The rebalance defers differently — it accrues its reward in one step rather than streaming, so instead of

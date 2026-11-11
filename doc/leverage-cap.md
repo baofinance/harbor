@@ -42,7 +42,7 @@ be minted down to 1.0101, most of the way from the threshold to the peg; a cap o
 | 1.05 | 21 | a low rebalance threshold |
 | 1.0101 | 100 | the floor |
 | 1.005 | 201 | between the peg and the floor: no sail mints |
-| 1.0 or below | a claim on nothing | at or below the peg: no sail mints, no rebalance |
+| 1.0 or below | a claim on nothing | at or below the peg: no sail mints; a rebalance converts the pools |
 
 ## What is capped, and what is not
 
@@ -113,10 +113,13 @@ redemptions, or through a rebalance, whose first step stops exactly at the floor
 A rebalance takes the stability pools' anchor to lift the collateral ratio back to the rebalance threshold.
 What it can do depends on where the ratio stands.
 
-**At or below the peg, no rebalance.** There, an anchor token redeemed for collateral takes its share of the
-backing with it, so no amount redeemed moves the ratio. `rebalanceable()` is false, and `rebalance()` reverts
-`CollateralRatioNotAbovePeg(ratio)`. The pools keep their anchor for when the price brings the market back
-above the peg, where it can repair something.
+**At or below the peg, the pools are converted.** There, an anchor token redeemed for collateral takes its share
+of the backing with it, so no amount redeemed moves the ratio. A rebalance takes all the anchor the market has
+minted that the pools can give, by the collateral route, and pays both pools in collateral: each anchor token its
+share of the backing. It repairs nothing. It is the risk a pool's depositors take for their market's return.
+Without it they could withdraw and redeem at a healthy market of the same anchor for 1, and leave the shortfall
+to whoever redeems last. The sail pool is paid in collateral too: sail is worth nothing there, and the minter
+mints none below the floor.
 
 **Between the peg and the floor, everything goes to collateral.** The sail pool cannot be paid in sail, because
 the minter will not mint it. So both pools give up anchor by the collateral route, pro rata to what each holds
@@ -129,14 +132,16 @@ second step in the same call, once the first has reached the floor.
 
 | where the ratio starts | collateral pool paid in | sail pool paid in |
 |---|---|---|
-| at or below the peg | refused | refused |
+| at or below the peg | collateral, its share of the backing | collateral, its share of the backing |
 | peg to floor | collateral | collateral |
 | floor to threshold | collateral | sail |
 
 In every step the keeper's bounty is its ratio of each payment, in the token that payment is made in, and the
 keeper's `minPeggedLiquidated` is judged against both steps together. A pool whose share exceeds its headroom
 gives up what it can and the other pool takes the rest in the same call. Pools too small to reach the target
-lift the ratio as far as their headroom goes, and a later rebalance continues.
+lift the ratio as far as their headroom goes, and a later rebalance continues. A leg that would be paid nothing is
+not taken, and a rebalance that would take nothing - both pools at their floors, or no leg that would be paid a
+wei - reverts `NoTokensToLiquidate`.
 
 ## Pricing inside a rebalance
 

@@ -43,6 +43,11 @@ takes its share of the backing, so the collateral route emptied the collateral p
 conversion route did lift the ratio, but entirely at the sail pool's expense: it was paid in sail worth nothing.
 Either way the pools spent the anchor that could have repaired the market once the price recovered.
 
+*The first half is intended again, since 2026-11-11: at or below the peg a rebalance converts both pools by the
+collateral route, each anchor token for its share of the backing, because a pool's depositors carry the risk of
+their market's depeg ([leverage-cap.md](leverage-cap.md), "Rebalancing"). The conversion into sail worth nothing is
+not reinstated.*
+
 **5. Rebalances were sized at one price and judged at another.** The rebalance fired when the collateral ratio,
 read at the middle of the oracle's price band, fell below the threshold, but was sized at the band's top. With
 any spread it stopped short of the threshold; the market still read as rebalanceable, and every later call was

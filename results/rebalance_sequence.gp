@@ -33,11 +33,11 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background r
 # supply, the pool holds 0.4 of it, and `1.3 x (1 - 0.4)` is 0.78 exactly. REACH IS BOUNDED BY POOL SIZE. At or
 # below the peg the tree and the upgrade sit on the unrebalanced line `y = x`: a pegged token redeemed there
 # takes its share of the backing with it, so the rebalance takes the pool's pegged down to its floor and moves
-# the ratio nowhere. From the floor of 1.0526 upward they land where the deployed rule lands, with its own
-# figures. Between the peg and the floor they take the COLLATERAL ROUTE towards the floor, paying the leveraged
-# pool in collateral, and reach only as far as the pool goes: from 1.02 the pool's whole 0.4 lifts the ratio to
-# 1.033, where the floor would have needed 62% of the supply. The two files agree at every ratio: the upgrade
-# behaves on production state as the tree does locally.
+# the ratio nowhere. From the floor of 1.0101 upward they land on 1.3, where the deployed rule lands. Between
+# the peg and the floor they take the COLLATERAL ROUTE towards the floor, paying the leveraged pool in
+# collateral, and reach only as far as the pool goes: from 1.005 the pool's whole 0.4 lifts the ratio to
+# 1.0083, where the floor would have needed 50.5% of the supply. The two files agree at every ratio: the
+# upgrade behaves on production state as the tree does locally.
 #
 # THE SECOND PANEL IS THE LEVERAGE RATIO EACH RULE REPORTS BEFORE IT REBALANCES. Below a collateral ratio of
 # one the deployed figure pins at exactly 20 - a CAP, engaged because the leveraged claim has gone to zero and
@@ -86,7 +86,7 @@ before(col) = ($2 == 0 ? column(col) : NaN)
 after(col)  = ($2 == 1 && $11 > 0 ? column(col) : NaN)
 # A report of `uint256.max` is the formula dividing by zero - a claim of nothing - and is not a number to draw.
 rep(v) = (v == 0 || v > 1e6 ? NaN : v)
-floor_ratio = 20.0 / 19
+floor_ratio = 100.0 / 99
 
 set lmargin at screen 0.11
 set rmargin at screen 0.97
@@ -116,7 +116,7 @@ set logscale y
 set yrange [1:200]
 set format y "%g"
 set arrow 3 from graph 0, first 20 to graph 1, first 20 @threshold_line
-set label 2 "K = 20" at 0.05, 25 textcolor "gray20" font ",9"
+set label 2 "the deployed cap, K = 20" at 0.05, 25 textcolor "gray20" font ",9"
 set arrow 4 from 1, graph 0 to 1, graph 1 @peg_line
 plot \
      deployed using 1:(rep(before(4))) with points @deployed_main_points title n_deployed, \

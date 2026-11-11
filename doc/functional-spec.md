@@ -76,8 +76,11 @@ Harbor is deployed once per **market** — a (collateral asset, anchor underlyin
 has its own sail token, its own stability pools, its own collateral ratio and its own solvency. The
 **anchor token is shared**: there is one per underlying on a chain, and every market with that
 underlying mints and burns it. Each market tracks the anchor tokens it minted itself and redeems no
-more than those (§2.1), so a stress event in one market has no mechanical effect on another. A
-market might pair, for example, wstETH or fxSAVE collateral with an underlying such as ETH, BTC, EUR,
+more than those (§2.1), so a stress event in one market has no mechanical effect on another's books.
+The anchor's holders are not independent in the same way. A holder can redeem at any market that
+minted the token, so a market's shortfall falls in the end on whoever holds its anchor last. That is
+why a rebalance converts a depegged market's pools (§5.6). A market might pair, for example, wstETH
+or fxSAVE collateral with an underlying such as ETH, BTC, EUR,
 gold, silver or a market-capitalisation index.
 
 Throughout this document "the system" means one such market.
@@ -443,9 +446,11 @@ falls toward zero near the peg, and below the leverage floor (§2.3) the protoco
 leveraged pool gives up anchor by the collateral route alongside the collateral pool, pro rata to each
 pool's deposits and within each pool's headroom above its floor, and is paid in wrapped collateral,
 until the ratio reaches the leverage floor, or the rebalance threshold if that is lower; from the floor
-it is paid in sail. **At or below the peg there is no rebalance at all**: an anchor token redeemed
-there takes its share of the backing with it, so no amount redeemed moves the ratio, and the pools keep
-their anchor for when the price recovers.
+it is paid in sail. **At or below the peg the rebalance converts the pools.** An anchor token redeemed
+there takes its share of the backing with it, so no amount redeemed moves the ratio. Both pools give
+up all the anchor they can, up to what the market has minted, and both are paid wrapped collateral:
+each anchor token its share of the backing. A depositor in a market's pool earns that market's
+return, so a depeg of that market is a risk they carry (§5.6).
 
 Two structural bounds govern each pool, and both are **numerical-precision parameters, not risk
 limits**:
@@ -660,9 +665,9 @@ Acceptance criteria:
    it reports the amount that would actually transact, not the amount requested.
 4. The dry-run reports the **available** subsidy, reduced if the reserve pool cannot fund the
    configured one.
-5. Where the operation would be **refused** outright — a sail mint below the leverage floor (§2.3) —
-   the dry-run reports that nothing would transact: every amount zero, with the incentive ratio of
-   the band the market is in.
+5. Where the operation would be **refused** outright — a sail mint below the leverage floor (§2.3),
+   or an anchor redemption that would return no collateral — the dry-run reports that nothing would
+   transact: every amount zero, with the incentive ratio of the band the market is in.
 
 *Note: the dry-run binds only to the state at the time of the call. Another user's transaction
 landing first can move the collateral ratio into a different fee band. Criterion US-1.3's minimum-out
@@ -806,8 +811,11 @@ Acceptance criteria:
    share of the minimum and the pool is never emptied.
 5. What remains stays deposited and keeps accruing. Successive rebalances may draw on it again, and
    the terms of each depend on conditions at the time (§2.6).
-6. **No rebalance draws on the pool at or below the peg**, where it could not move the collateral
-   ratio; the deposit waits for the price to recover.
+6. **At or below the peg a rebalance converts the pool's anchor** into wrapped collateral, as much as
+   the pool can give and the market has minted: each anchor token is paid its share of the backing
+   (§5.6). It does not move the
+   collateral ratio. The depositor carries the risk of their market's depeg, which is the risk the
+   pool's return pays for.
 
 ---
 
@@ -895,8 +903,10 @@ Acceptance criteria:
    than burning gas for nothing.
 5. Read-only checks report whether each action is currently available and how much it would move, so
    a bot can decide without simulating.
-6. A rebalance attempted when the collateral ratio is not below the threshold, or is at or below the
-   peg, reverts with a specific error rather than silently doing nothing.
+6. A rebalance attempted when the collateral ratio is not below the threshold reverts with a specific
+   error rather than silently doing nothing. So does one that would take nothing, with
+   `NoTokensToLiquidate`: both pools at their floors, none of the market's own anchor outstanding, or
+   no leg that would be paid a wei.
 
 ### 4.6 Owner / governance
 
@@ -1032,6 +1042,9 @@ Acceptance criteria:
 3. `harvestable` is **unchanged**. Only the amount supplied in the same call is credited, so a
    contribution can never absorb surplus that was already there and owed to depositors.
 4. The contributor receives nothing and retains no claim.
+5. A contribution that would add no collateral to the record reverts `DonationAddsNoCollateral`,
+   before it takes the tokens: an amount worth less than a wei of collateral at the low edge of the
+   rate.
 
 ---
 
@@ -1335,19 +1348,31 @@ to absorb a liquidation.
 
 ### 5.6 Rebalancing
 
-**Trigger:** any keeper, at any time. **Precondition:** the collateral ratio is **above the peg and
-below** the configured rebalance threshold — otherwise the call reverts with a specific error:
-`CollateralRatioNotBelowRebalanceThreshold` at or above the threshold, `CollateralRatioNotAbovePeg`
-at or below the peg.
+**Trigger:** any keeper, at any time. **Precondition:** the collateral ratio is **below** the
+configured rebalance threshold — otherwise the call reverts `CollateralRatioNotBelowRebalanceThreshold`.
+A call that would take nothing reverts `NoTokensToLiquidate`: both pools at their floors, none of the
+market's own anchor outstanding, or no leg that would be paid a wei. A leg that would be paid nothing
+is not taken, and the other leg goes on.
 
-This is the protocol's principal defence. It converts anchor tokens held in the stability pools back
-into collateral or sail tokens, reducing the anchor supply and raising the collateral ratio, and
-pays the pools' depositors for absorbing it.
+This is the protocol's principal defence. Above the peg it converts anchor tokens held in the
+stability pools back into collateral or sail tokens, reducing the anchor supply and raising the
+collateral ratio, and pays the pools' depositors for absorbing it.
 
-**At or below the peg there is nothing to repair.** An anchor token redeemed there is priced at its
+**At or below the peg it converts the pools.** An anchor token redeemed there is priced at its
 pro-rata share of the backing, so it takes that share with it and the ratio does not move, whatever
-the amount. The rebalance is refused, and the pools keep their anchor for when the price brings the
-market back above the peg, where it can repair something.
+the amount. The rebalance takes all the anchor the market has minted that the pools can give, by the
+collateral route, and pays each pool its anchor's share of the backing in wrapped collateral. It
+repairs nothing: it is a conversion at the market's own price, for three reasons.
+
+- **The anchor is shared** (§1.4). Without the conversion a depositor in a depegged market's pool
+  could withdraw and redeem at a healthy market for 1, and the shortfall would fall on whoever redeems
+  last.
+- **Whoever earns a market's return carries its risk.** The pool earns its market's harvests.
+- **Every other anchor holder is better backed afterwards.** The pool's anchor leaves with no more
+  than its share of the backing.
+
+What it costs: the sail holders' share of a recovery falls by the collateral that leaves, and the
+pools have little left to give when the price recovers, until new deposits arrive.
 
 **Above the peg, up to two steps in one call:**
 
@@ -1374,12 +1399,12 @@ sequenceDiagram
 
     K->>SPM: rebalance(bountyReceiver, minLiquidated)
     SPM->>M: collateralRatio()
-    alt not below threshold, or at or below the peg
+    alt not below threshold
         SPM-->>K: revert by name — nothing to do
     end
 
     opt below the leverage floor (leveragedMintable() is false)
-        SPM->>M: size the collateral route to the floor,<br/>or the threshold if lower
+        SPM->>M: size the collateral route to the floor,<br/>or the threshold if lower;<br/>at or below the peg, all the market's anchor<br/>the pools can give
         note over SPM: split pro rata to deposits,<br/>each within its pool's headroom
         SPM->>PC: sweep anchor tokens
         SPM->>PL: sweep anchor tokens
@@ -1403,15 +1428,19 @@ sequenceDiagram
         SPM->>PC: remaining wrapped collateral + notifyLiquidation(collateral)
         SPM->>PL: remaining sail tokens + notifyLiquidation(sail)
     end
+    alt nothing taken
+        SPM-->>K: revert NoTokensToLiquidate
+    end
     note over PC,PL: depositor balances rebase down,<br/>proceeds credited immediately
 
     SPM->>YV: compound() on each registered vault
     note over YV: failures are recorded, not fatal
 ```
 
-**Outcome.** Anchor supply falls; the collateral ratio rises to the threshold, or as close as the
-pools' combined capacity allows. Depositors' balances shrink and they receive the proceeds. The
-keeper is paid, and the fee receiver takes its cut.
+**Outcome.** Anchor supply falls. Above the peg the collateral ratio rises to the threshold, or as
+close as the pools' combined capacity allows. At or below the peg it stays where it is, and the pools
+have given up all they can, up to what the market has minted. Depositors' balances shrink and they
+receive the proceeds. The keeper is paid, and the fee receiver takes its cut.
 
 **Notable properties.**
 - **The split is fitted, not merely proportional.** Each leg starts proportional to the pools'
@@ -1643,10 +1672,10 @@ simulating.
 
 | | |
 |---|---|
-| **Trigger** | Collateral ratio above the peg and strictly below the configured rebalance threshold |
+| **Trigger** | Collateral ratio strictly below the configured rebalance threshold |
 | **Who may call** | Anyone |
 | **Pays** | A configured ratio of every payment the rebalance makes, in that payment's token, to a nominated receiver, within a configured ceiling for the whole rebalance |
-| **Refuses** | Reverts with a specific error if the ratio is *not* below the threshold, or is at or below the peg — never silently no-ops |
+| **Refuses** | Reverts with a specific error if the ratio is *not* below the threshold, or if the call would take nothing — never silently no-ops |
 | **Cadence** | Event-driven: whenever the collateral price falls far enough |
 
 **If it never runs.** The collateral ratio stays below the threshold and the system does not
@@ -1655,8 +1684,9 @@ schedule keeps pushing users toward the restoring actions (§7), and those alone
 ratio. But the pools are the protocol's *only* mechanism that raises the ratio without needing a
 user to volunteer, so with rebalancing stalled the system depends entirely on market participants
 finding the subsidies attractive. If the collateral price keeps falling, the ratio can reach 1 and
-the anchor token depegs — and at or below the peg no rebalance can help, so a stalled keeper costs
-the market the window in which the pools could have acted.
+the anchor token depegs. At or below the peg a rebalance no longer raises the ratio: it converts the
+pools at the market's price (§5.6). So a stalled keeper costs the market the window in which the pools
+could have repaired it.
 
 **Why this is unlikely to stall.** The bounty is paid in the same assets the rebalance releases, and
 rebalancing is most profitable exactly when it is most needed, up to the bounty's ceiling. The
@@ -2165,7 +2195,7 @@ reach this market's collateral.
 |---|---|---|
 | **P1** | Every priced operation reads a **validated** price; nothing is priced from an unvalidated source. | By construction |
 | **P2** | An invalid, stale or abnormally-deviant reading, or a zero that cannot be the price, **reverts**. No operation proceeds on a substitute, a cached, or a default price. | By the oracle's check |
-| **P3** | A zero wrapped-to-collateral rate reverts — a rate of zero is a unit conversion, not an economic state, so it can only mean a faulty oracle. | By the oracle's check |
+| **P3** | A zero wrapped-to-collateral rate reverts — a rate of zero is a unit conversion, not an economic state, so it can only mean a faulty oracle. | By the oracle's check, which reverts a rate below its configured minimum. Behind it, the Minter: at a rate of zero each dry run reports nothing moved and each call reverts by name |
 | **P4** | Where a minimum and maximum differ, every mint and redeem uses the end that pays its caller less, chosen per operation and direction; the market's measures read the middle. Each operation reads the oracle once. | By construction |
 | **P5** | The rebalance prices at the band's **middle** — the stability pool is the backstop, not charged the spread, and the sizing and the payout read the same price. | By construction |
 | **P6** | A sail mint into a market with sail outstanding buys the **credited** collateral's share of the residual, rounded down, by one definition on the fee-paying and the zero-fee route: the value behind each sail token already held never falls, and with no incentive in force the two mints are the same trade (§5.4). | By construction; fuzz-tested |
@@ -2297,6 +2327,11 @@ far it can move price before the operation reverts.
 or systemically wrong feed, is not caught by these checks and propagates into pricing. **Feed
 integrity is a trust assumption**, narrowed by the validation but not eliminated by it.
 
+A wrong low price reaches the pools too. A reported price that puts the ratio at or below 1 lets one
+call by anyone convert both pools at the share of the backing (§5.6). Where the true ratio is above 1,
+the depositors receive more than face and the sail holders pay. Retail redemption already pays any
+anchor holder the same share, so the feed's checks are the only defence either way.
+
 ### 9.2 Stale-feed exploitation
 
 **The attempt.** Wait for the feed to go stale and transact at the last good price.
@@ -2374,10 +2409,16 @@ entrants. Real, small, and structurally bounded by the four limits above.
 mempool — withdraws beforehand and re-deposits afterwards. They avoid the liquidation entirely and
 re-enter a now-smaller pool, so their share of every future harvest is larger.
 
-**What it costs them today.** The rebalance itself is value-neutral, so the dodge yields **nothing at
-the moment of the rebalance** — both the stayer and the dodger hold the same value immediately
-afterwards. The gain is entirely in *future harvest share*: the stayer's balance has rebased down
-while the dodger's has not.
+**What it costs them today.** Above the peg the rebalance itself is value-neutral, so the dodge yields
+**nothing at the moment of the rebalance** — both the stayer and the dodger hold the same value
+immediately afterwards. The gain is entirely in *future harvest share*: the stayer's balance has
+rebased down while the dodger's has not.
+
+At or below the peg it is not value-neutral while another market of the same anchor redeems at 1. A
+depositor who withdraws before a conversion can redeem there at 1, where the stayer is paid their
+market's share of the backing. The withdrawal window prices that exit as it prices any other: a
+depositor without an open window pays the early-withdrawal fee, which is worth paying once the
+ratio is below 1 by more than the fee.
 
 Two mechanisms work against it:
 
@@ -2422,6 +2463,11 @@ the target — in which case the second call performs genuine, needed work.
 
 The bounty is a share of proceeds actually released, so there is no way to be paid for a call that
 moves nothing; and it is bounded by its ceiling, so no call, however large, pays more than that.
+
+At or below the peg a rebalance does not move the ratio, so the threshold does not stop a second call.
+What stops it is that the first takes all the pools can give: the next call reverts
+`NoTokensToLiquidate` until new deposits arrive. Each conversion is paid, though it repairs nothing,
+and the bounty's ceiling bounds what it pays.
 
 ### 9.6 Draining the subsidy
 
@@ -2604,7 +2650,7 @@ in-protocol mechanism addresses.
 | Flash-loan band traversal | Both ratio-lowering actions disallowed before the subsidy region; slice pricing | Floor-above-subsidies is calibration, not validated |
 | Rebalance timing — deposit before | Pro-rata dilution, exit fee, subsidies compete | Dilution of incumbent depositors — small, bounded |
 | Rebalance timing — withdraw before | Withdrawal window prices the exit; compounding restores the stayer | **Permanent harvest-share gap in the leveraged pool** |
-| Rebalance griefing | Threshold check; bounty only on real proceeds, within its ceiling | None material |
+| Rebalance griefing | Threshold check, or nothing left to take; bounty only on real proceeds, within its ceiling | At or below the peg, a paid conversion that repairs nothing, within the ceiling |
 | Subsidy draining | Legs priced against each other; reserve best-effort | Reserve exhaustion under legitimate use |
 | Window gaming | Withdraw clears request; a request covers only the balance held when it is made | Accepted by design — a fee, not a lock |
 | Donation / first depositor | **Structurally absent** — explicit ledger, no share price | None |
@@ -2670,7 +2716,7 @@ stateDiagram-v2
     note right of Depegged
         anchor under-covered
         sail claim worthless
-        rebalance refused
+        rebalance converts the pools
     end note
 ```
 
@@ -2687,7 +2733,7 @@ separately.
 | **Guarded** | T ≤ CR ≤ D | ⛔ **disallowed** by the schedule | ✅ schedule | ✅ schedule | ✅ schedule | ❌ not armed |
 | **Rebalanceable**, at or above the leverage floor | floor ≤ CR < T | ⛔ disallowed by the schedule | ✅ schedule | ✅ schedule | ✅ schedule | ✅ **armed**, both legs |
 | **Rebalanceable**, below the leverage floor | 1 < CR < floor | ⛔ **refused by the code** | ✅ schedule | ⛔ **refused by the cap** | ✅ schedule | ✅ **armed**, collateral route to the floor first |
-| **Depegged** | CR ≤ 1 | ⛔ refused by the code | ✅ schedule | ⛔ refused by the cap | ⛔ **refused**: no residual to pay | ⛔ **refused** |
+| **Depegged** | CR ≤ 1 | ⛔ refused by the code | ✅ schedule | ⛔ refused by the cap | ⛔ **refused**: no residual to pay | ✅ **converts the pools** at the market's price (§5.6) |
 
 "Schedule" means the action is priced by the market's fee and subsidy schedule (§7), and what a
 schedule can do to each action is fixed by the code's validation of it:
@@ -2770,13 +2816,14 @@ The collateral no longer covers the anchor tokens. Four things change qualitativ
 3. **Redeeming anchor tokens stays open.** Each redemption takes the holder's pro-rata share of the
    backing, so it leaves the ratio where it is rather than raising it, but it is the one exit, and no
    schedule can disallow it (C1). As designed, the schedule subsidises it here.
-4. **No rebalance.** For the same reason a rebalance could not move the ratio, so it is refused, and
-   the stability pools keep their anchor. Depositors hold anchor worth its depressed share, as every
-   anchor holder does.
+4. **The rebalance converts the pools.** For the same reason a rebalance cannot move the ratio, so it
+   no longer repairs anything. It takes all the market's anchor the pools can give and pays each pool
+   its anchor's share of the backing in wrapped collateral (§5.6). Depositors receive what their
+   anchor is worth, as every anchor holder who redeems does.
 
-**Exit** is by the collateral price recovering. Once the ratio is back above the peg the pools'
-anchor can repair it again — by the collateral route up to the leverage floor, then by both legs —
-which is why the pools are not spent while the market is depegged.
+**Exit** is by the collateral price recovering, or by a donation. A conversion leaves the pools with
+little to give, so until new deposits arrive a rebalance can do little to repair the market once the
+ratio is back above the peg.
 
 ### 10.7 Halted — the price feed has failed
 
@@ -2894,7 +2941,7 @@ document, the section is given.
 
 | Term | Meaning |
 |---|---|
-| **Rebalance** | Drawing anchor tokens from the stability pools and redeeming them, to raise the collateral ratio. Keeper-triggered, permissionless; refused at or below the peg (§5.6) |
+| **Rebalance** | Drawing anchor tokens from the stability pools and redeeming them, to raise the collateral ratio. Keeper-triggered, permissionless. At or below the peg it raises nothing: it converts the pools at the market's price (§5.6) |
 | **Harvest** | Paying out accrued collateral yield: a bounty to the keeper, a cut to the fee receiver, and the rest streamed to the stability pools. Keeper-triggered, permissionless (§5.7) |
 | **Compound** | Reinvesting a yield vault's rewards. Runs automatically after every rebalance and harvest (§6.4) |
 | **Liquidation** | The pool's side of a rebalance: anchor tokens are exchanged for the payout asset the manager names, at the middle of the price band and zero fee, and the proceeds credited immediately. Not a seizure — see §2.6 (§2.7) |

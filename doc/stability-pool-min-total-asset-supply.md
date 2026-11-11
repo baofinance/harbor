@@ -33,11 +33,11 @@ The mechanism (`_notifyLoss`):
   (`_notifyLoss`'s ceiling division, with the capped loss substituted).
 - The product factor applied to every balance is
   `newProductFactor = FP - assetLossPerUnitStaked` (`_notifyLoss`, just before
-  `supply.product.mul(newProductFactor)`).
+  `previousProduct.mul(newProductFactor)`).
 
 For `newProductFactor` to stay strictly positive — i.e. for a liquidation never to
-zero the product and brick every `balanceOf` read (which divides by the product
-magnitude) — we need `assetLossPerUnitStaked < FP`. Working the ceiling through, that
+zero the product and brick every `balanceOf` read (which divides by the product's
+mantissa) — we need `assetLossPerUnitStaked < FP`. Working the ceiling through, that
 holds exactly when:
 
 ```text
@@ -200,7 +200,7 @@ MIN-lower with 0 / 1 / N reward deposits before relying on it.)
 
 - **Lower MIN such that `supply > newMin·FP`.** The very next liquidation would round
   the loss factor up to a full `1.0`, zero the product, and make every `balanceOf`
-  divide by a zero magnitude — catastrophic and irreversible. A setter must reject
+  divide by a zero mantissa — catastrophic and irreversible. A setter must reject
   this.
 
 - **Auto-adjust MIN on a user deposit that would breach MAX.** Arithmetically this is

@@ -16,12 +16,12 @@ Stability pool depositors earn from two sources, which behave differently:
 | **Arrives** | Immediately, in one step | Streamed, vesting linearly over 7 days |
 | **Token received** | Wrapped collateral, or leveraged tokens | Wrapped collateral |
 | **Who triggers** | Anyone (keepers, arbitrageurs) | Anyone (keepers) |
-| **Priced at** | Maximum of the oracle band, zero fee | n/a — a transfer of accrued yield |
+| **Priced at** | The middle of the oracle band, zero fee; at or below the peg, the anchor's share of the backing | n/a — a transfer of accrued yield |
 
 ## Two types of stability pool
 
-Both accept the **same deposit asset** — anchor (ha) tokens — and both raise the collateral ratio by
-reducing anchor supply. They differ only in the payout:
+Both accept the **same deposit asset** — anchor (ha) tokens — and above the peg both raise the collateral
+ratio by reducing anchor supply. They differ only in the payout:
 
 ### Collateral stability pool
 - Deposit: **ha tokens** (anchor tokens)
@@ -30,9 +30,10 @@ reducing anchor supply. They differ only in the payout:
 
 ### Leveraged stability pool
 - Deposit: **ha tokens** (anchor tokens)
-- Liquidation payout: **hs tokens** (leveraged/sail tokens)
-- Collateral stays in the system as sail-token backing, so a smaller liquidation achieves the same
-  ratio improvement
+- Liquidation payout: **hs tokens** (leveraged/sail tokens) from the leverage floor up, and **wrapped
+  collateral** below it, at or below the peg included: the minter mints no sail there
+- Paid in sail, the collateral stays in the system as sail-token backing, so a smaller liquidation
+  achieves the same ratio improvement
 
 ## Liquidation rewards
 
@@ -64,9 +65,13 @@ from those actuals, so a pool is never left backing supply it no longer holds.
 collateralOut = (peggedTokens * peggedTokenPrice) / collateralPrice
 ```
 
-Two properties favour the depositor:
+At or below the peg each anchor token is paid its share of the backing instead, which the formula
+reaches only at the peg.
 
-- Liquidation reads the **maximum** of the oracle price band — the end most favourable to the pool.
+Two properties make it fair to the depositor:
+
+- Liquidation reads the **middle** of the oracle price band: the pools are forced to trade, so they
+  are not charged the spread.
 - Liquidation redeems at **zero fee**, unlike an ordinary redemption.
 
 From each leg's proceeds, a bounty - a ratio of them - goes to whoever triggered the rebalance, and a
@@ -82,12 +87,13 @@ stabilityPoolManager.updateRebalanceConfig(0.005 ether, 0.06 ether, 0.005 ether)
 
 ### Net effect
 
-- You receive collateral or sail tokens at a favourable rate — maximum price, no fees.
-- Rebalancing improves the system's collateral ratio.
+- You receive collateral or sail tokens at a fair rate: the middle of the price band, no fees.
+- Above the peg, rebalancing improves the system's collateral ratio.
 - Your remaining deposit rebases down, but the system backing it is healthier.
-- **The risk:** if the system is depegged (collateral ratio < 1), the anchor tokens taken from the
-  pool redeem at their depressed share of collateral, so you can receive back less value than you
-  deposited. This is the risk the yield pays for.
+- **The risk:** at or below the peg (a collateral ratio of 1 or less) a rebalance converts both
+  pools, as much as they can give and their market has minted. The anchor tokens taken redeem at
+  their depressed share of the collateral, and both pools are paid in wrapped collateral, so you can
+  receive back less value than you deposited. This is the risk the yield pays for.
 
 ## Harvest rewards
 
