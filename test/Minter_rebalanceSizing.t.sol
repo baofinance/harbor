@@ -26,9 +26,10 @@ import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 ///
 /// The rest size both legs. Redeeming pegged for collateral and converting it into leveraged move the ratio at
 /// different rates, so the pairs that reach the target lie on a line between the two single-leg amounts, its
-/// intercepts. The sizing picks the point on it that the pools' holdings weight, then fits it to each pool's headroom:
-/// a leg over its pool's headroom is held there and the shortfall slides along the line onto the other leg, and where
-/// that takes the other leg past its own pool's headroom, both stop at their headrooms, short of the target.
+/// intercepts. The sizing picks the point on it that the pools' holdings weight, then fits it to `maxCollateralPegged`
+/// and `maxLeveragedPegged`, the most each pool may give: a leg over its maximum is held there and the shortfall slides
+/// along the line onto the other leg, and where that takes the other leg past its own maximum, both stop at their
+/// maximums, short of the target.
 contract MinterRebalanceSizingTest is TestMinterSetUp {
     /// @dev The highest target the sweeps ask for. Well inside what the supply can reach by the collateral route
     ///      from the ratios they start at, so no sized amount exceeds the pegged outstanding.
@@ -49,7 +50,7 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
     }
 
     /// @dev The two single-leg amounts that reach `target`, the intercepts of its line: the sizing's own answer with
-    ///      no headroom limit and no holdings to weight.
+    ///      no `maxCollateralPegged` or `maxLeveragedPegged` limit and no holdings to weight.
     function _intercepts(uint256 target) private view returns (uint256 fullCollateral, uint256 fullLeveraged) {
         (fullCollateral, fullLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             target,
@@ -266,30 +267,30 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         assertEq(forCollateral, supply - 1, "the collateral pool's leg is the rest of the supply, not all of it");
     }
 
-    /// For pools that can give no more than they hold - as a stability pool, whose headroom is within its deposits -
-    /// the two legs are never together more than the pegged outstanding, whatever the pools hold, one or both nothing
-    /// included, and whatever the target: pegged swept from the pools beyond it would not be redeemed. In the same
-    /// market, where the collateral route alone takes the whole supply for every target.
+    /// For pools that can give no more than they hold - as a stability pool, whose `maxAssetLoss()` is within its
+    /// deposits - the two legs are never together more than the pegged outstanding, whatever the pools hold, one or
+    /// both nothing included, and whatever the target: pegged swept from the pools beyond it would not be redeemed. In
+    /// the same market, where the collateral route alone takes the whole supply for every target.
     function testFuzz_split_forPoolsThatGiveNoMoreThanTheyHold_neverSizesMoreThanThePeggedOutstanding(
         uint256 holdingCollateral,
         uint256 holdingLeveraged,
-        uint256 collateralHeadroom,
-        uint256 leveragedHeadroom,
+        uint256 maxCollateralPegged,
+        uint256 maxLeveragedPegged,
         uint256 target
     ) public {
         setUp_collateral(50, 1);
         uint256 supply = IMinter_v3(minter).peggedTokenBalance();
         holdingCollateral = bound(holdingCollateral, 0, 1e12 ether);
         holdingLeveraged = bound(holdingLeveraged, 0, 1e12 ether);
-        collateralHeadroom = bound(collateralHeadroom, 0, holdingCollateral);
-        leveragedHeadroom = bound(leveragedHeadroom, 0, holdingLeveraged);
+        maxCollateralPegged = bound(maxCollateralPegged, 0, holdingCollateral);
+        maxLeveragedPegged = bound(maxLeveragedPegged, 0, holdingLeveraged);
         target = bound(target, IMinter_v3(minter).collateralRatio() + 1, 2 ether);
         assertEq(_collateralRouteTo(target), supply, "fixture: the collateral route alone takes the whole supply");
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             target,
-            collateralHeadroom,
-            leveragedHeadroom,
+            maxCollateralPegged,
+            maxLeveragedPegged,
             holdingCollateral,
             holdingLeveraged
         );
@@ -297,27 +298,27 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         assertLe(forCollateral + forLeveraged, supply, "the legs together are within the pegged outstanding");
     }
 
-    /// A leg over its pool's headroom is held at the headroom, and the shortfall slides along the target line onto
+    /// A leg over the most its pool may give is held there, and the shortfall slides along the target line onto
     /// the other leg: with the leveraged pool able to give half its intercept, the collateral leg is the line's point
     /// for that, rounded up, so the trade still reaches the target.
     function test_split_capsTheLeveragedLegAndSlidesTheRestOntoTheCollateralLeg() public {
         (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
             _setUpSplit()
         );
-        uint256 leveragedHeadroom = fullLeveraged / 2;
+        uint256 maxLeveragedPegged = fullLeveraged / 2;
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             SPLIT_TARGET,
             type(uint256).max,
-            leveragedHeadroom,
+            maxLeveragedPegged,
             holdingCollateral,
             holdingLeveraged
         );
 
-        assertEq(forLeveraged, leveragedHeadroom, "the leveraged leg held at its pool's headroom");
+        assertEq(forLeveraged, maxLeveragedPegged, "the leveraged leg held at maxLeveragedPegged");
         assertEq(
             forCollateral,
-            Math.mulDiv(fullCollateral, fullLeveraged - leveragedHeadroom, fullLeveraged, Math.Rounding.Ceil),
+            Math.mulDiv(fullCollateral, fullLeveraged - maxLeveragedPegged, fullLeveraged, Math.Rounding.Ceil),
             "the collateral leg takes the rest of the line"
         );
         _redeem(forCollateral, forLeveraged);
@@ -330,86 +331,86 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
         (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
             _setUpSplit()
         );
-        uint256 collateralHeadroom = fullCollateral / 8;
+        uint256 maxCollateralPegged = fullCollateral / 8;
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             SPLIT_TARGET,
-            collateralHeadroom,
+            maxCollateralPegged,
             type(uint256).max,
             holdingCollateral,
             holdingLeveraged
         );
 
-        assertEq(forCollateral, collateralHeadroom, "the collateral leg held at its pool's headroom");
+        assertEq(forCollateral, maxCollateralPegged, "the collateral leg held at maxCollateralPegged");
         assertEq(
             forLeveraged,
-            Math.mulDiv(fullLeveraged, fullCollateral - collateralHeadroom, fullCollateral, Math.Rounding.Ceil),
+            Math.mulDiv(fullLeveraged, fullCollateral - maxCollateralPegged, fullCollateral, Math.Rounding.Ceil),
             "the leveraged leg takes the rest of the line"
         );
         _redeem(forCollateral, forLeveraged);
         assertGe(IMinter_v3(minter).collateralRatio(), SPLIT_TARGET, "the trade reaches the target");
     }
 
-    /// Given headroom but no holdings, the point to fit is the two intercepts, off the target line. A leg over its
-    /// pool's headroom is still held there and its shortfall slides along the line onto the other leg, so where the
-    /// headrooms leave room for a point on the line the trade lands on the target: with the collateral pool able to
-    /// give half its intercept and the leveraged pool three quarters of its, the line's point for half the collateral
-    /// intercept - not both headrooms, which would redeem past the target.
-    function test_split_withHeadroomButNoHoldings_reachesTheTargetWhereTheHeadroomsAllow() public {
+    /// Given `maxCollateralPegged` and `maxLeveragedPegged` but no holdings, the point to fit is the two intercepts,
+    /// off the target line. A leg over its maximum is still held there and its shortfall slides along the line onto the
+    /// other leg, so where the two maximums leave room for a point on the line the trade lands on the target: with the
+    /// collateral pool able to give half its intercept and the leveraged pool three quarters of its, the line's point
+    /// for half the collateral intercept - not both maximums, which would redeem past the target.
+    function test_split_withMaxPeggedButNoHoldings_reachesTheTargetWhereTheMaxPeggedAllow() public {
         setUp_collateral(100 ether, 3 ether); // a ratio of 1.03
         (uint256 fullCollateral, uint256 fullLeveraged) = _intercepts(SPLIT_TARGET);
-        uint256 collateralHeadroom = fullCollateral / 2;
-        uint256 leveragedHeadroom = (3 * fullLeveraged) / 4;
+        uint256 maxCollateralPegged = fullCollateral / 2;
+        uint256 maxLeveragedPegged = (3 * fullLeveraged) / 4;
         uint256 linePoint = Math.mulDiv(
             fullLeveraged,
-            fullCollateral - collateralHeadroom,
+            fullCollateral - maxCollateralPegged,
             fullCollateral,
             Math.Rounding.Ceil
         );
-        assertLe(linePoint, leveragedHeadroom, "the line's point fits the leveraged pool's headroom");
+        assertLe(linePoint, maxLeveragedPegged, "the line's point fits maxLeveragedPegged");
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             SPLIT_TARGET,
-            collateralHeadroom,
-            leveragedHeadroom,
+            maxCollateralPegged,
+            maxLeveragedPegged,
             0,
             0
         );
 
-        assertEq(forCollateral, collateralHeadroom, "the collateral leg held at its pool's headroom");
+        assertEq(forCollateral, maxCollateralPegged, "the collateral leg held at maxCollateralPegged");
         assertEq(forLeveraged, linePoint, "the leveraged leg the line's point for it");
         _redeem(forCollateral, forLeveraged);
         assertGe(IMinter_v3(minter).collateralRatio(), SPLIT_TARGET, "the trade reaches the target");
     }
 
-    /// Where the slide would take the other leg past its own pool's headroom, both pools are exhausted: each leg stops
-    /// at its pool's headroom, the most the two can give, and the trade moves the ratio toward the target without
+    /// Where the slide would take the other leg past its own maximum, both pools are exhausted: each leg stops at its
+    /// maximum, the most the two can give, and the trade moves the ratio toward the target without
     /// reaching it. With the collateral pool able to give an eighth of its intercept, the leveraged leg would have to
     /// be seven eighths of its own - more than the four fifths its pool can give.
-    function test_split_whenTheLeveragedSlideOverflowsItsPool_takesBothToTheirHeadroom() public {
+    function test_split_whenTheLeveragedSlideOverflowsItsPool_takesBothToTheirMaxPegged() public {
         (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
             _setUpSplit()
         );
-        uint256 collateralHeadroom = fullCollateral / 8;
-        uint256 leveragedHeadroom = (4 * fullLeveraged) / 5;
-        assertLe(Math.ceilDiv(3 * fullLeveraged, 4), leveragedHeadroom, "the weighted leveraged leg fits its pool");
+        uint256 maxCollateralPegged = fullCollateral / 8;
+        uint256 maxLeveragedPegged = (4 * fullLeveraged) / 5;
+        assertLe(Math.ceilDiv(3 * fullLeveraged, 4), maxLeveragedPegged, "the weighted leveraged leg fits its pool");
         assertGt(
-            Math.mulDiv(fullLeveraged, fullCollateral - collateralHeadroom, fullCollateral, Math.Rounding.Ceil),
-            leveragedHeadroom,
+            Math.mulDiv(fullLeveraged, fullCollateral - maxCollateralPegged, fullCollateral, Math.Rounding.Ceil),
+            maxLeveragedPegged,
             "but the slide would take it past"
         );
         uint256 ratioBefore = IMinter_v3(minter).collateralRatio();
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             SPLIT_TARGET,
-            collateralHeadroom,
-            leveragedHeadroom,
+            maxCollateralPegged,
+            maxLeveragedPegged,
             holdingCollateral,
             holdingLeveraged
         );
 
-        assertEq(forCollateral, collateralHeadroom, "the collateral leg at its pool's headroom");
-        assertEq(forLeveraged, leveragedHeadroom, "the leveraged leg at its pool's headroom");
+        assertEq(forCollateral, maxCollateralPegged, "the collateral leg at maxCollateralPegged");
+        assertEq(forLeveraged, maxLeveragedPegged, "the leveraged leg at maxLeveragedPegged");
         _redeem(forCollateral, forLeveraged);
         uint256 ratioAfter = IMinter_v3(minter).collateralRatio();
         assertGt(ratioAfter, ratioBefore, "the trade moves the ratio toward the target");
@@ -418,30 +419,30 @@ contract MinterRebalanceSizingTest is TestMinterSetUp {
 
     /// The mirror: with the leveraged pool able to give half its intercept, the collateral leg would have to be half of
     /// its own - more than the third its pool can give.
-    function test_split_whenTheCollateralSlideOverflowsItsPool_takesBothToTheirHeadroom() public {
+    function test_split_whenTheCollateralSlideOverflowsItsPool_takesBothToTheirMaxPegged() public {
         (uint256 fullCollateral, uint256 fullLeveraged, uint256 holdingCollateral, uint256 holdingLeveraged) = (
             _setUpSplit()
         );
-        uint256 collateralHeadroom = fullCollateral / 3;
-        uint256 leveragedHeadroom = fullLeveraged / 2;
-        assertLe(Math.ceilDiv(fullCollateral, 4), collateralHeadroom, "the weighted collateral leg fits its pool");
+        uint256 maxCollateralPegged = fullCollateral / 3;
+        uint256 maxLeveragedPegged = fullLeveraged / 2;
+        assertLe(Math.ceilDiv(fullCollateral, 4), maxCollateralPegged, "the weighted collateral leg fits its pool");
         assertGt(
-            Math.mulDiv(fullCollateral, fullLeveraged - leveragedHeadroom, fullLeveraged, Math.Rounding.Ceil),
-            collateralHeadroom,
+            Math.mulDiv(fullCollateral, fullLeveraged - maxLeveragedPegged, fullLeveraged, Math.Rounding.Ceil),
+            maxCollateralPegged,
             "but the slide would take it past"
         );
         uint256 ratioBefore = IMinter_v3(minter).collateralRatio();
 
         (uint256 forCollateral, uint256 forLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             SPLIT_TARGET,
-            collateralHeadroom,
-            leveragedHeadroom,
+            maxCollateralPegged,
+            maxLeveragedPegged,
             holdingCollateral,
             holdingLeveraged
         );
 
-        assertEq(forCollateral, collateralHeadroom, "the collateral leg at its pool's headroom");
-        assertEq(forLeveraged, leveragedHeadroom, "the leveraged leg at its pool's headroom");
+        assertEq(forCollateral, maxCollateralPegged, "the collateral leg at maxCollateralPegged");
+        assertEq(forLeveraged, maxLeveragedPegged, "the leveraged leg at maxLeveragedPegged");
         _redeem(forCollateral, forLeveraged);
         uint256 ratioAfter = IMinter_v3(minter).collateralRatio();
         assertGt(ratioAfter, ratioBefore, "the trade moves the ratio toward the target");

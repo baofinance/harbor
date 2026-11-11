@@ -1130,7 +1130,7 @@ contract TestMinterMintPeggedAcrossBands is TestMinterSetUp {
 }
 
 /// @notice A capped pegged mint holds its fee, as a ratio of the collateral it uses, within the cap: past a bound into a
-/// dearer band it takes only as much of that band as the cheaper band's headroom pays for.
+/// dearer band it takes only as much of that band as keeps the fee charged so far within the cap.
 contract TestMinterMintPeggedCapped is TestMinterSetUp {
     address user;
 

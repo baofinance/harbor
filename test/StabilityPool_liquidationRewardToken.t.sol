@@ -120,24 +120,24 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         vm.stopPrank();
     }
 
-    /// A liquidation asking for more than the pool's headroom above its floor is capped there, and its event reports
+    /// A liquidation asking for more than the pool's `maxAssetLoss()` is capped there, and its event reports
     /// the loss the pool applied - the supply it wrote down - not the amount the rebalancer asked for.
     function test_liquidated_reportsTheLossApplied_whenTheRequestPassesTheFloor() public {
         _twoDepositors();
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
-        uint256 headroom = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
+        uint256 maxLoss = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
         collateralPoolActions.sweepAndFund(rewardToken, supplyBefore, RETURNED);
 
         vm.startPrank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);
-        emit IStabilityPool_v3.Liquidated(peggedToken, headroom, rewardToken, RETURNED);
+        emit IStabilityPool_v3.Liquidated(peggedToken, maxLoss, rewardToken, RETURNED);
         IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, supplyBefore, RETURNED);
         vm.stopPrank();
 
         assertEq(
             supplyBefore - IERC20(stabilityPoolCollateral).totalSupply(),
-            headroom,
-            "the supply written down is the headroom"
+            maxLoss,
+            "the supply written down is maxAssetLoss"
         );
     }
 

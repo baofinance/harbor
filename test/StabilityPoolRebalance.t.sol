@@ -776,8 +776,8 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             );
             IStabilityPool_v3(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
 
-            // At the floor the pool has no headroom, so a withdrawal of the whole balance caps to nothing and reverts
-            // rather than paying 0.
+            // At the floor the pool's maxAssetLoss is zero, so a withdrawal of the whole balance caps to nothing and
+            // reverts rather than paying 0.
             vm.expectRevert(IStabilityPool_v3.WithdrawZeroAmount.selector);
             IStabilityPool_v3(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
             vm.stopPrank();
@@ -873,13 +873,14 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         uint256 poolBalance = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
         assertEq(poolBalance, directAmount, "Pool should have received tokens");
 
-        // 5. Liquidate at zero supply: the asset sweep caps at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY, which
-        //    is 0 when supply is 0, so it takes nothing (and _notifyLoss on zero supply applies no loss).
+        // 5. Liquidate at zero supply: the asset sweep caps at the pool's `maxAssetLoss()`, its supply above
+        //    MIN_TOTAL_ASSET_SUPPLY, which is 0 when supply is 0, so it takes nothing (and _notifyLoss on zero supply
+        //    applies no loss).
         collateralPoolActions.liquidate(wrappedCollateralToken, directAmount, 0);
 
         // 6. The directly-transferred tokens remain - the asset sweep took nothing.
         uint256 poolBalanceAfter = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
-        assertEq(poolBalanceAfter, directAmount, "asset sweep takes nothing at zero supply - headroom is 0");
+        assertEq(poolBalanceAfter, directAmount, "asset sweep takes nothing at zero supply - maxAssetLoss is 0");
 
         // 7. Verify supply remains at zero
         uint256 finalSupply = IERC20(stabilityPoolCollateral).totalSupply();

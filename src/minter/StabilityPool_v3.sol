@@ -98,10 +98,10 @@ contract StabilityPool_v3 is
 
     /// @dev the supply ceiling, the mirror of the floor: `MIN_TOTAL_ASSET_SUPPLY * FACTOR_PRECISION`, saturated at the
     ///      uint128 supply-field width (a larger ceiling is unreachable, so it becomes a no-op). Above it a liquidation
-    ///      capped at the headroom (`supply - MIN`) has a loss-per-unit that the loss factor's `FACTOR_PRECISION`-scale
-    ///      rounds up to a total loss, zeroing the product factor and dividing later `balanceOf` reads by a zero
-    ///      mantissa. The deposit ceiling keeps supply at/below it, so the factor handed to `mul` is always > 0 by
-    ///      construction rather than by assumption.
+    ///      capped at `maxAssetLoss()` (`supply - MIN`) has a loss-per-unit that the loss factor's
+    ///      `FACTOR_PRECISION`-scale rounds up to a total loss, zeroing the product factor and dividing later
+    ///      `balanceOf` reads by a zero mantissa. The deposit ceiling keeps supply at/below it, so the factor handed to
+    ///      `mul` is always > 0 by construction rather than by assumption.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MAX_TOTAL_ASSET_SUPPLY;
 
@@ -136,7 +136,7 @@ contract StabilityPool_v3 is
     ///        below 2^120, and `StabilityPool_v3_Upgrader`, the upgrade from v2, refuses a pool where it is set in the
     ///        supply's record or a listed holder's.
     /// @param amount The amount of token held at that product. Widened from v2's uint104 into the zero padding of
-    ///        slot 0: uint128 (about 3.4e38) covers the protocol's amount envelope with wide headroom.
+    ///        slot 0: uint128 (about 3.4e38) covers the protocol's amount envelope with a wide margin.
     /// @param unusedInV3 v2's `updatedAt`, which v3 never reads or writes: it holds the time v2 last wrote, or 0. It is
     ///        kept so that no later field is placed on those bytes.
     /// @param exponent The exponent of the loss product.
@@ -189,7 +189,7 @@ contract StabilityPool_v3 is
     // -------------------------------------------------------------------------------------------------
     // A pool's `amount` is the pegged token it holds, which scales as collateral * price / 1e18 and, across
     // the protocol's price/amount envelope, reaches into v2's uint104 ceiling (~2.03e31 wei, ~2e13 whole
-    // tokens). `TokenBalance.amount` is therefore uint128 (~3.4e38), with wide headroom; every balance write
+    // tokens). `TokenBalance.amount` is therefore uint128 (~3.4e38), with a wide margin; every balance write
     // goes through `SafeCast.toUint128`, so an amount beyond the field width reverts.
     //
     // v2 kept the loss product's exponent in eight bits, the top byte of its 16-byte `product`. v3 keeps it in a
@@ -538,12 +538,12 @@ contract StabilityPool_v3 is
         bool inWindow = hasRequest && block.timestamp >= request.start && block.timestamp <= request.end;
         // Role-based fee exemption: addresses with EXEMPT_WITHDRAWAL_FEE_ROLE never pay early-withdrawal fees
         bool isExempt = hasAnyRole(sender, EXEMPT_WITHDRAWAL_FEE_ROLE);
-        // Cap the gross outflow (assetsWithdrawn is still the whole amount leaving the pool) at the headroom above the
-        // floor, the same cap the loss and sweep paths take. Once seeded the pool never returns to zero: total supply
-        // is either 0 (pristine, before its first deposit) or >= MIN_TOTAL_ASSET_SUPPLY, never inside the
-        // (0, MIN_TOTAL_ASSET_SUPPLY) dust zone. That is what makes the reward divisor's floor STRUCTURAL rather than
-        // asserted: `rewardDivisorGap` is written only by `_notifyLoss`, which needs a non-empty pool, so supply == 0
-        // implies the pool was never liquidated, hence gap == 0 and the divisor reads exactly 0 - letting
+        // Cap the gross outflow (assetsWithdrawn is still the whole amount leaving the pool) at `maxAssetLoss()`, the
+        // supply above the floor, the same cap the loss and sweep paths take. Once seeded the pool never returns to
+        // zero: total supply is either 0 (pristine, before its first deposit) or >= MIN_TOTAL_ASSET_SUPPLY, never
+        // inside the (0, MIN_TOTAL_ASSET_SUPPLY) dust zone. That is what makes the reward divisor's floor STRUCTURAL
+        // rather than asserted: `rewardDivisorGap` is written only by `_notifyLoss`, which needs a non-empty pool, so
+        // supply == 0 implies the pool was never liquidated, hence gap == 0 and the divisor reads exactly 0 - letting
         // `_accumulateReward`'s `totalShare == 0` guard queue the reward. Draining to zero would instead carry a
         // surviving negative gap into the empty pool, where the divisor reads `-gap`: a live sub-floor divisor that
         // silently defeats the reward-integral cap `_depositRewardCap` sizes against `_minTotalShare()`.
@@ -676,7 +676,7 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
     /// @dev Supply is either 0 - pristine, before the pool's first deposit - or >= MIN_TOTAL_ASSET_SUPPLY: every asset
-    /// outflow (withdraw, sweep, loss) is capped at the headroom above the floor by `_capToFloor`, so a seeded pool
+    /// outflow (withdraw, sweep, loss) is capped at `maxAssetLoss()` by `_capToFloor`, so a seeded pool
     /// never returns to zero and supply never enters the (0, MIN_TOTAL_ASSET_SUPPLY) dust zone. That makes this floor
     /// structural rather than merely asserted. At supply == 0 the pool has never been liquidated (only `_notifyLoss`
     /// writes `rewardDivisorGap`, and it needs a non-empty pool), so the gap is 0 and the divisor reads exactly 0 -
@@ -711,7 +711,7 @@ contract StabilityPool_v3 is
 
     /// @dev Internal function to reduce asset accounting.
     /// @param loss The amount of asset lost.
-    /// @return The loss applied: `loss` capped at the headroom above the floor, 0 when the pool is at it.
+    /// @return The loss applied: `loss` capped at `maxAssetLoss()`, 0 when the pool is at it.
     function _notifyLoss(uint256 loss) internal returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance storage supply = $.totalAssetSupply;
@@ -801,11 +801,11 @@ contract StabilityPool_v3 is
     // -------------------------------------------------------
     /// @notice Cap the asset (pegged) sweep so the pool's pegged backing can never drop below its
     ///         MIN_TOTAL_ASSET_SUPPLY floor. Non-asset tokens (stray-token/dust recovery) sweep in full.
-    /// @dev Overrides the TokenHolder_v2._sweep hook: caps the asset-token amount at the pool's headroom, then
-    ///      delegates to super._sweep, which emits Swept and transfers exactly the capped amount. During a
-    ///      liquidation the rebalancer sweeps the pool's pegged backing and _notifyLoss writes the supply down, capped
-    ///      at supply - MIN_TOTAL_ASSET_SUPPLY; capping the asset sweep at that same headroom keeps the retained pegged
-    ///      in lock-step with the remaining supply, so the floored supply is never left unbacked (mirrors withdraw's
+    /// @dev Overrides the TokenHolder_v2._sweep hook: caps the asset-token amount at `maxAssetLoss()`, then delegates
+    ///      to super._sweep, which emits Swept and transfers exactly the capped amount. During a liquidation the
+    ///      rebalancer sweeps the pool's pegged backing and _notifyLoss writes the supply down, capped at supply -
+    ///      MIN_TOTAL_ASSET_SUPPLY; capping the asset sweep at that same `maxAssetLoss()` keeps the retained pegged in
+    ///      lock-step with the remaining supply, so the floored supply is never left unbacked (mirrors withdraw's
     ///      maxOutflow).
     function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder_v2) {
         if (token == ASSET_TOKEN) {
@@ -827,7 +827,7 @@ contract StabilityPool_v3 is
         return supply > MIN_TOTAL_ASSET_SUPPLY ? supply - MIN_TOTAL_ASSET_SUPPLY : 0;
     }
 
-    /// @notice Cap an asset-token outflow at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY (`maxAssetLoss`) - it may
+    /// @notice Cap an asset-token outflow at `maxAssetLoss`, the pool's supply above MIN_TOTAL_ASSET_SUPPLY - it may
     ///         take the pool down to the floor but no further (a loss must leave every holder their share of the min).
     ///         Shared by the rebalance `sweep` (caps the pegged handed to the liquidator), `_notifyLoss` (caps the
     ///         supply written down) and `withdraw` (caps the gross outflow): applied to all three, the pegged the pool
@@ -835,8 +835,8 @@ contract StabilityPool_v3 is
     ///         supply still fully backed, and a seeded pool never returns to zero - the single rule behind the reward
     ///         divisor's floor. Returns 0 when supply is 0.
     function _capToFloor(uint256 amount) internal view returns (uint256) {
-        uint256 headroom = maxAssetLoss();
-        return amount > headroom ? headroom : amount;
+        uint256 maxLoss = maxAssetLoss();
+        return amount > maxLoss ? maxLoss : amount;
     }
 
     /// @inheritdoc IStabilityPool_v3

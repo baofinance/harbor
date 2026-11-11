@@ -121,11 +121,10 @@ Without it they could withdraw and redeem at a healthy market of the same anchor
 to whoever redeems last. The sail pool is paid in collateral too: sail is worth nothing there, and the minter
 mints none below the floor.
 
-**Between the peg and the floor, everything goes to collateral.** The sail pool cannot be paid in sail, because
-the minter will not mint it. So both pools give up anchor by the collateral route, pro rata to what each holds
-and within each pool's headroom, until the ratio reaches the floor, or the threshold if that is lower. Both pools
-are paid in collateral, in proportion to the anchor each gave up.
-
+**Between the peg and the floor, everything goes to collateral.** The sail pool cannot be paid in sail, because the
+minter will not mint it. So both pools give up anchor by the collateral route, pro rata to what each holds and
+within each pool's `maxAssetLoss()` and `maxLiquidationReward()`, until the ratio reaches the floor, or the
+threshold if that is lower. Both pools are paid in collateral, in proportion to the anchor each gave up.
 **From the floor to the threshold, both legs.** The collateral pool's anchor is redeemed for collateral and the
 sail pool's is converted into sail at the residual's price. A rebalance that starts below the floor does this
 second step in the same call, once the first has reached the floor.
@@ -137,11 +136,12 @@ second step in the same call, once the first has reached the floor.
 | floor to threshold | collateral | sail |
 
 In every step the keeper's bounty is its ratio of each payment, in the token that payment is made in, and the
-keeper's `minPeggedLiquidated` is judged against both steps together. A pool whose share exceeds its headroom
-gives up what it can and the other pool takes the rest in the same call. Pools too small to reach the target
-lift the ratio as far as their headroom goes, and a later rebalance continues. A leg that would be paid nothing is
-not taken, and a rebalance that would take nothing - both pools at their floors, or no leg that would be paid a
-wei - reverts `NoTokensToLiquidate`.
+keeper's `minPeggedLiquidated` is judged against both steps together. A pool whose share exceeds its
+`maxAssetLoss()`, or would be paid more than its `maxLiquidationReward()`, gives up what it can and the other pool
+takes the rest in the same call. Pools too small to reach the target lift the ratio as far as their
+`maxAssetLoss()` and `maxLiquidationReward()` allow, and a later rebalance continues. A leg that would be paid
+nothing is not taken, and a rebalance that would take nothing - both pools at their floors, or no leg that would be
+paid a wei - reverts `NoTokensToLiquidate`.
 
 ## Pricing inside a rebalance
 

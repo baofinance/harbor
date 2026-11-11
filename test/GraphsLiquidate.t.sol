@@ -386,7 +386,8 @@ contract TestGraphsLiquidateParameters is GraphTestBase, TestCollateralRatioRang
     }
 
     function doOneCollateralRatio(uint256 collateralRatio) internal override {
-        // the unconstrained intercepts (no headroom caps, no holdings split) - the removed 1-arg's behaviour
+        // the unconstrained intercepts (no `maxCollateralPegged` or `maxLeveragedPegged` cap, no holdings split) - the
+        // removed 1-arg's behaviour
         (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter_v3(minter)
             .redeemPeggedForCollateralRatio(1.01 ether, type(uint256).max, type(uint256).max, 0, 0);
         (uint256 peggedForCollateral125, uint256 peggedForLeveraged125) = IMinter_v3(minter)

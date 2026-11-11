@@ -88,9 +88,9 @@ and each depositor's `assetBalances[user]`:
 | the compounding loss factor | `TokenBalance.mantissa` and `TokenBalance.exponent` (the pair `LossProduct`: a 120-bit mantissa and a 64-bit exponent) | dynamic range far beyond a plain uint128 |
 | accrued reward per share | `tokenToExponentToIntegral[token][exponent]` (uint256, bucketed per uint64 exponent) | effectively unbounded |
 | a holder's claimable / claimed | `pending` / `claimed` (uint256) | effectively unbounded (uncapped accrual) |
-| a harvest deposit (paid out over the reward period) | `RewardData_v2 { uint256 queued, uint128 rate, uint40 … }` | `maxDepositReward` per period ≈ 1.16e17 × MIN (integral headroom) |
+| a harvest deposit (paid out over the reward period) | `RewardData_v2 { uint256 queued, uint128 rate, uint40 … }` | `maxDepositReward` per period ≈ 1.16e17 × MIN (`_integralCap(MIN)`) |
 
-The uint128 ledger clears every tested peg, size and crowd with ≥ 1e4× headroom. The field never
+The uint128 ledger clears every tested peg, size and crowd by a margin of ≥ 1e4×. The field never
 binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN_TOTAL_ASSET_SUPPLY
 × FACTOR_PRECISION` (a token count), which is smaller and binds first.
 
@@ -109,25 +109,26 @@ binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN
 ### 2.3 The limits the tests located
 
 - **The harvest defers past a per-period cap, then recovers across periods.** A deposit is capped at
-  `maxDepositReward` — the reward integral's headroom ≈ 1.16e17 × MIN (the `rate` field is wider and no longer
-  binds). Yield past the cap is left **harvestable**; once the period distributes, capacity frees and the next
-  harvest drains another chunk — recovery is by **waiting**, not by harvesting more often. Nothing is at risk
-  (harvestable falls by exactly what each harvest sweeps). Reaching the cap needs an extreme corner (a \$1e10
-  pool taking a min→max wrap-rate jump at collateral below ~\$2e-5), far from normal operation; raising it is a
-  contained per-token migration, never per-holder.
+  `maxDepositReward`, which `_integralCap(MIN)` bounds at ≈ 1.16e17 × MIN (the `rate` field is wider and no longer
+  binds). Yield past the cap is left **harvestable**; once the period distributes, `maxDepositReward` rises again and
+  the next harvest drains another chunk — recovery is by **waiting**, not by harvesting more often. Nothing is at risk
+  (harvestable falls by exactly what each harvest sweeps). Reaching the cap needs an extreme corner (a \$1e10 pool
+  taking a min→max wrap-rate jump at collateral below ~\$2e-5), far from normal operation; raising it is a contained
+  per-token migration, never per-holder.
 - **The rebalance recovers differently — immediately, capped, and self-correcting in one call.** Its liquidation
-  reward is accrued in one step (`_accumulateReward`), not streamed, and is bounded by `maxLiquidationReward`: the
-  reward-integral capacity sized against the *live* share (the reward accrues at once, before the loss, so it is
-  ≥ the streamed `maxDepositReward`). The rebalance clamps each leg's redeemed proceeds to it, deferring any excess to
-  a later call rather than overflowing. The cap does not bind in the declared envelope — even the cheapest-collateral
-  corner's `returned` sits orders of magnitude below it (~1e18× at the max-supply corner) — so the corner executes in
-  full; the cap is the guarantee beyond the envelope. When a pool's proportional share would take it below `MIN`, the
-  **minter's constrained redeem** caps that leg at the pool's headroom and slides the shortfall along the target-ratio
-  line into the co-pool's leg — each leg still redeemed for its own token — so a single rebalance reaches the threshold,
-  or, if both headrooms are exhausted, liquidates the pools' combined headroom (a partial a later rebalance continues).
-  The harvest defers on the same principle: each pool carries its own `owed` ledger, so a share deferred past one
-  period's capacity stays with the pool that earned it and is never re-split to the other. Only genuinely *new* yield
-  is allocated by current holdings, so a pool that did not hold when a backlog accrued never receives any of it.
+  reward is accrued in one step (`_accumulateReward`), not streamed, and is bounded by `maxLiquidationReward`:
+  `_integralCap` sized against the *live* share (the reward accrues at once, before the loss, so it is ≥ the streamed
+  `maxDepositReward`). The rebalance clamps each leg's redeemed proceeds to it, deferring any excess to a later call
+  rather than overflowing. The cap does not bind in the declared envelope — even the cheapest-collateral corner's
+  `returned` sits orders of magnitude below it (~1e18× at the max-supply corner) — so the corner executes in full; the
+  cap is the guarantee beyond the envelope. When a pool's proportional share would take it below `MIN`, the **minter's
+  constrained redeem** caps that leg at the pool's `maxAssetLoss()` and slides the shortfall along the target-ratio
+  line into the co-pool's leg — each leg still redeemed for its own token — so a single rebalance reaches the
+  threshold, or, if both legs reach their pool's `maxAssetLoss()`, liquidates both pools to their floors (a partial a
+  later rebalance continues). The harvest defers on the same principle: each pool carries its own `owed` ledger, so a
+  share deferred past its `maxDepositReward` stays with the pool that earned it and is never re-split to the other.
+  Only genuinely *new* yield is allocated by current holdings, so a pool that did not hold when a backlog accrued
+  never receives any of it.
 - **A holder's reward accrual is uncapped — held in uint256.** Unlike the ledger `amount` (capped at `MAX`), a
   holder's `pending` / `claimed` has no cap: the whole-pool reward can concentrate on one holder as a count
   `poolValueUSD / wrappedUSD`. The declared envelope stops the collateral axis at \$1e-6 (overflow threshold

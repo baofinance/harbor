@@ -81,8 +81,8 @@ contract StabilityPoolManager_v2 is
         /// initialize, retargetable via updateFeeReceiver, and never zero.
         // @custom:security non-reentrant
         address feeReceiver;
-        /// @notice Gross harvest yield owed to the collateral pool but not yet streamed - deferred past its per-period
-        /// reward capacity. Tracked per pool so a deferred backlog is never re-split to the other pool; pre-skim, so
+        /// @notice Gross harvest yield owed to the collateral pool but not yet streamed - deferred past its
+        /// `maxDepositReward`. Tracked per pool so a deferred backlog is never re-split to the other pool; pre-skim, so
         /// the bounty and cut are taken when the value is actually streamed to the pool, not when it is owed.
         uint256 owedCollateral;
         /// @notice Gross harvest yield owed to the leveraged pool but not yet streamed (see `owedCollateral`).
@@ -707,7 +707,7 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @dev Sweep up to `pegged` of `pool`'s pegged into this manager, returning what was actually taken: a pool caps
-    ///      the sweep at its headroom above its floor, the same cap its loss write-down applies, so it may hand back
+    ///      the sweep at its `maxAssetLoss()`, the same cap its loss write-down applies, so it may hand back
     ///      less than asked.
     function _sweepPegged(address pool, uint256 pegged) private returns (uint256 taken) {
         // slither-disable-next-line incorrect-equality
@@ -767,13 +767,12 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @dev Clamp a liquidation leg's pegged amount to what `pool` will honour, given the redeem's previewed `returned`
-    ///      proceeds for that leg. Two bounds: the reward integral (`maxLiquidationReward` - the proceeds are
-    ///      distributed immediately as the pool's reward and must not overflow it; scale the pegged down so the linear
-    ///      proceeds land at the cap) and the solvency headroom (`maxAssetLoss` - a loss may take the pool only to its
-    ///      MIN floor). The pool enforces both itself, later - its reward path can revert on overflow, its loss path
-    ///      caps inside `_capToFloor` - so applying them here first sizes the sweep to what the pool accepts. Applied
-    ///      to the most a pool may give, before the sizing (`_maxPeggedFrom`), and to each leg after it
-    ///      (`_clampLegs`).
+    ///      proceeds for that leg. Two bounds: `maxLiquidationReward` (the proceeds are distributed immediately as the
+    ///      pool's reward and must not overflow the reward integral; scale the pegged down so the linear proceeds land
+    ///      at the cap) and `maxAssetLoss` (a loss may take the pool only to its MIN floor). The pool enforces both
+    ///      itself, later - its reward path can revert on overflow, its loss path caps inside `_capToFloor` - so
+    ///      applying them here first sizes the sweep to what the pool accepts. Applied to the most a pool may give,
+    ///      before the sizing (`_maxPeggedFrom`), and to each leg after it (`_clampLegs`).
     function _capLiquidation(uint256 pegged, uint256 returned, address pool) private view returns (uint256) {
         // slither-disable-next-line incorrect-equality avoids divide by 0
         if (pegged == 0) {
@@ -799,12 +798,12 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @dev Split a pool's `owed` into the NET to deposit this harvest and the GROSS it consumes (net + its skim). The
-    /// net is the owed's residual share `owed × residualRatio`, capped at the pool's remaining per-period reward
-    /// capacity `maxDepositReward` (so `depositReward` cannot overflow the rate field); when capped, the net is that
-    /// capacity EXACTLY and the gross is grossed back up from it. A net below one reward period - where its rate
-    /// `net / REWARD_PERIOD_LENGTH` floors to zero and would only sit in `queued` - streams nothing, leaving the whole
-    /// owed to accumulate rather than transferring dust. A full cut (`residualRatio == 0`) streams nothing to the pool,
-    /// so the net is zero and the whole owed is consumed (swept and skimmed).
+    /// net is the owed's residual share `owed × residualRatio`, capped at the pool's `maxDepositReward` (so
+    /// `depositReward` cannot overflow the rate field); when capped, the net is `maxDepositReward` EXACTLY and the
+    /// gross is grossed back up from it. A net below one reward period - where its rate `net / REWARD_PERIOD_LENGTH`
+    /// floors to zero and would only sit in `queued` - streams nothing, leaving the whole owed to accumulate rather
+    /// than transferring dust. A full cut (`residualRatio == 0`) streams nothing to the pool, so the net is zero and
+    /// the whole owed is consumed (swept and skimmed).
     function _streamAmounts(
         uint256 owed,
         address pool,
@@ -816,9 +815,9 @@ contract StabilityPoolManager_v2 is
         uint256 cap = IMultipleRewardDistributor_v3(pool).maxDepositReward(WRAPPED_COLLATERAL_TOKEN);
         net = Math.mulDiv(owed, residualRatio, 1 ether);
         if (net <= cap) {
-            gross = owed; // the whole owed fits within one period's capacity
+            gross = owed; // the whole owed fits within `maxDepositReward`
         } else {
-            net = cap; // capped: deposit exactly one period's capacity, gross it back up for the skim
+            net = cap; // capped: deposit exactly `maxDepositReward`, gross it back up for the skim
             gross = Math.mulDiv(cap, 1 ether, residualRatio);
         }
         if (net < IMultipleRewardDistributor_v3(pool).REWARD_PERIOD_LENGTH()) {
@@ -838,7 +837,7 @@ contract StabilityPoolManager_v2 is
 
         // Allocate the NEW yield - harvestable beyond what is already owed to the pools and still sitting in the minter
         // - to the pools by CURRENT supply, GROSS (pre-skim), added to each pool's own `owed`. A pool's owed is its
-        // own: a share deferred past one period's reward capacity is never re-split to the other pool, so a pool that
+        // own: a share deferred past the pool's `maxDepositReward` is never re-split to the other pool, so a pool that
         // had no deposit when it accrued never receives it. If the minter's excess has shrunk below what is owed (a
         // wrap-rate drop eroding it), write the owed down proportionally so it never claims more than the minter holds.
         uint256 toTreasuryGross;
@@ -864,11 +863,11 @@ contract StabilityPoolManager_v2 is
             }
         }
 
-        // Stream each pool's owed up to its remaining per-period capacity; the treasury takes its gross in full. The
-        // bounty and cut are the exact ratio slices of the GROSS distributed this call - which equals what is swept
-        // from the minter - so they are taken when the value reaches the pool, never on the deferred backlog, and a
-        // bounty receiver's reward always matches the harvestable it consumed. The unprocessed owed and the sub-part
-        // flooring remainder stay harvestable in the minter for a later call.
+        // Stream each pool's owed up to its `maxDepositReward`; the treasury takes its gross in full. The bounty and
+        // cut are the exact ratio slices of the GROSS distributed this call - which equals what is swept from the
+        // minter - so they are taken when the value reaches the pool, never on the deferred backlog, and a bounty
+        // receiver's reward always matches the harvestable it consumed. The unprocessed owed and the sub-part flooring
+        // remainder stay harvestable in the minter for a later call.
         (uint256 grossCollateral, uint256 netCollateral) = _streamAmounts(
             $.owedCollateral,
             _STABILITY_POOL_COLLATERAL,

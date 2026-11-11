@@ -694,12 +694,12 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         );
     }
 
-    // maxAssetLoss is the pool's headroom above its MIN floor - the most supply a liquidation may write down, and what
-    // the rebalancer queries before liquidating. Both branches of the headroom are exercised: zero while empty (at or
+    // maxAssetLoss is the pool's supply above its MIN floor - the most supply a liquidation may write down, and what
+    // the rebalancer queries before liquidating. Both branches of maxAssetLoss are exercised: zero while empty (at or
     // below the floor), then supply - MIN once funded above it.
-    function test_maxAssetLoss_headroomAboveFloor() public {
-        // empty pool: supply is at or below the floor, so there is no loss headroom
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(), 0, "empty pool: no loss headroom");
+    function test_maxAssetLoss_isTheSupplyAboveMinTotalAssetSupply() public {
+        // empty pool: supply is at or below the floor, so maxAssetLoss is zero
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(), 0, "empty pool: maxAssetLoss is zero");
 
         uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         uint256 depositAmount = 5 * floor;
@@ -714,7 +714,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         assertEq(
             IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
             supply - floor,
-            "maxAssetLoss is the supply headroom above MIN"
+            "maxAssetLoss is the supply above MIN"
         );
     }
 

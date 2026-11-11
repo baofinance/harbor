@@ -457,19 +457,20 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         );
     }
 
-    /// @notice `maxDepositReward` frees the finished stream's capacity at EXACTLY `finishAt`, not one block later. While
-    /// the period is active `committed` holds `rate * period`; once `block.timestamp >= finishAt` the stream is fully
-    /// distributed and `increase` restreams from a clean slate, so that term drops and the capacity frees. The freeing
-    /// must land on the boundary block (`>= finishAt`) to match `increase`: a deposit arriving exactly at `finishAt`
-    /// restreams fresh, so its full capacity must be reported. A `<= finishAt` guard would hold the stream one block too
+    /// @notice `maxDepositReward` rises by the finished stream's `rate * period` at EXACTLY `finishAt`, not one block
+    /// later. While the period is active `committed` holds `rate * period`; once `block.timestamp >= finishAt` the
+    /// stream is fully distributed and `increase` restreams from a clean slate, so that term drops and
+    /// `maxDepositReward` rises. The rise must land on the boundary block (`>= finishAt`) to match `increase`: a
+    /// deposit arriving exactly at `finishAt` restreams fresh, so `maxDepositReward` must report the cap less only
+    /// `queued`. A `<= finishAt` guard would hold the stream one block too
     /// long, stalling recovery on the boundary block.
-    function test_maxDepositReward_freesCapacityAtExactlyFinishAt() public {
+    function test_maxDepositReward_risesAtExactlyFinishAt() public {
         (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
             1,
             1 weeks
         );
         accumulator.setTotalPoolShare(1 ether, uint128(1e36)); // share present, so the reward streams (sets finishAt)
-        accumulator.setMinTotalPoolShare(1 ether); // sizes the deposit cap (integral headroom) so the reward is not capped to 0
+        accumulator.setMinTotalPoolShare(1 ether); // sizes `_integralCap` so the reward is not capped to 0
         accumulator.depositReward(tokens[0], 1000 ether); // commits `rate * period` for one period, well below that cap
 
         (, uint256 finishAt, , ) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
@@ -478,7 +479,8 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         vm.warp(finishAt - 1);
         uint256 beforeEnd = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
 
-        // AT exactly `finishAt`: the stream is fully distributed, so `committed` drops `rate * period` and frees capacity
+        // AT exactly `finishAt`: the stream is fully distributed, so `committed` drops `rate * period` and
+        // `maxDepositReward` rises
         vm.warp(finishAt);
         uint256 atEnd = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
 
@@ -486,7 +488,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         assertGt(
             atEnd,
             beforeEnd,
-            "capacity frees at exactly finishAt (>= finishAt), matching increase's fresh restream"
+            "maxDepositReward rises at exactly finishAt (>= finishAt), matching increase's fresh restream"
         );
     }
 
@@ -517,15 +519,15 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         );
     }
 
-    /// @notice An empty pool (no depositors) has no immediate-liquidation reward capacity: a reward would queue rather
-    /// than accrue, so the cap is zero.
+    /// @notice An empty pool (no depositors) has a `maxLiquidationReward` of zero: a reward would queue rather than
+    /// accrue.
     function test_maxLiquidationReward_zeroWhenPoolEmpty() public {
         (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(1, 1 weeks);
         accumulator.setTotalPoolShare(0, uint128(1e36));
         assertEq(
             IMultipleRewardAccumulator(address(accumulator)).maxLiquidationReward(),
             0,
-            "empty pool: zero liquidation reward capacity"
+            "empty pool: zero maxLiquidationReward"
         );
     }
 
@@ -569,7 +571,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     }
 
     /// @notice 1000% APY for 10 years (520 weeks): integral ~ 1e56.
-    /// Demonstrates Table 1: at 1000% APY, v1 has 628 years of headroom.
+    /// Demonstrates Table 1: at 1000% APY, v1's uint192 integral lasts 628 years before it overflows.
     /// 10 years uses ~1.6% of the v1 budget (1e56 / 6.277e57).
     function test_integralBounds_1000pctAPY_10Years() public {
         uint40 periodLength = 1 weeks;
@@ -605,7 +607,7 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
             (((poolSize * 10) % 52) * 10 + periodLength - 1) * (1e54 / poolSize),
             "10yr at 1000% APY: integral ~ 1e56"
         );
-        assertLt(integral, type(uint192).max, "Still within v1 uint192 bounds (62x headroom)");
+        assertLt(integral, type(uint192).max, "Still within v1 uint192 bounds, by a factor of 62");
     }
 
     /// @notice A realistic minimum-deposit pool - a BTC MIN_DEPOSIT pool (1e13 wei) with a fresh product (magnitude

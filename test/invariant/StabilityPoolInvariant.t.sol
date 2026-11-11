@@ -139,8 +139,8 @@ contract StabilityPoolInvariantHandler is Test {
 
     /// @notice Withdraw inside a requested window (no fee): request, warp to the window start,
     /// withdraw. The amount is bounded by the actor's balance alone, so the pool's floor cap may trim
-    /// it; the handler skips an actor with nothing to withdraw and a pool with no headroom above the
-    /// floor, which keeps WithdrawZeroAmount unreachable.
+    /// it; the handler skips an actor with nothing to withdraw and a pool whose `maxAssetLoss()` is
+    /// zero, which keeps WithdrawZeroAmount unreachable.
     function withdrawWindowed(uint256 actorSeed, uint256 amount) external {
         address actor = _actors[actorSeed % _actors.length];
         uint256 cap = _withdrawCap(actor);
@@ -291,15 +291,16 @@ contract StabilityPoolInvariantHandler is Test {
     // ─── probes ───
 
     /// @dev The largest withdrawal the pool accepts without reverting — the actor's whole balance. The POOL caps the
-    /// outflow at the headroom above the floor itself (StabilityPool_v3._capToFloor), so the handler must NOT
-    /// pre-enforce the floor: requesting up to the full balance is what drives the pool's own clamp, the path a
-    /// floor-respecting cap could never reach. The revert to dodge is WithdrawZeroAmount, when there is no headroom at
-    /// all to clamp into. The fee cannot zero the clamped outflow at this fixture's fee, which is a strict fraction of
-    /// it — note `_MAX_marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()` is `1 ether` INCLUSIVE, so a pool configured at a 100% fee would zero the
-    /// outflow and revert here; such a fixture would need the fee-free withdrawal window instead.
+    /// outflow at `maxAssetLoss()` itself (StabilityPool_v3._capToFloor), so the handler must NOT pre-enforce the
+    /// floor: requesting up to the full balance is what drives the pool's own clamp, the path a floor-respecting cap
+    /// could never reach. The revert to dodge is WithdrawZeroAmount, when `maxAssetLoss()` is zero, leaving nothing to
+    /// clamp into. The fee cannot zero the clamped outflow at this fixture's fee, which is a strict fraction of it —
+    /// note `_MAX_marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()` is `1 ether` INCLUSIVE, so a pool configured at
+    /// a 100% fee would zero the outflow and revert here; such a fixture would need the fee-free withdrawal window
+    /// instead.
     function _withdrawCap(address actor) internal view returns (uint256 cap) {
         if (IERC20(POOL).totalSupply() <= MIN_TOTAL_ASSET_SUPPLY) {
-            return 0; // no headroom: the pool would clamp the outflow to 0 and revert
+            return 0; // maxAssetLoss is zero: the pool would clamp the outflow to 0 and revert
         }
         cap = IERC20(POOL).balanceOf(actor);
     }

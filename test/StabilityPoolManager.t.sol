@@ -515,11 +515,11 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         balances.poolLeveragedLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
     }
 
-    /// @notice When a pool's reward-integral capacity (maxLiquidationReward) is below what a full liquidation would
-    /// distribute, the rebalance clamps that leg's pegged so the redeemed proceeds notified to the pool stay within the
-    /// capacity - they can never overflow the reward integral. The capacity is mocked small here to make the clamp bind
-    /// (in production it dwarfs any real liquidation, so the clamp is a safety bound that drains a huge loss over calls).
-    function test_rebalanceClampsLiquidationToRewardCapacity() public {
+    /// @notice When a pool's `maxLiquidationReward` is below what a full liquidation would distribute, the rebalance
+    /// clamps that leg's pegged so the redeemed proceeds notified to the pool stay within it - they can never overflow
+    /// the reward integral. `maxLiquidationReward` is mocked small here to make the clamp bind (in production it dwarfs
+    /// any real liquidation, so the clamp is a safety bound that drains a huge loss over calls).
+    function test_rebalanceClampsLiquidationToMaxLiquidationReward() public {
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(1.5 ether);
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(0.02 ether, 0, 0);
@@ -534,7 +534,7 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
         vm.stopPrank();
 
-        // force the collateral pool's reward-integral capacity far below the full-liquidation proceeds, so the clamp binds
+        // force the collateral pool's maxLiquidationReward far below the full-liquidation proceeds, so the clamp binds
         uint256 smallReward = 1e12;
         vm.mockCall(
             stabilityPoolCollateral,
@@ -548,10 +548,11 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
 
         // the collateral liquidation's proceeds (the reward to the pool + the bounty carved from it) are the redeemed
-        // `returned`, which the clamp held within the capacity - so nothing the reward integral can't absorb is notified
+        // `returned`, which the clamp held within maxLiquidationReward - so nothing the reward integral can't absorb is
+        // notified
         uint256 rewardToPool = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - poolBefore;
         uint256 bounty = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver) - bountyBefore;
-        assertLe(rewardToPool + bounty, smallReward, "collateral liquidation proceeds clamped to the reward capacity");
+        assertLe(rewardToPool + bounty, smallReward, "collateral liquidation proceeds clamped to maxLiquidationReward");
         assertGt(rewardToPool, 0, "a partial liquidation still happened (the clamp reduces, not cancels)");
     }
 
@@ -1790,7 +1791,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     }
 
     /// The harvest never sweeps more than is harvestable - whatever each pool holds, whatever the bounty and cut, whether
-    /// a pool's period capacity defers part of its share as owed, and whether the surplus then shrinks below what is
+    /// a pool's `maxDepositReward` defers part of its share as owed, and whether the surplus then shrinks below what is
     /// owed, so that the owed is written down, or grows: each harvest served takes from the minter exactly what it
     /// returns, at most the `harvestable()` it found, and leaves the record covered.
     function testFuzz_harvest_neverSweepsMoreThanIsHarvestable(
@@ -1798,7 +1799,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 depositLeveraged,
         uint256 bountyRatio,
         uint256 cutRatio,
-        uint256 capacity,
+        uint256 maxDepositReward_,
         uint256 surplusBps
     ) public {
         // each pool holds nothing, or a deposit it accepts
@@ -1826,17 +1827,17 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         vm.stopPrank();
         uint256 firstHarvestable = IMinter(minter).harvestable();
 
-        // the first harvest, each pool able to take only `capacity` this period, so the rest of its share stays owed
-        capacity = bound(capacity, 0, 2 * firstHarvestable);
+        // the first harvest, each pool able to take only `maxDepositReward_` this period, so the rest of its share stays owed
+        maxDepositReward_ = bound(maxDepositReward_, 0, 2 * firstHarvestable);
         vm.mockCall(
             stabilityPoolCollateral,
             abi.encodeWithSelector(IMultipleRewardDistributor_v3.maxDepositReward.selector),
-            abi.encode(capacity)
+            abi.encode(maxDepositReward_)
         );
         vm.mockCall(
             stabilityPoolLeveraged,
             abi.encodeWithSelector(IMultipleRewardDistributor_v3.maxDepositReward.selector),
-            abi.encode(capacity)
+            abi.encode(maxDepositReward_)
         );
         _harvestWithinHarvestable();
         vm.clearMockedCalls();

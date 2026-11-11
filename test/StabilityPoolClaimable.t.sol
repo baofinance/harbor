@@ -622,7 +622,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         );
     }
 
-    /// A sweep of the pegged alone - capped at the headroom above the floor, recording no loss - changes no holder's
+    /// A sweep of the pegged alone - capped at `maxAssetLoss()`, recording no loss - changes no holder's
     /// share: a later reward is split by the unchanged deposits, exactly a third each.
     function test_claimable_afterALoneSweepOfThePegged_sharesLaterRewardsByTheUnchangedDeposits() public {
         _depositForUsers();

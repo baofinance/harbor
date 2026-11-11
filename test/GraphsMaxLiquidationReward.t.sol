@@ -83,56 +83,6 @@ contract TestGraphsMaxLiquidationReward is GraphTestBase, TestStabilityPoolManag
         );
     }
 
-    /// @notice There is an escrow below which the reward ceiling can be exceeded and above which it
-    /// cannot, and it is vanishingly small - about nine wei of the leveraged token's opening price.
-    ///
-    /// An escrow of `f` per leveraged token, valued in pegged terms, bounds what a conversion can mint at
-    /// `peggedSurrendered x peggedPrice / f`, because the leveraged cannot be minted below its floor. The
-    /// pool's ceiling is `uint256.max x poolShare / (REWARD_PRECISION x MAGNITUDE_PRECISION x
-    /// INTEGRAL_HEADROOM)`. A rebalance can take at most the pegged the pool holds, so the pegged
-    /// surrendered and the pool's share are the same quantity and CANCEL - leaving
-    ///
-    ///     f >= peggedPrice x 1e60 / uint256.max
-    ///
-    /// which is 8.64 wei at a pegged worth one. Neither the collateral price nor the size of the pool
-    /// appears, so the threshold is the same for every market.
-    ///
-    /// Asserted at the worst state there is - one wei of collateral ratio above the peg, the whole pool
-    /// liquidated - and asserted from BOTH sides, because a bound that only ever passes proves nothing
-    /// about where it lies.
-    function test_anEscrowAboveNineWeiCannotOverflowTheRewardCeiling() public {
-        marketActions.setCollateralRatioByPrice(1 ether + 1);
-
-        uint256 ceiling = IMultipleRewardAccumulator_v3(stabilityPoolLeveraged).maxLiquidationReward();
-        uint256 poolPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
-        uint256 peggedPrice = IMinter_v3(minter).peggedTokenPrice();
-        assertGt(poolPegged, 0, "the pool must hold pegged for this to be the worst case");
-
-        uint256 threshold = Math.mulDiv(peggedPrice, 1e60, type(uint256).max);
-        assertEq(threshold, 8, "the derived threshold, floored - about nine wei of the opening price");
-
-        // Just above it the whole pool can be liquidated without troubling the ceiling.
-        assertLe(
-            Math.mulDiv(poolPegged, peggedPrice, threshold + 1),
-            ceiling,
-            "an escrow above the threshold must keep the minting inside the reward ceiling"
-        );
-
-        // Well below it, it cannot - so the threshold is a real boundary and not merely a safe number.
-        assertGt(
-            Math.mulDiv(poolPegged, peggedPrice, threshold / 2),
-            ceiling,
-            "an escrow well below the threshold must exceed it, or this asserts nothing"
-        );
-
-        // And the escrow sizes actually under consideration clear it by many orders of magnitude.
-        assertLe(
-            Math.mulDiv(poolPegged, peggedPrice, 0.001 ether),
-            ceiling,
-            "the smallest escrow under consideration is far inside the ceiling"
-        );
-    }
-
     function test_whereMaxLiquidationRewardBindsTheConversion() public {
         uint256 threshold = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
 

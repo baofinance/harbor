@@ -1098,8 +1098,8 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     /// stops at the floor, and what its first step did stands.
     function test_insideTheBand_theFirstStepStands_whereTheStepFromTheFloorWouldBePaidNothing() public {
         marketActions.setCollateralRatioByPrice(_insideTheBand());
-        // What the first step takes to reach the floor: the minter's sizing, as the manager asks for it, with no pool's
-        // headroom in its way.
+        // What the first step takes to reach the floor: the minter's sizing, as the manager asks for it, with
+        // `maxCollateralPegged` at all the pegged outstanding, so no pool's `maxAssetLoss()` is in its way.
         (uint256 toTheFloor, ) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
             _floor(),
             IMinter(minter).peggedTokenBalance(),

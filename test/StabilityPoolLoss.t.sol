@@ -161,8 +161,8 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         IStabilityPool_v3(pool).withdraw(withdrawAmount, user1, 0);
         vm.stopPrank();
 
-        // Inside the window and within the headroom above the floor, the withdrawal pays exactly the amount and debits
-        // exactly it
+        // Inside the window and within `maxAssetLoss()`, the withdrawal pays exactly the amount and debits exactly
+        // it
         assertEq(IERC20(peggedToken).balanceOf(user1), initialAssetBalance + withdrawAmount, "paid the amount");
         assertEq(IERC20(pool).balanceOf(user1), remainingBalance - withdrawAmount, "debited the amount");
     }
@@ -235,8 +235,8 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             IStabilityPool_v3(pool).withdraw(withdrawableAmount, user1, 0);
             vm.stopPrank();
 
-            // The balance is at most the supply, so what is above the floor is within the headroom: the withdrawal pays
-            // exactly it and leaves exactly the floor
+            // The balance is at most the supply, so what is above the floor is within `maxAssetLoss()`: the withdrawal
+            // pays exactly it and leaves exactly the floor
             assertEq(
                 IERC20(peggedToken).balanceOf(user1),
                 initialAssetBalance + withdrawableAmount,

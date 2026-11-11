@@ -127,12 +127,12 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /// @dev The precision used to calculate accumulated rewards.
     uint256 internal constant _REWARD_PRECISION = 1e18;
 
-    /// @dev Headroom for the reward-integral cap: the number of full-cap reward deposits that can accumulate into a
-    ///      single exponent's per-share integral before it would overflow uint256. `_depositRewardCap` caps a deposit
-    ///      so its accumulated `toAdd` is at most `type(uint256).max / _INTEGRAL_HEADROOM` (worst case: total share at
-    ///      the pool floor, mantissa at `MANTISSA_PRECISION`), so up to this many deposits fit at one exponent.
-    ///      1e6 weekly deposits is ~19,000 years - unreachable before an exponent-changing liquidation resets the
-    ///      integral to a fresh slot.
+    /// @dev The divisor of the reward-integral cap `_integralCap`: the number of full-cap reward deposits that can
+    ///      accumulate into a single exponent's per-share integral before it would overflow uint256.
+    ///      `_depositRewardCap` caps a deposit so its accumulated `toAdd` is at most `type(uint256).max /
+    ///      _INTEGRAL_HEADROOM` (worst case: total share at the pool floor, mantissa at `MANTISSA_PRECISION`), so up to
+    ///      this many deposits fit at one exponent. 1e6 weekly deposits is ~19,000 years - unreachable before an
+    ///      exponent-changing liquidation resets the integral to a fresh slot.
     uint256 internal constant _INTEGRAL_HEADROOM = 1e6;
 
     /// @dev Compiler will pack this into single `uint256`.
@@ -522,13 +522,13 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }
 
-    /// @dev The reward-integral capacity for a single accrual made against `share`. `_accumulateReward` stores
-    ///      `toAdd = reward * _REWARD_PRECISION * mantissa / share` (mantissa bounded by `MANTISSA_PRECISION`) into a
-    ///      uint256 per-exponent integral and accumulates it, so an unbounded reward on a small pool overflows the
-    ///      store. This bound holds each `toAdd` to at most `type(uint256).max / _INTEGRAL_HEADROOM`, leaving room for
-    ///      `_INTEGRAL_HEADROOM` accruals at one exponent. Because `toAdd` at the cap is `type(uint256).max /
-    ///      _INTEGRAL_HEADROOM` regardless of `share`, harvest deposits and liquidations share that one budget however
-    ///      each is sized.
+    /// @dev The largest reward a single accrual made against `share` may distribute without overflowing the reward
+    ///      integral. `_accumulateReward` stores `toAdd = reward * _REWARD_PRECISION * mantissa / share` (mantissa
+    ///      bounded by `MANTISSA_PRECISION`) into a uint256 per-exponent integral and accumulates it, so an unbounded
+    ///      reward on a small pool overflows the store. This bound holds each `toAdd` to at most `type(uint256).max /
+    ///      _INTEGRAL_HEADROOM`, leaving room for `_INTEGRAL_HEADROOM` accruals at one exponent. Because `toAdd` at the
+    ///      cap is `type(uint256).max / _INTEGRAL_HEADROOM` regardless of `share`, harvest deposits and liquidations
+    ///      share that one budget however each is sized.
     function _integralCap(uint256 share) private pure returns (uint256) {
         return
             Math.mulDiv(
@@ -539,7 +539,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
 
     /// @inheritdoc LinearMultipleRewardDistributor_v3
-    /// @dev Intersects the rate-field capacity with the reward-integral capacity (`_integralCap`). A streamed deposit
+    /// @dev Intersects the rate field's cap (the base `_depositRewardCap`) with `_integralCap`. A streamed deposit
     ///      accumulates LATER against a `totalShare` that may have fallen to the pool floor `_minTotalShare()`, so the
     ///      floor - not the live share - is the bound.
     function _depositRewardCap() internal view virtual override returns (uint256) {

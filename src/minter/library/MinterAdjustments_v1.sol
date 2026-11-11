@@ -149,14 +149,14 @@ library MinterAdjustments_v1 {
             //   F + dC*f <= (U + dC)*maxFeeRatio
             // Rearranged, dC*(f - maxFeeRatio) <= U*maxFeeRatio - F. A band at or below the cap can
             // never breach it however much is taken there, so only a dearer band constrains — and it
-            // is affordable only to the extent the cheaper bands already taken have left headroom.
+            // is affordable only to the extent the fee charged so far, F, is below U*maxFeeRatio.
             // The cap is therefore a ceiling on the average price paid, independent of how much was
             // offered: an offer buys no budget to spend on a smaller amount at a steeper rate.
             if (bandFeeRatio > maxFeeRatio) {
-                uint256 headroom = w.underlyingCollateralUsedE36 * maxFeeRatio;
+                uint256 maxFeeE54 = w.underlyingCollateralUsedE36 * maxFeeRatio;
                 uint256 charged = w.underlyingFeeE54;
-                uint256 maxCollateralForFeeE36 = headroom > charged
-                    ? (headroom - charged) / (bandFeeRatio - maxFeeRatio)
+                uint256 maxCollateralForFeeE36 = maxFeeE54 > charged
+                    ? (maxFeeE54 - charged) / (bandFeeRatio - maxFeeRatio)
                     : 0;
                 if (collateralInBandE36 > maxCollateralForFeeE36) {
                     collateralInBandE36 = maxCollateralForFeeE36;

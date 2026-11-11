@@ -67,7 +67,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
 
         price *= 2;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // back above the peg
-        // minLiquidated above the available headroom (supply - floor) reverts, reporting that headroom
+        // minLiquidated above the pool's maxAssetLoss (supply - floor) reverts, reporting that maxAssetLoss
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1.08
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(1 * price, user1, 0);
@@ -100,7 +100,7 @@ contract TestLiquidate is TestStabilityPoolManagerSetUp_rebalanceThreshold130 {
         // (5) ------------------------------------------------------------------------------------------
         assertEq(IMinter_v3(minter).collateralRatio(), startCR);
 
-        // mint more pegged to move CR below the threshold, within what the pool's headroom can repair
+        // mint more pegged to move CR below the threshold, within what the pool's maxAssetLoss can repair
         setUp_collateral(7 ether, 0 ether); // 21.8:17 CR = 1.28
         // the pegged the collateral route redeems to reach 1.3: `(1.3·n − c·p)/(1.3 − 1)`, which the sizing rounds up
         // and extends by the pegged one wei of backing is worth there, `p/(1.3 − 1)`, so the trade reaches it however

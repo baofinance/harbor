@@ -48,7 +48,7 @@ contract StabilityPoolActions is StdCheats {
     }
 
     /// @notice As the rebalancer, sweep up to `pegged` of the pool's asset to the rebalancer - the pool caps the sweep
-    ///         at its headroom above its floor - and pay the pool `returned` of `token`.
+    ///         at its `maxAssetLoss()` - and pay the pool `returned` of `token`.
     function sweepAndFund(address token, uint256 pegged, uint256 returned) public {
         address asset = IStabilityPool_v3(pool).ASSET_TOKEN();
         deal(token, rebalancer, IERC20(token).balanceOf(rebalancer) + returned);

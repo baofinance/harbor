@@ -405,7 +405,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 3 * price);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 3 * price);
 
-        // withdraw rest - the last holder is capped at the headroom, so the floor stays behind (and stays theirs)
+        // withdraw rest - the last holder is capped at maxAssetLoss, so the floor stays behind (and stays theirs)
         uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         _beginWithdrawal(user1);
         vm.startPrank(user1);

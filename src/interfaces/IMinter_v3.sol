@@ -309,20 +309,22 @@ interface IMinter_v3 is IToken {
     function peggedTokenPrice() external view returns (uint256);
 
     /// @notice The pegged to redeem for collateral and for leveraged to reach `targetCollateralRatio`, with the split
-    ///         already fitted to each pool's solvency headroom. Redeeming `peggedForCollateral` for wrapped collateral
-    ///         AND `peggedForLeveraged` for leveraged tokens moves the collateral ratio to the target - or, if both
-    ///         pools' headrooms are exhausted, as close as the stability pools can. A pool whose proportional share
-    ///         exceeds its headroom is capped there and the shortfall slides along the target-ratio line into the
-    ///         co-pool's leg (each leg still redeemed for its own token). The unconstrained `redeemPeggedForCollateralRatio`
-    ///         is this with no caps and no holdings (returning the two line intercepts).
-    ///         For pools that can give no more than they hold - as a stability pool, whose headroom is within its
-    ///         supply - the two legs are together never more than the pegged this minter has minted: where rounding
-    ///         each up would take them a wei past it, they are cut as `freeRedeemPeggedToken` cuts legs that ask for
-    ///         more than it can redeem. The two intercepts of the unconstrained form are not legs of one redemption,
-    ///         and together can be more.
+    ///         already fitted to `maxCollateralPegged` and `maxLeveragedPegged`. Redeeming `peggedForCollateral` for
+    ///         wrapped collateral AND `peggedForLeveraged` for leveraged tokens moves the collateral ratio to the
+    ///         target - or, if both legs are held at those caps, as close as the stability pools can. A pool whose
+    ///         proportional share exceeds its cap is held there and the shortfall slides along the target-ratio line
+    ///         into the co-pool's leg (each leg still redeemed for its own token). The unconstrained
+    ///         `redeemPeggedForCollateralRatio` is this with no caps and no holdings (returning the two line
+    ///         intercepts). For pools that can give no more than they hold - as a stability pool, whose
+    ///         `maxAssetLoss()` is within its supply - the two legs are together never more than the pegged this minter
+    ///         has minted: where rounding each up would take them a wei past it, they are cut as
+    ///         `freeRedeemPeggedToken` cuts legs that ask for more than it can redeem. The two intercepts of the
+    ///         unconstrained form are not legs of one redemption, and together can be more.
     /// @param targetCollateralRatio The collateral ratio to reach (1e18-scaled).
-    /// @param maxCollateralPegged The most pegged the collateral pool may give up (its `maxAssetLoss` headroom).
-    /// @param maxLeveragedPegged The most pegged the leveraged pool may give up (its `maxAssetLoss` headroom).
+    /// @param maxCollateralPegged The most pegged the collateral pool may give up (for a stability pool, at most its
+    ///        `maxAssetLoss()`).
+    /// @param maxLeveragedPegged The most pegged the leveraged pool may give up (for a stability pool, at most its
+    ///        `maxAssetLoss()`).
     /// @param holdingCollateral The collateral pool's supply - its deposits, never the pegged it holds - weighting its
     ///        share of the unconstrained split.
     /// @param holdingLeveraged The leveraged pool's supply - its deposits, never the pegged it holds - weighting its
