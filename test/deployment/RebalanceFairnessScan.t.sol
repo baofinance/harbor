@@ -473,10 +473,11 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
     // ── Test 3: Timeline with weekly compounding ───────────────────────
     //
     // Shows pegged-equivalent position over 12 weeks for all actors. Every week:
-    //   1. Eve mints leveraged (CR recovery towards 1.40)
+    //   1. In weeks 1 to 4 only (CR_RECOVERY_WEEKS), leveraged is minted to Eve (CR recovery towards 1.40)
     //   2. Rate bumps, harvest fires
     //   3. Alice compounds (claim wrapped collateral, freeMint pegged, re-deposit)
-    //   4. Charlie compounds wrapped collateral harvest only (leveraged rebalance reward stays claimable)
+    //   4. Charlie compounds the same way. His leveraged rebalance reward is claimed at his first compound,
+    //      in week 1, and redeemed for wrapped collateral (`_compoundActor`).
     //
     // Two scenarios: fee=0% and fee=10% on Bob/Dave's withdrawal.
     // pegged-equivalent = deposit + wrapped collateral-in-pegged + leveraged-in-pegged.

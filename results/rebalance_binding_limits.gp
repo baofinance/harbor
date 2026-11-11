@@ -14,18 +14,19 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb
 # WHAT STOPS A REBALANCE SHORT, against the anchor the stability pools hold, in a market below the floor.
 #
 # A rebalance asks the minter how much anchor it must give up to bring the collateral ratio back to the
-# threshold, and three things can make it give up less: a pool may only be taken down to its minimum
-# supply (maxAssetLoss), its reward accounting can only absorb so much at once (maxLiquidationReward),
-# and neither pool can hand over anchor it does not hold.
+# threshold, and three things can make it give up less: a pool's `maxAssetLoss`, its deposits above its
+# minimum supply; a pool's `maxLiquidationReward`, the most reward it can credit in one liquidation; and
+# neither pool can hand over anchor it does not hold.
 #
 # Every point starts from the same collateral ratio, 1.004: four tenths of the way from the peg to the
-# floor of 100/99 = 1.0101, where the market sells no leverage. So each rebalance first takes both pools'
-# anchor by the collateral route towards the floor, and converts towards the threshold only from the floor.
+# floor, `MINIMUM_COLLATERAL_RATIO` = 100/99 = 1.0101, where the market sells no leverage. So each
+# rebalance first takes both pools' anchor by the collateral route towards the floor, and converts
+# towards the threshold only from the floor.
 #
-# The upper panel is which limit binds. What the pools are allowed to lose is proportional to what they
-# hold, a straight line of slope 1, and up to pools of 58% of the anchor outstanding the rebalance takes
-# exactly that: the pools' headroom binds. The flat line is the minter's ask for both legs from the start,
-# 656k. The rebalance cannot follow it below the floor, where it takes the collateral route instead, and
+# The upper panel is which limit binds. The pools' `maxAssetLoss` is proportional to what they hold, a
+# straight line of slope 1, and up to pools of 58% of the anchor outstanding the rebalance takes exactly
+# that: `maxAssetLoss` binds. The flat line is the minter's ask for both legs from the start, 656k.
+# The rebalance cannot follow it below the floor, where it takes the collateral route instead, and
 # that route needs more anchor: at 58% it takes 1.17M and still stops short of the floor. Only pools of
 # 88% reach the floor, and that rebalance converts the rest of the way to the threshold.
 # maxLiquidationReward never binds anywhere on this sweep - it is not drawn because it never decided
@@ -59,12 +60,12 @@ unset xlabel
 set xtics ("" 0.002, "" 0.01, "" 0.05, "" 0.1, "" 0.5, "" 1)
 set key bottom right reverse Left noenhanced
 
-# $1 = pool anchor per anchor outstanding, $2 = ask, $3 = allowed to lose, $4 = taken, $5 = ratio after
+# $1 = pool anchor per anchor outstanding, $2 = ask, $3 = both pools' maxAssetLoss, $4 = taken, $5 = ratio after
 plot \
      datafile using ($1):($2) with lines linewidth 2 linetype 2 \
          title "the minter's ask for both legs, from the start", \
      datafile using ($1):($3) with lines linewidth 2 linetype 4 \
-         title "the pools are allowed to lose", \
+         title "the pools' maxAssetLoss", \
      datafile using ($1):($4) with points pointtype 7 pointsize 0.7 linetype 7 \
          title "actually taken"
 

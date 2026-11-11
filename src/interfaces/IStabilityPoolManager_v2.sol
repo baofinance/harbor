@@ -124,8 +124,11 @@ interface IStabilityPoolManager_v2 {
     ///         collateral, the leveraged pool's converted into leveraged tokens. Where it sells none - below its
     ///         floor, `IMinter_v3.MINIMUM_COLLATERAL_RATIO` - first both pools' pegged by the collateral route, pro
     ///         rata to their supplies, to the floor or the threshold if that is lower, all paid in collateral; then,
-    ///         from the floor, the step by both legs. Each pool gives up no more than its headroom
-    ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
+    ///         from the floor, the step by both legs. Each pool gives up no more than its
+    ///         `IStabilityPool_v3.maxAssetLoss`, and no more than the pegged whose payment reaches its
+    ///         `IMultipleRewardAccumulator_v3.maxLiquidationReward`. A pool held by either passes its shortfall to
+    ///         the other pool's leg. Where the two together cannot give enough, the ratio is lifted only part of
+    ///         the way.
     ///         A leg of the redemption that would be paid nothing is not taken. In the step by both legs each pool's
     ///         pegged is its own leg: a pool whose leg would be paid nothing is left out as a pool at its floor is,
     ///         and the legs are sized again without it, so the other pool's leg covers the distance where it can.

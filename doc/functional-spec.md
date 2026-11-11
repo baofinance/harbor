@@ -444,7 +444,7 @@ depositor holds*.
 **Where the leveraged pool is paid depends on the ratio.** Sail is the residual claim, so its price
 falls toward zero near the peg, and below the leverage floor (§2.3) the protocol mints none. There the
 leveraged pool gives up anchor by the collateral route alongside the collateral pool, pro rata to each
-pool's deposits and within each pool's headroom above its floor, and is paid in wrapped collateral,
+pool's deposits and within the most each pool can give (§5.6), and is paid in wrapped collateral,
 until the ratio reaches the leverage floor, or the rebalance threshold if that is lower; from the floor
 it is paid in sail. **At or below the peg the rebalance converts the pools.** An anchor token redeemed
 there takes its share of the backing with it, so no amount redeemed moves the ratio. Both pools give
@@ -456,10 +456,10 @@ Two structural bounds govern each pool, and both are **numerical-precision param
 limits**:
 
 - a **floor** — the first deposit must reach it, every deposit must leave the total at or above it,
-  and every outflow (a withdrawal, a sweep of the anchor, a liquidation) is capped at the headroom
-  above it. So once seeded the pool's total deposits never fall below it, every depositor keeps a
-  share of the minimum, and the loss arithmetic can never round a near-total liquidation into a total
-  one. The floor is also the least the reward arithmetic ever divides by.
+  and every outflow (a withdrawal, a sweep of the anchor, a liquidation) is capped at the deposits
+  above it, `maxAssetLoss`. So once seeded the pool's total deposits never fall below it, every
+  depositor keeps a share of the minimum, and the loss arithmetic can never round a near-total
+  liquidation into a total one. The floor is also the least the reward arithmetic ever divides by.
 - a **ceiling**, derived from the floor, above which deposits are refused for the same arithmetic
   reason.
 
@@ -807,8 +807,8 @@ Acceptance criteria:
 3. In exchange the depositor receives the pool's payout asset, credited **immediately** rather than
    vested. The collateral pool always pays wrapped collateral. The leveraged pool pays sail tokens
    where the market mints sail, and wrapped collateral below the leverage floor (§2.6).
-4. A rebalance draws at most the **headroom above the pool's floor**, so a depositor always retains a
-   share of the minimum and the pool is never emptied.
+4. A rebalance draws at most the pool's **`maxAssetLoss`, its deposits above its floor**, so a
+   depositor always retains a share of the minimum and the pool is never emptied.
 5. What remains stays deposited and keeps accruing. Successive rebalances may draw on it again, and
    the terms of each depend on conditions at the time (§2.6).
 6. **At or below the peg a rebalance converts the pool's anchor** into wrapped collateral, as much as
@@ -1405,7 +1405,7 @@ sequenceDiagram
 
     opt below the leverage floor (leveragedMintable() is false)
         SPM->>M: size the collateral route to the floor,<br/>or the threshold if lower;<br/>at or below the peg, all the market's anchor<br/>the pools can give
-        note over SPM: split pro rata to deposits,<br/>each within its pool's headroom
+        note over SPM: split pro rata to deposits,<br/>each within the most its pool can give
         SPM->>PC: sweep anchor tokens
         SPM->>PL: sweep anchor tokens
         SPM->>M: freeRedeemPeggedToken(all, 0) — zero fee, middle price
@@ -1417,7 +1417,7 @@ sequenceDiagram
     end
 
     opt at or above the leverage floor and below the threshold
-        SPM->>M: size each leg to reach the threshold,<br/>fitted to each pool's headroom
+        SPM->>M: size each leg to reach the threshold,<br/>within the most each pool can give
         M-->>SPM: split — anchor for collateral, anchor for sail
         SPM->>PC: sweep anchor tokens
         SPM->>PL: sweep anchor tokens
@@ -1444,10 +1444,13 @@ receive the proceeds. The keeper is paid, and the fee receiver takes its cut.
 
 **Notable properties.**
 - **The split is fitted, not merely proportional.** Each leg starts proportional to the pools'
-  anchor deposits, but a pool whose share exceeds its capacity is capped there and the shortfall
-  *slides to the other pool*. One call therefore reaches the threshold wherever the combined
-  capacity allows it; where it does not, the call liquidates the combined capacity and a later call
-  continues.
+  anchor deposits. The most a pool can give is its `maxAssetLoss`, the deposits above its floor.
+  It is less where the payment for that much would exceed the pool's `maxLiquidationReward`, the
+  most its reward integral can credit in one liquidation: then it is the anchor whose payment is
+  that. A pool whose share exceeds the most it can give is capped there, whichever of the two sets
+  it, and the shortfall *slides to the other pool*. One call therefore reaches the threshold
+  wherever the combined capacity allows it; where it does not, the call liquidates the combined
+  capacity and a later call continues.
 - **Proceeds are measured, not assumed.** The manager measures what each pool actually handed over
   and drives the redemption and crediting from those actuals — a pool is never left backing supply it
   no longer holds.
@@ -1506,7 +1509,7 @@ sequenceDiagram
 
     rect rgb(233, 245, 238)
     note over SPM,PL: Stream what fits this period
-    note over SPM: each pool streams its owed up to<br/>one period's reward capacity —<br/>the rest stays owed to that pool
+    note over SPM: each pool streams its owed up to<br/>its maxDepositReward (one period's worth) —<br/>the rest stays owed to that pool
     end
 
     SPM->>SPM: bounty and cut = exact shares of what is actually distributed<br/>bounty above the ceiling: the excess joins the cut

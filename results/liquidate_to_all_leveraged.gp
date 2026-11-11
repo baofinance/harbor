@@ -20,7 +20,8 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
-set yrange [0:2]
+# y1 holds the collateral token balances. The largest is "after minter collateral", at 20.
+set yrange [0:25]
 set y2range [0:500000]
 
 set ytics nomirror

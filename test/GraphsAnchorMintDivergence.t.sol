@@ -15,10 +15,12 @@ import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol"
 /// collateral ratio falls, and what that does to the pegged supply.
 ///
 /// The pegged is priced at `min(1, collateral ratio)` and the mint divides by that price, so pegged
-/// minted per unit of collateral value is `1 / collateral ratio` and grows without bound as the
-/// collateral ratio falls. That is the same shape as the leveraged conversion's `1 / (collateral ratio - 1)`,
-/// at the other singularity, and the two are graphed in the same units so a single bound can be chosen
-/// for both.
+/// minted per unit of collateral value is `1 / min(1, collateral ratio)`. Below the peg it grows without
+/// bound as the collateral ratio falls. That is the same shape as the leveraged conversion's
+/// `1 / (collateral ratio - 1)`, at the other singularity, and the two are graphed in the same units. The
+/// minter bounds them differently: no route mints leveraged below `MINIMUM_COLLATERAL_RATIO`, and
+/// `mintPeggedToken` refuses at or below it, but `freeMintPeggedToken`, which this test measures, has no
+/// such floor.
 ///
 /// The supply multiplier is the second column because per-unit mispricing and supply growth are not the
 /// same question, and the pegged's open question is the second one: minting at a depressed pegged price

@@ -435,7 +435,8 @@ contract StabilityPoolManager_v2 is
 
         // Below the minter's floor it sells no leverage, so the leveraged pool cannot convert. Both pools' pegged take
         // the collateral route to the floor - or to the threshold, if that is lower - each pool its share of what the
-        // two have had deposited, within its headroom, the excess sliding to the other. Both are paid in collateral.
+        // two have had deposited, within the most it can give (`_maxPeggedFrom`), the excess sliding to the other. Both
+        // are paid in collateral.
         // Where the backing is worth no more than the pegged the minter has minted - a ratio at or below the peg - no
         // amount reaches the floor: a pegged token redeems for its share of the backing and takes that share with it.
         // The minter then sizes all the pegged it has minted, so the step takes all of it the pools can give and does
@@ -446,25 +447,25 @@ contract StabilityPoolManager_v2 is
             uint256 peggedFromCollateralPool;
             uint256 peggedFromLeveragedPool;
             {
-                uint256 maxLossCollateral = IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss();
-                uint256 maxLossLeveraged = IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss();
+                uint256 maxFromCollateralPool = _maxPeggedFrom(_STABILITY_POOL_COLLATERAL, false);
+                uint256 maxFromLeveragedPool = _maxPeggedFrom(_STABILITY_POOL_LEVERAGED, false);
                 (uint256 totalPoolSupply, uint256 collateralPoolSupply, ) = _poolSupplies();
                 // slither-disable-next-line unused-return the leveraged route is closed, so its leg is zero
                 (uint256 pegged, ) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
                     Math.min(IMinter_v3(MINTER).MINIMUM_COLLATERAL_RATIO(), rebalanceThreshold_),
-                    maxLossCollateral + maxLossLeveraged,
+                    maxFromCollateralPool + maxFromLeveragedPool,
                     0,
                     totalPoolSupply,
                     0
                 );
                 peggedFromCollateralPool = Math.min(
                     Math.mulDiv(pegged, collateralPoolSupply, totalPoolSupply),
-                    maxLossCollateral
+                    maxFromCollateralPool
                 );
                 peggedFromLeveragedPool = pegged - peggedFromCollateralPool;
-                if (peggedFromLeveragedPool > maxLossLeveraged) {
-                    peggedFromLeveragedPool = maxLossLeveraged;
-                    peggedFromCollateralPool = pegged - maxLossLeveraged;
+                if (peggedFromLeveragedPool > maxFromLeveragedPool) {
+                    peggedFromLeveragedPool = maxFromLeveragedPool;
+                    peggedFromCollateralPool = pegged - maxFromLeveragedPool;
                 }
             }
             (peggedFromCollateralPool, peggedFromLeveragedPool) = _clampLegs(
@@ -482,13 +483,13 @@ contract StabilityPoolManager_v2 is
 
         // At or above the floor - from the start, or once the step above has reached it - both legs to the threshold:
         // the collateral pool's pegged redeemed for collateral, the leveraged pool's converted into leveraged tokens.
-        // The minter splits the distance between them by their supplies, each within its pool's headroom, the shortfall
-        // of one sliding into the other's leg.
+        // The minter splits the distance between them by their supplies, each within the most its pool can give
+        // (`_maxPeggedFrom`), the shortfall of one sliding into the other's leg.
         if (IMinter_v3(MINTER).leveragedMintable() && IMinter_v3(MINTER).collateralRatio() < rebalanceThreshold_) {
             (uint256 peggedFromCollateralPool, uint256 peggedFromLeveragedPool) = _legsTo(
                 rebalanceThreshold_,
-                IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
-                IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss()
+                _maxPeggedFrom(_STABILITY_POOL_COLLATERAL, false),
+                _maxPeggedFrom(_STABILITY_POOL_LEVERAGED, true)
             );
             uint256 pegged;
             uint256 collateral;
@@ -514,6 +515,29 @@ contract StabilityPoolManager_v2 is
         emit Rebalanced(peggedLiquidated, collateralPaid, leveragedPaid);
         // slither-disable-next-line unused-return
         _compoundRegistered();
+    }
+
+    /// @dev The most pegged a leg may take from `pool`, given to the sizing so that each of the pool's two caps passes
+    ///      its shortfall to the other pool: its `maxAssetLoss`, held within its `maxLiquidationReward`
+    ///      (`_capLiquidation`). The payment is priced by a dry run of the leg - in leveraged tokens where
+    ///      `paidInLeveraged`, in collateral otherwise - of no more than the minter has minted, as its dry run redeems
+    ///      no more than that and would price a larger leg as that much. The minter prices each leg on its own, at one
+    ///      rate floored once, so a leg of no more than this is paid no more than `maxLiquidationReward`.
+    function _maxPeggedFrom(address pool, bool paidInLeveraged) private view returns (uint256 maxPegged) {
+        maxPegged = Math.min(IStabilityPool_v3(pool).maxAssetLoss(), IMinter_v3(MINTER).peggedTokenBalance());
+        // slither-disable-next-line incorrect-equality
+        if (maxPegged == 0) {
+            return 0;
+        }
+        uint256 payment;
+        if (paidInLeveraged) {
+            // slither-disable-next-line unused-return the leg is converted, so no collateral is paid for it
+            (, payment) = IMinter_v3(MINTER).freeRedeemDryRun(0, maxPegged);
+        } else {
+            // slither-disable-next-line unused-return no pegged is converted, so no leveraged is minted
+            (payment, ) = IMinter_v3(MINTER).freeRedeemDryRun(maxPegged, 0);
+        }
+        maxPegged = _capLiquidation(maxPegged, payment, pool);
     }
 
     /// @dev The legs of the step by both legs: what the minter sizes to lift the market to `target` with no more than
@@ -554,9 +578,12 @@ contract StabilityPoolManager_v2 is
     /// @dev Clamp one step's legs before anything is swept, so the swept, redeemed and notified pegged all agree. The
     ///      dry run gives each pool's proceeds. The minter reverts a redemption with a leg that would be paid nothing,
     ///      so such a leg is not taken: the one leg of the collateral route (`leveragedPoolPaidInCollateral`), where
-    ///      nothing is then taken, or either leg of the two. Each pool's share is then held within what its reward
-    ///      integral can absorb and within its headroom (`_capLiquidation`): pegged is burned in the redeem, so this
-    ///      must precede it, and the dry run turns the proceeds bound into a pegged bound.
+    ///      nothing is then taken, or either leg of the two. Each pool's share is then held within its
+    ///      `maxLiquidationReward` and its `maxAssetLoss` (`_capLiquidation`): pegged is burned in the redeem, so this
+    ///      must precede it, and the dry run turns the proceeds bound into a pegged bound. The legs were sized within
+    ///      both already (`_maxPeggedFrom`), so this cuts no leg paid on its own. Below the floor the two legs share
+    ///      one payment, and a pool's share of it can be a wei over its own rate: that wei is cut here, and does not
+    ///      slide.
     /// @return The pegged to take from the collateral pool and from the leveraged pool.
     function _clampLegs(
         uint256 peggedFromCollateralPool,
@@ -744,8 +771,9 @@ contract StabilityPoolManager_v2 is
     ///      distributed immediately as the pool's reward and must not overflow it; scale the pegged down so the linear
     ///      proceeds land at the cap) and the solvency headroom (`maxAssetLoss` - a loss may take the pool only to its
     ///      MIN floor). The pool enforces both itself, later - its reward path can revert on overflow, its loss path
-    ///      caps inside `_capToFloor` - so applying them here first sizes the sweep to what the pool accepts. Called
-    ///      for each leg.
+    ///      caps inside `_capToFloor` - so applying them here first sizes the sweep to what the pool accepts. Applied
+    ///      to the most a pool may give, before the sizing (`_maxPeggedFrom`), and to each leg after it
+    ///      (`_clampLegs`).
     function _capLiquidation(uint256 pegged, uint256 returned, address pool) private view returns (uint256) {
         // slither-disable-next-line incorrect-equality avoids divide by 0
         if (pegged == 0) {

@@ -272,10 +272,10 @@ contract TestMinterOverflowBoundary is GraphTestBase, TestStabilityPool2SetUp, R
     /// Every other operation on leveraged survives it with eight-fold room to spare at the same market.
     ///
     /// The conversion has no business being the exception, because its arithmetic carries no term the
-    /// others lack: the collateral value it divides by is the same collateral value its rate is built
-    /// from, so the two cancel. What it multiplies by instead is the leverage ratio, which is where the
-    /// cancellation is lost and a product of the pegged being converted with the whole leveraged supply is
-    /// formed in its place.
+    /// others lack. It prices the pegged against the residual directly, at the leveraged supply over the
+    /// residual, and widens through `mulDiv` before the pegged being converted meets the whole leveraged
+    /// supply. A rule that instead multiplies by the leverage ratio and divides by the collateral value
+    /// forms that product in 256 bits, and overflows at supplies a market can really hold.
     ///
     /// Measured at the envelope's cheapest peg, where the pegged count and the collateral price are both
     /// at their largest - which is one corner, not two, because a pool of a fixed dollar value is more

@@ -17,7 +17,7 @@ set autoscale
 set xlabel "Pegged Tokens"
 set xrange [0:100000]
 
-set ylabel "Price / Invariant / Ratios"
+set ylabel "Price / Invariant / CollateralRatio"
 set yrange [-1:6]
 set ytics nomirror
 
@@ -30,10 +30,9 @@ set colorsequence default
 # $6 y1 leveraged price
 # $7 y1 invariant
 # $8 y1 collateral ratio
-# $9 y2 leverage ratio
+# $9 is not plotted: the leverage ratio is NaN in every row. Leveraged ($5) is 0 in every row.
 plot \
     datafile using ($3):($4) axes x1y1 with lines linewidth 2 linetype 2, \
     datafile using ($3):($6) axes x1y1 with lines linewidth 2 linetype 4, \
     datafile using ($3):($7) axes x1y1 with lines linewidth 2 linetype 6, \
-    datafile using ($3):($8) axes x1y1 with lines linewidth 3 linetype 8 dashtype 2, \
-    datafile using ($3):($9) axes x1y1 with lines linewidth 2 linetype 4 dashtype 2
+    datafile using ($3):($8) axes x1y1 with lines linewidth 3 linetype 8 dashtype 2

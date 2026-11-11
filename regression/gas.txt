@@ -81,7 +81,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | initialize               |  94276 | 9.428e+04 |
 | owner                    |   4633 | 4.633e+03 |
 | proxiableUUID            |    375 | 3.750e+02 |
-| rebalance                | 902427 | 9.024e+05 |
+| rebalance                | 952560 | 9.526e+05 |
 | rebalanceBountyCeiling   |   2346 | 2.346e+03 |
 | rebalanceBountyRatio     |   2399 | 2.399e+03 |
 | rebalanceCutRatio        |   2348 | 2.348e+03 |

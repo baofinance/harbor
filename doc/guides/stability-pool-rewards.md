@@ -46,13 +46,15 @@ bounty and a cut, are credited to that pool's depositors.
 The split across the two pools is **fitted, not merely proportional**. It starts proportional to
 each pool's anchor holdings, then each leg is constrained by two caps:
 
-| Cap | Meaning | Read via |
-|---|---|---|
-| **Solvency headroom** | A loss may take a pool only down to its floor, never below | `maxAssetLoss()` |
-| **Reward capacity** | The proceeds are credited in one step and must not overflow the pool's reward integral | `maxLiquidationReward()` |
+| Cap, read from the pool | Meaning |
+|---|---|
+| **`maxAssetLoss()`** | A loss may take a pool only down to its floor, never below |
+| **`maxLiquidationReward()`** | The proceeds are credited in one step and must not overflow the pool's reward integral |
 
-Where a pool's proportional share exceeds its headroom, it is capped there and **the shortfall
-slides into the other pool's leg** — each leg still redeemed for its own token. One call therefore
+Where a pool's proportional share exceeds either cap, it is capped there and **the shortfall
+slides into the other pool's leg**, each leg still redeemed for its own token. Both caps are applied
+before the legs are sized: `maxAssetLoss()` directly, and `maxLiquidationReward()` as the anchor
+whose payment would reach it. One call therefore
 reaches the threshold wherever the pools' combined capacity allows; where it does not, the call
 liquidates the combined capacity and a later call continues.
 
@@ -113,7 +115,7 @@ new yield = harvestable - already owed to the pools
 split new yield by CURRENT pool holdings -> each pool's own `owed` ledger (gross, pre-skim)
   |
   v
-each pool streams its owed up to ONE PERIOD'S reward capacity; the rest stays owed to that pool
+each pool streams its owed up to its maxDepositReward (ONE PERIOD'S worth); the rest stays owed
   |
   v
 bounty + cut taken as exact ratios of the gross ACTUALLY distributed this call
@@ -134,9 +136,9 @@ The manager does **not** split the whole harvestable amount on every call. It ke
 
 - **Only genuinely new yield is allocated by current holdings.** New yield is `harvestable` minus
   what is already owed. Joining a pool therefore does not retroactively earn a share of a backlog.
-- **A pool's owed is its own.** Yield deferred past one period's reward capacity stays with the pool
-  that earned it and is never re-split to the other pool. A pool that held nothing when a backlog
-  accrued never receives any of it.
+- **A pool's owed is its own.** Yield deferred past the pool's `maxDepositReward` stays with the
+  pool that earned it and is never re-split to the other pool. A pool that held nothing when a
+  backlog accrued never receives any of it.
 - **Bounty and cut are taken on value actually distributed**, not on the owed backlog — so a keeper's
   reward always matches the harvestable its call consumed.
 - **Every party takes its own floored share.** No party is handed another's rounding shortfall; the

@@ -4,10 +4,11 @@ set datafile separator comma
 # writes only the CSV, which this finds by the matching basename.
 #
 # THE SAME FOUR POSITIONS FOLLOWED WEEK BY WEEK rather than reduced to a single income figure, so the
-# gap can be seen opening rather than inferred from one number. Each week: Eve mints leveraged to
-# recover the collateral ratio, the Minter harvests, then Alice and Charlie compound - claim their
-# wrappedCollateral, freeMint haXXX with it, re-deposit. Charlie's hsXXX rebalance reward is left
-# unclaimed throughout, so it shows up as claimable rather than as position.
+# gap can be seen opening rather than inferred from one number. In weeks 1 to 4 only, leveraged is
+# minted to Eve to lift the collateral ratio from 1.30 towards 1.40. Each week the Minter's yield is
+# harvested, then Alice and Charlie compound: they claim their wrappedCollateral, freeMint haXXX with
+# it, and re-deposit. Charlie's hsXXX rebalance reward is claimed at his first compound, in week 1. It
+# is redeemed for wrappedCollateral, which he compounds the same way.
 #
 # Two runs are overlaid: no fee, and a 10% fee on Bob's and Dave's withdrawal. The 10% is a literal
 # here and in the captions; it is not read from the CSV, so a different fee pair in the test leaves

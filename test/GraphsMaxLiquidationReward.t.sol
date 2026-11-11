@@ -16,39 +16,34 @@ import {GraphTestBase} from "@bao-test/GraphTestBase.t.sol";
 import {MinterClaimRescaleLib} from "@harbor-test/MinterClaimRescaleLib.sol";
 import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
-/// @notice Whether the leveraged pool could absorb a rebalance if the conversion were not capped.
+/// @notice Whether the leveraged pool can absorb a rebalance's conversion, now that the minter does not bound
+/// how many leveraged tokens it mints per pegged token.
 ///
-/// The conversion used to hand over the leverage ratio cap as though it were a rate, so a rebalance near
-/// the peg minted twenty leveraged per pegged however far the residual had fallen. Removing that was the first
-/// step of the reserve work, and it raised a question that had to be answered BEFORE the removal rather
-/// than after - so this graph is the answer that let the removal go ahead, and it stays as the standing
-/// measurement of the headroom: the leveraged a rebalance hands the leveraged pool is accrued into that pool's
-/// reward
-/// integral, and the integral has a ceiling. `maxLiquidationReward` is that ceiling - not a policy but
-/// the field width, scaled by the pool's share - and `StabilityPoolManager._capLiquidation` scales the
-/// whole leg down in proportion to any overshoot.
-///
-/// So if the uncapped minting exceeds the ceiling, removing the cap SHRINKS the rebalance rather than
-/// freeing it, and does so worst where the market is most distressed.
+/// The deployed Minter_v2 mints twenty leveraged per pegged at or below a collateral ratio of 20/19, however far the
+/// residual has fallen. Minter_v3 has no such bound. The leveraged a rebalance hands the leveraged pool is
+/// accrued into that pool's reward integral. `maxLiquidationReward` is the most of it the pool can credit in one
+/// liquidation without overflowing that integral. It is not a policy but the field width, scaled by the pool's
+/// share. `StabilityPoolManager_v2._maxPeggedFrom` holds the pool's leg within it, through `_capLiquidation`,
+/// and passes the shortfall to the other pool's leg.
 ///
 /// Three quantities at each collateral ratio, against the pegged a rebalance asks the leveraged leg for:
 ///
-/// - what the market mints TODAY, measured through the dry run the manager itself uses;
-/// - what it would mint with no cap, computed from the contract's own uncapped expression, because with
-///   the cap in place there is nothing to measure below a collateral ratio of about 1.053;
-/// - the pool's reward ceiling.
+/// - what Minter_v3 mints, measured through the dry run the manager itself uses;
+/// - what the conversion's expression gives, computed, because Minter_v3 mints no leveraged below
+///   `MINIMUM_COLLATERAL_RATIO`, about 1.0101, so there is nothing to measure there;
+/// - the pool's `maxLiquidationReward`.
 ///
-/// The last column is the ratio of ceiling to uncapped minting. Above one the pool absorbs it; below
-/// one, `_capLiquidation` bites and the leg is scaled down.
+/// The last column is `maxLiquidationReward` over the computed minting. Above one the pool absorbs it. Below
+/// one, the manager would hold the leg within `maxLiquidationReward` and pass the rest to the collateral pool.
 ///
-/// Measured at a SMALL pool share on purpose. The ceiling scales linearly with the pool's share of the
-/// supply, so a small pool is the stress case and the answer at a larger one follows by scaling.
-contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolManagerSetUp {
-    /// @dev Each pool holds this share of the pegged outstanding: a fifth of a percent, the stress case for a
-    ///      ceiling that scales with the pool's size.
+/// Measured at a SMALL pool share on purpose. `maxLiquidationReward` scales linearly with the pool's share of
+/// the supply, so a small pool is the stress case and the answer at a larger one follows by scaling.
+contract TestGraphsMaxLiquidationReward is GraphTestBase, TestStabilityPoolManagerSetUp {
+    /// @dev Each pool holds this share of the pegged outstanding: a fifth of a percent, the stress case for
+    ///      `maxLiquidationReward`, which scales with the pool's size.
     uint256 private constant POOL_SHARE = 0.002 ether;
 
-    /// @dev From a hair above the peg - where an uncapped conversion mints most - up towards the
+    /// @dev From a hair above the peg, where the conversion's expression gives most, up towards the
     ///      rebalance threshold, beyond which there is nothing to rebalance.
     uint256 private constant FIRST_ABOVE_PEG = 1; // one wei of collateral ratio above the peg
     uint256 private constant LAST_ABOVE_PEG = 0.25 ether;
@@ -76,14 +71,14 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(perPool, address(this), 0);
 
         file = openFile(
-            "reward_ceiling_headroom",
+            "max_liquidation_reward",
             sa(
                 "collateral ratio",
                 "anchor the rebalance asks of the leveraged leg",
-                "sail minted as the market answers today",
-                "sail minted with no conversion cap",
-                "the leveraged pool reward ceiling",
-                "ceiling over uncapped minting"
+                "sail Minter_v3 mints by its dry run",
+                "sail computed with no MINIMUM_COLLATERAL_RATIO",
+                "the leveraged pool's maxLiquidationReward",
+                "maxLiquidationReward over the computed sail"
             )
         );
     }
@@ -138,15 +133,17 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
         );
     }
 
-    function test_doesTheRewardCeilingBindWithoutTheConversionCap() public {
+    function test_whereMaxLiquidationRewardBindsTheConversion() public {
         uint256 threshold = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
 
         for (uint256 above = FIRST_ABOVE_PEG; above <= LAST_ABOVE_PEG; above = (above * 12) / 5) {
             uint256 snapshot = vm.snapshotState();
             marketActions.setCollateralRatioByPrice(1 ether + above);
 
-            // What the manager would ask the leveraged leg for, taken from the minter exactly as the
-            // manager takes it - so the pegged here is the pegged a real rebalance would burn.
+            // The pegged the minter asks of the leveraged leg, from the call the manager sizes its legs with,
+            // here with no limit on either leg. A real rebalance also holds the leg within the pool's
+            // `maxAssetLoss` and `maxLiquidationReward`, and takes no leveraged leg below
+            // `MINIMUM_COLLATERAL_RATIO`.
             (, uint256 askLeveraged) = IMinter_v3(minter).redeemPeggedForCollateralRatio(
                 threshold,
                 type(uint256).max,
@@ -172,9 +169,9 @@ contract TestGraphsRewardCeilingHeadroom is GraphTestBase, TestStabilityPoolMana
                     priceOracle
                 );
                 if (valuation.residualE36 > 0) {
-                    // The contract's own uncapped expression, evaluated on the state the market is in.
-                    // Computed rather than measured because the cap answers first below a collateral
-                    // ratio of about 1.053, which is most of this sweep.
+                    // The conversion's expression, evaluated on the state the market is in. Computed rather
+                    // than measured because Minter_v3 mints no leveraged below `MINIMUM_COLLATERAL_RATIO`,
+                    // about 1.0101, which is most of this sweep.
                     uint256 uncapped = Math.mulDiv(
                         askLeveraged * 1 ether,
                         IMinter(minter).leveragedTokenBalance(),

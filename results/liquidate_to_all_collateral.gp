@@ -20,10 +20,11 @@ if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
-set yrange [0:2]
+# y1 holds the collateral token balances. The largest is "after minter collateral", at 20.
+set yrange [0:25]
 set y2range [0:25000]
 
-set ytics 0.2 nomirror
+set ytics nomirror
 set y2tics 2000
 
 set ylabel "Collateral Ratio / Collateral token balance / Leveraged price"
@@ -39,9 +40,9 @@ plot \
      datafile using ($1):($5) axes x1y2 with lines linewidth 1 linetype 8 dashtype 3, \
      datafile using ($1):($7) axes x1y2 with lines linewidth 1 linetype 4 dashtype 3, \
      datafile using ($1):($9) axes x1y2 with lines linewidth 1 linetype 6 dashtype 3, \
-     datafileto using ($1):($3) axes x1y2 with lines linewidth 1 linetype 4, \
+     datafileto using ($1):($3) axes x1y1 with lines linewidth 1 linetype 4, \
      datafileto using ($1):($5) axes x1y2 with lines linewidth 1 linetype 6,\
-     datafileto using ($1):($7) axes x1y2 with lines linewidth 1 linetype 8,\
+     datafileto using ($1):($7) axes x1y1 with lines linewidth 1 linetype 8,\
      datafile using ($1):($10) axes x1y1 with lines linewidth 2 linetype 7 dashtype 2, \
      datafile using ($1):($11) axes x1y1 with lines linewidth 2 linetype 7
 

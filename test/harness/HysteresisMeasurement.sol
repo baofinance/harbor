@@ -33,26 +33,26 @@ import {Array} from "@bao-test/utils/Array.sol";
 /// column, which is the reading that matters.
 abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest {
     /// @dev Where each round starts. Below the peg by default, where the conversion is the only leg that can
-    /// recapitalise and where the rules differ most; a run asking whether a rule holds its terms where it
-    /// actually rebalances - above the leverage cap's floor, below the threshold - overrides it.
+    /// recapitalise and where the rules differ most. The deployed rule converts there. This tree's rule mints no
+    /// leveraged below `MINIMUM_COLLATERAL_RATIO`, so its rebalance pays both pools in collateral instead. A run
+    /// asking whether a rule holds its terms where it converts - at or above `MINIMUM_COLLATERAL_RATIO`, below
+    /// the threshold - overrides it.
     function roundCollateralRatio() internal pure virtual returns (uint256) {
         return 0.6 ether;
     }
 
-    /// @dev Far enough to find the END of the candidate's escrow floor, not just to show it holding. The
-    /// leveraged price falls about 24x a round while the supply grows about 11x, so a price quoted in wei
-    /// runs out: at round twelve it is 17 wei and the round after that it floors to zero. A sequence that
-    /// stopped at twelve would report a rule that works.
+    /// @dev Far enough to show whether a rule's terms hold or decay as rounds accumulate, not just in the
+    /// first round.
     uint256 internal constant ROUNDS = 16;
 
     /// @dev The pool's share of the pegged supply, restored before EVERY round - see `_restorePoolShare`.
     ///
     /// Not all of it, and not a minority either: both are ruled out, from opposite directions. A pool holding
     /// ALL the pegged claims the whole collateral below the peg however much of its own it has burned, so its
-    /// position cannot fall and the measurement is blind. A pool holding too LITTLE cannot complete a round:
-    /// reaching the 1.3 threshold from 0.6 burns `1 - 0.6/1.3` = 53.85% of the supply, so anything under that
-    /// empties first and the sequence stops after one. This sits above the 53.85% a round needs while leaving
-    /// 40% of the pegged held outside the pool at every point a measurement is taken.
+    /// position cannot fall and the measurement is blind. A pool holding too LITTLE cannot complete a round on a
+    /// rule that converts: reaching the 1.3 threshold from 0.6 burns `1 - 0.6/1.3` = 53.85% of the supply, so
+    /// anything under that empties first and the sequence stops after one. This sits above the 53.85% a round
+    /// needs while leaving 40% of the pegged held outside the pool at every point a measurement is taken.
     uint256 internal constant LEVERAGED_POOL_SHARE = 0.6 ether;
 
     string internal hysteresisFile;
@@ -67,7 +67,7 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
     /// market identical in COMPOSITION as well as in health - which is what makes anything differing between
     /// rounds accumulated state rather than a different situation.
     ///
-    /// Without this there is no experiment to run. A round burns 53.85% of the supply reaching the threshold,
+    /// Without this there is no experiment to run. A round that converts to the threshold burns 53.85% of the supply,
     /// so a pool that starts at any fixed share is left with a share of a SMALLER supply and cannot complete
     /// the next one: 0.6 becomes 0.133, and round two stops early. Only a pool holding everything is a fixed
     /// point, and that is the degenerate market this measurement exists to avoid.
@@ -193,8 +193,9 @@ abstract contract HysteresisMeasurement is GraphTestBase, Array, MarketUnderTest
             uint256 peggedPriceBefore = IMinter_v3(market.minter).peggedTokenPrice();
             row[12] = _holdingInCollateral(collateralHeldAtTheStart);
 
-            // A rule that REVERTS a leveraged mint at this ratio ends the sequence here, and that is the
-            // reading: below its floor there is no rebalance to have, and a file with one row says so.
+            // A rule that REVERTS the rebalance with `BelowMinimumCollateralRatio` at this ratio ends the
+            // sequence here, and that is the reading. This tree's manager does not revert there: below
+            // `MINIMUM_COLLATERAL_RATIO` it pays both pools in collateral.
             if (!_rebalanceUnlessTheRuleReverts(keeper)) {
                 break;
             }
