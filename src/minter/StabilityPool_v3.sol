@@ -12,7 +12,7 @@ import {ERC20} from "@solady/tokens/ERC20.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProduct, LossProductLib} from "@harbor/math/LossProductLib.sol";
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
@@ -53,7 +53,6 @@ contract StabilityPool_v3 is
 {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
-    using DecrementalFloatingPoint_v2 for uint128;
 
     /*************
      * Constants *
@@ -101,7 +100,7 @@ contract StabilityPool_v3 is
     ///      uint128 supply-field width (a larger ceiling is unreachable, so it becomes a no-op). Above it a liquidation
     ///      capped at the headroom (`supply - MIN`) has a loss-per-unit that the loss factor's `FACTOR_PRECISION`-scale
     ///      rounds up to a total loss, zeroing the product factor and dividing later `balanceOf` reads by a zero
-    ///      magnitude. The deposit ceiling keeps supply at/below it, so the factor handed to `mul` is always > 0 by
+    ///      mantissa. The deposit ceiling keeps supply at/below it, so the factor handed to `mul` is always > 0 by
     ///      construction rather than by assumption.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MAX_TOTAL_ASSET_SUPPLY;
@@ -126,43 +125,46 @@ contract StabilityPool_v3 is
      * Structs *
      ***********/
 
-    /// @dev The balance layout of an account and of the total supply.
-    ///      Binary-compatible with v2 `TokenBalance`: same field order and the same two storage slots.
-    ///      `product` (uint128) fills slot-0 bytes 0-15 and
-    ///      the third field sits in slot 1 under both v2 and v3 layouts,  so widening `amount` to uint128
-    ///      consumes only slot-0 bytes 29-31 — the zero padding the uint104 `amount` left unused.
-    ///      uint128 (max ~3.4e38, ~3.4e20 whole tokens) now covers the protocol's amount envelope with wide headroom.
-    /// @param product The encoding product data, see the comments of `DecrementalFloatingPoint_v2`.
-    /// @param amount The amount of token currently held.
+    /// @dev The balance layout of an account, of the total supply, and of the part of an account's balance its
+    ///      withdrawal request makes fee-free. An amount and the loss product it was last brought to
+    ///      (`LossProduct`), read and written only through `_product` and `_setProduct`.
+    ///      Its first three fields keep the bytes of v2's `TokenBalance`: slot 0 holds `mantissa` in bytes 0-15 and
+    ///      `amount` in bytes 16-31, slot 1 holds `unusedInV3` in bytes 0-4. `exponent` takes bytes 5-12 of slot 1,
+    ///      which no version wrote before.
+    /// @param mantissa The mantissa of the loss product. It is v2's `product` renamed, declared over the same 16
+    ///        bytes. Their top byte held v2's exponent and is zero in every record: `_setProduct` writes a mantissa
+    ///        below 2^120, and `StabilityPool_v3_Upgrader`, the upgrade from v2, refuses a pool where it is set in the
+    ///        supply's record or a listed holder's.
+    /// @param amount The amount of token held at that product. Widened from v2's uint104 into the zero padding of
+    ///        slot 0: uint128 (about 3.4e38) covers the protocol's amount envelope with wide headroom.
     /// @param unusedInV3 v2's `updatedAt`, which v3 never reads or writes: it holds the time v2 last wrote, or 0. It is
     ///        kept so that no later field is placed on those bytes.
+    /// @param exponent The exponent of the loss product.
     /// @custom:bao-retyped-from amount uint104
+    /// @custom:bao-renamed-from mantissa product
     /// @custom:bao-renamed-from unusedInV3 updatedAt
+    /// @custom:bao-added exponent
     struct TokenBalance {
-        uint128 product;
+        uint128 mantissa;
         uint128 amount; // This has to store 1e36
         uint40 unusedInV3; // this is in the second slot
+        uint64 exponent;
     }
 
     /// @dev A row of the total supply's history: the supply's balance and the time it was recorded. The layout of
-    ///      v2 `TokenBalance`, which held the rows, with `amount` widened as in `TokenBalance`.
-    /// @param product The supply's product when the row was recorded.
+    ///      v2 `TokenBalance`, which held the rows, with its fields changed as in `TokenBalance`.
+    /// @param mantissa The mantissa of the supply's loss product when the row was recorded.
     /// @param amount The total supply when the row was recorded.
     /// @param updatedAt The timestamp the row was recorded.
+    /// @param exponent The exponent of the supply's loss product when the row was recorded.
     /// @custom:bao-retyped-from amount uint104
+    /// @custom:bao-renamed-from mantissa product
+    /// @custom:bao-added exponent
     struct TimestampedBalance {
-        uint128 product;
+        uint128 mantissa;
         uint128 amount;
         uint40 updatedAt;
-    }
-
-    /// @dev The part of an account's balance its withdrawal request makes fee-free, held as the amount and product of
-    ///      the account's balance record, so `_getCompoundedBalance` compounds it exactly as it does that balance.
-    /// @param product The product the amount was taken at, see the comments of `DecrementalFloatingPoint_v2`.
-    /// @param amount The fee-free amount at that product.
-    struct FeeFreeBalance {
-        uint128 product;
-        uint128 amount;
+        uint64 exponent;
     }
 
     /// @dev The withdrawal request window for an account
@@ -183,27 +185,30 @@ contract StabilityPool_v3 is
      * Variables *
      *************/
 
-    // uint128 balances, storage-compatible with the deployed v2 — no migration
-    // -------------------------------------------------------------------------
+    // uint128 balances and a 64-bit exponent, storage-compatible with the deployed v2 — no migration
+    // -------------------------------------------------------------------------------------------------
     // A pool's `amount` is the pegged token it holds, which scales as collateral * price / 1e18 and, across
     // the protocol's price/amount envelope, reaches into v2's uint104 ceiling (~2.03e31 wei, ~2e13 whole
     // tokens). `TokenBalance.amount` is therefore uint128 (~3.4e38), with wide headroom; every balance write
     // goes through `SafeCast.toUint128`, so an amount beyond the field width reverts.
     //
-    // Widening uint104 -> uint128 needs NO storage migration: it consumes only the zero padding that uint104
-    // `amount` left in slot-0 bytes 29-31 (see TokenBalance above), so `product`, the slot-1 field, and every
-    // member here (totalAssetSupply and each assetBalances / totalAssetSupplyHistory entry) keep their byte
-    // offsets. A live v2 proxy that only ever stored `amount` <= uint104 max reads back identically as
-    // uint128; a fresh deployment uses the full range from the start.
+    // v2 kept the loss product's exponent in eight bits, the top byte of its 16-byte `product`. v3 keeps it in a
+    // 64-bit `exponent` in bytes of slot 1 no version wrote, and the 16 bytes as `mantissa`. Every record v2 wrote
+    // reads as the same pair provided its exponent byte is zero, which the upgrade from v2 checks for the supply's
+    // record and every holder it is given (`StabilityPool_v3_Upgrader`).
     //
-    // OpenZeppelin's upgrade check cannot verify this widen: it rejects any retype, and its
+    // Neither change moves a byte: `amount` widens only into the zero padding that uint104 `amount` left in slot-0
+    // bytes 29-31, and `exponent` takes slot-1 bytes v2 never wrote. So `mantissa`, the slot-1 field, and every
+    // member here (totalAssetSupply and each assetBalances / totalAssetSupplyHistory entry) keep their byte
+    // offsets. The reward integrals' exponent key widens in place too (see MultipleRewardCompoundingAccumulator_v3).
+    //
+    // OpenZeppelin's upgrade check cannot verify these changes: it rejects any retype, and its
     // @custom:oz-retyped-from escape hatch cannot reach a field INSIDE a namespaced struct because solc does
     // not expose struct-member NatSpec (ethereum/solidity#12295, OpenZeppelin/openzeppelin-upgrades#802). So
-    // the contract carries @custom:bao-upgrades-from (which OZ ignores, validating it in isolation) and the
-    // widen is declared with the struct-level @custom:bao-retyped-from on TokenBalance and on
-    // TimestampedBalance; `bin/validate` then runs bin/storage-successor to prove the new layout is a
-    // byte-compatible successor of v2's, every change in it documented: this widen (also proven in
-    // test/StabilityPoolStorageLayout.t.sol), the rename of TokenBalance's slot-1 field, and the appended members.
+    // the contract carries @custom:bao-upgrades-from (which OZ ignores, validating it in isolation) and each
+    // change is declared with a struct-level @custom:bao-* tag on the struct it changes; `bin/validate` then runs
+    // bin/storage-successor to prove the new layout is a byte-compatible successor of v2's, every change in it
+    // documented (also proven in test/StabilityPoolStorageLayout.t.sol).
 
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
     /// @custom:bao-added rewardDivisorGap
@@ -233,9 +238,10 @@ contract StabilityPool_v3 is
         /// no product field.
         int256 rewardDivisorGap;
         /// @dev Mapping from account to the part of its balance its withdrawal request makes fee-free, taken from its
-        /// balance record when it requested. A transfer out lowers it to the balance left; nothing raises it. Empty
-        /// with no request.
-        mapping(address => FeeFreeBalance) withdrawalFeeFree;
+        /// balance record when it requested, so `_getCompoundedBalance` compounds it exactly as it does that balance.
+        /// A transfer out lowers it to the balance left; nothing raises it. Empty with no request. Its `unusedInV3`
+        /// is never written.
+        mapping(address => TokenBalance) withdrawalFeeFree;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -259,14 +265,15 @@ contract StabilityPool_v3 is
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        TimestampedBalance memory initialSupply = TimestampedBalance({
-            product: DecrementalFloatingPoint_v2.init(),
-            amount: 0,
-            updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
-        });
-        $.totalAssetSupply.product = initialSupply.product;
+        LossProduct initialProduct = LossProductLib.init();
+        _setProduct($.totalAssetSupply, initialProduct);
         // rewardDivisorGap defaults to 0: supply == Sum(balanceOf), so the divisor (supply - 0) == supply.
-        $.totalAssetSupplyHistory[0] = initialSupply;
+        $.totalAssetSupplyHistory[0] = TimestampedBalance({
+            mantissa: initialProduct.mantissa(),
+            amount: 0,
+            updatedAt: uint40(block.timestamp - 1), // set to 1 second ago so this is sure to be the start of history
+            exponent: initialProduct.exponent()
+        });
         $.totalAssetSupplyHistoryLength = 1;
     }
 
@@ -320,9 +327,9 @@ contract StabilityPool_v3 is
         // unreachable: saturate there, which also keeps the multiply below from overflowing for a large floor. The
         // saturating branch is taken only when `minTotalAssetSupply > uint128.max / FACTOR_PRECISION`, and in the
         // other branch `minTotalAssetSupply * FACTOR_PRECISION <= uint128.max` so the multiply is safe.
-        MAX_TOTAL_ASSET_SUPPLY = minTotalAssetSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+        MAX_TOTAL_ASSET_SUPPLY = minTotalAssetSupply > type(uint128).max / LossProductLib.FACTOR_PRECISION
             ? type(uint128).max
-            : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+            : minTotalAssetSupply * LossProductLib.FACTOR_PRECISION;
 
         // set immutable withdrawal window params
 
@@ -395,8 +402,8 @@ contract StabilityPool_v3 is
     ///      the two can differ by a rounding: the cap keeps the amount within the balance.
     function withdrawalFeeFreeAmount(address account) external view returns (uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        FeeFreeBalance storage feeFree = $.withdrawalFeeFree[account];
-        amount = _getCompoundedBalance(feeFree.amount, feeFree.product, $.totalAssetSupply.product);
+        TokenBalance storage feeFree = $.withdrawalFeeFree[account];
+        amount = _getCompoundedBalance(feeFree.amount, _product(feeFree), _product($.totalAssetSupply));
         uint256 balance = balanceOf(account);
         amount = amount < balance ? amount : balance;
     }
@@ -549,8 +556,8 @@ contract StabilityPool_v3 is
         if (!isExempt) {
             uint256 feeFree = 0;
             if (inWindow) {
-                FeeFreeBalance storage feeFreeBalance = $.withdrawalFeeFree[sender];
-                feeFree = _getCompoundedBalance(feeFreeBalance.amount, feeFreeBalance.product, supply.product);
+                TokenBalance storage feeFreeBalance = $.withdrawalFeeFree[sender];
+                feeFree = _getCompoundedBalance(feeFreeBalance.amount, _product(feeFreeBalance), _product(supply));
             }
             if (assetsWithdrawn > feeFree) {
                 feeAmount = ((assetsWithdrawn - feeFree) * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
@@ -612,9 +619,9 @@ contract StabilityPool_v3 is
         uint64 end = uint64(start + WITHDRAWAL_END_WINDOW);
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
         TokenBalance storage balance = $.assetBalances[sender];
-        FeeFreeBalance storage feeFree = $.withdrawalFeeFree[sender];
+        TokenBalance storage feeFree = $.withdrawalFeeFree[sender];
         feeFree.amount = balance.amount;
-        feeFree.product = balance.product;
+        _setProduct(feeFree, _product(balance));
         emit WithdrawalRequested(sender, start, end);
     }
 
@@ -630,14 +637,14 @@ contract StabilityPool_v3 is
         super._checkpoint(account);
 
         if (account != address(0)) {
-            TokenBalance storage supply = $.totalAssetSupply;
+            LossProduct supplyProduct = _product($.totalAssetSupply);
             TokenBalance storage balance = $.assetBalances[account];
-            uint128 newBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product).toUint128();
+            uint128 newBalance = _getCompoundedBalance(balance.amount, _product(balance), supplyProduct).toUint128();
             if (newBalance != balance.amount) {
                 emit UserDepositChange(account, newBalance, balance.amount - newBalance);
             }
             balance.amount = newBalance;
-            balance.product = supply.product;
+            _setProduct(balance, supplyProduct);
         }
     }
 
@@ -658,10 +665,10 @@ contract StabilityPool_v3 is
     ///
     /// Rounding the divisor up and balances down, the two never cross. The `> _MAX_EXPONENT_DIFFERENCE` rescale
     /// truncation is unreachable for a live divisor: SCALE_FACTOR^8 is 1e72 while every amount is uint128 (< 1e39).
-    function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
+    function _getTotalPoolShare() internal view virtual override returns (LossProduct currentProd, uint256 totalShare) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance storage supply = $.totalAssetSupply;
-        currentProd = supply.product;
+        currentProd = _product(supply);
         // supply - gap; the invariant above keeps this >= Sum(balanceOf) >= 0. SafeCast enforces that rather than
         // assuming it: a negative divisor would otherwise wrap to ~2^256 and silently floor every reward to zero.
         totalShare = SafeCast.toUint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
@@ -683,11 +690,23 @@ contract StabilityPool_v3 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
     function _getUserPoolShare(
         address account
-    ) internal view virtual override returns (uint128 previousProd, uint256 share) {
+    ) internal view virtual override returns (LossProduct previousProd, uint256 share) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance storage balance = $.assetBalances[account];
-        previousProd = balance.product;
+        previousProd = _product(balance);
         share = balance.amount;
+    }
+
+    /// @dev A record's loss product: the pair its `exponent` and `mantissa` hold. The mantissa's top byte is zero in
+    ///      every record (see `TokenBalance`), so the 16 bytes are the mantissa itself.
+    function _product(TokenBalance storage record) internal view returns (LossProduct) {
+        return LossProductLib.from(record.exponent, uint120(record.mantissa));
+    }
+
+    /// @dev Writes a loss product to a record, as `_product` reads it.
+    function _setProduct(TokenBalance storage record, LossProduct product) internal {
+        record.mantissa = product.mantissa();
+        record.exponent = product.exponent();
     }
 
     /// @dev Internal function to reduce asset accounting.
@@ -712,8 +731,8 @@ contract StabilityPool_v3 is
         // when it comes to making a claim, users get a fair allocation.
 
         // Scaled by the product factor's own precision — `newProductFactor` below is handed to
-        // `DecrementalFloatingPoint_v2.mul`, so the loss-per-unit must be expressed in exactly that fixed-point scale.
-        uint256 lossInEther = loss * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+        // `LossProductLib.mul`, so the loss-per-unit must be expressed in exactly that fixed-point scale.
+        uint256 lossInEther = loss * LossProductLib.FACTOR_PRECISION;
 
         // calculate the new loss error (over applied)
         // Handle case where loss is less than the over-application error
@@ -732,7 +751,7 @@ contract StabilityPool_v3 is
             $.lastAssetLossError = (assetLossPerUnitStaked * uint256(supply.amount)) - lossNumerator;
         }
         // Snapshot the divisor (supply - gap) at the current product before supply and product change.
-        uint128 previousProduct = supply.product;
+        LossProduct previousProduct = _product(supply);
         uint256 divisorBefore = SafeCast.toUint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
 
         // Reduce supply by loss amount
@@ -741,15 +760,15 @@ contract StabilityPool_v3 is
         // Update product factor and total supply
         // The newProductFactor is the factor by which to change all deposits, due to the depletion of StabilityPool assets in the liquidation.
         // As we don't allow pool emptying it is (1 - assetLossPerUnitStaked) which is always > 0 and < 1.
-        uint128 newProductFactor = uint128(DecrementalFloatingPoint_v2.FACTOR_PRECISION) -
-            uint128(assetLossPerUnitStaked);
+        uint128 newProductFactor = uint128(LossProductLib.FACTOR_PRECISION) - uint128(assetLossPerUnitStaked);
         // Reverts `LossProductExponentOverflow` where the product's exponent would pass its last value.
-        supply.product = supply.product.mul(newProductFactor);
+        LossProduct newProduct = previousProduct.mul(newProductFactor);
+        _setProduct(supply, newProduct);
 
         // Rescale the divisor to the new product with the CEIL (>= the floor-rescaled balances) and store the gap
         // supply - divisor. A give-back holds the product and drops supply, so the gap goes negative; either way
         // the divisor stays >= Sum(balanceOf).
-        uint256 divisorAfter = _scaleAdjustedValueCeil(divisorBefore, supply.product, previousProduct);
+        uint256 divisorAfter = _scaleAdjustedValueCeil(divisorBefore, newProduct, previousProduct);
         $.rewardDivisorGap = int256(uint256(supply.amount)) - SafeCast.toInt256(divisorAfter);
 
         _recordTotalSupply();
@@ -761,10 +780,12 @@ contract StabilityPool_v3 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         uint256 totalSupplyHistoryLength_ = $.totalAssetSupplyHistoryLength;
         TokenBalance storage supply = $.totalAssetSupply;
+        LossProduct product = _product(supply);
         TimestampedBalance memory row = TimestampedBalance({
-            product: supply.product,
+            mantissa: product.mantissa(),
             amount: supply.amount,
-            updatedAt: uint40(block.timestamp)
+            updatedAt: uint40(block.timestamp),
+            exponent: product.exponent()
         });
 
         // slither-disable-next-line incorrect-equality
@@ -870,7 +891,7 @@ contract StabilityPool_v3 is
     function balanceOf(address account) public view override returns (uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance storage balance = $.assetBalances[account];
-        amount = _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
+        amount = _getCompoundedBalance(balance.amount, _product(balance), _product($.totalAssetSupply));
     }
 
     function totalSupply() public view override returns (uint256 totalSupply_) {
@@ -916,15 +937,16 @@ contract StabilityPool_v3 is
         }
 
         // The sender's fee-free amount never exceeds what it still holds: above it, it becomes the balance left.
-        FeeFreeBalance storage feeFree = $.withdrawalFeeFree[from];
-        if (_getCompoundedBalance(feeFree.amount, feeFree.product, fromBalance.product) > fromBalance.amount) {
+        TokenBalance storage feeFree = $.withdrawalFeeFree[from];
+        LossProduct fromProduct = _product(fromBalance);
+        if (_getCompoundedBalance(feeFree.amount, _product(feeFree), fromProduct) > fromBalance.amount) {
             feeFree.amount = fromBalance.amount;
-            feeFree.product = fromBalance.product;
+            _setProduct(feeFree, fromProduct);
         }
 
         TokenBalance storage toBalance = $.assetBalances[to];
         toBalance.amount = (uint256(toBalance.amount) + amount).toUint128();
-        toBalance.product = $.totalAssetSupply.product;
+        _setProduct(toBalance, _product($.totalAssetSupply));
 
         emit Transfer(from, to, amount);
     }

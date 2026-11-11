@@ -37,6 +37,8 @@ import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2
 ///              as the upgrade delegatecalls an initializer, so what it may claim is counted by the arithmetic a claim
 ///              counts it by and none is restated here;
 ///           4. upgrades the proxy to the real StabilityPool_v3.
+///         Before any of it, it refuses a pool where v2's loss-product exponent byte is not zero in the supply's record
+///         or in a listed holder's: v3 reads a record as v2 wrote it only where that byte is zero.
 ///         All of it runs in one call because the gap does NOT self-heal - normal operation only rescales it on losses,
 ///         never re-derives it from balances - so it must be correct before any reward accrues; a separate later run
 ///         would leave the pool on v3 with an un-seeded divisor in between. The deductions ride the same call because
@@ -89,6 +91,23 @@ contract StabilityPool_v3_Upgrader is Initializable, UUPSUpgradeable, HarborFixe
         Deduction[] calldata deductions,
         address stabilityPoolV3
     ) external onlyOwner {
+        // v2 kept the loss product's exponent in byte 15 of a record's first slot, the top byte of what v3 reads as
+        // the mantissa. v3 takes the exponent from bytes of the second slot v2 never wrote, so a record reads as v2
+        // wrote it only where that byte is zero. A holder's record holds the supply's product as it was at the
+        // holder's last checkpoint, and v2's exponent only rises until its eight bits wrap, so a supply's byte of zero
+        // that never wrapped bounds every holder's, listed or not; the listed ones are checked all the same.
+        StabilityPool_v3.StabilityPoolStorage storage $pool = _stabilityPoolStorage();
+        uint8 supplyExponentByte = uint8($pool.totalAssetSupply.mantissa >> 120);
+        if (supplyExponentByte != 0) {
+            revert SupplyRecordExponentByteNotZero(supplyExponentByte);
+        }
+        for (uint256 h = 0; h < holders.length; ++h) {
+            uint8 exponentByte = uint8($pool.assetBalances[holders[h]].mantissa >> 120);
+            if (exponentByte != 0) {
+                revert HolderRecordExponentByteNotZero(holders[h], exponentByte);
+            }
+        }
+
         LinearMultipleRewardDistributor_v3.LinearMultipleRewardDistributorStorage storage $reward = _rewardStorage();
         address[] memory tokens = $reward.activeRewardTokens.values();
         for (uint256 i = 0; i < tokens.length; ++i) {
@@ -126,7 +145,7 @@ contract StabilityPool_v3_Upgrader is Initializable, UUPSUpgradeable, HarborFixe
 
         // The gap before any checkpoint: the checkpoint folds the stream since the pool's last update into its
         // reward-per-share, dividing by the divisor the gap seeds.
-        _stabilityPoolStorage().rewardDivisorGap = rewardDivisorGap;
+        $pool.rewardDivisorGap = rewardDivisorGap;
 
         for (uint256 d = 0; d < deductions.length; ++d) {
             Deduction calldata deduction = deductions[d];

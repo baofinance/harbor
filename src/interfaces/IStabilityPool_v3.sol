@@ -117,10 +117,11 @@ interface IStabilityPool_v3 {
     error InvalidMinTotalAssetSupply(uint256 minTotalAssetSupply);
 
     /// @dev Thrown by a loss the pool cannot record. A holder's balance is their deposit times the product of the
-    ///      factors of the losses since. The pool keeps that product as a magnitude and a count of the times the
-    ///      magnitude has been scaled up by 1e9: the exponent, which has eight bits. `exponent` is the count before the
-    ///      loss and `increase` what the loss would add to it, taking it past 255, the last value it holds.
-    error LossProductExponentOverflow(uint8 exponent, uint8 increase);
+    ///      factors of the losses since. The pool keeps that product as a mantissa and a count of the times the
+    ///      mantissa has been scaled up by 1e9: the exponent, which has 64 bits (`LossProductLib`). `exponent` is the
+    ///      count before the loss and `increase` what the loss would add to it, taking it past `type(uint64).max`,
+    ///      the last value it holds.
+    error LossProductExponentOverflow(uint64 exponent, uint64 increase);
 
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS

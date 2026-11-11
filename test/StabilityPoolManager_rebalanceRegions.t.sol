@@ -13,7 +13,7 @@ import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProductLib} from "@harbor/math/LossProductLib.sol";
 
 import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -284,7 +284,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
                 // over-application carried into the next loss, so over the rebalance the factor every balance is
                 // scaled by differs from the supply's (S - L) / S by less than 1e-18: after one loss by
                 // (e' - e) / (S * 1e18), after two by (e1 * L2 / S' - e2) / (S * 1e18), each carried error less than
-                // the supply it was made on. The product's magnitude stays exact - 1e36 * (1e18 - u) / 1e18 leaves no
+                // the supply it was made on. The product's mantissa stays exact - 1e36 * (1e18 - u) / 1e18 leaves no
                 // remainder, and no loss here comes near the 1 - 1e-9 that moves its exponent - so a balance B is
                 // written down within B / 1e18 of B * L / S, and the balance's floor and the expected value's ceiling
                 // add under one wei each: |written down - ceil(B * L / S)| <= ceil(B / 1e18) + 1. Rejected: the loss
@@ -292,7 +292,7 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
                 assertDiscriminates(
                     before.balances[i] - balanceAfter,
                     Math.mulDiv(givenUp, before.balances[i], before.supply, Math.Rounding.Ceil),
-                    Math.ceilDiv(before.balances[i], DecrementalFloatingPoint_v2.FACTOR_PRECISION) + 1,
+                    Math.ceilDiv(before.balances[i], LossProductLib.FACTOR_PRECISION) + 1,
                     Math.mulDiv(givenUp, before.balances[i], supplyAfter),
                     string.concat("written down their share of what the pool gave up: ", vm.getLabel(before.holders[i]))
                 );
@@ -1267,16 +1267,15 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
     }
 
     /*//////////////////////////////////////////////////////////////
-                    A POOL THAT CANNOT RECORD A LOSS
+                A POOL PAST EXPONENT 255, AND ONE AT ITS LAST
     //////////////////////////////////////////////////////////////*/
 
-    /// A pool keeps the product of its losses with an exponent of eight bits. At the last exponent, with the magnitude
-    /// at its least, it can record no further loss, and its error passes up through the rebalance unchanged: the
-    /// rebalance is refused whole, whatever the other pool could give, though one is still offered. Once the pool's
-    /// holders have withdrawn to its floor the rebalance draws on the other pool alone, and reaches the threshold.
-    function test_aPoolThatCannotRecordALoss_stopsTheRebalanceWithItsOwnError_untilItIsBackAtItsFloor() public {
-        // The collateral pool is taken to its last exponent by its rebalancer, the manager: 128 rounds, each filling it
-        // to its ceiling with pegged minted in other markets and losing all of that above its floor.
+    /// A pool keeps the product of its losses with an exponent of 64 bits. Taken to 255, the last value an exponent of
+    /// eight bits holds, with the mantissa at its least, it records the next loss as any other, so a rebalance that
+    /// draws on it and on the other pool runs and reaches the threshold.
+    function test_aPoolPastExponent255_isRebalancedAsAnyOther() public {
+        // The collateral pool is taken to exponent 255 by its rebalancer, the manager: 128 rounds, each filling it to
+        // its ceiling with pegged minted in other markets and losing all of that above its floor.
         StabilityPoolActions asTheManager = new StabilityPoolActions(stabilityPoolCollateral, stabilityPoolManager);
         uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         uint256 ceiling = IStabilityPool_v3(stabilityPoolCollateral).MAX_TOTAL_ASSET_SUPPLY();
@@ -1291,9 +1290,9 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         }
         deal(peggedToken, stabilityPoolManager, 0); // what the rounds swept: a manager holds no pegged between rebalances
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
             255,
-            "fixture: the collateral pool's loss product is at its last exponent"
+            "fixture: the collateral pool's loss product is at exponent 255"
         );
         assertEq(_poolSupply(stabilityPoolCollateral), floor, "fixture: and the pool is at its floor");
 
@@ -1307,10 +1306,54 @@ contract StabilityPoolManagerRebalanceRegionsTest is TestStabilityPoolManagerSet
         );
         assertGt(forCollateral, 0, "fixture: the rebalance would draw on the collateral pool");
         assertGt(forLeveraged, 0, "fixture: and on the leveraged pool");
+        uint256 collateralPoolSupply = _poolSupply(stabilityPoolCollateral);
+        uint256 leveragedPoolSupply = _poolSupply(stabilityPoolLeveraged);
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
+
+        uint256 taken = IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        assertGt(
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
+            255,
+            "the collateral pool recorded its loss past 255"
+        );
+        assertEq(
+            collateralPoolSupply -
+                _poolSupply(stabilityPoolCollateral) +
+                leveragedPoolSupply -
+                _poolSupply(stabilityPoolLeveraged),
+            taken,
+            "the two pools give up what the rebalance takes"
+        );
+        assertLt(_poolSupply(stabilityPoolCollateral), collateralPoolSupply, "the collateral pool gave");
+        assertLt(_poolSupply(stabilityPoolLeveraged), leveragedPoolSupply, "and the leveraged pool");
+        assertGe(IMinter(minter).collateralRatio(), threshold, "and the threshold is reached");
+    }
+
+    /// A pool whose product is at the last exponent its 64 bits hold, with the mantissa at its least, can record no
+    /// further loss, and its error passes up through the rebalance unchanged: the rebalance is refused whole, whatever
+    /// the other pool could give, though one is still offered. Once the pool's holders have withdrawn to its floor the
+    /// rebalance draws on the other pool alone, and reaches the threshold. The pool stands at that product before its
+    /// first deposit.
+    function test_aPoolThatCannotRecordALoss_stopsTheRebalanceWithItsOwnError_untilItIsBackAtItsFloor() public {
+        MockStabilityPool(stabilityPoolCollateral).__setSupplyProduct(
+            LossProductLib.from(type(uint64).max, LossProductLib.MIN_PRECISION)
+        );
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        _depositFor(stabilityPoolCollateral, alice, 2_500);
+        _depositFor(stabilityPoolLeveraged, carol, 2_500);
+        uint256 threshold = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold();
+        assertLt(IMinter(minter).collateralRatio(), threshold, "fixture: the market is below its threshold");
+        (uint256 forCollateral, uint256 forLeveraged) = _legsToTheThreshold(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            IStabilityPool_v3(stabilityPoolLeveraged).maxAssetLoss()
+        );
+        assertGt(forCollateral, 0, "fixture: the rebalance would draw on the collateral pool");
+        assertGt(forLeveraged, 0, "fixture: and on the leveraged pool");
 
         assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "a rebalance is offered");
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPool_v3.LossProductExponentOverflow.selector, uint8(255), uint8(1))
+            abi.encodeWithSelector(IStabilityPool_v3.LossProductExponentOverflow.selector, type(uint64).max, uint64(1))
         );
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
 

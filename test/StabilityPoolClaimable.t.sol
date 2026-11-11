@@ -10,7 +10,7 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProductLib} from "@harbor/math/LossProductLib.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -88,7 +88,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
     ///      the loss rescales the divisor by its product factor, rounded up, and that factor over-applies the loss by
     ///      under 1e-18 per wei, so the divisor trails the supply after by under `supplyBefore / 1e18` wei.
     function _divisorAfterALossAtLeast(uint256 supplyBefore, uint256 supplyAfter) private pure returns (uint256) {
-        return supplyAfter - Math.ceilDiv(supplyBefore, DecrementalFloatingPoint_v2.FACTOR_PRECISION);
+        return supplyAfter - Math.ceilDiv(supplyBefore, LossProductLib.FACTOR_PRECISION);
     }
 
     function testClaimableAfterDeposit() public {
@@ -659,7 +659,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         // liquidated to the floor, paying the first proceeds at the exponent the holder checkpointed at
         collateralPoolActions.liquidate(wrappedCollateralToken, deposit - floor, proceedsBefore);
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
             1,
             "fixture: the product moved one rung"
         );

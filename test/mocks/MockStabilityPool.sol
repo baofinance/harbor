@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {LossProduct} from "@harbor/math/LossProductLib.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 
 /// @dev Identical to `StabilityPool_v3` bar the `__`-prefixed accessors that expose internals for testing, so
@@ -28,9 +29,31 @@ contract MockStabilityPool is StabilityPool_v3 {
         )
     {}
 
-    /// @notice Exposes the product value for testing purposes
-    function __totalSupply() external view returns (TokenBalance memory) {
-        return _getStabilityPoolStorage().totalAssetSupply;
+    /// @notice Exposes the last row of the supply's history, whose product `totalAssetSupplyHistory` does not return
+    function __lastHistoryRow() external view returns (TimestampedBalance memory) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        return $.totalAssetSupplyHistory[$.totalAssetSupplyHistoryLength - 1];
+    }
+
+    /// @notice Exposes the supply's loss product, as the pool reads it from its record
+    function __supplyProduct() external view returns (LossProduct) {
+        return _product(_getStabilityPoolStorage().totalAssetSupply);
+    }
+
+    /// @notice Sets the supply's loss product, as the pool writes it: a pool that stands at this product before its
+    ///         first deposit, for a test that runs at a given exponent without the losses that reach it
+    function __setSupplyProduct(LossProduct product) external {
+        _setProduct(_getStabilityPoolStorage().totalAssetSupply, product);
+    }
+
+    /// @notice Exposes an account's loss product, as the pool reads it from its record
+    function __accountProduct(address account) external view returns (LossProduct) {
+        return _product(_getStabilityPoolStorage().assetBalances[account]);
+    }
+
+    /// @notice Writes an account's loss product to its record, as the pool writes it
+    function __setAccountProduct(address account, LossProduct product) external {
+        _setProduct(_getStabilityPoolStorage().assetBalances[account], product);
     }
 
     /// @notice Exposes the reward divisor (`_getTotalPoolShare().totalShare`) — the denominator every
@@ -65,8 +88,8 @@ contract MockStabilityPool is StabilityPool_v3 {
 
     function __getCompoundedBalance(
         uint256 initialBalance,
-        uint128 initialProduct,
-        uint128 currentProduct
+        LossProduct initialProduct,
+        LossProduct currentProduct
     ) external pure returns (uint256) {
         return _getCompoundedBalance(initialBalance, initialProduct, currentProduct);
     }
@@ -74,8 +97,8 @@ contract MockStabilityPool is StabilityPool_v3 {
     /// @notice Exposes the ceiling rescale the reward divisor moves through on a loss.
     function __scaleAdjustedValueCeil(
         uint256 baseValue,
-        uint128 toProd,
-        uint128 fromProd
+        LossProduct toProd,
+        LossProduct fromProd
     ) external pure returns (uint256) {
         return _scaleAdjustedValueCeil(baseValue, toProd, fromProd);
     }

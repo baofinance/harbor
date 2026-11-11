@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProduct, LossProductLib} from "@harbor/math/LossProductLib.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -28,8 +28,6 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 /// Results are written as CSVs to ./results/sp-ledger-gap-*.csv (one file per test — forge runs
 /// tests in parallel and files are never removed).
 contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, MockStabilityPoolConservation {
-    using DecrementalFloatingPoint_v2 for uint128;
-
     uint256 internal constant ONE = 1 ether; // the 1e18 per-unit-staked precision of _notifyLoss
 
     address internal pool;
@@ -538,7 +536,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// outlives the withdrawals and `_getTotalPoolShare` returns `supply - gap`. Were the holders able to drain supply
     /// to 0, the surviving negative gap would make that `-gap`: a live sub-floor divisor over an EMPTY pool, which
     /// slips past `_accumulateReward`'s `totalShare == 0` guard and divides by a few wei instead of queueing —
-    /// `toAdd = amount * 1e18 * magnitude / |gap|` — defeating the `_minTotalShare()` floor that `_depositRewardCap`
+    /// `toAdd = amount * 1e18 * mantissa / |gap|` — defeating the `_minTotalShare()` floor that `_depositRewardCap`
     /// sizes the reward-integral cap against by orders of magnitude, and crediting an exponent that has no holders.
     /// The outflow cap forecloses it: the pool retains the floor, so the divisor stays at/above it.
     function test_negativeGapDrain_neverStrandsSubFloorDivisor() public {
@@ -694,39 +692,39 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     ///     assetLossPerUnitStaked = ceil((supply - MIN) * 1e18 / supply) = 1e18 - ceil((MIN * 1e18 + 1) / supply) + 1
     /// At `supply == MIN * 1e18` that ceil term is 2, leaving `1e18 - 1`, so `newProductFactor = 1 ether - (1e18 - 1)`
     /// is 1 - the product survives and every holder's balance still reads. This is the exact bound the
-    /// `DecrementalFloatingPoint_v2.mul` precondition ("Caller should make sure `factor` is always > 0", justified as
-    /// "Minimum balance prevents factor=0") silently depends on, so it is pinned rather than assumed.
+    /// `LossProductLib.mul` precondition ("Caller should make sure `factor` is always > 0") silently depends on, so it
+    /// is pinned rather than assumed.
     function test_liquidationToFloor_productSurvivesAtTheLossPerUnitBound() public {
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         // `MIN * FACTOR_PRECISION` is exactly MAX_TOTAL_ASSET_SUPPLY, the largest supply the deposit cap admits.
-        _deposit(actors[0], floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION);
+        _deposit(actors[0], floor * LossProductLib.FACTOR_PRECISION);
 
         poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - floor, 0); // the whole headroom: the worst case for the loss-per-unit
 
         assertEq(IERC20(pool).totalSupply(), floor, "precondition: the liquidation took the pool to its floor");
         // The loss per unit is (supply - floor) * 1e18 / supply = 1e18 - 1 exactly - nothing is carried - so the factor
-        // is 1: the magnitude falls to 1e18, below MIN_PRECISION, and the product climbs one rung - exponent 1,
-        // magnitude MIN_PRECISION. The sole holder's balance, read through that rung, is exactly the floor.
+        // is 1: the mantissa falls to 1e18, below MIN_PRECISION, and the product climbs one rung - exponent 1,
+        // mantissa MIN_PRECISION. The sole holder's balance, read through that rung, is exactly the floor.
         assertEq(IStabilityPool_v3(pool).lastAssetLossError(), 0, "the loss divides: nothing is carried");
-        uint128 product = MockStabilityPool(pool).__totalSupply().product;
+        LossProduct product = MockStabilityPool(pool).__supplyProduct();
         assertEq(product.exponent(), 1, "the product climbs one rung");
-        assertEq(product.magnitude(), DecrementalFloatingPoint_v2.MIN_PRECISION, "to the rung's least magnitude");
+        assertEq(product.mantissa(), LossProductLib.MIN_PRECISION, "to the rung's least mantissa");
         assertEq(IERC20(pool).balanceOf(actors[0]), floor, "the holder keeps exactly the floor");
     }
 
     /// @notice One wei past that bound is where a floor-capped liquidation's loss-per-unit CEILs up to a total loss
-    /// (`newProductFactor == 0`), zeroing the product so that a later depositor snapshots a zero magnitude and their
+    /// (`newProductFactor == 0`), zeroing the product so that a later depositor snapshots a zero mantissa and their
     /// `balanceOf` divides by zero - the pool bricked for anyone joining after. The deposit cap forecloses it: a
     /// deposit that would push supply one wei past `MAX_TOTAL_ASSET_SUPPLY == MIN * FACTOR_PRECISION` reverts, so the
     /// factor-zero state is unreachable rather than merely survived at the edge. This makes
-    /// `DecrementalFloatingPoint_v2.mul`'s "factor is always > 0" precondition hold by construction: `MIN > 0` alone was
+    /// `LossProductLib.mul`'s "factor is always > 0" precondition hold by construction: `MIN > 0` alone was
     /// necessary but not sufficient (the real constraint is the relative `supply <= MIN * FACTOR_PRECISION`), and now it
     /// is enforced.
     function test_deposit_pastLossPerUnitBound_reverts() public {
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         uint256 max = IStabilityPool_v3(pool).MAX_TOTAL_ASSET_SUPPLY();
-        assertEq(max, floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION, "MAX == MIN * FACTOR_PRECISION");
+        assertEq(max, floor * LossProductLib.FACTOR_PRECISION, "MAX == MIN * FACTOR_PRECISION");
 
         // Depositing exactly to the cap is admitted (its safety is proven above); one wei more reverts. deal/approve
         // are hoisted before expectRevert so the one-shot binding attaches to `deposit`, not to a setup call.

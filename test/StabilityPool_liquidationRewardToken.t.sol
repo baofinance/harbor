@@ -9,6 +9,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {LossProduct} from "@harbor/math/LossProductLib.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -156,7 +157,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
 
         uint256 balanceOne = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 balanceTwo = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint128 product = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
+        LossProduct product = MockStabilityPool(stabilityPoolCollateral).__supplyProduct();
         uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         collateralPoolActions.sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
 
@@ -169,7 +170,11 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "no supply written down");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balanceOne, "one's balance untouched");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), balanceTwo, "two's balance untouched");
-        assertEq(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product, product, "the product untouched");
+        assertEq(
+            LossProduct.unwrap(MockStabilityPool(stabilityPoolCollateral).__supplyProduct()),
+            LossProduct.unwrap(product),
+            "the product untouched"
+        );
         assertEq(
             IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
             lossError,

@@ -13,7 +13,7 @@ import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProductLib} from "@harbor/math/LossProductLib.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -297,9 +297,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// which a larger ceiling is unreachable anyway.
     function _expectedMaxTotalAssetSupply(uint256 minTotalAssetSupply) internal pure returns (uint256) {
         return
-            minTotalAssetSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+            minTotalAssetSupply > type(uint128).max / LossProductLib.FACTOR_PRECISION
                 ? type(uint128).max
-                : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+                : minTotalAssetSupply * LossProductLib.FACTOR_PRECISION;
     }
 
     /// @notice The wrap rate is a SCALE axis, not a health one: the collateral ratio is computed from the RECORDED

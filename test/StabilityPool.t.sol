@@ -21,7 +21,7 @@ import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IWrappedPriceOracle} from "@bao/interfaces/IWrappedPriceOracle.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProduct, LossProductLib} from "@harbor/math/LossProductLib.sol";
 
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
@@ -669,26 +669,24 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
 }
 
 contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
-    using DecrementalFloatingPoint_v2 for uint128;
-
     /// A balance compounds by the ratio of the pool's current product to its product at deposit: scaled by the ratio
-    /// of their magnitudes, then divided by 1e9 for each exponent rung between them, rounding down - and zero beyond
+    /// of their mantissas, then divided by 1e9 for each exponent rung between them, rounding down - and zero beyond
     /// eight rungs.
     function test_CompoundedAmount_() public view {
-        // Each case: [initialAmount, initialExponent, initialMagnitude, currentExponent, currentMagnitude,
+        // Each case: [initialAmount, initialExponent, initialMantissa, currentExponent, currentMantissa,
         // expectedResult]
         uint256[6][16] memory testCases;
 
-        // No change (exponentDiff = 0, same magnitude)
+        // No change (exponentDiff = 0, same mantissa)
         testCases[0] = [uint256(1e18), 0, 1e36, 0, 1e36, 1e18];
 
-        // No exponent change, magnitude reduced by half
+        // No exponent change, mantissa reduced by half
         testCases[1] = [uint256(1e18), 0, 1e36, 0, 5e35, 5e17];
 
-        // Single exponent change (exponentDiff = 1), same magnitude
+        // Single exponent change (exponentDiff = 1), same mantissa
         testCases[2] = [uint256(1e18), 0, 1e36, 1, 1e36, 1e9]; // divided by SCALE_FACTOR (1e9)
 
-        // Single exponent change with magnitude reduction
+        // Single exponent change with mantissa reduction
         testCases[3] = [uint256(1e18), 0, 1e36, 1, 5e35, 5e8]; // (1e18 * 5e35 / 1e36) / 1e9
 
         // Double exponent change (exponentDiff = 2)
@@ -715,10 +713,10 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         // Starting with non-zero exponent
         testCases[11] = [uint256(1e18), 2, 1e36, 3, 1e36, 1e9]; // exponentDiff = 1
 
-        // Magnitude increase (theoretical, though unlikely in practice)
+        // Mantissa increase (theoretical, though unlikely in practice)
         testCases[12] = [uint256(1e18), 0, 5e35, 0, 1e36, 2e18];
 
-        // Complex case with both exponent and magnitude changes
+        // Complex case with both exponent and mantissa changes
         testCases[13] = [uint256(2e18), 1, 8e35, 3, 4e35, 1]; // (2e18 * 4e35 / 8e35) / 1e9^2 = 1e18 / 1e18 = 1
 
         // The widest amount the balance record stores (uint128), unchanged
@@ -730,13 +728,13 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         for (uint i = 0; i < testCases.length; i++) {
             uint256 initialAmount = testCases[i][0];
             uint8 initialExponent = uint8(testCases[i][1]);
-            uint120 initialMagnitude = uint120(testCases[i][2]);
+            uint120 initialMantissa = uint120(testCases[i][2]);
             uint8 currentExponent = uint8(testCases[i][3]);
-            uint120 currentMagnitude = uint120(testCases[i][4]);
+            uint120 currentMantissa = uint120(testCases[i][4]);
             uint256 expectedResult = testCases[i][5];
 
-            uint128 initialProduct = DecrementalFloatingPoint_v2.encode(initialExponent, initialMagnitude);
-            uint128 currentProduct = DecrementalFloatingPoint_v2.encode(currentExponent, currentMagnitude);
+            LossProduct initialProduct = LossProductLib.from(initialExponent, initialMantissa);
+            LossProduct currentProduct = LossProductLib.from(currentExponent, currentMantissa);
 
             uint256 actualResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
                 initialAmount,
@@ -750,13 +748,10 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
 
     function test_CompoundedAmountEdgeCases() public view {
         // Test the boundary at exponent difference = 8 vs 9
-        uint128 initialProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        LossProduct initialProduct = LossProductLib.from(0, LossProductLib.MANTISSA_PRECISION);
 
         // Exactly 8 exponent difference - should work
-        uint128 maxAllowedProduct = DecrementalFloatingPoint_v2.encode(
-            8,
-            DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION
-        );
+        LossProduct maxAllowedProduct = LossProductLib.from(8, LossProductLib.MANTISSA_PRECISION);
         uint256 result8 = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
             1e72,
             initialProduct,
@@ -765,7 +760,7 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         assertEq(result8, 1, "8 exponent difference: 1e72 / 1e9^8 = 1");
 
         // 9 exponent difference - should return 0
-        uint128 tooMuchProduct = DecrementalFloatingPoint_v2.encode(9, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        LossProduct tooMuchProduct = LossProductLib.from(9, LossProductLib.MANTISSA_PRECISION);
         uint256 result9 = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
             1e27,
             initialProduct,
@@ -776,8 +771,8 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
 
     /// The ceiling rescale the reward divisor moves through on a loss takes nothing to nothing.
     function test_scaleAdjustedValueCeil_isZero_forAZeroValue() public view {
-        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
-        uint128 toProduct = DecrementalFloatingPoint_v2.encode(1, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        LossProduct fromProduct = LossProductLib.from(0, LossProductLib.MANTISSA_PRECISION);
+        LossProduct toProduct = LossProductLib.from(1, LossProductLib.MANTISSA_PRECISION);
         assertEq(
             MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(0, toProduct, fromProduct),
             0,
@@ -788,8 +783,8 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
     /// A product only ever falls, so a rescale to an earlier exponent than its own has no value: it gives 0 rather
     /// than underflowing the exponent difference.
     function test_scaleAdjustedValueCeil_isZero_whenTheProductRose() public view {
-        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(3, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
-        uint128 toProduct = DecrementalFloatingPoint_v2.encode(1, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        LossProduct fromProduct = LossProductLib.from(3, LossProductLib.MANTISSA_PRECISION);
+        LossProduct toProduct = LossProductLib.from(1, LossProductLib.MANTISSA_PRECISION);
         assertEq(
             MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e27, toProduct, fromProduct),
             0,
@@ -800,9 +795,9 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
     /// Like the floor rescale, the ceiling rescale reaches eight exponent rungs and no further: past eight it gives 0
     /// (1e9^9 has no representation), and at exactly eight 1e72 still rescales to 1 - rounded up from exactly 1.
     function test_scaleAdjustedValueCeil_pastEightRungsIsZero_atEightRescales() public view {
-        uint128 fromProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
-        uint128 eightRungsOn = DecrementalFloatingPoint_v2.encode(8, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
-        uint128 nineRungsOn = DecrementalFloatingPoint_v2.encode(9, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        LossProduct fromProduct = LossProductLib.from(0, LossProductLib.MANTISSA_PRECISION);
+        LossProduct eightRungsOn = LossProductLib.from(8, LossProductLib.MANTISSA_PRECISION);
+        LossProduct nineRungsOn = LossProductLib.from(9, LossProductLib.MANTISSA_PRECISION);
         assertEq(
             MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(1e72, eightRungsOn, fromProduct),
             1,
@@ -814,18 +809,70 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
             "nine rungs: past the reach of the rescale"
         );
     }
+
+    /// The floor and the ceiling rescales do not depend on the exponents they start from, only on the difference:
+    /// a value written at 250 reads at 258 as one written at 0 reads at 8, and at 259 it reads zero as one at 0 does at
+    /// 9. Across 255, the last value an exponent of eight bits holds, and up to the last value of sixty-four.
+    function testFuzz_rescales_doNotDependOnTheExponentTheyStartFrom(
+        uint256 amount,
+        uint64 start,
+        uint256 difference,
+        uint120 fromMantissa,
+        uint120 toMantissa
+    ) public view {
+        amount = bound(amount, 0, type(uint128).max);
+        difference = bound(difference, 0, LossProductLib._MAX_EXPONENT_DIFFERENCE + 1);
+        start = uint64(bound(start, 0, type(uint64).max - difference));
+        fromMantissa = uint120(bound(fromMantissa, LossProductLib.MIN_PRECISION, LossProductLib.MANTISSA_PRECISION));
+        toMantissa = uint120(bound(toMantissa, 1, fromMantissa));
+        LossProduct fromZero = LossProductLib.from(0, fromMantissa);
+        LossProduct toFromZero = LossProductLib.from(uint64(difference), toMantissa);
+        LossProduct fromStart = LossProductLib.from(start, fromMantissa);
+        LossProduct toFromStart = LossProductLib.from(start + uint64(difference), toMantissa);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(amount, fromStart, toFromStart),
+            MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(amount, fromZero, toFromZero),
+            "the floor rescale"
+        );
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(amount, toFromStart, fromStart),
+            MockStabilityPool(stabilityPoolCollateral).__scaleAdjustedValueCeil(amount, toFromZero, fromZero),
+            "the ceiling rescale"
+        );
+    }
+
+    /// The pair of a holder from exponent 250 and a pool at 258 and 259, the case the fuzz above sweeps, as values.
+    function test_aHolderFromBefore255_readsAcrossEightExponentsAndNoFurther() public view {
+        LossProduct holder = LossProductLib.from(250, LossProductLib.MANTISSA_PRECISION);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
+                1e72,
+                holder,
+                LossProductLib.from(258, LossProductLib.MANTISSA_PRECISION)
+            ),
+            1,
+            "eight exponents on: 1e72 / 1e9^8 = 1"
+        );
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
+                1e72,
+                holder,
+                LossProductLib.from(259, LossProductLib.MANTISSA_PRECISION)
+            ),
+            0,
+            "nine exponents on: past the reach of the rescale"
+        );
+    }
+
     function test_CompoundedAmountScaleFactorProgression() public view {
         // Test that each exponent increment divides by SCALE_FACTOR
         uint256 initialAmount = 1e72; // 1e9^8: every one of the eight rungs divides it exactly, leaving at least 1
-        uint128 baseProduct = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
+        LossProduct baseProduct = LossProductLib.from(0, LossProductLib.MANTISSA_PRECISION);
 
         uint256 previousResult = initialAmount;
 
         for (uint8 exponent = 1; exponent <= 8; exponent++) {
-            uint128 currentProduct = DecrementalFloatingPoint_v2.encode(
-                exponent,
-                DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION
-            );
+            LossProduct currentProduct = LossProductLib.from(exponent, LossProductLib.MANTISSA_PRECISION);
             uint256 currentResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
                 initialAmount,
                 baseProduct,
@@ -833,7 +880,7 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
             );
 
             // Each step should divide by SCALE_FACTOR (1e9)
-            uint256 expectedResult = previousResult / DecrementalFloatingPoint_v2.SCALE_FACTOR;
+            uint256 expectedResult = previousResult / LossProductLib.SCALE_FACTOR;
 
             assertEq(
                 currentResult,
@@ -849,11 +896,11 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         // Verify that compoundedAmount is consistent with the mul function's behavior
 
         uint256 initialAmount = 1e18;
-        uint128 initialProduct = DecrementalFloatingPoint_v2.init();
+        LossProduct initialProduct = LossProductLib.init();
 
         // Apply a factor using mul
         uint128 factor = 5e17; // 0.5
-        uint128 afterMulProduct = initialProduct.mul(factor);
+        LossProduct afterMulProduct = initialProduct.mul(factor);
 
         // Calculate what the balance should be
         uint256 expectedBalance = (initialAmount * factor) / 1e18;
@@ -869,17 +916,17 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
     function test_CompoundedAmountOverflowSafety_() public view {
         // Test with maximum values to ensure no overflow
         uint256 maxAmount = type(uint128).max; // the widest amount the balance record stores
-        uint128 maxMagnitudeProduct = DecrementalFloatingPoint_v2.encode(0, type(uint120).max);
-        uint128 minMagnitudeProduct = DecrementalFloatingPoint_v2.encode(0, 1);
+        LossProduct maxMantissaProduct = LossProductLib.from(0, type(uint120).max);
+        LossProduct minMantissaProduct = LossProductLib.from(0, 1);
 
         // This should not overflow or revert
         uint256 result = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
             maxAmount,
-            minMagnitudeProduct,
-            maxMagnitudeProduct
+            minMantissaProduct,
+            maxMantissaProduct
         );
 
         // The full product, under 2^248: no overflow, and nothing lost
-        assertEq(result, maxAmount * type(uint120).max, "the amount scaled by the whole magnitude ratio");
+        assertEq(result, maxAmount * type(uint120).max, "the amount scaled by the whole mantissa ratio");
     }
 }

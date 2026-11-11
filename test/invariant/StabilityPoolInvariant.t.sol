@@ -9,7 +9,6 @@ import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
@@ -23,8 +22,6 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 /// records the ghost accounting the invariants check against, and runs the claimable-monotonicity
 /// probe across all actors.
 contract StabilityPoolInvariantHandler is Test {
-    using DecrementalFloatingPoint_v2 for uint128;
-
     address public immutable POOL;
     address public immutable ASSET_TOKEN;
     /// @notice The token this handler's liquidations pay the pool in. A v3 pool has no token of its own: the
@@ -240,7 +237,7 @@ contract StabilityPoolInvariantHandler is Test {
         if (supply <= MIN_TOTAL_ASSET_SUPPLY) {
             return;
         }
-        if (MockStabilityPool(POOL).__totalSupply().product.exponent() >= 6) {
+        if (MockStabilityPool(POOL).__supplyProduct().exponent() >= 6) {
             return;
         }
         uint256 loss = bound(lossSeed, 1, supply - MIN_TOTAL_ASSET_SUPPLY);

@@ -7,7 +7,7 @@ import {console2 as console} from "forge-std/console2.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProductLib} from "@harbor/math/LossProductLib.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
@@ -37,9 +37,14 @@ import {StabilityPoolRewardRecordLib} from "@harbor-test/harness/StabilityPoolRe
 ///         state where a floor-capped liquidation zeroes the product factor; such a pool needs its floor re-based
 ///         before it can migrate at all, whatever its gap says.
 ///
-///         PASSES iff every deployed pool is `migrate` or `empty`, sits within the supply ceiling, AND the measurement
-///         is reliable. FAILS - naming the pool - if a gap is beyond rounding either way, a pool exceeds the ceiling, or
-///         the harness did not run. Per-pool detail is logged; nothing is written to disk, because a run against a
+///         And it gates on V2'S EXPONENT BYTE: byte 15 of a record's first slot, where v2 kept the loss product's
+///         exponent and v3 reads the top byte of the mantissa. The upgrader refuses a pool where the supply's record or
+///         a listed holder's has it set, so a pool that would be refused is named here, before the upgrade is sent.
+///
+///         PASSES iff every deployed pool is `migrate` or `empty`, sits within the supply ceiling, has v2's exponent
+///         byte zero in its supply's record and every captured holder's, AND the measurement is reliable. FAILS -
+///         naming the pool - if a gap is beyond rounding either way, a pool exceeds the ceiling, an exponent byte is
+///         set, or the harness did not run. Per-pool detail is logged; nothing is written to disk, because a run against a
 ///         provisional capture has nothing worth keeping until the upgrade it gates has been verified end to end.
 ///
 ///         RUN AT MIGRATION TIME:
@@ -75,6 +80,7 @@ contract StabilityPoolMigrationPreflight is
     uint256 internal incompleteCount; // pools whose captured holders hold less than the supply, beyond rounding
     uint256 internal excessCount; // pools whose captured holders hold more than the supply, beyond rounding
     uint256 internal overCeilingCount; // pools whose supply exceeds the ceiling v3 will enforce (need a MIN re-base)
+    uint256 internal exponentByteCount; // pools with v2's exponent byte set in the supply's or a holder's record
     uint256 internal historicalTokenCount; // reward tokens ever unregistered, across all pools (expected: 0)
     uint256 internal claimDataPairsToCopy; // (holder, token) pairs whose V2 ClaimData must be copied to V3
     uint256 internal claimDataPairsAlreadyV3; // pairs already carrying V3 data (a re-run would skip them)
@@ -87,9 +93,9 @@ contract StabilityPoolMigrationPreflight is
     ///      factor. A pool over it needs its floor re-based (a new implementation) before it can migrate.
     function _ceiling(uint256 minTotalAssetSupply) internal pure returns (uint256) {
         return
-            minTotalAssetSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+            minTotalAssetSupply > type(uint128).max / LossProductLib.FACTOR_PRECISION
                 ? type(uint128).max
-                : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+                : minTotalAssetSupply * LossProductLib.FACTOR_PRECISION;
     }
 
     uint256 internal constant _RESIDENT_NONE = 0;
@@ -284,6 +290,11 @@ contract StabilityPoolMigrationPreflight is
             0,
             "a pool's supply exceeds the v3 supply ceiling - re-base its floor before migrating"
         );
+        assertEq(
+            exponentByteCount,
+            0,
+            "a pool has v2's exponent byte set in its supply's or a holder's record - see EXPONENT BYTE"
+        );
 
         // REPORTED, not asserted. These three counts are the measurement; what they SHOULD be depends on which side of
         // the upgrade this run sits, and only the caller knows that. Before the upgrade every pool still runs a v2
@@ -362,6 +373,34 @@ contract StabilityPoolMigrationPreflight is
         }
 
         address[] memory holders = HolderCaptureLib.holders(holdersDir, saltKey);
+
+        // Gate on v2's exponent byte, as the upgrader does: byte 15 of the first slot of the supply's record and of
+        // each captured holder's. The pool's namespace is derived from its name, as the pool derives it, and a holder's
+        // record is in `assetBalances`, the namespace struct's member after `totalAssetSupply` (two slots). Scoped so
+        // its locals do not stay live across the rest of the measurement, which is at the stack limit.
+        {
+            uint256 namespace = uint256(keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1))) &
+                ~uint256(0xff);
+            uint256 recordsSet = (uint256(vm.load(pool, bytes32(namespace))) >> 120) & 0xff == 0 ? 0 : 1;
+            for (uint256 h = 0; h < holders.length; h++) {
+                bytes32 record = keccak256(abi.encode(holders[h], namespace + 2));
+                if ((uint256(vm.load(pool, record)) >> 120) & 0xff != 0) {
+                    recordsSet++;
+                }
+            }
+            if (recordsSet > 0) {
+                exponentByteCount++;
+                console.log(
+                    string.concat(
+                        "EXPONENT BYTE: ",
+                        saltKey,
+                        " has v2's exponent byte set in ",
+                        vm.toString(recordsSet),
+                        " record(s) of the supply and its captured holders - the upgrader would refuse it"
+                    )
+                );
+            }
+        }
 
         // Inventory where each holder's reward snapshot currently lives, and pin the no-historical-tokens invariant
         // the copy's active-token loop relies on. Scoped so its results do not stay live across the gap measurement
