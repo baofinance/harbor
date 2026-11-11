@@ -40,6 +40,7 @@ plot \
      datafile using ($1):($3) axes x1y1 with lines linewidth 1 linetype 1, \
      datafileto using ($1):($2) axes x1y1 with lines linewidth 1 linetype 2, \
      datafileto using ($1):($4) axes x1y2 with lines linewidth 1 linetype 4, \
+     datafileto using ($1):($6) axes x1y1 with lines linewidth 1 linetype 6, \
      datafile using ($1):($10) axes x1y1 with lines linewidth 2 linetype 7 dashtype 2, \
      datafile using ($1):($11) axes x1y1 with lines linewidth 2 linetype 7
 

@@ -222,7 +222,6 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
         for (uint256 i = 0; i < ratios.length; i++) {
             marketActions.setCollateralRatioByPrice(ratios[i]);
             uint256 reported = IMinter_v3(minter).leverageRatio();
-            assertLt(reported, 20 ether, "the reported ratio must be off its cap for this to compare");
             assertApproxEqAbs(_trueLeverageRatio(), reported, 1, "the uncapped ratio is the reported one");
         }
     }

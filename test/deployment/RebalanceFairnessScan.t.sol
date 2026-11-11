@@ -261,6 +261,37 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         assertEq(_gapPct(100, 101), 0, "lower exceeds higher");
     }
 
+    /// @dev How far `returner`'s income is above `stayer`'s, as a percentage of `returner`'s (18 decimals):
+    ///      positive where the returner earns more, negative where the stayer does, zero where they are level.
+    ///      Zero where `returner` is zero, as there is nothing to measure against.
+    function _signedGapPct(uint256 returner, uint256 stayer) internal pure returns (int256) {
+        // slither-disable-next-line incorrect-equality
+        if (returner == 0) {
+            return 0;
+        }
+        return ((int256(returner) - int256(stayer)) * 100 ether) / int256(returner);
+    }
+
+    /// @dev `bp` basis points written as a percentage: one basis point is 0.01%.
+    function _basisPointsAsPercent(uint256 bp) internal pure returns (string memory) {
+        return BaoTestLib.toStringScaled(bp, 2);
+    }
+
+    // _signedGapPct keeps the sign: a stayer who earns more gives a negative gap, measured against the returner.
+    function test_signedGapPctIsNegativeWhereTheStayerEarnsMore() public pure {
+        assertEq(_signedGapPct(100, 75), 25 ether, "the returner earns more: positive");
+        assertEq(_signedGapPct(75, 100), -33_333_333_333_333_333_333, "the stayer earns more: negative");
+        assertEq(_signedGapPct(100, 100), 0, "level");
+        assertEq(_signedGapPct(0, 100), 0, "nothing to measure against");
+    }
+
+    // _basisPointsAsPercent writes a count of basis points as the percentage it is.
+    function test_basisPointsAsPercentWritesHundredthsOfAPercent() public pure {
+        assertEq(_basisPointsAsPercent(17), "0.17", "17 bp");
+        assertEq(_basisPointsAsPercent(60), "0.60", "60 bp");
+        assertEq(_basisPointsAsPercent(10_000), "100.00", "the whole");
+    }
+
     // ── Test 1: Existing gap scan (no fee) ─────────────────────────────
 
     function test_fairnessGapScan() public {
@@ -382,21 +413,21 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         uint256 liquidFracPct,
         uint256 aliceWeekly,
         uint256 bobWeekly,
-        uint256 collateralPoolGapPct,
+        int256 collateralPoolGapPct,
         uint256 charlieWeekly,
         uint256 daveWeekly,
-        uint256 leveragedPoolGapPct
+        int256 leveragedPoolGapPct
     ) internal {
         writeLine(
             FEE_CSV,
-            ua(
-                feePct,
-                liquidFracPct,
-                aliceWeekly,
-                bobWeekly,
+            ia(
+                int256(feePct),
+                int256(liquidFracPct),
+                int256(aliceWeekly),
+                int256(bobWeekly),
                 collateralPoolGapPct,
-                charlieWeekly,
-                daveWeekly,
+                int256(charlieWeekly),
+                int256(daveWeekly),
                 leveragedPoolGapPct
             )
         );
@@ -421,21 +452,9 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
 
             (uint256 aliceW, uint256 bobW, uint256 charlieW, uint256 daveW) = _measureIncome();
 
-            // At high fees, Bob may earn less than Alice — gap goes negative (Alice is better off).
-            // Use signed gap: positive = Bob earns more, negative = Alice earns more.
-            uint256 collateralPoolGapPct;
-            uint256 leveragedPoolGapPct;
-            if (bobW >= aliceW) {
-                collateralPoolGapPct = _gapPct(bobW, aliceW);
-            } else {
-                // Negative gap: encode as 0 for now (Alice is winning — fee overshot)
-                collateralPoolGapPct = 0;
-            }
-            if (daveW >= charlieW) {
-                leveragedPoolGapPct = _gapPct(daveW, charlieW);
-            } else {
-                leveragedPoolGapPct = 0;
-            }
+            // At high fees the returner can earn less than the stayer, and the gap goes negative.
+            int256 collateralPoolGapPct = _signedGapPct(bobW, aliceW);
+            int256 leveragedPoolGapPct = _signedGapPct(daveW, charlieW);
 
             uint256 liquidFracPct = liquidFracE18 * 100;
             _writeFeeRow(
@@ -771,11 +790,10 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         // Binary search: min fee where Scenario B dave_12wk ≤ Scenario A dave_12wk
         uint256 leveragedPoolBreakEven = _findBreakEvenFee(baseline.daveEq, false);
 
-        // feeBps is in basis points: 1 bp = 0.01%. Display as X.XX%
         console2.log(
             string.concat(
                 "Break-even fee (12 weeks, collateral pool): ",
-                BaoTestLib.toStringScaled(collateralPoolBreakEven * 1e14, 16),
+                _basisPointsAsPercent(collateralPoolBreakEven),
                 "% (",
                 LibString.toString(collateralPoolBreakEven),
                 " bp)"
@@ -784,7 +802,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         console2.log(
             string.concat(
                 "Break-even fee (12 weeks, leveraged pool):  ",
-                BaoTestLib.toStringScaled(leveragedPoolBreakEven * 1e14, 16),
+                _basisPointsAsPercent(leveragedPoolBreakEven),
                 "% (",
                 LibString.toString(leveragedPoolBreakEven),
                 " bp)"
@@ -799,7 +817,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         string[] memory cols = new string[](6);
 
         cols[0] = "Coll";
-        cols[1] = BaoTestLib.toStringScaled(collateralPoolBreakEven, 16);
+        cols[1] = _basisPointsAsPercent(collateralPoolBreakEven);
         cols[2] = BaoTestLib.toStringScaled(TOTAL_WEEKS * 1 ether, 18);
         cols[3] = BaoTestLib.toStringScaled(DESIGN_PRICE_DROP * 1 ether, 18);
         cols[4] = BaoTestLib.toStringScaled(DESIGN_LEVERAGED_PCT * 1 ether, 18);
@@ -807,7 +825,7 @@ contract RebalanceFairnessScan is GraphTestBase, RebalanceFairnessSetUp {
         writeLine(BE_CSV, cols);
 
         cols[0] = "Lev";
-        cols[1] = BaoTestLib.toStringScaled(leveragedPoolBreakEven, 16);
+        cols[1] = _basisPointsAsPercent(leveragedPoolBreakEven);
         writeLine(BE_CSV, cols);
 
         console2.log("");
