@@ -21,7 +21,8 @@ remediation - are kept, no longer compiled, under `deprecated/script/verify/`.
 ### [v3-upgrade/](v3-upgrade/)
 
 The upgrade of the markets a run names to Minter_v3, StabilityPool_v3 and StabilityPoolManager_v2, by `script/upgrade`
-and `script/Upgrade_MarketsToV3_mainnet.s.sol`, and its rehearsal on anvil (`run-upgrade-rehearsal`). The runbook, what the upgrade changes and how the rehearsal checks it:
+and `script/Upgrade_MarketsToV3_mainnet.s.sol`, its rehearsal on anvil (`run-upgrade-rehearsal`), and the check of a
+mainnet batch on a fork (`check-upgraded-markets`). The runbook, what the upgrade changes and how the rehearsal checks it:
 [v3-upgrade/README.md](v3-upgrade/README.md).
 
 ### [sp-v3-reward-divisor-migration/](sp-v3-reward-divisor-migration/)

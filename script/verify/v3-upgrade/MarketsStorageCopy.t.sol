@@ -41,7 +41,7 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///         what it could claim on the frozen pool at that moment, less its cut where one was taken in that token; its
 ///         claimed is copied; every other holder's records are copied exactly.
 ///
-///         Runs against anvil after the upgrade script (`--fork-url local`, by run-upgrade-rehearsal), and forks
+///         Runs against anvil after the upgrade (`--fork-url local`, by check-upgraded-markets), and forks
 ///         mainnet at the capture's block itself for the V2 side: the pools are frozen, so that is the state the
 ///         upgrade copied.
 contract MarketsStorageCopy is BaoTest, HarborDeployer {

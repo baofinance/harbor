@@ -44,7 +44,7 @@ import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
 ///   {RECORDS_DIR}/{VERSION}/pre/{saltKey}.json   -- its state before any interaction
 ///   {RECORDS_DIR}/{VERSION}/post/{saltKey}.json  -- a pool's interaction results, then its state after them
 ///
-/// Run by run-upgrade-rehearsal, with RECORDS_DIR, VERSION and START_TIMESTAMP set: the before forks mainnet itself;
+/// Run by check-upgraded-markets, with RECORDS_DIR, VERSION and START_TIMESTAMP set: the before forks mainnet itself;
 /// the after runs on the fork given on the forge command line, anvil.
 contract MarketsCapture is Test, HarborDeployer {
     /// @dev The managers were paused in this block; the block before it holds each one's own implementation.
