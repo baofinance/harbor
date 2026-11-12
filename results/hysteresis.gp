@@ -38,13 +38,14 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 800 background rg
 # round either: reaching the 1.3 threshold from 0.6 burns 1 - 0.6/1.3 = 53.85% of the supply. So the share
 # sits above that and is topped back up each round from the 40% held outside the pool.
 #
-# ONLY THE DEPLOYED RULE PLAYS THIS GAME, AND THAT IS THE FIRST READING. The tree and the upgrade REFUSE every
-# round: at or below the peg a pegged token redeemed for collateral takes its share of the backing with it, so
-# no amount redeemed moves the ratio, `rebalanceable()` is false and `rebalance()` reverts
-# `CollateralRatioNotAbovePeg`. Their files have no rows and nothing of them is drawn: the pool keeps exactly
-# what it started with, and the market waits for the price. Whether a sub-peg rebalance SHOULD happen is the
-# question the whole investigation turned on; this rule's answer is no, and it is the same answer on production
-# state as on the local deploy - the upgrade's file is as empty as the tree's.
+# THE TREE AND THE UPGRADE HOLD THEIR TERMS EVERY ROUND, AND REPAIR NOTHING. At or below the peg a pegged token
+# redeemed for collateral takes its share of the backing with it, so no amount redeemed moves the ratio: every
+# round starts at 0.6 and ends there. Each round takes the pool's pegged down to its floor and pays it that
+# pegged's share of the backing in collateral - no leveraged token - which is exactly what the pegged was worth
+# at the market's own price: the payment line sits on 1.0 in round one and in round sixteen, and so does the
+# position, the collateral the pool has been paid counted with the pegged it keeps. What the rounds take is the
+# market: its collateral, column 12, falls by the pool's 0.6 share every round, 1000 to 400 to 160. The answer
+# is the same on production state as on the local deploy.
 #
 # THE DEPLOYED RULE DOES REBALANCE, AND ITS PAYMENT DECAYS TO NOTHING. Read the POSITION, in collateral units,
 # both legs, before and after - not the conversion increment. The increment is real but answers a different
@@ -61,21 +62,22 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 800 background rg
 # in the top panel going to zero.
 #
 # A cap on minting is a cap on payment, and a capped payment against a falling price decays to nothing. The
-# tree's answer to all of this is not to be here: a rebalance below the peg cannot repair the market, so it
-# does not take the pool's pegged for the attempt.
+# tree mints nothing below the peg: it pays the pool in collateral at the market's own price, and that payment
+# does not decay.
 
 set colorsequence default
 set xrange [0.5:16.5]
 set xtics 1
 
 # Columns: 1 round, 2 CR before, 3 CR after, 4 leveraged price before, 5 leveraged price after,
-#          6 leveraged returned, 7 value returned, 8 value given up, 9 value back per given, 10 phi (zero: no
-#          escrow on any rule measured here), 11 leverage ratio before, 12 minter collateral, 13 holding before,
-#          14 holding after
+#          6 leveraged returned, 7 value returned (leveraged tokens and collateral), 8 value given up,
+#          9 value back per given, 10 phi (zero: no escrow on any rule measured here), 11 leverage ratio before,
+#          12 minter collateral, 13 holding before, 14 holding after, 15 collateral returned
 #
-# 13 and 14 are the leveraged pool's WHOLE position - both legs, pegged and leveraged - denominated in
-# collateral, and 12 is the market's entire collateral so the share is derivable. 14/13 is what a rebalance
-# did to the depositor; column 9 is what the CONVERSION alone paid, which is a different and smaller thing.
+# 13 and 14 are the leveraged pool's WHOLE position - the pegged it keeps, its leveraged tokens and the
+# collateral the rounds have paid it - denominated in collateral, and 12 is the market's entire collateral so
+# the share is derivable. 14/13 is what a rebalance did to the depositor; column 9 is what the round alone
+# paid for what it took, which on the deployed rule is a different and smaller thing.
 nz(v) = (v == 0 ? NaN : v)
 
 set lmargin at screen 0.10
@@ -89,8 +91,10 @@ set yrange [0:1.05]
 plot \
      deployed using 1:($14/$13) with linespoints @deployed_main_every @q_first  title n_deployed.", position", \
      deployed using 1:9         with linespoints @deployed_main_every @q_second title n_deployed.", increment", \
-     keyentry with linespoints @tree_local_every title n_tree." (refuses every round)", \
-     keyentry with linespoints @tree_main_every  title n_v3." (refuses every round)"
+     tree     using 1:($14/$13) with linespoints @tree_local_every    @q_first  title n_tree.", position", \
+     tree     using 1:9         with linespoints @tree_local_every    @q_second title n_tree.", payment", \
+     v3       using 1:($14/$13) with linespoints @tree_main_every     @q_first  title n_v3.", position", \
+     v3       using 1:9         with linespoints @tree_main_every     @q_second title n_v3.", payment"
 
 # ─── price and count on ONE axis: only their product is a payment ───
 set ylabel "tokens returned (solid)\nprice after (dashed)"

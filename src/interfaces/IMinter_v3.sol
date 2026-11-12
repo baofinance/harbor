@@ -152,6 +152,11 @@ interface IMinter_v3 is IToken {
     error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 minimum);
     error NoRedeemableTokens(address redeemingToken);
 
+    /// @dev Thrown by a donation that would add no collateral to the backing: `wrappedAmount` of wrapped collateral is
+    /// worth less than a wei of collateral at `rate`, the low edge of the wrap rate, which is the edge a donation is
+    /// credited at. No token is taken.
+    error DonationAddsNoCollateral(uint256 wrappedAmount, uint256 rate);
+
     /// @dev Thrown when recognising an impairment would change nothing, the record not exceeding the holding.
     error NothingToRecognise(uint256 backing);
 
@@ -201,7 +206,7 @@ interface IMinter_v3 is IToken {
     // solhint-disable-next-line func-name-mixedcase
     function HARVESTER_ROLE() external view returns (uint256);
 
-    /// @notice returns the role that, with the owner and the zero-fee role, may donate wrapped collateral as backing
+    /// @notice returns the role that, with the owner, may donate wrapped collateral as backing
     // solhint-disable-next-line func-name-mixedcase
     function DONOR_ROLE() external view returns (uint256);
 
@@ -304,15 +309,22 @@ interface IMinter_v3 is IToken {
     function peggedTokenPrice() external view returns (uint256);
 
     /// @notice The pegged to redeem for collateral and for leveraged to reach `targetCollateralRatio`, with the split
-    ///         already fitted to each pool's solvency headroom. Redeeming `peggedForCollateral` for wrapped collateral
-    ///         AND `peggedForLeveraged` for leveraged tokens moves the collateral ratio to the target - or, if both
-    ///         pools' headrooms are exhausted, as close as the stability pools can. A pool whose proportional share
-    ///         exceeds its headroom is capped there and the shortfall slides along the target-ratio line into the
-    ///         co-pool's leg (each leg still redeemed for its own token). The unconstrained `redeemPeggedForCollateralRatio`
-    ///         is this with no caps and no holdings (returning the two line intercepts).
+    ///         already fitted to `maxCollateralPegged` and `maxLeveragedPegged`. Redeeming `peggedForCollateral` for
+    ///         wrapped collateral AND `peggedForLeveraged` for leveraged tokens moves the collateral ratio to the
+    ///         target - or, if both legs are held at those caps, as close as the stability pools can. A pool whose
+    ///         proportional share exceeds its cap is held there and the shortfall slides along the target-ratio line
+    ///         into the co-pool's leg (each leg still redeemed for its own token). The unconstrained
+    ///         `redeemPeggedForCollateralRatio` is this with no caps and no holdings (returning the two line
+    ///         intercepts). For pools that can give no more than they hold - as a stability pool, whose
+    ///         `maxAssetLoss()` is within its supply - the two legs are together never more than the pegged this minter
+    ///         has minted: where rounding each up would take them a wei past it, they are cut as
+    ///         `freeRedeemPeggedToken` cuts legs that ask for more than it can redeem. The two intercepts of the
+    ///         unconstrained form are not legs of one redemption, and together can be more.
     /// @param targetCollateralRatio The collateral ratio to reach (1e18-scaled).
-    /// @param maxCollateralPegged The most pegged the collateral pool may give up (its `maxAssetLoss` headroom).
-    /// @param maxLeveragedPegged The most pegged the leveraged pool may give up (its `maxAssetLoss` headroom).
+    /// @param maxCollateralPegged The most pegged the collateral pool may give up (for a stability pool, at most its
+    ///        `maxAssetLoss()`).
+    /// @param maxLeveragedPegged The most pegged the leveraged pool may give up (for a stability pool, at most its
+    ///        `maxAssetLoss()`).
     /// @param holdingCollateral The collateral pool's supply - its deposits, never the pegged it holds - weighting its
     ///        share of the unconstrained split.
     /// @param holdingLeveraged The leveraged pool's supply - its deposits, never the pegged it holds - weighting its
@@ -382,7 +394,8 @@ interface IMinter_v3 is IToken {
     /// This is usually the same as `collateralIn`, but a mint is cut where the collateral ratio would cross
     /// `MINIMUM_COLLATERAL_RATIO`, or reach a band the configuration disallows minting in. None is taken where the
     /// market stands at or below `MINIMUM_COLLATERAL_RATIO`, or from an offer too small to buy a whole pegged token -
-    /// both of which the call reverts for: the fee is then zero and the incentive ratio the band's.
+    /// both of which the call reverts for: the fee is then zero and the incentive ratio the band's. None is taken
+    /// where `rate` is zero either: it is the edge a mint values its collateral at, and the offer is then worth none.
     /// @return peggedMinted The amount of pegged tokens that would be minted, given the 'collateralTaken' value and 'fee'.
     /// @return price The price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
@@ -415,8 +428,12 @@ interface IMinter_v3 is IToken {
     /// @return fee The amount deducted in wrapped collateral from 'peggedIn' as a fee.
     /// @return subsidy The amount in wrapped collateral added to 'collateralReturned' taken from the reserve pool.
     /// This takes into account the possibility the reserve pool may be exhausted by this action.
-    /// @return peggedRedeemed The amount of pegged tokens that would be redeemed.
+    /// @return peggedRedeemed The amount of pegged tokens that would be redeemed. None where nothing would be
+    /// returned: the call reverts there, `ReturnZeroAmount` unless one of its earlier checks reverts first. The fee
+    /// and the subsidy are then zero and the incentive ratio the band's.
     /// @return wrappedCollateralReturned The amount of collateral returned to the caller including from the reserve pool (if a subsidy has been configured)
+    /// None from an offer too small to be paid a wei once the fee is taken. None where `rate` is zero either: no amount
+    /// of wrapped collateral pays a collateral amount there.
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function redeemPeggedTokenDryRun(
@@ -437,7 +454,8 @@ interface IMinter_v3 is IToken {
     /// @notice Returns values that will be used if an actual `mintLeveragedToken` function call is made.
     /// Where the call would revert `BelowMinimumCollateralRatio` - below `MINIMUM_COLLATERAL_RATIO`, see
     /// `leveragedMintable` - it reports that nothing would be minted: every amount zero, and the incentive ratio of
-    /// the band the market sits in, as it reports wherever nothing would be used.
+    /// the band the market sits in, as it reports wherever nothing would be used. It reports the same where `rate`
+    /// is zero: it is the edge a mint values its collateral at, and the collateral offered is then worth nothing.
     /// @param collateralIn The amount of collateral to be exchanged for leveraged tokens.
     /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
     /// a fee ratio; a negative number indicates a subsidy.
@@ -470,6 +488,7 @@ interface IMinter_v3 is IToken {
     /// @return leveragedRedeemed The amount of leveraged tokens that would be redeemed.
     /// This could be limited (some or all redeeming being disallowed) by configuration
     /// @return collateralReturned The amount of collateral returned from the reserve pool and passed to the caller.
+    /// None where `rate` is zero, and nothing is then redeemed or charged.
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function redeemLeveragedTokenDryRun(
@@ -489,7 +508,8 @@ interface IMinter_v3 is IToken {
     /// @notice Returns value accrued, and thus harvestable, by holding wrapped collateral tokens as opposed to underlying
     /// @dev The holding's surplus over the recorded backing, valued at the min rate. The wrapped the record needs is
     /// rounded up, so sweeping all of this leaves the holding still covering the record: a harvest can never leave the
-    /// market halted by `UnrecognisedImpairment`.
+    /// market halted by `UnrecognisedImpairment`. Zero where the min rate is zero: the holding is worth nothing there,
+    /// whatever the record.
     /// @return wrappedAmount the amount of wrapped collateral that can be distributed as rewards.
     function harvestable() external view returns (uint256 wrappedAmount);
 
@@ -595,6 +615,10 @@ interface IMinter_v3 is IToken {
     /// This is the one way to contribute collateral as *cover*. Transferring wrapped collateral to this contract
     /// instead leaves the record untouched, so it becomes harvestable yield for the stability pools and moves
     /// neither the collateral ratio nor either token's price.
+    ///
+    /// A donation is credited at the low edge of the wrap rate. One worth less than a wei of collateral there - any
+    /// amount where that edge is zero - would add nothing to the backing, and reverts `DonationAddsNoCollateral`
+    /// before any token is taken.
     /// @param wrappedAmount The wrapped collateral to give. Must be non-zero.
     function donateWrappedCollateral(uint256 wrappedAmount) external;
 
@@ -645,6 +669,11 @@ interface IMinter_v3 is IToken {
     /// @dev Redeems at most the pegged this minter minted, as `redeemPeggedToken` does: where the two legs ask for
     /// more, both are cut in proportion to exactly that - the collateral leg rounded down and the conversion leg the
     /// rest - and the caller keeps the pegged not redeemed. Where it minted none, reverts `NoRedeemableTokens`.
+    /// Reverts `ReturnZeroAmount` for a leg that would be paid nothing, burning nothing: too little pegged to be worth
+    /// a wei of what it is redeemed for, or a collateral leg at a minter with no backing on record. Two checks come
+    /// before it: `UnrecognisedImpairment` while the record of the backing overstates the holding, which with the
+    /// low edge of the wrap rate at zero is any record above zero, and `BelowMinimumCollateralRatio` for a conversion
+    /// asked for below `MINIMUM_COLLATERAL_RATIO`.
     /// @param peggedForCollateral the amount of peggedToken to redeem for collateral.
     /// @param peggedForLeveraged the amount of peggedToken to redeem for leveraged tokens.
     /// @param receiver The address of receiver for collateral token.
@@ -674,7 +703,7 @@ interface IMinter_v3 is IToken {
     /// is held within maxFeeRatio. With an offer larger than the market can absorb at that price this
     /// reports the capacity to mint at it — the collateral taken is bounded by the price, not by the
     /// size of the offer. An offer too small to buy a whole pegged token takes nothing, as the capped
-    /// call reports: no collateral, no fee, and the band's incentive ratio.
+    /// call reports: no collateral, no fee, and the band's incentive ratio. The same where `rate` is zero.
     /// @param collateralIn The proposed amount of wrapped collateral.
     /// @param maxFeeRatio The maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
     function mintPeggedTokenDryRun(
@@ -702,6 +731,8 @@ interface IMinter_v3 is IToken {
     ///         call reverts `BelowMinimumCollateralRatio` for together with any collateral leg beside it, or a
     ///         redemption from a minter that minted none - both legs report zero. A redeem with no conversion is not
     ///         judged.
+    ///         With both edges of the wrap rate at zero the collateral leg reports zero: a wrapped token converts to
+    ///         no collateral there, so the call would pay the leg nothing.
     /// @param peggedForCollateral The pegged amount redeemed for wrapped collateral.
     /// @param peggedForLeveraged The pegged amount redeemed for leveraged tokens.
     /// @return wrappedCollateralOut The wrapped collateral that `peggedForCollateral` would return.

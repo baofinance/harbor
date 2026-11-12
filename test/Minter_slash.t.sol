@@ -207,7 +207,8 @@ contract MinterSlashTest is TestMinterSetUp {
         uint256 shortfall = recordedBefore - heldBefore;
         assertGt(shortfall, 0, "the market must be halted for this to test anything");
 
-        _donate(donor, bound(donation, 1, 1e9 ether));
+        // from the least the minter takes: a donation worth a wei of collateral at the low edge
+        _donate(donor, bound(donation, Math.ceilDiv(1 ether, minRate), 1e9 ether));
 
         (uint256 recordedAfter, uint256 heldAfter) = IMinter_v3(minter).impairment();
         assertLe(recordedAfter, heldAfter + shortfall, "a donation never widens the shortfall");
@@ -251,5 +252,46 @@ contract MinterSlashTest is TestMinterSetUp {
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, wrappedCollateralToken));
         IMinter_v3(minter).donateWrappedCollateral(0);
         vm.stopPrank();
+    }
+
+    /// A donation is credited at the low edge of the wrap rate. With that edge at zero a wrapped token is worth no
+    /// collateral there, so a donation would be taken and add nothing to the backing: it reverts by name, reporting
+    /// the amount offered and the rate it was valued at. It is refused before any token moves, so a donor who has
+    /// approved nothing is told the same, not that the allowance is short.
+    function test_donateWrappedCollateral_worthNoCollateralAtAZeroRate_revertsByNameBeforeAnyTokenMoves() public {
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(100 ether, 40 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, price, 0, rate);
+        deal(wrappedCollateralToken, donor, 1 ether);
+        assertEq(IERC20(wrappedCollateralToken).allowance(donor, minter), 0, "fixture: the donor has approved nothing");
+
+        vm.startPrank(donor);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.DonationAddsNoCollateral.selector, 1 ether, 0));
+        IMinter_v3(minter).donateWrappedCollateral(1 ether);
+        vm.stopPrank();
+    }
+
+    /// The same for an amount too small to be worth a wei of collateral: at a rate of a half, one wei of wrapped. Two
+    /// wei are worth one wei of collateral, and are taken and credited as that.
+    function test_donateWrappedCollateral_worthLessThanAWeiOfCollateral_revertsByName() public {
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(100 ether, 40 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, price, 0.5 ether, rate);
+        uint256 backingBefore = IMinter(minter).collateralTokenBalance();
+
+        deal(wrappedCollateralToken, donor, 2);
+        vm.startPrank(donor);
+        IERC20(wrappedCollateralToken).approve(minter, 2);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.DonationAddsNoCollateral.selector, 1, 0.5 ether));
+        IMinter_v3(minter).donateWrappedCollateral(1);
+
+        IMinter_v3(minter).donateWrappedCollateral(2);
+        vm.stopPrank();
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            backingBefore + 1,
+            "two wei are credited as one of collateral"
+        );
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(donor), 0, "and both are taken");
     }
 }

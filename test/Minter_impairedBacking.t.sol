@@ -608,6 +608,190 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertEq(actualLeveraged, forecastLeveraged, "free redeem dry run must match its call");
     }
 
+    /// With both edges of the wrap rate at zero a wrapped token converts to no collateral, so no amount of it pays a
+    /// collateral amount. The free redeem's dry run answers that its collateral leg pays nothing, and still
+    /// forecasts the conversion leg, which pays no collateral. It reports where its call reverts on the unrecognised
+    /// loss, as every dry run does.
+    function test_atAZeroRate_theFreeRedeemDryRunReportsNoCollateral() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether, "fixture: a leveraged token is worth one pegged");
+        _setRate(0);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the loss is unrecognised");
+
+        (uint256 collateralOut, uint256 leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(peggedTokens / 10, 0);
+        assertEq(collateralOut, 0, "the collateral leg pays nothing at a zero rate");
+        assertEq(leveragedOut, 0, "and no pegged was to be converted");
+
+        (collateralOut, leveragedOut) = IMinter_v3(minter).freeRedeemDryRun(peggedTokens / 10, peggedTokens / 10);
+        assertEq(collateralOut, 0, "with both legs the collateral leg pays nothing");
+        assertEq(leveragedOut, peggedTokens / 10, "and the conversion leg forecasts a leveraged token a pegged");
+    }
+
+    /// Once a loss that took the rate to zero is recognised, the record is zero as well. A free redeem then pays
+    /// nothing and reverts by name, and its dry run reports the nothing.
+    function test_atAZeroRate_onceRecognised_theFreeRedeemRevertsByName() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        _setRate(0);
+        _recogniseImpairment();
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "precondition: the record is zero");
+        uint256 redeeming = peggedTokens / 10;
+
+        (uint256 forecast, ) = IMinter_v3(minter).freeRedeemDryRun(redeeming, 0);
+        assertEq(forecast, 0, "the dry run reports that nothing is paid");
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, redeeming);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).freeRedeemPeggedToken(redeeming, 0, zeroFee);
+        vm.stopPrank();
+    }
+
+    /// With both edges of the wrap rate at zero the collateral offered is worth nothing, so a pegged mint takes none
+    /// of it. Both of its dry runs report nothing taken, no fee and nothing minted, where the call reverts on the
+    /// unrecognised loss.
+    function test_atAZeroRate_thePeggedMintDryRunsReportNothingTaken() public {
+        setUp_collateral(100 ether, 40 ether);
+        _setRate(0);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the loss is unrecognised");
+
+        (, uint256 fee, uint256 taken, uint256 minted, , uint256 rate) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            1 ether
+        );
+        assertEq(rate, 0, "the dry run reports the rate it read");
+        assertEq(taken, 0, "no collateral is taken");
+        assertEq(fee, 0, "no fee is charged");
+        assertEq(minted, 0, "no pegged is minted");
+
+        (, fee, taken, minted, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(1 ether, 0.05 ether);
+        assertEq(taken, 0, "with a fee cap: no collateral is taken");
+        assertEq(fee, 0, "with a fee cap: no fee is charged");
+        assertEq(minted, 0, "with a fee cap: no pegged is minted");
+    }
+
+    /// A mint reads the low edge of the wrap rate. With that edge alone at zero the collateral offered is worth nothing
+    /// to a mint, so both mints' dry runs report nothing taken and nothing minted.
+    function test_withTheLowEdgeOfTheRateAtZero_theMintDryRunsReportNothingTaken() public {
+        setUp_collateral(100 ether, 40 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _price(), 0, _rate());
+
+        (, uint256 fee, uint256 taken, uint256 minted, , uint256 rate) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            1 ether
+        );
+        assertEq(rate, 0, "the pegged mint reads the low edge");
+        assertEq(taken, 0, "the pegged mint takes no collateral");
+        assertEq(fee, 0, "the pegged mint charges no fee");
+        assertEq(minted, 0, "the pegged mint mints nothing");
+
+        (, fee, , taken, minted, , rate) = IMinter_v3(minter).mintLeveragedTokenDryRun(1 ether);
+        assertEq(rate, 0, "the leveraged mint reads the low edge");
+        assertEq(taken, 0, "the leveraged mint uses no collateral");
+        assertEq(fee, 0, "the leveraged mint charges no fee");
+        assertEq(minted, 0, "the leveraged mint mints nothing");
+    }
+
+    /// With both edges of the wrap rate at zero no amount of wrapped collateral pays a collateral amount, so a pegged
+    /// redemption returns nothing and redeems nothing. Its dry run reports that before the loss is recognised, in a
+    /// band that charges a fee, and after, in the band below the peg that pays a subsidy from a funded reserve.
+    function test_atAZeroRate_thePeggedRedeemDryRunReportsNothingReturnedOrRedeemed() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        deal(wrappedCollateralToken, reservePool, 1 ether);
+        _setRate(0);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the loss is unrecognised");
+
+        (int256 ratio, uint256 fee, uint256 subsidy, uint256 redeemed, uint256 returned, , ) = IMinter_v3(minter)
+            .redeemPeggedTokenDryRun(peggedTokens / 10);
+        assertGt(ratio, 0, "precondition: unrecognised, the market is in a band that charges a fee");
+        assertEq(returned, 0, "unrecognised: nothing is returned");
+        assertEq(redeemed, 0, "before recognition: no pegged is redeemed");
+        assertEq(fee, 0, "unrecognised: no fee is charged");
+
+        _recogniseImpairment();
+        (ratio, fee, subsidy, redeemed, returned, , ) = IMinter_v3(minter).redeemPeggedTokenDryRun(peggedTokens / 10);
+        assertLt(ratio, 0, "precondition: recognised, the market is in a band that pays a subsidy");
+        assertEq(returned, 0, "recognised: nothing is returned");
+        assertEq(redeemed, 0, "after recognition: no pegged is redeemed");
+        assertEq(fee, 0, "recognised: no fee is charged");
+        assertEq(subsidy, 0, "recognised: no subsidy is paid, though the reserve is funded");
+    }
+
+    /// Once a loss that took the rate to zero is recognised, a pegged redemption pays nothing and reverts by name.
+    function test_atAZeroRate_onceRecognised_thePeggedRedeemRevertsByName() public {
+        (uint256 peggedTokens, ) = setUp_collateral(100 ether, 40 ether);
+        _setRate(0);
+        _recogniseImpairment();
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "precondition: the record is zero");
+
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(minter, peggedTokens);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).redeemPeggedToken(peggedTokens / 10, zeroFee, 0);
+        vm.stopPrank();
+    }
+
+    /// Once a loss that took the rate to zero is recognised, the residual is gone with the record. A zero-fee
+    /// leveraged redemption pays nothing and reverts by name.
+    function test_atAZeroRate_onceRecognised_theFreeLeveragedRedeemRevertsByName() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        _setRate(0);
+        _recogniseImpairment();
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "precondition: the record is zero");
+
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, leveragedTokens);
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, wrappedCollateralToken));
+        IMinter(minter).freeRedeemLeveragedToken(leveragedTokens / 10, zeroFee);
+        vm.stopPrank();
+    }
+
+    /// With both edges of the wrap rate at zero the collateral offered is worth nothing, so a leveraged mint takes
+    /// none of it: its dry run reports nothing used, charged, subsidised or minted.
+    function test_atAZeroRate_theLeveragedMintDryRunReportsNothingTaken() public {
+        setUp_collateral(100 ether, 40 ether);
+        _setRate(0);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the loss is unrecognised");
+
+        (, uint256 fee, uint256 subsidy, uint256 used, uint256 minted, , ) = IMinter_v3(minter)
+            .mintLeveragedTokenDryRun(1 ether);
+        assertEq(used, 0, "no collateral is used");
+        assertEq(fee, 0, "no fee is charged");
+        assertEq(subsidy, 0, "no subsidy is paid");
+        assertEq(minted, 0, "no leveraged token is minted");
+    }
+
+    /// With both edges of the wrap rate at zero no amount of wrapped collateral pays a collateral amount, so a
+    /// leveraged redemption pays nothing and redeems nothing: its dry run reports that.
+    function test_atAZeroRate_theLeveragedRedeemDryRunReportsNothingRedeemed() public {
+        (, uint256 leveragedTokens) = setUp_collateral(100 ether, 40 ether);
+        _setRate(0);
+        assertTrue(_recordOverstatesTheHolding(), "precondition: the loss is unrecognised");
+
+        (, uint256 fee, uint256 redeemed, uint256 returned, , ) = IMinter_v3(minter).redeemLeveragedTokenDryRun(
+            leveragedTokens / 10
+        );
+        assertEq(returned, 0, "nothing is returned");
+        assertEq(redeemed, 0, "no leveraged token is redeemed");
+        assertEq(fee, 0, "no fee is charged");
+    }
+
+    /// The harvestable amount is measured at the low edge of the wrap rate. With that edge at zero the holding is
+    /// worth nothing there, so there is no yield in it: nothing is harvestable, whether the loss is recognised or
+    /// not, though the minter still holds its wrapped tokens.
+    function test_atAZeroRate_nothingIsHarvestable() public {
+        setUp_collateral(100 ether, 40 ether);
+        uint256 rateBefore = _rate();
+        assertGt(IERC20(wrappedCollateralToken).balanceOf(minter), 0, "fixture: the minter holds wrapped tokens");
+
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), _price(), 0, rateBefore);
+        assertEq(IMinter_v3(minter).harvestable(), 0, "the low edge alone at zero: nothing is harvestable");
+
+        _setRate(0);
+        assertEq(IMinter_v3(minter).harvestable(), 0, "both edges at zero, unrecognised: nothing is harvestable");
+
+        _recogniseImpairment();
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "precondition: the record is zero");
+        assertEq(IMinter_v3(minter).harvestable(), 0, "both edges at zero, recognised: nothing is harvestable");
+    }
+
     /// The zero-fee mint is how Genesis opens a market. It prices from the same backing as everything
     /// else and must not be exempt from a recognised impairment.
     ///

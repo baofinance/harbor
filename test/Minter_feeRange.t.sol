@@ -55,7 +55,7 @@ abstract contract TestMinterFeeRangeSetUp is TestMinterSetUp {
 abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     uint256 minCollateral;
     uint256 maxCollateral;
-    uint256 minToken; // the LEVERAGED floor: the ml/rl fee-ratio check uses a fixed tolerance that needs headroom
+    uint256 minToken; // the LEVERAGED floor: the ml/rl fee-ratio check uses a fixed tolerance that needs a margin
     uint256 minTokenPegged; // the PEGGED floor: mint/redeem stay accurate to the wei (redeem floors cleanly at dust)
     uint256 maxToken;
     uint256 measurePrice;
@@ -73,7 +73,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         super.setUp();
         minCollateral = 1e9;
         maxCollateral = 1e30;
-        minToken = 1e16; // leveraged floor: the ml/rl fixed-tolerance fee-ratio assertion needs headroom above dust
+        minToken = 1e16; // leveraged floor: the ml/rl fixed-tolerance fee-ratio assertion needs a margin above dust
         minTokenPegged = 1; // pegged floor: mint/redeem are accurate to the wei (redeem floors cleanly, see below)
         maxToken = 1e30;
         measurePrice = price;
@@ -276,13 +276,13 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
                 if (C.e == C.s) {
                     uint256 bandUpper = C.bounds[C.s];
                     uint256 bandLower = _bandLower(C.s, C.bounds);
-                    // Safe headroom
-                    uint256 headroom = (C.preCR + 1 < bandUpper) ? (bandUpper - 1 - C.preCR) : 0;
-                    if (headroom == 0) {
+                    // The distance from the ratio to one below the band's upper bound
+                    uint256 distanceToBandUpper = (C.preCR + 1 < bandUpper) ? (bandUpper - 1 - C.preCR) : 0;
+                    if (distanceToBandUpper == 0) {
                         continue;
                     }
 
-                    C.targetCR = C.preCR + headroom / 2;
+                    C.targetCR = C.preCR + distanceToBandUpper / 2;
                     if (C.targetCR >= bandUpper) C.targetCR = bandUpper - 1;
 
                     C.underlyingCurrent = IMinter(minter).collateralTokenBalance();

@@ -13,24 +13,29 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 800 background rgb
 
 # Which leverage cap a market can afford, given the collateral ratio it rebalances up to.
 #
-# A cap refuses the anchor-to-sail conversion at and below `K/(K-1)`, and a rebalance restores UP to its
+# A cap `K` refuses the anchor-to-sail conversion below `K/(K-1)`, and a rebalance restores UP to its
 # threshold. So a cap whose boundary sits ABOVE a market's threshold refuses that conversion across the
-# market's whole rebalancing range, and its leveraged stability pool is never drawn on at all. Each
-# market's threshold is therefore a hard floor under its cap.
+# market's whole rebalancing range. The rebalance then redeems the leveraged stability pool's anchor for
+# collateral, and that pool never receives sail. Each market's threshold is therefore a hard floor under
+# its cap.
 #
-# Both axes are distances rather than levels - the cap's boundary as its distance ABOVE THE PEG, which is
-# `1/(K-1)`, so the relation is a straight line of slope -1 over three orders of magnitude and the
-# thresholds sit on the same scale as the thing they constrain. A market is safe where the measured line
-# passes BELOW its dashed line.
+# The vertical axis is a distance rather than a level: the cap's boundary as its distance ABOVE THE PEG,
+# which is `1/(K-1)`. On these log-log axes that line has a slope near -1 for large caps (-1.10 between
+# K = 9.0 and 12.6) and steeper below (-3.6 between 1.2 and 1.68). The thresholds sit on the same scale as
+# the thing they constrain. A market is safe where the measured line passes BELOW its dashed line.
 #
 # The four dashed lines are the production volatility tiers, and they do not admit one shared answer. The
-# 1.30 market is content with anything above 4.4; the 1.05 market needs more than 21, which the cap of 20
-# in the contract today does not clear. Whatever single number is chosen either strands the tight markets
-# or is far looser than the loose ones need.
+# 1.30 market is content with anything above 4.4; the 1.05 market needs more than 21. The tree's
+# `MAX_LEVERAGE_RATIO` of 100 clears all four: its boundary, `MINIMUM_COLLATERAL_RATIO`, is about 1.0101.
+# Whatever single number is chosen either strands the tight markets or is far looser than the loose ones
+# need.
 #
 # The LOWER panel is what a larger cap costs, and it is the reason not to simply pick a very large one.
 # The sail supply growth admitted by one anchor token converted at the boundary rises in proportion to
-# the cap - the boundary creeps towards the peg and the quantity minted there rises with it.
+# `K - 1`: the boundary creeps towards the peg and the quantity minted there rises with it. The panel has
+# no points from K = 133 up. Each of those boundaries lies below the tree's `MINIMUM_COLLATERAL_RATIO`
+# (1.0076 at K = 133), so the tree's minter refuses the conversion there with
+# `BelowMinimumCollateralRatio`, and the writer records a gap. The last cap converted is K = 95, at 1.0106.
 
 set grid xtics ytics
 set colorsequence default
@@ -63,9 +68,9 @@ set label 3 "1.15 market: needs K > 7.7" at 1.3, 0.175 left textcolor "dark-oran
 set arrow 4 from graph 0, first 0.05 to graph 1, first 0.05 nohead dashtype 2 linecolor rgb "red"
 set label 4 "1.05 market: needs K > 21" at 1.3, 0.058 left textcolor "red"
 
-# The cap the contract carries today, which clears three of the four tiers and not the fourth.
-set arrow 5 from 20, graph 0 to 20, graph 1 nohead dashtype 4 linewidth 2 linecolor rgb "black"
-set label 5 "K = 20 today" at 22, 3 left textcolor "black"
+# The tree's cap, `MAX_LEVERAGE_RATIO` = 100, which clears all four tiers.
+set arrow 5 from 100, graph 0 to 100, graph 1 nohead dashtype 4 linewidth 2 linecolor rgb "black"
+set label 5 "MAX\\_LEVERAGE\\_RATIO = 100" at 110, 3 left textcolor "black"
 
 # $1 = the cap, $2 = the measured refusal ratio
 plot datafile using 1:($2 - 1) with linespoints linewidth 3 linetype 7 pointtype 7 \
@@ -84,11 +89,11 @@ unset label 1
 unset label 3
 unset label 4
 set format y "%.3f"
-set yrange [0.999:1.04]
-set ytics 0.01
+set yrange [0.999:1.006]
+set ytics 0.001
 set xlabel "leverage ratio cap"
 set ylabel "sail supply multiple at the boundary"
-set label 5 "K = 20 today" at 22, 1.032 left textcolor "black"
+set label 5 "MAX\\_LEVERAGE\\_RATIO = 100" at 110, 1.0052 left textcolor "black"
 
 set arrow 6 from graph 0, first 1 to graph 1, first 1 nohead dashtype 2 linecolor rgb "red"
 

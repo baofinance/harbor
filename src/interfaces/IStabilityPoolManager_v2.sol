@@ -64,11 +64,9 @@ interface IStabilityPoolManager_v2 {
     /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
     error CollateralRatioNotBelowRebalanceThreshold(uint256 currentCollateralRatio, uint256 rebalanceThreshold);
 
-    /// @dev Thrown when a rebalance is attempted with the collateral ratio at or below the peg. There a pegged token
-    ///      redeemed for collateral takes its share of the backing with it, so no amount redeemed moves the ratio.
-    error CollateralRatioNotAbovePeg(uint256 collateralRatio);
-
-    /// @dev Thrown by `rebalance` when neither pool has a deposit - a supply of zero - whatever pegged they hold.
+    /// @dev Thrown by `rebalance` when it takes no pegged from the pools: neither has a deposit - a supply of zero,
+    ///      whatever pegged they hold - or neither can give any, or what they can give would be paid nothing, or the
+    ///      minter has none of its own pegged outstanding to redeem.
     error NoTokensToLiquidate(address token);
 
     /// @dev Thrown by `rebalance` when the pegged it took from the pools is less than the caller's minimum.
@@ -88,9 +86,13 @@ interface IStabilityPoolManager_v2 {
     function stabilityPools() external view returns (address[] memory);
     function hasStabilityPool(address stabilityPool) external view returns (bool);
     function harvestable() external view returns (uint256);
-    /// @notice Whether a rebalance would run and have something to repair: the collateral ratio is above the peg and
-    ///         below the rebalance threshold, and the minter is not halted by an unrecognised impairment
-    ///         (`IMinter_v3.impairment`), during which `rebalance` reverts.
+    /// @notice Whether a rebalance has pegged to take and backing to pay for it: the collateral ratio is below the
+    ///         rebalance threshold, the minter is not halted by an unrecognised impairment (`IMinter_v3.impairment`),
+    ///         during which `rebalance` reverts, the minter has backing on record and pegged of its own outstanding,
+    ///         and a pool has deposits above its floor to give.
+    /// @dev It does not ask how much. Where all the pools can give is too little to be paid a wei, it is true and
+    ///      `rebalance` reverts `NoTokensToLiquidate`. Nor does it ask whether each pool can record its loss: where one
+    ///      cannot, it is true and `rebalance` reverts `IStabilityPool_v3.LossProductExponentOverflow`.
     function rebalanceable() external view returns (bool);
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
@@ -102,14 +104,14 @@ interface IStabilityPoolManager_v2 {
     ///         this, the rest of the slice going to the cut receiver. Zero is no ceiling.
     function harvestBountyCeiling() external view returns (uint256);
     /// @notice The most a rebalance pays its caller in all, measured in wrapped collateral - a payment in leveraged
-    ///         tokens counted as the collateral those tokens were minted for. Shared between the two pools by the
-    ///         pegged each holds when the rebalance starts, each pool's legs drawing on its share; what a leg does not
-    ///         pay the caller stays with the pool. Zero is no ceiling.
+    ///         tokens counted as the collateral those tokens were minted for. Shared between the two pools by what
+    ///         each has had deposited - its supply - when the rebalance starts, each pool's legs drawing on its share;
+    ///         what a leg does not pay the caller stays with the pool. Zero is no ceiling.
     function rebalanceBountyCeiling() external view returns (uint256);
     /// @notice Returns the collateral ratio at which rebalancing should occur
     /// @return The rebalance collateral ratio
     function rebalanceThreshold() external view returns (uint256);
-    /// @notice Returns the cut receiver - who receives the harvest cut and the no-pool catch-all
+    /// @notice Returns the cut receiver - who receives the harvest cut, the rebalance cut and the no-pool catch-all
     function feeReceiver() external view returns (address);
 
     /*//////////////////////////////////////////////////////////////
@@ -122,13 +124,30 @@ interface IStabilityPoolManager_v2 {
     ///         collateral, the leveraged pool's converted into leveraged tokens. Where it sells none - below its
     ///         floor, `IMinter_v3.MINIMUM_COLLATERAL_RATIO` - first both pools' pegged by the collateral route, pro
     ///         rata to their supplies, to the floor or the threshold if that is lower, all paid in collateral; then,
-    ///         from the floor, the step by both legs. Each pool gives up no more than its headroom
-    ///         (`IStabilityPool_v3.maxAssetLoss`), so small pools may lift the ratio only part of the way.
-    /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold,
-    ///      `CollateralRatioNotAbovePeg` at or below the peg, `NoTokensToLiquidate` when neither pool has a deposit,
-    ///      and `InsufficientLiquidation` when both steps together take less than `minPeggedLiquidated`. While the minter's record of its backing overstates what it holds,
-    ///      the minter's own `IMinter_v3.UnrecognisedImpairment` is passed up unchanged: every redemption a rebalance
-    ///      makes is an update the minter reverts until the rate recovers or the impairment is recognised.
+    ///         from the floor, the step by both legs. Each pool gives up no more than its
+    ///         `IStabilityPool_v3.maxAssetLoss`, and no more than the pegged whose payment reaches its
+    ///         `IMultipleRewardAccumulator_v3.maxLiquidationReward`. A pool held by either passes its shortfall to
+    ///         the other pool's leg. Where the two together cannot give enough, the ratio is lifted only part of
+    ///         the way.
+    ///         A leg of the redemption that would be paid nothing is not taken. In the step by both legs each pool's
+    ///         pegged is its own leg: a pool whose leg would be paid nothing is left out as a pool at its floor is,
+    ///         and the legs are sized again without it, so the other pool's leg covers the distance where it can.
+    ///         Where neither leg would be paid anything, neither is taken. By the collateral route the two pools'
+    ///         pegged is one leg, taken whole or not at all.
+    ///         Where the backing is worth no more than the pegged the minter has minted - a ratio at or below the peg -
+    ///         the first step lifts nothing: a pegged token redeems for its share of the backing and takes that share
+    ///         with it. The step takes all the pegged the minter has minted that the pools can give, and pays each
+    ///         pool its pegged's share of the backing in collateral.
+    /// @dev Reverts `CollateralRatioNotBelowRebalanceThreshold` at or above the threshold, `NoTokensToLiquidate` when
+    ///      it takes no pegged, and `InsufficientLiquidation` when both steps together take less than
+    ///      `minPeggedLiquidated`. The minter's own errors are passed up unchanged, among them
+    ///      `IMinter_v3.UnrecognisedImpairment`: while the minter's record of its backing overstates what it holds,
+    ///      every redemption a rebalance makes is an update the minter reverts until the rate recovers or the
+    ///      impairment is recognised. A rebalance that makes no redemption, as no leg would be paid anything, reverts
+    ///      `NoTokensToLiquidate` whether or not the record is overstated: with both edges of the wrap rate at zero
+    ///      no collateral leg is paid anything. A pool's own errors are passed up unchanged too:
+    ///      `IStabilityPool_v3.LossProductExponentOverflow` where a pool the rebalance draws on cannot record the loss,
+    ///      which stops the rebalance whatever the other pool could give.
     /// @return liquidatedPegged The pegged taken from the pools, both steps together.
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 

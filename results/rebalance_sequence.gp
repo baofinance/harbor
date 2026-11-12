@@ -30,14 +30,14 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background r
 #
 # THE TOP PANEL IS REACH. The deployed rule restores the market to the 1.3 threshold from a starting ratio of
 # 0.780 and no lower, sub-peg starts included: reaching 1.3 from a ratio `r` burns `1 - r/1.3` of the pegged
-# supply, the pool holds 0.4 of it, and `1.3 x (1 - 0.4)` is 0.78 exactly. REACH IS BOUNDED BY POOL SIZE. The
-# tree and the upgrade have no point at or below the peg - there `rebalance()` is refused
-# (`CollateralRatioNotAbovePeg`), a redemption taking its share of the backing with it and moving nothing -
-# and from the floor of 1.0526 upward they land where the deployed rule lands, with its own figures. Between
+# supply, the pool holds 0.4 of it, and `1.3 x (1 - 0.4)` is 0.78 exactly. REACH IS BOUNDED BY POOL SIZE. At or
+# below the peg the tree and the upgrade sit on the unrebalanced line `y = x`: a pegged token redeemed there
+# takes its share of the backing with it, so the rebalance takes the pool's pegged down to its floor and moves
+# the ratio nowhere. From the floor of 1.0101 upward they land on 1.3, where the deployed rule lands. Between
 # the peg and the floor they take the COLLATERAL ROUTE towards the floor, paying the leveraged pool in
-# collateral, and reach only as far as the pool goes: from 1.02 the pool's whole 0.4 lifts the ratio to 1.033,
-# where the floor would have needed 62% of the supply. The two files agree at every ratio: the upgrade behaves
-# on production state as the tree does locally.
+# collateral, and reach only as far as the pool goes: from 1.005 the pool's whole 0.4 lifts the ratio to
+# 1.0083, where the floor would have needed 50.5% of the supply. The two files agree at every ratio: the
+# upgrade behaves on production state as the tree does locally.
 #
 # THE SECOND PANEL IS THE LEVERAGE RATIO EACH RULE REPORTS BEFORE IT REBALANCES. Below a collateral ratio of
 # one the deployed figure pins at exactly 20 - a CAP, engaged because the leveraged claim has gone to zero and
@@ -58,7 +58,9 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background r
 # worth nothing. The tree pays the marginal rate in bulk wherever it pays in leveraged - 1.0 at every ratio
 # from the floor up - because nothing dilutes. Between the peg and the floor it pays the pool in COLLATERAL, and
 # that is 1.0 too, at every one of those ratios: a zero-fee redemption at the middle price returns exactly the
-# value of the pegged it takes.
+# value of the pegged it takes. At or below the peg it pays in collateral as well and the line stays on 1.0:
+# the pegged is valued there at the market's own price, its share of the backing, and that share is what the
+# pool is paid.
 #
 # THE BOTTOM PANEL IS THE LEVERAGED PRICE EACH RULE QUOTED (lines) AND HOW MANY TOKENS THE POOL WAS HANDED
 # (points). The deployed rule's price is zero below the peg, so the axis cannot show it; its count there is the
@@ -84,7 +86,7 @@ before(col) = ($2 == 0 ? column(col) : NaN)
 after(col)  = ($2 == 1 && $11 > 0 ? column(col) : NaN)
 # A report of `uint256.max` is the formula dividing by zero - a claim of nothing - and is not a number to draw.
 rep(v) = (v == 0 || v > 1e6 ? NaN : v)
-floor_ratio = 20.0 / 19
+floor_ratio = 100.0 / 99
 
 set lmargin at screen 0.11
 set rmargin at screen 0.97
@@ -114,7 +116,7 @@ set logscale y
 set yrange [1:200]
 set format y "%g"
 set arrow 3 from graph 0, first 20 to graph 1, first 20 @threshold_line
-set label 2 "K = 20" at 0.05, 25 textcolor "gray20" font ",9"
+set label 2 "the deployed cap, K = 20" at 0.05, 25 textcolor "gray20" font ",9"
 set arrow 4 from 1, graph 0 to 1, graph 1 @peg_line
 plot \
      deployed using 1:(rep(before(4))) with points @deployed_main_points title n_deployed, \

@@ -15,9 +15,9 @@ import {TestConversionBoundReleaseSetUp} from "@harbor-test/TestConversionBoundR
 ///
 /// A conversion mints `pegged / leveragedPrice`, so something has to stop it before the leveraged price
 /// reaches zero. Two rules can: a FLOOR ON THE LEVERAGED PRICE, which is the mirror of the rule the pegged
-/// already has in `MIN_REPORTABLE_PEGGED_PRICE_E36`, or a CAP ON THE LEVERAGE RATIO, which is what the contract
-/// already tests for and then declines to act on. They are not the same rule and the difference is the
-/// whole point of this graph.
+/// already has in `MIN_REPORTABLE_PEGGED_PRICE_E36`, or a CAP ON THE LEVERAGE RATIO, which is the rule the minter
+/// applies: `MAX_LEVERAGE_RATIO`, enforced by minting no leveraged below `MINIMUM_COLLATERAL_RATIO`. They are not
+/// the same rule and the difference is the whole point of this graph.
 ///
 /// The leveraged price is the residual divided by the leveraged SUPPLY, while the leverage ratio is the
 /// collateral value divided by the same residual and so depends on no supply at all. A market with more
@@ -80,8 +80,9 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
     }
 
     /// @dev The leverage ratio as the market actually stands, uncapped: collateral value over the
-    ///      residual. Read from the contract's own balances rather than from `leverageRatio()`, which
-    ///      saturates at the cap in force and so cannot express a candidate above it.
+    ///      residual. Computed here from the contract's balances and the oracle price rather than read from
+    ///      `leverageRatio()`, so the bisection does not rest on the formula it measures.
+    ///      `test_theUncappedLeverageRatioAgreesWithTheReportedOne` checks that the two agree.
     function _trueLeverageRatio() private view returns (uint256) {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         uint256 collateralValueE36 = IMinter(minter).collateralTokenBalance() * price;
@@ -138,14 +139,15 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
             leveragedOut = int256(out);
             supplyMultiple = int256(Math.mulDiv(IMinter(minter).leveragedTokenBalance(), 1 ether, supplyBefore));
         } catch (bytes memory reason) {
-            // reverted at the minter's own leverage cap, whose floor lies above this boundary, and a gap says so
+            // reverted `BelowMinimumCollateralRatio`: this boundary lies below the minter's own
+            // `MINIMUM_COLLATERAL_RATIO`, and a gap says so
             _requireLeverageCapRevert(reason);
         }
         vm.revertToState(snapshot);
     }
 
-    /// @notice The two rules' revert boundaries across a ten-thousandfold range of leveraged supply, with the
-    /// conversion each would allow at its own edge.
+    /// @notice The two rules' revert boundaries across leveraged supplies from `FIRST_LEVERAGED_PER_PEGGED` up to
+    /// `LAST_LEVERAGED_PER_PEGGED`, with the conversion each would allow at its own edge.
     function test_whereEachRuleWouldRevert() public {
         uint256[3] memory caps = _leverageCaps();
         uint256[3] memory floors = _priceFloors();
@@ -179,11 +181,14 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
     /// @notice The revert boundary against the cap that sets it, so a market can be read off against its
     /// own rebalance threshold.
     ///
-    /// A cap reverts at and below `K/(K-1)`, and a rebalance restores UP to its threshold - so a cap
-    /// whose boundary sits above a market's threshold reverts the leveraged leg across that market's entire
-    /// rebalancing range, and its leveraged stability pool is never drawn on at all. The threshold is
-    /// therefore a hard floor on the cap, market by market, and the production tiers are far enough apart
-    /// that no single cap clears all of them by much.
+    /// A cap reverts below `K/(K-1)`, and a rebalance restores UP to its threshold - so a cap whose boundary
+    /// sits above a market's threshold reverts the leveraged leg across that market's entire rebalancing
+    /// range. The rebalance then redeems the leveraged stability pool's pegged for collateral, and that pool
+    /// never receives leveraged tokens. The threshold is therefore a hard floor on the cap, market by market,
+    /// and the production tiers are far enough apart that no single cap clears all of them by much.
+    ///
+    /// Where a cap's boundary lies below the minter's own `MINIMUM_COLLATERAL_RATIO`, the conversion at that
+    /// boundary reverts `BelowMinimumCollateralRatio`, and its supply multiple is recorded as a gap.
     function test_theBoundaryAgainstTheCapThatSetsIt() public {
         // One leveraged token per pegged token: the boundary does not depend on the supply - that is what the
         // sweep above establishes - but the supply multiple recorded beside it does, so it is pinned at
@@ -210,14 +215,13 @@ contract TestGraphsRefusalBoundary is GraphTestBase, TestConversionBoundReleaseS
     }
 
     /// @notice The uncapped leverage ratio this measurement bisects on agrees with the one the contract
-    /// reports, wherever the contract is not saturating it. Without that the boundaries above would be
-    /// this test's arithmetic rather than the market's.
+    /// reports, at ratios above the peg where the contract reports a number. Without that the boundaries
+    /// above would be this test's arithmetic rather than the market's.
     function test_theUncappedLeverageRatioAgreesWithTheReportedOne() public {
         uint256[4] memory ratios = [uint256(1.2 ether), 1.5 ether, 2 ether, 5 ether];
         for (uint256 i = 0; i < ratios.length; i++) {
             marketActions.setCollateralRatioByPrice(ratios[i]);
             uint256 reported = IMinter_v3(minter).leverageRatio();
-            assertLt(reported, 20 ether, "the reported ratio must be off its cap for this to compare");
             assertApproxEqAbs(_trueLeverageRatio(), reported, 1, "the uncapped ratio is the reported one");
         }
     }

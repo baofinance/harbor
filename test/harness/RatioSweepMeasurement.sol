@@ -9,9 +9,10 @@ import {MarketUnderTest} from "@harbor-test/harness/MarketUnderTest.sol";
 ///
 /// Every measurement on this harness swept a uniform step, which spends the same number of samples on a
 /// straight line as on a cliff. That is the wrong way round: the flat stretches are where these graphs have
-/// least to say, and the bends are the whole finding - the peg at a ratio of one, the cap letting go at
-/// `K/(K-1)` = 1.0526, the reach floor at 0.780 where a pool runs out. At a step of 0.01 the cap band is five
-/// samples wide and the pole at exactly 1.000 is one.
+/// least to say, and the bends are the whole finding - the peg at a ratio of one, the cap at `K/(K-1)`, the
+/// reach floor at 0.780 where a pool runs out. The deployed cap, `K = 20`, lets go at 1.0526. This tree's cap,
+/// `K = 100`, sets its floor at 1.0101. At a step of 0.01 the deployed cap band is five samples wide, this
+/// tree's band is one sample wide, and the pole at exactly 1.000 is one sample.
 ///
 /// The machinery already existed in `GraphRefinement` and was simply never opted into - it is off until
 /// `refinementTolerance` is non-zero. What this adds is the DRIVER, once, so that a measurement supplies only

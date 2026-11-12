@@ -234,8 +234,8 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
 
         if (!rebalance1 && currentX >= startX + 3 days) {
             uint256 toLiquidate = (initialPoolDeposit * percentRebalance()) / 100;
-            // the scenario: the rebalance pays what the pool gives up - the request, capped at its headroom above the
-            // floor - at the collateral's price, an immediate reward
+            // the scenario: the rebalance pays what the pool gives up - the request, capped at its `maxAssetLoss()` -
+            // at the collateral's price, an immediate reward
             uint256 givenUp = Math.min(toLiquidate, IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss());
             poolActions.liquidate(wrappedCollateralToken, toLiquidate, (givenUp * 1 ether) / price);
             rebalance1 = true;

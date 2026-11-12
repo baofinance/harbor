@@ -7,7 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProductLib} from "@harbor/math/LossProductLib.sol";
 
 import {TestStabilityPoolBaseSetUp} from "@harbor-test/StabilityPoolBaseSetUp.t.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -56,7 +56,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertLt(carried, depositAmount, "the carried over-application is under the supply");
         assertEq(
             userBalance,
-            totalAssetSupply - Math.ceilDiv(carried, DecrementalFloatingPoint_v2.FACTOR_PRECISION),
+            totalAssetSupply - Math.ceilDiv(carried, LossProductLib.FACTOR_PRECISION),
             "the sole holder is left the supply less the over-application"
         );
     }
@@ -94,7 +94,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // whole number by how e is defined, and the ceiling exactly when e is under the supply - and every balance is
         // left exactly B - ceil(B * u / 1e18).
         uint256 carried = IStabilityPool_v3(pool).lastAssetLossError();
-        uint256 scaledLoss = lossAmount * DecrementalFloatingPoint_v2.FACTOR_PRECISION + carried;
+        uint256 scaledLoss = lossAmount * LossProductLib.FACTOR_PRECISION + carried;
         assertLt(
             carried,
             totalDeposit,
@@ -104,12 +104,12 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 lossPerUnit = scaledLoss / totalDeposit;
         assertEq(
             IERC20(pool).balanceOf(user1),
-            user1Deposit_ - Math.ceilDiv(user1Deposit_ * lossPerUnit, DecrementalFloatingPoint_v2.FACTOR_PRECISION),
+            user1Deposit_ - Math.ceilDiv(user1Deposit_ * lossPerUnit, LossProductLib.FACTOR_PRECISION),
             "user1 is written down its share of the loss per unit"
         );
         assertEq(
             IERC20(pool).balanceOf(user2),
-            user2Deposit_ - Math.ceilDiv(user2Deposit_ * lossPerUnit, DecrementalFloatingPoint_v2.FACTOR_PRECISION),
+            user2Deposit_ - Math.ceilDiv(user2Deposit_ * lossPerUnit, LossProductLib.FACTOR_PRECISION),
             "user2 is written down its share of the loss per unit"
         );
 
@@ -145,7 +145,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertLt(carried, depositAmount, "the carried over-application is under the supply");
         assertEq(
             remainingBalance,
-            depositAmount - lossAmount - Math.ceilDiv(carried, DecrementalFloatingPoint_v2.FACTOR_PRECISION),
+            depositAmount - lossAmount - Math.ceilDiv(carried, LossProductLib.FACTOR_PRECISION),
             "the sole holder is left the supply less the over-application"
         );
 
@@ -161,8 +161,8 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         IStabilityPool_v3(pool).withdraw(withdrawAmount, user1, 0);
         vm.stopPrank();
 
-        // Inside the window and within the headroom above the floor, the withdrawal pays exactly the amount and debits
-        // exactly it
+        // Inside the window and within `maxAssetLoss()`, the withdrawal pays exactly the amount and debits exactly
+        // it
         assertEq(IERC20(peggedToken).balanceOf(user1), initialAssetBalance + withdrawAmount, "paid the amount");
         assertEq(IERC20(pool).balanceOf(user1), remainingBalance - withdrawAmount, "debited the amount");
     }
@@ -217,7 +217,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertLt(carried, depositAmount, "the carried over-application is under the supply");
         assertEq(
             remainingBalance,
-            expectedRemaining - Math.ceilDiv(carried, DecrementalFloatingPoint_v2.FACTOR_PRECISION),
+            expectedRemaining - Math.ceilDiv(carried, LossProductLib.FACTOR_PRECISION),
             "the sole holder is left the supply less the over-application"
         );
 
@@ -235,8 +235,8 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             IStabilityPool_v3(pool).withdraw(withdrawableAmount, user1, 0);
             vm.stopPrank();
 
-            // The balance is at most the supply, so what is above the floor is within the headroom: the withdrawal pays
-            // exactly it and leaves exactly the floor
+            // The balance is at most the supply, so what is above the floor is within `maxAssetLoss()`: the withdrawal
+            // pays exactly it and leaves exactly the floor
             assertEq(
                 IERC20(peggedToken).balanceOf(user1),
                 initialAssetBalance + withdrawableAmount,
@@ -389,7 +389,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Nothing carried in and every holder at the same product, so this is one loss on a fresh pool: the per-unit
         // loss is recovered from the over-application it carried, and each holder written down by it, rounded up.
         uint256 carried = IStabilityPool_v3(pool).lastAssetLossError();
-        uint256 scaledLoss = 100 ether * DecrementalFloatingPoint_v2.FACTOR_PRECISION + carried;
+        uint256 scaledLoss = 100 ether * LossProductLib.FACTOR_PRECISION + carried;
         assertLt(
             carried,
             supplyBefore,
@@ -402,8 +402,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         for (uint256 i = 0; i < holders.length; i++) {
             sum += IERC20(pool).balanceOf(holders[i]);
             expectedSum +=
-                balancesBefore[i] -
-                Math.ceilDiv(balancesBefore[i] * lossPerUnit, DecrementalFloatingPoint_v2.FACTOR_PRECISION);
+                balancesBefore[i] - Math.ceilDiv(balancesBefore[i] * lossPerUnit, LossProductLib.FACTOR_PRECISION);
         }
         assertEq(sum, expectedSum, "3 depositors conserved");
     }
@@ -682,7 +681,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         uint256 user2Balance;
         {
             uint256 carried = IStabilityPool_v3(pool).lastAssetLossError();
-            uint256 scaledLoss = (totalSupply - floor) * DecrementalFloatingPoint_v2.FACTOR_PRECISION + carried;
+            uint256 scaledLoss = (totalSupply - floor) * LossProductLib.FACTOR_PRECISION + carried;
             assertLt(
                 carried,
                 totalSupply,
@@ -696,10 +695,10 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
             uint256 lossPerUnit = scaledLoss / totalSupply;
             user1Balance =
                 user1Deposit / 2 -
-                Math.ceilDiv((user1Deposit / 2) * lossPerUnit, DecrementalFloatingPoint_v2.FACTOR_PRECISION);
+                Math.ceilDiv((user1Deposit / 2) * lossPerUnit, LossProductLib.FACTOR_PRECISION);
             user2Balance =
                 user2Deposit / 2 -
-                Math.ceilDiv((user2Deposit / 2) * lossPerUnit, DecrementalFloatingPoint_v2.FACTOR_PRECISION);
+                Math.ceilDiv((user2Deposit / 2) * lossPerUnit, LossProductLib.FACTOR_PRECISION);
         }
         assertEq(IERC20(pool).balanceOf(user1), user1Balance, "User1 written down its share of the loss per unit");
         assertEq(IERC20(pool).balanceOf(user2), user2Balance, "User2 written down its share of the loss per unit");

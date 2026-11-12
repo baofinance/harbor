@@ -10,7 +10,8 @@ import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol"
 /// @notice The valuation arithmetic shared between the Minter and the libraries it delegates to.
 /// @dev Internal, so its code is compiled into every consumer rather than deployed once. That is the point: the
 ///      Minter and `MinterAdjustments_v1` must agree to the wei on what the collateral ratio is, which band a
-///      ratio falls in, and what a pegged token is worth. One definition compiled into both is what guarantees it.
+///      ratio falls in, and what a pegged token is worth, and the Minter and `RebalanceSizing_v1` on the legs a
+///      zero-fee redemption takes. One definition compiled into each is what guarantees it.
 ///      Being internal it saves the Minter nothing in size, and it is not meant to - see `MinterAdjustments_v1`
 ///      for the code that actually leaves.
 ///
@@ -58,6 +59,25 @@ library MinterValuationLib {
     /// @param rate The wrapped-to-collateral rate.
     function wrappedAsCollateralCeil(uint256 wrappedAmount, uint256 rate) internal pure returns (uint256) {
         return Math.mulDiv(wrappedAmount, rate, 1 ether, Math.Rounding.Ceil);
+    }
+
+    /// @notice The wrapped collateral a collateral amount converts to at a given rate, rounded down.
+    /// @dev None at a rate of zero. A wrapped token is worth no collateral there, so no amount of it stands for a
+    /// collateral amount, and what would be paid, taken or charged in wrapped collateral is nothing.
+    /// @param collateral The collateral amount, at 1e18 times the scale of `rate`: at 1e36 for the rate as the oracle
+    /// gives it, at 1e54 for that rate times 1e18.
+    /// @param rate The wrapped-to-collateral rate, or that rate times 1e18.
+    function collateralAsWrapped(uint256 collateral, uint256 rate) internal pure returns (uint256) {
+        return rate == 0 ? 0 : collateral / rate;
+    }
+
+    /// @notice The same conversion rounded up.
+    /// @dev None at a rate of zero, as for `collateralAsWrapped`. No amount of wrapped collateral covers a collateral
+    /// amount above zero there, so a caller that needs one covered has to treat a rate of zero itself.
+    /// @param collateral The collateral amount, at 1e18 times the scale of `rate`.
+    /// @param rate The wrapped-to-collateral rate, or that rate times 1e18.
+    function collateralAsWrappedCeil(uint256 collateral, uint256 rate) internal pure returns (uint256) {
+        return rate == 0 ? 0 : Math.ceilDiv(collateral, rate);
     }
 
     /// @notice The leveraged tokens that `collateralAdded` buys: the one definition every leveraged mint uses,
@@ -312,6 +332,28 @@ library MinterValuationLib {
             // rises as the collateral falls, and that is what the token is. What is bounded is the leverage
             // SOLD, by the minter reverting any leveraged mint below the min CR.
             ratio = Math.mulDiv(collateralValueE36, 1 ether, collateralValueE36 - peggedValueE36);
+        }
+    }
+
+    /// @notice The legs of a zero-fee pegged redemption cut to `redeemable`, the most pegged the minter can redeem,
+    /// where together they ask for more: both in proportion and the total exactly `redeemable` - the collateral leg
+    /// rounded down, so the least collateral leaves the backing, and the conversion leg the rest, so a redemption of
+    /// one leg stays one leg. Legs within `redeemable` are returned as they are.
+    /// @dev The one rule for the redemption, its dry run and the sizing of a rebalance, so the legs a rebalance is sized
+    ///      with are the legs the redemption takes.
+    /// @param collateralLeg The pegged asked to be redeemed for collateral.
+    /// @param leveragedLeg The pegged asked to be converted into leveraged tokens.
+    /// @param redeemable The most pegged the two legs may total.
+    function freeRedeemLegs(
+        uint256 collateralLeg,
+        uint256 leveragedLeg,
+        uint256 redeemable
+    ) internal pure returns (uint256 forCollateral, uint256 forLeveraged) {
+        (forCollateral, forLeveraged) = (collateralLeg, leveragedLeg);
+        uint256 peggedAskedFor = collateralLeg + leveragedLeg;
+        if (peggedAskedFor > redeemable) {
+            forCollateral = Math.mulDiv(collateralLeg, redeemable, peggedAskedFor);
+            forLeveraged = redeemable - forCollateral;
         }
     }
 }

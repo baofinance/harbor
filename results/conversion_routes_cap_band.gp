@@ -21,23 +21,24 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 800 background rg
 # the full sweep, where the lines cross and the interesting one is a factor of five. On the full graph it is
 # a single pixel column.
 #
-# BOTH RULES CARRY THE SAME `K = 20`, AND THE BAND IS WHERE THEY DIFFER. `K/(K-1)` = 20/19 = 1.0526 is where
-# the deployed cap lets go - the deployed leverage reads 20.0000 at every ratio up to 1.05 and falls away
-# above it - and it is exactly where the tree's floor sits: refused at 1.0525, sold at 1.0528. The same number
-# from two sides. What each does BELOW it is the whole difference:
+# THE TWO RULES CARRY DIFFERENT CAPS, AND THE BAND IS WHERE THEY DIFFER. The deployed cap, `K = 20`, lets go
+# at `K/(K-1)` = 20/19 = 1.0526: the deployed leverage reads 20.0000 at every ratio up to 1.05 and falls away
+# above it. The tree's cap, `K = 100`, puts its floor at 100/99 = 1.0101: refused at 1.01, sold at 1.015.
+# What each does across the band is the whole difference:
 #
 #   ratio   deployed conversion pays   by hand pays   tree and upgrade
 #   1.01    0.204                      1.000          refused - nothing paid, nothing taken
-#   1.02    0.408                      1.000          refused
-#   1.03    0.612                      1.000          refused
-#   1.04    0.816                      1.000          refused
-#   1.05    1.020                      1.000          refused
+#   1.02    0.408                      1.000          1.000, both routes
+#   1.03    0.612                      1.000          1.000, both routes
+#   1.04    0.816                      1.000          1.000, both routes
+#   1.05    1.020                      1.000          1.000, both routes
 #   1.06    parity                     1.000          1.000, both routes
 #
 # So at 1.01 a holder doing the move BY HAND is paid five times what the pool is paid for the same move, at
 # the same instant, on the same market. The deployed cap does not bound the hand route - it bounds only the
-# conversion, which is the leg a stability pool has no choice but to take. The tree bounds both routes alike,
-# by declining both - and the upgrade on the deployed proxies declines them at the same ratios.
+# conversion, which is the leg a stability pool has no choice but to take. The tree treats both routes alike:
+# below its floor it declines both, and above the floor it pays both in full. The upgrade on the deployed
+# proxies does the same at the same ratios.
 #
 # The straight line is the giveaway. The deployed conversion pays 0.204, 0.408, 0.612, 0.816 - exactly 0.204
 # per step - because it returns a FLAT 20 tokens across the whole band while the price rises linearly. A
@@ -53,7 +54,9 @@ set xtics 0.02
 #          6 leveraged price, 7 conversion value, 8 retail value, 9 pegged given up
 fair(v, g) = (g == 0 || v == 0 ? NaN : v / g)
 nz(v) = (v == 0 ? NaN : v)
-floor_ratio = 20.0 / 19
+# `K/(K-1)` for each rule: where the deployed cap, K = 20, lets go, and where the tree's floor, K = 100, sits.
+deployed_cap_ratio = 20.0 / 19
+floor_ratio = 100.0 / 99
 
 set lmargin at screen 0.10
 set rmargin at screen 0.97
@@ -66,7 +69,9 @@ set yrange [0:1.25]
 set arrow 1 from graph 0, first 1 to graph 1, first 1 @fair_line
 set label 1 "a fair route" at 0.985, 1.08 textcolor "black" font ",9"
 set arrow 2 from floor_ratio, graph 0 to floor_ratio, graph 1 @floor_line
-set label 2 "K/(K-1) = 1.0526: the deployed cap lets go,\nthe tree's floor" at 1.056, 0.55 textcolor "gray20" font ",9"
+set label 2 "K/(K-1) = 1.0101 for K = 100:\nthe tree's floor" at 1.012, 0.12 textcolor "gray20" font ",9"
+set arrow 4 from deployed_cap_ratio, graph 0 to deployed_cap_ratio, graph 1 @threshold_line
+set label 3 "K/(K-1) = 1.0526 for K = 20:\nthe deployed cap lets go" at 1.056, 0.55 textcolor "gray20" font ",9"
 plot \
      deployed using 1:(fair($8, $9)) with linespoints @deployed_main_every @q_second title n_deployed.", by hand", \
      deployed using 1:(fair($7, $9)) with linespoints @deployed_main_every @q_first  title n_deployed.", conversion", \
@@ -76,8 +81,10 @@ plot \
      v3       using 1:(fair($8, $9)) with linespoints @tree_main_every     @q_second title n_v3.", by hand"
 unset arrow 1
 unset arrow 2
+unset arrow 4
 unset label 1
 unset label 2
+unset label 3
 
 # ─── the count that produces it: flat where it should be falling ───
 set ylabel "leveraged tokens per pegged"
@@ -86,12 +93,14 @@ set yrange [1:200]
 set format y "%g"
 set xlabel "collateral ratio"
 set arrow 3 from floor_ratio, graph 0 to floor_ratio, graph 1 @floor_line
+set arrow 5 from deployed_cap_ratio, graph 0 to deployed_cap_ratio, graph 1 @threshold_line
 plot \
      deployed using 1:(nz($3)) with linespoints @deployed_main_every @q_second title n_deployed.", by hand", \
      deployed using 1:(nz($2)) with linespoints @deployed_main_every @q_first  title n_deployed.", conversion", \
      tree     using 1:(nz($2)) with linespoints @tree_local_every    @q_first  title n_tree.", conversion", \
      v3       using 1:(nz($2)) with linespoints @tree_main_every     @q_first  title n_v3.", conversion"
 unset arrow 3
+unset arrow 5
 unset logscale y
 
 unset multiplot

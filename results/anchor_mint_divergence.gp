@@ -15,30 +15,38 @@ set datafile separator comma
 if (!exists("terminal")) { set terminal svg enhanced size 700 700 background rgb "gray90" }
 
 # The anchor is priced at min(1, collateral ratio) and the mint divides by that price, so a unit of
-# collateral value buys 1/(collateral ratio) of anchor and that grows without bound as the collateral
-# ratio falls. It is the same shape as the sail conversion's 1/(collateral ratio - 1), at the other
-# singularity - which is why one bound can be chosen for both.
+# collateral value buys 1/min(1, collateral ratio) of anchor. Below the peg that grows without bound as the
+# collateral ratio falls. It is the same shape as the sail conversion's 1/(collateral ratio - 1), at the
+# other singularity.
+#
+# The tree bounds the two differently. No route mints sail below `MINIMUM_COLLATERAL_RATIO`, about 1.0101.
+# The retail anchor mint, `mintPeggedToken`, reverts at or below that same `MINIMUM_COLLATERAL_RATIO`, so it
+# serves no ratio left of 1.0101 on this axis. Every point here is measured through the zero-fee mint,
+# `freeMintPeggedToken`, which has no such floor.
 #
 # THE THREE SWEEPS REACH THE SAME COLLATERAL RATIOS BY DIFFERENT ROUTES, and that is the graph's point. A
 # collateral ratio can fall because the underlying collateral is worth less, because the
 # wrapped-to-underlying rate has fallen, or because the collateral is no longer held at all.
 #
 # The mispricing per unit of value does not care which: all three sweeps produce the same
-# 1/(collateral ratio) line, so only one is drawn.
+# 1/min(1, collateral ratio) line, so only one is drawn.
 #
 # The SUPPLY MULTIPLIER does care, and this is the finding. A fall in the underlying price or in the
 # wrapped-to-underlying rate reduces what a
-# depositor's own collateral is worth by exactly the factor it reduces the backing by, so the anchor a
-# deposit buys is unchanged and the supply grows by the same 5% at every collateral ratio. Collateral
-# that is GONE does not reduce what the depositor holds, so the same deposit buys the whole depleted
-# market: a fiftyfold supply increase at a collateral ratio of 0.002, and unbounded below it.
+# depositor's own collateral is worth by exactly the factor it reduces the backing by. So at or below the
+# peg the anchor a deposit buys is unchanged, and the supply grows by the same 5% at every collateral ratio.
+# Above the peg the anchor is priced at 1, so the growth is 5% times the collateral ratio: 8% at 1.6.
+# Collateral that is GONE does not reduce what the depositor holds, so the same deposit buys the whole
+# depleted market: a fiftyfold supply increase at a collateral ratio of 0.002, and unbounded below it.
 #
 # So a bound keyed on the collateral ratio alone would refuse the mint in all three cases when only the
-# third is dangerous. Both axes are logarithmic: these are 1/x relationships, which a log-log axis draws
-# as straight lines, and their slopes are then readable as the powers they are.
+# third is dangerous. `mintPeggedToken` applies such a bound: it refuses all three at or below
+# `MINIMUM_COLLATERAL_RATIO`. Both axes are logarithmic: these are 1/x relationships, which a log-log axis
+# draws as straight lines, and their slopes are then readable as the powers they are.
 #
-# The shipped anchor floor - refuse below the price the protocol can report - engages at a collateral ratio of
-# 1e-18, fifteen orders of magnitude to the left of this axis. What is drawn here is the approach to it.
+# The zero-fee mint's only floor is `MIN_REPORTABLE_PEGGED_PRICE_E36`: it refuses below the price the
+# protocol can report. That engages at a collateral ratio of 1e-18, fifteen orders of magnitude to the
+# left of this axis. What is drawn here is the approach to it.
 
 set logscale x
 set logscale y

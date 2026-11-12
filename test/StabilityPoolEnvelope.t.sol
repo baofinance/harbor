@@ -13,7 +13,7 @@ import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProductLib} from "@harbor/math/LossProductLib.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -60,7 +60,8 @@ struct Envelope {
 /// reward-bearing operations (harvest, rebalance) are driven as actions against this state, not pre-arranged here.
 struct StartState {
     uint256 existingDeposits; // pegged already deposited by a background holder before the action
-    uint256 priorLossFraction; // 1e18-scaled fraction of headroom already liquidated (decays the compounding product)
+    // 1e18-scaled fraction of the held pegged above the floor already liquidated (decays the compounding product)
+    uint256 priorLossFraction;
 }
 
 /// @notice The catalog of named markets. A derived test contract selects one in `buildEnvelope()`, optionally starting
@@ -297,9 +298,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// which a larger ceiling is unreachable anyway.
     function _expectedMaxTotalAssetSupply(uint256 minTotalAssetSupply) internal pure returns (uint256) {
         return
-            minTotalAssetSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+            minTotalAssetSupply > type(uint128).max / LossProductLib.FACTOR_PRECISION
                 ? type(uint128).max
-                : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+                : minTotalAssetSupply * LossProductLib.FACTOR_PRECISION;
     }
 
     /// @notice The wrap rate is a SCALE axis, not a health one: the collateral ratio is computed from the RECORDED
@@ -522,15 +523,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         vm.stopPrank();
     }
 
-    /// @dev Cap a within-envelope deposit ceiling at the pool's remaining headroom under the supply cap. For a peg far
-    /// below the pool's fixed MIN, the economic $ ceiling converts to a nominal token count above
+    /// @dev Cap a within-envelope deposit ceiling at what the pool can still take under MAX_TOTAL_ASSET_SUPPLY. For a
+    /// peg far below the pool's fixed MIN, the economic $ ceiling converts to a nominal token count above
     /// MAX_TOTAL_ASSET_SUPPLY; past that cap a deposit reverts DepositAmountExceedsMaximum - a located limit, not an
-    /// in-envelope failure. So the effective within-envelope ceiling is the smaller of the economic ceiling and the
-    /// current headroom.
-    function _capToSupplyHeadroom(uint256 economicCeiling) internal view returns (uint256) {
-        uint256 headroom = IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY() -
+    /// in-envelope failure. So the effective within-envelope ceiling is the smaller of the economic ceiling and
+    /// MAX_TOTAL_ASSET_SUPPLY less the current supply.
+    function _capToMaxTotalAssetSupply(uint256 economicCeiling) internal view returns (uint256) {
+        uint256 remainingToMax = IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPool).totalSupply();
-        return economicCeiling > headroom ? headroom : economicCeiling;
+        return economicCeiling > remainingToMax ? remainingToMax : economicCeiling;
     }
 
     /// @dev Full exit inside the no-fee withdrawal window.
@@ -610,8 +611,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         if (s.priorLossFraction > 0) {
             uint256 minTotalAssetSupply = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
             uint256 held = IERC20(pegged).balanceOf(stabilityPool);
-            uint256 headroom = held > minTotalAssetSupply ? held - minTotalAssetSupply : 0;
-            uint256 loss = (headroom * s.priorLossFraction) / 1e18;
+            uint256 heldAboveFloor = held > minTotalAssetSupply ? held - minTotalAssetSupply : 0;
+            uint256 loss = (heldAboveFloor * s.priorLossFraction) / 1e18;
             if (loss > 0) {
                 // a loss alone - no proceeds - decays the compounding product the envelope measures against
                 poolActions.liquidate(wrappedCollateral, loss, 0);
@@ -649,18 +650,19 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             poolPegged = n * minTotalAssetSupply; // every equal share must clear the supply floor
         }
         // Peak supply during the walk is the pre-existing deposit (<= poolPegged) plus one equal share (<= poolPegged)
-        // on top of the baseline, so bound the pool at half the remaining headroom to keep that peak within the supply
-        // cap. For a peg far below MIN this binds (the nominal pool for the $ value exceeds MAX_TOTAL_ASSET_SUPPLY);
-        // MIN * FACTOR_PRECISION / 2 dwarfs n * minTotalAssetSupply, so it never conflicts with the floor above.
-        uint256 halfHeadroom = (IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY() -
+        // on top of the baseline, so bound the pool at half of what remains under MAX_TOTAL_ASSET_SUPPLY to keep that
+        // peak within it. For a peg far below MIN this binds (the nominal pool for the $ value exceeds
+        // MAX_TOTAL_ASSET_SUPPLY); MIN * FACTOR_PRECISION / 2 dwarfs n * minTotalAssetSupply, so it never conflicts
+        // with the floor above.
+        uint256 halfRemainingToMax = (IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPool).totalSupply()) / 2;
-        if (poolPegged > halfHeadroom) {
-            poolPegged = halfHeadroom;
+        if (poolPegged > halfRemainingToMax) {
+            poolPegged = halfRemainingToMax;
         }
 
         StartState memory s = StartState({
             existingDeposits: bound(existingSeed, 0, poolPegged),
-            priorLossFraction: bound(lossSeed, 0, 1e18) // up to a FULL drain of the pool's headroom to its floor
+            priorLossFraction: bound(lossSeed, 0, 1e18) // up to a FULL drain of the pool to its floor
         });
         uint256[] memory shares = _equalSplit(poolPegged, n);
 
@@ -966,7 +968,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             bound(rateSeed, e.minWrapRate, e.maxWrapRate),
             pegPriceUSD
         );
-        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD)); // $ cap in tokens
+        uint256 envelopePool = _capToMaxTotalAssetSupply(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD)); // $ cap in tokens
         // log-scale over the full PHYSICAL input range [MIN_TOTAL_ASSET_SUPPLY, uint256 max]: the fuzzer locates the field break
         // within it, rather than a range sized to the field under test. _logScale samples every order of magnitude
         // equally, so the boundary (many orders below the max) is actually reached.
@@ -1007,7 +1009,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             bound(rateSeed, e.minWrapRate, e.maxWrapRate),
             pegPriceUSD
         );
-        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD));
+        uint256 envelopePool = _capToMaxTotalAssetSupply(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD));
         // log-scale over the full physical input range - see testFuzz_deposit_sweep
         uint256 w = _logScale(wSeed, IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(), type(uint256).max);
 
@@ -1124,7 +1126,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// a keeper harvests it in. The reward reaches the pool, and once the stream completes it conserves - the credited
     /// total (claimed + claimable + queued + undistributed) never exceeds what was injected, and the pool stays solvent
     /// - checked with the SAME shared assertions the invariant proves. Run at the nominal operating point; Batch 3
-    /// pushes it to the cheap-wrapped corner where the reward-field capacity bites.
+    /// pushes it to the cheap-wrapped corner where `maxDepositReward` bites.
     function test_envelope_harvest_holds() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), buildEnvelope().pegPriceUSD);
@@ -1155,10 +1157,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
     /// @notice The harvest HOLDS at the envelope corner. At the envelope-MAX pool, cheapest collateral (largest
     /// wrapped-token holdings), and the MAX single-step wrap-rate jump - the largest single-step yield the envelope
-    /// declares - the harvest does not revert on the reward stream. It deposits up to one period's capacity
-    /// (`maxDepositReward`) and leaves the excess as harvestable in the minter, so only `swept` leaves the minter and
+    /// declares - the harvest does not revert on the reward stream. It deposits up to `maxDepositReward`
+    /// and leaves the excess as harvestable in the minter, so only `swept` leaves the minter and
     /// the rest stays claimable by the next harvest. Under a config whose residual reaches the pools (zeroed cut) that
-    /// residual share exceeds the per-period capacity at this corner, so the harvest defers the excess rather than
+    /// residual share exceeds `maxDepositReward` at this corner, so the harvest defers the excess rather than
     /// failing all-or-nothing.
     function test_envelope_harvestCorner_holds() public {
         Envelope memory e = buildEnvelope();
@@ -1195,14 +1197,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         }
     }
 
-    /// @notice The harvest RECOVERS a deferred backlog across reward periods (real cap, no mock). At the envelope corner
-    /// a single max wrap-rate jump accrues far more collateral yield than one period's reward-stream capacity
-    /// `maxDepositReward = _depositRewardCap - committed`, so the first harvest deposits exactly the capacity and defers
-    /// the rest as harvestable. Recovery is by WAITING, not by frequency: within the same period the capacity is
-    /// consumed (a second harvest adds nothing), but each elapsed period distributes the stream and frees the capacity,
-    /// letting the keeper drain another ~capacity chunk - the backlog shrinks monotonically and nothing is lost
-    /// (harvestable falls by exactly what each harvest sweeps). Uses the real `maxDepositReward`, so the same-period vs
-    /// across-period asymmetry is exercised against the live `committed = queued + rate*period`, not a fixed stand-in.
+    /// @notice The harvest RECOVERS a deferred backlog across reward periods (real cap, no mock). At the envelope
+    /// corner a single max wrap-rate jump accrues far more collateral yield than `maxDepositReward = _depositRewardCap
+    /// - committed`, so the first harvest deposits exactly `maxDepositReward` and defers the rest as harvestable.
+    /// Recovery is by WAITING, not by frequency: within the same period `maxDepositReward` falls to zero (a second
+    /// harvest adds nothing), but each elapsed period distributes the stream and raises `maxDepositReward` again,
+    /// letting the keeper drain another chunk of about that size - the backlog shrinks monotonically and nothing is
+    /// lost (harvestable falls by exactly what each harvest sweeps). Uses the real `maxDepositReward`, so the
+    /// same-period vs across-period asymmetry is exercised against the live `committed = queued + rate*period`, not a
+    /// fixed stand-in.
     function test_envelope_harvestRecovery_realCapNoMock() public {
         Envelope memory e = buildEnvelope();
         assertTrue(
@@ -1215,17 +1218,22 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
 
         address token = wrappedCollateral;
         uint256 period = IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH();
-        uint256 capacityFresh = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
+        uint256 freshMaxDepositReward = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
         address keeper = makeAddr("harvestRecoveryKeeper");
 
         uint256 residualRatio = 1e18 -
             IStabilityPoolManager_v2(stabilityPoolManager).harvestBountyRatio() -
             IStabilityPoolManager_v2(stabilityPoolManager).harvestCutRatio();
         uint256 harvestable0 = IMinter(minter).harvestable();
-        // Only markets whose single-step corner yield EXCEEDS one period's capacity form a deferred backlog; where the
-        // capacity already dwarfs the yield (huge MIN) or the config sends no residual to the pools (full bounty + cut),
-        // there is nothing to defer and no recovery question to probe.
-        if (residualRatio == 0 || harvestable0 == 0 || capacityFresh == 0 || harvestable0 <= capacityFresh) {
+        // Only markets whose single-step corner yield EXCEEDS `maxDepositReward` form a deferred backlog; where
+        // `maxDepositReward` already dwarfs the yield (huge MIN) or the config sends no residual to the pools (full
+        // bounty + cut), there is nothing to defer and no recovery question to probe.
+        if (
+            residualRatio == 0 ||
+            harvestable0 == 0 ||
+            freshMaxDepositReward == 0 ||
+            harvestable0 <= freshMaxDepositReward
+        ) {
             return;
         }
 
@@ -1235,24 +1243,24 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         vm.stopPrank();
         uint256 injected1 = IERC20(token).balanceOf(stabilityPool) - pool0;
         uint256 backlog = IMinter(minter).harvestable();
-        assertEq(injected1, capacityFresh, "harvest #1 deposits exactly one period's reward-stream capacity");
-        assertGt(backlog, 0, "the excess beyond capacity is deferred as harvestable");
+        assertEq(injected1, freshMaxDepositReward, "harvest #1 deposits exactly maxDepositReward");
+        assertGt(backlog, 0, "the excess beyond maxDepositReward is deferred as harvestable");
 
-        // within the SAME period the capacity is consumed - harvesting more often cannot add to the pool
+        // within the SAME period maxDepositReward falls to zero - harvesting more often cannot add to the pool
         assertEq(
             IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token),
             0,
-            "same period: the stream capacity is consumed, so a second harvest adds nothing (recovery is by waiting, not frequency)"
+            "same period: maxDepositReward is zero, so a second harvest adds nothing (recovery is by waiting, not frequency)"
         );
 
-        // RECOVERY across periods: each elapsed period distributes the stream, frees the capacity, and lets the keeper
-        // drain another ~capacity chunk of the backlog - shrinking monotonically at ~capacity/period, nothing lost.
+        // RECOVERY across periods: each elapsed period distributes the stream, raises maxDepositReward again, and lets
+        // the keeper drain another chunk of about that size - the backlog shrinking monotonically, nothing lost.
         for (uint256 i = 0; i < 3; i++) {
             vm.warp(block.timestamp + period + 1);
             assertGt(
                 IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token),
                 0,
-                "after a full period the distributed stream frees capacity for the next deposit"
+                "after a full period the distributed stream raises maxDepositReward for the next deposit"
             );
             vm.startPrank(keeper);
             uint256 swept = IStabilityPoolManager_v2(stabilityPoolManager).harvest(keeper, 0);
@@ -1297,9 +1305,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         mockOracle.setLatestAnswer(currentPrice, currentRate);
 
         address token = wrappedCollateral;
-        uint256 capacityFresh = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
+        uint256 freshMaxDepositReward = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
         uint256 harvestable0 = IMinter(minter).harvestable();
-        if (capacityFresh == 0 || harvestable0 <= capacityFresh) {
+        if (freshMaxDepositReward == 0 || harvestable0 <= freshMaxDepositReward) {
             return; // no deferred backlog, so the pool deposit is not capped and there is nothing to prove
         }
 
@@ -1409,8 +1417,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     }
 
     /// @notice A harvest backlog deferred while a pool held nothing is NOT re-split to that pool when it later
-    /// deposits. At the reward-field corner the collateral pool's residual share exceeds one period's stream capacity,
-    /// so the first harvest deposits a period's capacity and defers the rest as a backlog left in the minter. That
+    /// deposits. At the reward-field corner the collateral pool's residual share exceeds `maxDepositReward`,
+    /// so the first harvest deposits `maxDepositReward` and defers the rest as a backlog left in the minter. That
     /// backlog accrued entirely while the leveraged pool was empty, so it is owed to the collateral pool alone. When
     /// the leveraged pool then enters and a keeper harvests the PURE backlog (no fresh yield), the backlog must still
     /// go to the collateral pool - a pool that held nothing when it accrued earns none of it.
@@ -1421,7 +1429,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
             return; // a full-cut config sends nothing to the pools, so no backlog forms to leak
         }
         // Corner: cheapest collateral + the max single-step wrap-rate jump -> the collateral pool's residual share
-        // far exceeds one period's stream capacity, so the harvest defers a backlog rather than depositing it all.
+        // far exceeds `maxDepositReward`, so the harvest defers a backlog rather than depositing it all.
         Envelope memory e = buildEnvelope();
         assertTrue(
             _seedMarketAt(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD),
@@ -1432,9 +1440,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         // Mint the late entrant's pegged NOW (its collateral folds into the corner yield) but hold it in-wallet, so the
         // leveraged pool is still empty at harvest #1 and takes no share of the backlog it will later skim.
         address lateEntrant = makeAddr("lateEntrant");
-        uint256 leveragedPoolHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+        uint256 leveragedPoolRemainingToMax = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPoolLeveraged).totalSupply();
-        uint256 leveragedPoolHold = _min(IERC20(pegged).balanceOf(stabilityPool), leveragedPoolHeadroom); // ~ the collateral pool's holding
+        uint256 leveragedPoolHold = _min(IERC20(pegged).balanceOf(stabilityPool), leveragedPoolRemainingToMax); // ~ the collateral pool's holding
         _mintPeggedAtLeast(leveragedPoolHold);
         IERC20(pegged).transfer(lateEntrant, leveragedPoolHold);
 
@@ -1442,9 +1450,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         mockOracle.setLatestAnswer(currentPrice, currentRate);
 
         address token = wrappedCollateral;
-        uint256 capacityFresh = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
+        uint256 freshMaxDepositReward = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
         uint256 harvestable0 = IMinter(minter).harvestable();
-        if (capacityFresh == 0 || harvestable0 <= capacityFresh) {
+        if (freshMaxDepositReward == 0 || harvestable0 <= freshMaxDepositReward) {
             return; // this market's corner yield fits one period -> no backlog forms, nothing to prove
         }
 
@@ -1462,7 +1470,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(leveragedPoolHold, lateEntrant, 0);
         vm.stopPrank();
 
-        // Free the stream capacity, accrue NO fresh yield: the next harvest works the PURE backlog.
+        // End the period so maxDepositReward rises again, accrue NO fresh yield: the next harvest works the PURE
+        // backlog.
         vm.warp(block.timestamp + IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH() + 1);
         assertEq(IMinter(minter).harvestable(), backlog, "no fresh yield: harvestable is exactly the deferred backlog");
 
@@ -1492,7 +1501,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     }
 
     /// @notice A pool's deferred harvest backlog drains to THAT pool across periods, never to the co-pool. At the
-    /// corner the collateral pool's residual share exceeds one period's capacity, so a backlog defers while only the
+    /// corner the collateral pool's residual share exceeds `maxDepositReward`, so a backlog defers while only the
     /// collateral pool holds. The leveraged pool then enters and, over several draining harvests of the PURE backlog
     /// (no fresh yield), receives none of it - the whole backlog is owed to the collateral pool and streams only there.
     function test_harvest_owedDrainsToOwningPoolAcrossPeriods() public {
@@ -1509,9 +1518,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS); // collateral pool only
 
         address lateEntrant = makeAddr("lateEntrantDrain");
-        uint256 leveragedPoolHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+        uint256 leveragedPoolRemainingToMax = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPoolLeveraged).totalSupply();
-        uint256 leveragedPoolHold = _min(IERC20(pegged).balanceOf(stabilityPool), leveragedPoolHeadroom);
+        uint256 leveragedPoolHold = _min(IERC20(pegged).balanceOf(stabilityPool), leveragedPoolRemainingToMax);
         _mintPeggedAtLeast(leveragedPoolHold);
         IERC20(pegged).transfer(lateEntrant, leveragedPoolHold);
 
@@ -1519,9 +1528,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         mockOracle.setLatestAnswer(currentPrice, currentRate);
 
         address token = wrappedCollateral;
-        uint256 capacityFresh = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
+        uint256 freshMaxDepositReward = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
         uint256 harvestable0 = IMinter(minter).harvestable();
-        if (capacityFresh == 0 || harvestable0 <= capacityFresh) {
+        if (freshMaxDepositReward == 0 || harvestable0 <= freshMaxDepositReward) {
             return; // no backlog forms at this market's corner
         }
 
@@ -1644,13 +1653,14 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         assertLe(netToPools, flooredNet + 2, "net to pools == residualRatio x harvestable decrease, to two wei above");
     }
 
-    /// @notice maxDepositReward is the conservative deposit capacity `cap - committed`, where `cap` is the smaller of
-    /// the rate-field capacity (`uint128.max * REWARD_PERIOD_LENGTH`) and the reward-integral capacity (which keeps the
-    /// accumulated per-share integral inside uint256). On the envelope pools the integral cap binds, so `cap` sits
-    /// strictly below the field cap. A fresh stream offers the full `cap`; after a reward is streamed it drops by
-    /// exactly `committed = queued + rate * period`. This is the value the harvest caps each pool's deposit against, so
-    /// `depositReward` can overflow neither the rate field nor the reward integral. (The exact cap boundary - that a
-    /// deposit of `cap` is the largest that keeps the integral safe - is pinned in the discrimination test.)
+    /// @notice maxDepositReward is the conservative deposit bound `cap - committed`, where `cap` is
+    /// `_depositRewardCap`: the smaller of the rate field's bound (`uint128.max * REWARD_PERIOD_LENGTH`) and
+    /// `_integralCap` (which keeps the accumulated per-share integral inside uint256). On the envelope pools the
+    /// integral cap binds, so `cap` sits strictly below the field cap. A fresh stream offers the full `cap`; after a
+    /// reward is streamed it drops by exactly `committed = queued + rate * period`. This is the value the harvest caps
+    /// each pool's deposit against, so `depositReward` can overflow neither the rate field nor the reward integral.
+    /// (The exact cap boundary - that a deposit of `cap` is the largest that keeps the integral safe - is pinned in the
+    /// discrimination test.)
     function test_maxDepositReward_conservativeBound() public {
         uint256 period = IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH();
         uint256 fieldCap = uint256(type(uint128).max) * period;
@@ -1663,7 +1673,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         assertLt(cap, fieldCap, "integral cap binds below the rate-field cap");
         assertGt(cap, 0, "cap is positive");
 
-        // stream a reward, then the capacity drops by exactly committed = queued + rate * period
+        // stream a reward, then maxDepositReward drops by exactly committed = queued + rate * period
         address stabilityPoolOwner = IBaoOwnable(stabilityPool).owner();
         uint256 depositorRole = IMultipleRewardDistributor_v3(stabilityPool).REWARD_DEPOSITOR_ROLE();
         vm.startPrank(stabilityPoolOwner);
@@ -1679,7 +1689,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         assertEq(
             IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral),
             cap - committed,
-            "streamed: capacity is cap minus the committed reward"
+            "streamed: maxDepositReward is cap minus the committed reward"
         );
     }
 
@@ -1771,29 +1781,29 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
     }
 
-    /// @notice A pool whose share of a rebalance exceeds its solvency headroom gives up all it can, and the co-pool takes
-    /// the shortfall WITHIN the same rebalance - so a single rebalance restores the collateral ratio to the threshold
-    /// instead of the co-pool recovering it across several later calls. The co-pool must have the headroom to absorb
-    /// the shortfall. From inside the band the first step takes both pools' pegged by the collateral route, pro rata:
-    /// a small collateral pool beside a large leveraged pool floors there, and the leveraged pool covers its shortfall
-    /// and then carries the step above the floor alone.
+    /// @notice A pool whose share of a rebalance exceeds its `maxAssetLoss()` gives up all it can, and the co-pool
+    /// takes the shortfall WITHIN the same rebalance - so a single rebalance restores the collateral ratio to the
+    /// threshold instead of the co-pool recovering it across several later calls. The co-pool's `maxAssetLoss()` must
+    /// be large enough to absorb the shortfall. From inside the band the first step takes both pools' pegged by the
+    /// collateral route, pro rata: a small collateral pool beside a large leveraged pool floors there, and the
+    /// leveraged pool covers its shortfall and then carries the step above the floor alone.
     function test_rebalance_flooredPoolShortfallPickedUpInCall() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
 
-        // A small collateral pool (floors early) beside a large leveraged pool with ample headroom to absorb the
-        // shortfall; the two together hold nearly all the pegged there is.
+        // A small collateral pool (floors early) beside a large leveraged pool whose `maxAssetLoss()` amply absorbs
+        // the shortfall; the two together hold nearly all the pegged there is.
         uint256 minSupply = IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
-        uint256 leveragedPoolHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+        uint256 leveragedPoolRemainingToMax = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
             IERC20(stabilityPoolLeveraged).totalSupply();
-        uint256 leveragedPoolHold = _min(minSupply * 1_000_000, leveragedPoolHeadroom / 2);
+        uint256 leveragedPoolHold = _min(minSupply * 1_000_000, leveragedPoolRemainingToMax / 2);
         _mintLeveragedBuffer(leveragedPoolHold); // start the CR healthy so it can be dropped
         _growPool(minSupply * 10, 1); // small collateral pool, beside the seed's floor deposit
         _depositPeggedTo(stabilityPoolLeveraged, background, leveragedPoolHold);
 
         // Start where the first step - the collateral route to the floor, or to the threshold if that is lower - takes
-        // 95% of what the pools hold: past the collateral pool's headroom, which is 10/11 of what it holds, and well
-        // inside the leveraged pool's. At par that step takes `a` of the claim and `a` of the value, reaching
+        // 95% of what the pools hold: past the collateral pool's `maxAssetLoss()`, which is 10/11 of what it holds, and
+        // well inside the leveraged pool's. At par that step takes `a` of the claim and `a` of the value, reaching
         // `firstTarget` when `a = n·(firstTarget − start)/(firstTarget − 1)`.
         uint256 firstTarget = Math.min(
             IMinter_v3(minter).MINIMUM_COLLATERAL_RATIO(),
@@ -1816,7 +1826,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         assertEq(
             IERC20(stabilityPool).totalSupply(),
             minSupply,
-            "the small collateral pool gave up all it could - its share exceeded its headroom"
+            "the small collateral pool gave up all it could - its share exceeded its maxAssetLoss"
         );
         assertFalse(
             IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
@@ -1854,10 +1864,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     /// @notice An impairment deeper than the leveraged buffer can absorb, and the recovery out of it. The oracles floor
     ///         the reported rate today, so the market halts before it can get this far and the path has never been
     ///         exercised; the planned widening of those bounds turns it from a halt into a state the protocol has
-    ///         to carry. Leveraged is wiped and the pegged depegs, and no rebalance can help: below the peg a
-    ///         redemption takes its share of the backing with it, so the rebalance reverts by name and the pool
-    ///         keeps its pegged. Once the collateral recovers past the rebalance threshold the market has to come back
-    ///         with it.
+    ///         to carry. Leveraged is wiped and the pegged depegs. A rebalance there repairs nothing - below the peg a
+    ///         redemption takes its share of the backing with it - but it runs, exchanging the pool's pegged for
+    ///         collateral at the market's own price, and it must still conserve at this depth. Once the collateral
+    ///         recovers past the rebalance threshold the market has to come back with it.
     function test_deepImpairment_wipesLeveragedThenRecovers() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
@@ -1881,20 +1891,18 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         (, , , uint256 leveragedCollateralOut, , ) = IMinter(minter).redeemLeveragedTokenDryRun(1 ether);
         assertEq(leveragedCollateralOut, 0, "leveraged redemption reverts while it stands behind an uncovered pegged");
 
-        // below the peg there is nothing a rebalance can repair: it reverts by name, and the pool keeps its pegged
-        // for when the price brings the market back above the peg
-        uint256 depeggedRatio = IMinter(minter).collateralRatio();
-        uint256 poolPeggedHeld = IERC20(pegged).balanceOf(stabilityPool);
-        address keeper = makeAddr("keeper");
-        assertFalse(
+        // below the peg a rebalance is offered and delivers the pool collateral for its pegged, and it must still
+        // conserve at this depth
+        assertTrue(
             IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
-            "a wiped-out market is not offered one"
+            "a market below the peg is offered a rebalance"
         );
-        vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
-        );
-        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(keeper, 0);
-        assertEq(IERC20(pegged).balanceOf(stabilityPool), poolPeggedHeld, "the pool keeps its pegged");
+        uint256 injected = _rebalance();
+        assertGt(injected, 0, "the rebalance delivers collateral with the pegged uncovered");
+
+        StabilityPoolConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        _assertRewardConserved(stabilityPool, _allActors(), g);
+        _assertStabilityPoolSolvent(stabilityPool, _allActors(), g);
 
         // the collateral recovers past the rebalance threshold, and the market has to come back with it
         uint256 recovered = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceThreshold() + 0.01 ether;
@@ -2051,7 +2059,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
     function testFuzz_rebalance_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
-        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
+        uint256 envelopePool = _capToMaxTotalAssetSupply(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
 
         // pool swept big, up to the supply field's own width; grown in its own unit so exceeding that field (the 2a
         // deposit/supply limit, cross-confirmed here) is recorded and stops this run rather than masking a reward find.
@@ -2133,7 +2141,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
-        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
+        uint256 envelopePool = _capToMaxTotalAssetSupply(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
         uint256 poolPegged = _logScale(
             poolSeed,
             IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
@@ -2191,7 +2199,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, StabilityPoolConservatio
         Envelope memory e = buildEnvelope();
         _setEnvelopePointAtCollateralRatio(DEPLOY_COLLATERAL_RATIO, e.minWrapRate, e.pegPriceUSD);
 
-        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
+        uint256 envelopePool = _capToMaxTotalAssetSupply(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
         uint256 poolPegged = _logScale(
             poolSeed,
             IStabilityPool_v3(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
@@ -2307,10 +2315,11 @@ contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
 // ENTIRE suite (every fuzz walk, sweep, and corner) against it; each writes its own tmp/sp-constraints-<slug>.csv so a
 // break is attributed to the config that produced it ───
 
-/// @notice ETH peg with a huge supply floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions
-/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme. aboutADollarInPegged
-/// is carried on BOTH this peg and its market (below) - the stability pool deploy reads the MARKET, and the config-integrity test
-/// asserts the two agree so an override can never again land on a config object the deploy ignores.
+/// @notice ETH peg with a huge supply floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions (seed,
+/// full exits down to the floor, `maxAssetLoss()` above it) exercised at the opposite extreme. aboutADollarInPegged is
+/// carried on BOTH this peg and its market (below) - the stability pool deploy reads the MARKET, and the
+/// config-integrity test asserts the two agree so an override can never again land on a config object the deploy
+/// ignores.
 contract ConfigPeg_ETH_floorHuge is ConfigPeg_ETH {
     function aboutADollarInPegged() public pure override returns (uint256) {
         return 1e24;

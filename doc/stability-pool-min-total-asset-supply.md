@@ -14,7 +14,8 @@ All code references are to `src/minter/StabilityPool_v3.sol` unless stated other
 Two derived quantities govern the pool's supply band:
 
 - `MIN_TOTAL_ASSET_SUPPLY` — the floor. Once the pool has been seeded, its total
-  supply may never drop below this (`_capToFloor`, over the headroom `maxAssetLoss()`).
+  supply may never drop below this (`_capToFloor` caps every outflow at
+  `maxAssetLoss()`).
 - `MAX_TOTAL_ASSET_SUPPLY = min(MIN * FACTOR_PRECISION, uint128.max)` — the ceiling,
   with `FACTOR_PRECISION = 1e18` and `uint128.max ≈ 3.403e38`. Both are `immutable`,
   assigned in the constructor; MAX's saturating form is the conditional assignment
@@ -27,17 +28,17 @@ rounding a near-total liquidation into a *total* one.
 
 The mechanism (`_notifyLoss`):
 
-- A liquidation's loss is first capped at the headroom above the floor,
-  `supply - MIN` (`_capToFloor`).
+- A liquidation's loss is first capped at `maxAssetLoss()`, which is `supply - MIN`
+  (`_capToFloor`).
 - The per-unit loss is `assetLossPerUnitStaked = ceil((supply - MIN) * FP / supply)`
   (`_notifyLoss`'s ceiling division, with the capped loss substituted).
 - The product factor applied to every balance is
   `newProductFactor = FP - assetLossPerUnitStaked` (`_notifyLoss`, just before
-  `supply.product.mul(newProductFactor)`).
+  `previousProduct.mul(newProductFactor)`).
 
 For `newProductFactor` to stay strictly positive — i.e. for a liquidation never to
-zero the product and brick every `balanceOf` read (which divides by the product
-magnitude) — we need `assetLossPerUnitStaked < FP`. Working the ceiling through, that
+zero the product and brick every `balanceOf` read (which divides by the product's
+mantissa) — we need `assetLossPerUnitStaked < FP`. Working the ceiling through, that
 holds exactly when:
 
 ```text
@@ -74,7 +75,7 @@ Any change to MIN has to respect all four:
 |---|-----|------|-----------------------|
 | 1 | Deposit floor (resulting supply ≥ MIN) | `_deposit` → `DepositAmountLessThanMinimum` | raising can strand a first deposit below the new floor |
 | 2 | Deposit ceiling `MAX` (loss factor > 0) | `_deposit` → `DepositAmountExceedsMaximum`; `_notifyLoss` → `newProductFactor` | **lowering** shrinks MAX — the dangerous direction |
-| 3 | Outflow headroom `supply − MIN` (withdraw / sweep / loss), underflow-guarded to 0 | `maxAssetLoss` / `_capToFloor` | **raising** to or above supply freezes all outflow |
+| 3 | Outflow cap `supply − MIN` (withdraw / sweep / loss), underflow-guarded to 0 | `maxAssetLoss` / `_capToFloor` | **raising** to or above supply freezes all outflow |
 | 4 | Reward-integral overflow cap | `_minTotalShare` | lowering tightens future caps; never retroactive |
 
 ---
@@ -133,7 +134,7 @@ undersized. This is the one legitimate driver for ever wanting to change MIN:
 ### Config guideline (unchanged)
 
 Set MIN (in wei) to at least the number of whole tokens the pool must ever hold, with
-headroom. Do **not** inflate MIN to chase a dollar figure — MIN's role is numerical,
+a margin. Do **not** inflate MIN to chase a dollar figure — MIN's role is numerical,
 and a larger MIN only spends floor-to-ceiling span you may want later. Plan to re-base
 if the peg moves by orders of magnitude.
 
@@ -153,16 +154,17 @@ must satisfy:
 newMin < supply <= newMin * FACTOR_PRECISION        (supply > 0)
 ```
 
-- The **lower bound** (`newMin < supply`) keeps outflow headroom *strictly* positive.
-  The inequality has to be strict: at `newMin == supply` the headroom `supply − MIN` is
-  zero, so `_capToFloor` caps every withdrawal, sweep and liquidation loss to nothing —
+- The **lower bound** (`newMin < supply`) keeps `maxAssetLoss()` *strictly* positive.
+  The inequality has to be strict: at `newMin == supply`, `maxAssetLoss()` (`supply − MIN`)
+  is zero, so `_capToFloor` caps every withdrawal, sweep and liquidation loss to nothing —
   the freeze §4 rejects, reached one wei earlier than raising MIN *above* supply would.
   Equality is not the edge of the safe band, it is the first value outside it.
 - The **upper bound** (`supply <= newMin·FP`) keeps the loss factor non-zero.
 
 The band is stated for a pool that holds something. An empty pool (`supply == 0`) has no
-headroom to preserve and no factor to zero, so it cannot satisfy a strict lower bound and
-must not be judged against one — see the pristine-pool sub-decision in §5.
+supply above the floor to keep positive and no factor to zero, so it cannot satisfy a
+strict lower bound and must not be judged against one — see the pristine-pool
+sub-decision in §5.
 
 This is exactly the band the pool already lives in. A setter that refuses to move MIN
 outside the current supply's safe band is safe in **both** directions:
@@ -191,16 +193,16 @@ MIN-lower with 0 / 1 / N reward deposits before relying on it.)
 
 ## 4. What could NOT be done safely
 
-- **Raise MIN to or above current supply.** Headroom `supply − MIN` reaches zero
-  (`maxAssetLoss`), freezing every withdrawal, sweep, and — critically — liquidation
+- **Raise MIN to or above current supply.** `maxAssetLoss()`, which is `supply − MIN`,
+  reaches zero, freezing every withdrawal, sweep, and — critically — liquidation
   loss absorption. The StabilityPool exists to absorb liquidations, so freezing
   outflow is a solvency hazard, not a mere inconvenience. A setter must reject this.
-  Note that *equality* already freezes: `newMin == supply` leaves exactly zero
-  headroom, so the rejection has to start there rather than one wei above.
+  Note that *equality* already freezes: `newMin == supply` leaves `maxAssetLoss()`
+  at exactly zero, so the rejection has to start there rather than one wei above.
 
 - **Lower MIN such that `supply > newMin·FP`.** The very next liquidation would round
   the loss factor up to a full `1.0`, zero the product, and make every `balanceOf`
-  divide by a zero magnitude — catastrophic and irreversible. A setter must reject
+  divide by a zero mantissa — catastrophic and irreversible. A setter must reject
   this.
 
 - **Auto-adjust MIN on a user deposit that would breach MAX.** Arithmetically this is

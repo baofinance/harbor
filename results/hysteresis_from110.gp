@@ -13,10 +13,10 @@ load "style.gp"
 # is gitignored.
 if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background rgb "gray90" }
 
-# Sixteen rebalances, each from a collateral ratio of 1.1 - ABOVE the leverage floor of 1.0526 and below the
+# Sixteen rebalances, each from a collateral ratio of 1.1 - ABOVE the leverage floor of 1.0101 and below the
 # 1.3 threshold, where every rule can rebalance and every round goes through. The same experiment as
-# `hysteresis.gp`, whose sequence from 0.6 the tree refuses to enter; here the question is whether a rule holds
-# its terms and its leverage across sixteen rounds that all succeed. Three files: the DEPLOYED contracts, the
+# `hysteresis.gp`, whose rounds from 0.6 repair nothing under the tree's rule; here the question is whether a rule
+# holds its terms and its leverage across sixteen rounds that all repair. Three files: the DEPLOYED contracts, the
 # TREE on a local deploy, and the V3 UPGRADE - this tree's minter, manager and pools behind the deployed
 # proxies. Colour is the rule, solid and dashed are the two quantities of each panel, marker is the market
 # (`style.gp`); the tree and the upgrade share a colour because they are the same rule.
@@ -29,7 +29,7 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1300 background r
 # THE THREE FILES ARE THE SAME FILE. Every figure in every column agrees to the printed precision, sixteen
 # rounds over: the position kept is 1.000000, the increment paid is 1.000000, the ratio after is 1.300000, the
 # leverage before is 11.0000, the price falls by exactly a third each round and the count the pool is handed
-# rises 2.5x. Above the floor the count cap does not bind at 1.1 - the leverage there is 11, under 20 - so the
+# rises 2.5x. The deployed count cap does not bind at 1.1 - the leverage there is 11, under 20 - so the
 # deployed conversion is already fair, and the tree changes nothing it did not need to. And the upgrade on the
 # deployed proxies lands on the tree's own figures, which is what a measurement of the pending upgrade is for:
 # the same code gives the same answers on production state as on a local deploy. (The deployed manager's
@@ -97,7 +97,7 @@ unset label 3
 set ylabel "leverage ratio before"
 set yrange [0:25]
 set arrow 4 from graph 0, first 20 to graph 1, first 20 @threshold_line
-set label 4 "K = 20" at 0.7, 21.5 textcolor "gray20" font ",9"
+set label 4 "the deployed cap, K = 20" at 0.7, 21.5 textcolor "gray20" font ",9"
 plot \
      deployed using 1:(nz($11)) with linespoints @deployed_main_every @q_first title n_deployed, \
      tree     using 1:(nz($11)) with linespoints @tree_local_every    @q_first title n_tree, \

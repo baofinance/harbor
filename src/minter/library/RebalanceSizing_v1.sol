@@ -3,6 +3,8 @@ pragma solidity 0.8.30;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {MinterValuationLib} from "@harbor/minter/library/MinterValuationLib.sol";
+
 /// @title RebalanceSizing_v1
 /// @author rootminus0x1
 /// @notice Works out how much pegged token each stability pool gives up in a rebalance.
@@ -18,7 +20,7 @@ library RebalanceSizing_v1 {
     /// @dev Redeeming for collateral removes both the pegged claim and the collateral behind it; redeeming for
     ///      leveraged removes the claim but leaves the collateral, so the two legs move the ratio at different
     ///      rates. The pairs that reach the target lie on a line between the two single-leg solutions, and the job
-    ///      is to pick the point on it that respects both pools' headroom.
+    ///      is to pick the point on it that respects `maxCollateralPegged` and `maxLeveragedPegged`.
     /// @param targetCollateralRatio The ratio to reach (1e18-scaled).
     /// @param currentCollateralRatio The ratio now, as the Minter computes it.
     /// @param maxCollateralPegged The most pegged the collateral pool may give up.
@@ -56,7 +58,8 @@ library RebalanceSizing_v1 {
 
         // The point to aim for: where both pools hold, the point on the line that splits by their pegged holdings
         // (each pool bears loss - and earns the matching reward - in proportion to its size); else the two intercepts
-        // themselves, off the line, which the fitting below brings onto it wherever a headroom binds.
+        // themselves, off the line, which the fitting below brings onto it wherever `maxCollateralPegged` or
+        // `maxLeveragedPegged` binds.
         peggedForCollateral = fullCollateral;
         peggedForLeveraged = fullLeveraged;
         if (holdingCollateral > 0 && holdingLeveraged > 0) {
@@ -64,14 +67,24 @@ library RebalanceSizing_v1 {
             uint256 collateralFraction = Math.mulDiv(holdingCollateral, 1 ether, holdingCollateral + weightedLeveraged);
             peggedForCollateral = Math.mulDiv(fullCollateral, collateralFraction, 1 ether, Math.Rounding.Ceil);
             peggedForLeveraged = Math.mulDiv(fullLeveraged, 1 ether - collateralFraction, 1 ether, Math.Rounding.Ceil);
+            // Each rounded up, the two can together be a wei more than the pegged outstanding, where the collateral
+            // intercept is the whole of it. The redemption takes no more than is outstanding and cuts legs that ask
+            // for more, so the point is cut here as the redemption would cut it: a pool is then asked for exactly the
+            // pegged that is redeemed for it. The fitting below keeps the total within the outstanding: it moves the
+            // point along the line or inside it, where no two legs total more than the collateral intercept.
+            (peggedForCollateral, peggedForLeveraged) = MinterValuationLib.freeRedeemLegs(
+                peggedForCollateral,
+                peggedForLeveraged,
+                peggedTokenBalance
+            );
         }
 
-        // Fit the point into the [0, maxCollateralPegged] x [0, maxLeveragedPegged] headroom box. A leg above its
-        // pool's headroom is held there and its shortfall slides along the line onto the other leg - still reaching
-        // the target, with each leg redeemed for its own token. If that takes the other leg past its own headroom, it
-        // is held as well: the pools are exhausted and both give their headroom, a partial rebalance - the most the
-        // stability pools can absorb. Both legs over is no exception: where a pool holds nothing the point is the two
-        // intercepts, off the line, and the slide still finds the line's point inside the box when there is one.
+        // Fit the point into the box [0, maxCollateralPegged] x [0, maxLeveragedPegged]. A leg above its maximum is
+        // held there and its shortfall slides along the line onto the other leg - still reaching the target, with
+        // each leg redeemed for its own token. If that takes the other leg past its own maximum, it is held as well:
+        // both legs give their maximum, a partial rebalance - the most the stability pools can absorb. Both legs over
+        // is no exception: where a pool holds nothing the point is the two intercepts, off the line, and the slide
+        // still finds the line's point inside the box when there is one.
         if (peggedForCollateral > maxCollateralPegged) {
             peggedForCollateral = maxCollateralPegged;
             peggedForLeveraged = Math.mulDiv(

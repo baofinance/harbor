@@ -18,6 +18,9 @@ set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0.4:1.6]
 
 set ylabel "Pegged NAV / Leveraged NAV"
+# y1 is sized for the two NAVs, which run from 0 to 1. The dashed copy of the leverage ratio on y1 shows its
+# low values at that scale, and leaves the top where the ratio passes 21. The solid copy on y2 shows it whole:
+# column 2 reaches 501 at a collateral ratio of 1.002.
 set yrange [-1:21]
 set ytics nomirror
 

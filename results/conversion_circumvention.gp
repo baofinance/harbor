@@ -11,28 +11,25 @@ set datafile separator comma
 # is gitignored.
 if (!exists("terminal")) { set terminal svg enhanced size 700 620 background rgb "gray90" }
 
-# WHETHER THE BOUND BOUNDS ANYTHING, or only decides who pays.
+# WHETHER THE FLOOR BOUNDS BOTH ROUTES, or only decides who pays.
 #
 # The same move - anchor in, sail out - by the two routes the protocol offers. The rebalance makes it in
-# one bounded call that only the StabilityPoolManager can make. Anyone else redeems the anchor for
-# collateral and mints sail with it: two fee-bearing calls, neither of them bounded.
+# one call that only the StabilityPoolManager can make. Anyone else redeems the anchor for collateral and
+# mints sail with it: two fee-bearing calls.
 #
-# The long way round pays EXACTLY the fair rate up to a collateral ratio of 1.10, and the bound engages
-# only below 1.0526 - so throughout the band where the bound is active, the trade it bounds is available
-# to anyone at full fair value. It is not limiting how much sail is created at a depressed price. It is
-# deciding that the stability pool alone is paid a twenty-fifth of what everyone else gets for it: at a
-# collateral ratio of 1.002 the conversion pays 20 and the long way pays 500.
+# The minter refuses to mint sail below its floor, a collateral ratio of 100/99 = 1.0101, whatever the
+# route. So below the floor neither route is drawn: both are refused. From the floor up both pay the fair
+# rate, the conversion exactly. Nothing the floor stops the rebalance doing is open to anyone by the long
+# way round.
 #
-# The lower panel is where that claim stops holding, and it is drawn rather than asserted. Above 1.10 the
-# incentive config charges the two user legs a fee and the long way falls short of fair - by 0.8% around
-# 1.2 to 1.4, by 1.5% at 1.6. That is real, and it is irrelevant to the argument: the bound is long since
-# disengaged there. Where the bound acts, the panel reads exactly one.
+# The deployed rule bounds the count instead, at 20 sail per anchor, and the count bound acts on the
+# conversion alone: at a collateral ratio of 1.002 its conversion pays 20 where the long way round pays the
+# fair 500. The floor closes that.
 #
-# Above 1.0526 the two coincide, because the bound has let go and the conversion is fair as well. Below a
-# collateral ratio of 1 the long way is SHUT - minting sail is disallowed with no residual to price it
-# against - so the bound there is the whole rule and not a choice between routes. That region is not
-# drawn: it has no second line to compare against, and the conversion's flat 20 across it is
-# `rebalance_trigger_mismatch`'s subject.
+# The lower panel is how close the long way round comes to fair. Up to a collateral ratio of 1.15 it is
+# exact. From there the incentive config charges the two user legs a fee and the long way falls short of
+# fair: by 0.6% from 1.15, 0.8% from 1.2, 1.3% from 1.45 and 1.5% from 1.5. The conversion pays no fee and
+# stays fair there.
 #
 # The axis is the distance above the peg, logarithmically, because the quantities are functions of it -
 # the fair rate is exactly 1/(collateral ratio - 1) - and because that draws them as the straight lines
@@ -47,8 +44,8 @@ set colorsequence default
 set lmargin at screen 0.14
 set rmargin at screen 0.97
 
-# Where the bound lets go, after which the two routes agree because the conversion is fair too.
-release = 1.0 / 19.0
+# The floor, as a distance above the peg: 100/99 - 1. Below it both routes are refused.
+floor_distance = 1.0 / 99.0
 
 set multiplot title "conversion_circumvention.gp" noenhanced
 
@@ -64,8 +61,8 @@ unset xlabel
 set xtics ("" 0.002, "" 0.005, "" 0.01, "" 0.02, "" 0.05, "" 0.1, "" 0.2, "" 0.6)
 set key bottom left reverse Left noenhanced
 
-set arrow 1 from first release, graph 0 to first release, graph 1 nohead dashtype 2 linecolor rgb "gray40"
-set label 1 "the bound lets go here" at first 0.06, first 1.25 left textcolor rgb "gray30"
+set arrow 1 from first floor_distance, graph 0 to first floor_distance, graph 1 nohead dashtype 2 linecolor rgb "gray40"
+set label 1 "the floor: both routes\nrefused below it" at first floor_distance * 1.1, first 300 left textcolor rgb "gray30"
 
 # $1 = collateral ratio, $2 = through the conversion, $3 = the long way round, $4 = fair
 plot \
@@ -74,7 +71,7 @@ plot \
      datafile using ($1-1):($3) with lines linewidth 2 linetype 2 \
          title "the long way round - redeem the anchor, then mint sail", \
      datafile using ($1-1):($2) with lines linewidth 2 linetype 7 \
-         title "the rebalance's bounded conversion"
+         title "the rebalance's conversion"
 
 # ----------------------------------- and how close the long way round actually is to fair, on its own
 set tmargin at screen 0.44
@@ -91,7 +88,7 @@ unset key
 unset label 1
 
 set arrow 2 from graph 0, first 1 to graph 1, first 1 nohead dashtype 2 linecolor rgb "red"
-set label 2 "exactly fair while the bound acts" at first 0.0022, first 0.9895 left textcolor rgb "gray20"
+set label 2 "exactly fair from the floor up to 1.15" at first 0.012, first 0.9895 left textcolor rgb "gray20"
 
 plot \
      datafile using ($1-1):(($4 > 0 && $3 > 0) ? ($3 / $4) : 1/0) with lines linewidth 2 linetype 2 notitle

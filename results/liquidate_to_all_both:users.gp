@@ -21,13 +21,15 @@ set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
 set yrange [0:25]
-set y2range [0:100000]
+# The top of y2 follows the data. Its one series is the leveraged token balance, which peaks just above the
+# peg.
+set y2range [0:*]
 
 set ytics nomirror
 set y2tics 50000
 
 set ylabel "Collateral Ratio / Collateral token balance / Leveraged price"
-set y2label "Pegged/Leveraged token balance"
+set y2label "Leveraged token balance"
 depeg = 1
 set arrow from depeg, graph 0 to depeg, graph 1 nohead linetype 1 dashtype 2 linecolor"red"
 set label "  de-peg" at depeg, 0.2 left textcolor "red"
@@ -38,6 +40,7 @@ plot \
      datafile using ($1):($3) axes x1y1 with lines linewidth 1 linetype 1, \
      datafileto using ($1):($2) axes x1y1 with lines linewidth 1 linetype 2, \
      datafileto using ($1):($4) axes x1y2 with lines linewidth 1 linetype 4, \
+     datafileto using ($1):($6) axes x1y1 with lines linewidth 1 linetype 6, \
      datafile using ($1):($10) axes x1y1 with lines linewidth 2 linetype 7 dashtype 2, \
      datafile using ($1):($11) axes x1y1 with lines linewidth 2 linetype 7
 
