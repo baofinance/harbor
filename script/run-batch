@@ -7,6 +7,9 @@ set -euo pipefail
 # The signer is determined by calling owner() on the first transaction's target,
 # or can be overridden with --from.
 #
+# Stops at the first call that fails, printing that attempt's output: a Safe runs the batch as one transaction, so no
+# call after a failed one runs. The calls before it stay applied on the node, where a Safe would revert them all.
+#
 # Usage:
 #   script/run-batch <batch.json> [options]
 #
@@ -18,7 +21,7 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <batch.json> [options]
+Usage: ${0##*/} <batch.json> [options]
 
 Execute a Safe batch JSON file against a local anvil node.
 
@@ -93,7 +96,7 @@ if [[ -z "$FROM" ]]; then
 fi
 
 echo "======================================================" >&2
-echo "  RUN BATCH: $(basename "$BATCH_FILE")" >&2
+echo "  RUN BATCH: ${BATCH_FILE##*/}" >&2
 echo "======================================================" >&2
 echo "  Description: $DESCRIPTION" >&2
 echo "  Chain ID:    $CHAIN_ID" >&2
@@ -102,10 +105,10 @@ echo "  Signer:      $FROM" >&2
 echo "  Transactions: $TX_COUNT" >&2
 echo "" >&2
 
-PASSED=0
-FAILED=0
+SUCCEEDED=0
+FAILED_AT=0
 
-for i in $(seq 0 $((TX_COUNT - 1))); do
+for ((i = 0; i < TX_COUNT; i++)); do
   TO=$(jq -r ".transactions[$i].to" "$BATCH_FILE")
   DATA=$(jq -r ".transactions[$i].data" "$BATCH_FILE")
   VALUE=$(jq -r ".transactions[$i].value // \"0\"" "$BATCH_FILE")
@@ -121,20 +124,18 @@ for i in $(seq 0 $((TX_COUNT - 1))); do
     continue
   fi
 
-  if cast send "$TO" "$DATA" \
+  if OUTPUT=$(cast send "$TO" "$DATA" \
     --from "$FROM" --unlocked \
     --value "$VALUE" \
-    --rpc-url "$RPC_URL" > /dev/null 2>&1; then
+    --rpc-url "$RPC_URL" 2>&1); then
     echo "OK" >&2
-    ((++PASSED))
+    ((++SUCCEEDED))
   else
-    echo "FAILED" >&2
-    ((++FAILED))
-    # Re-run to show the error
-    cast send "$TO" "$DATA" \
-      --from "$FROM" --unlocked \
-      --value "$VALUE" \
-      --rpc-url "$RPC_URL" >&2 || true
+    STATUS=$?
+    echo "FAILED (exit $STATUS)" >&2
+    echo "$OUTPUT" >&2
+    FAILED_AT=$((i + 1))
+    break
   fi
 done
 
@@ -142,11 +143,12 @@ echo "" >&2
 echo "======================================================" >&2
 if [[ "$DRY_RUN" == true ]]; then
   echo "  DRY RUN: $TX_COUNT transactions" >&2
-elif [[ "$FAILED" -eq 0 ]]; then
-  echo "  COMPLETE: $PASSED/$TX_COUNT succeeded" >&2
+elif [[ "$FAILED_AT" -eq 0 ]]; then
+  echo "  COMPLETE: $SUCCEEDED/$TX_COUNT succeeded" >&2
 else
-  echo "  FAILED: $PASSED passed, $FAILED failed" >&2
+  echo "  FAILED at call $FAILED_AT of $TX_COUNT. Succeeded before it: $SUCCEEDED. Not sent: $((TX_COUNT - FAILED_AT))." >&2
+  echo "  The calls before it stay applied on the node. A Safe would have reverted the whole batch." >&2
 fi
 echo "======================================================" >&2
 
-[[ "$FAILED" -eq 0 ]]
+[[ "$FAILED_AT" -eq 0 ]]

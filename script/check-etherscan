@@ -6,10 +6,26 @@ set -euo pipefail
 # This script reads the state file and generates a markdown report with
 # Etherscan verification status and links for all proxies and remaining
 # implementations (those not currently used by any proxy).
+#
+# With --update (the default) it reads the previous report and asks Etherscan
+# only about what that report does not show verified. Verification on
+# Etherscan is permanent, so a ✓ stays true; a ✗ is asked again. With --all it
+# asks about everything. The report is written to a .pending file, which
+# replaces the report only when the whole run succeeds.
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
 CAST=cast
+
+# What Etherscan's getabi answers, with status "0", for an address with no
+# verified source; getsourcecode gives it, with status "1", as the ABI.
+NOT_VERIFIED="Contract source code not verified"
+
+# The start of what Etherscan answers, with status "0", to a request over the
+# key's calls per second. Such a request is asked again a second later, up to
+# ETHERSCAN_ATTEMPTS times in all.
+RATE_LIMITED="Max calls per sec rate limit reached"
+ETHERSCAN_ATTEMPTS=5
 
 # ── Shared variables ───────────────────────────────────────────────────────
 
@@ -60,14 +76,21 @@ check_project_root() {
 usage() {
   cat <<EOF
 Usage:
-  $0 --network <network> --salt <salt>
+  $0 --network <network> --salt <salt> [--update | --all]
 
 Required:
   --network     Network name (mainnet, arbitrum, base)
   --salt        Salt prefix (e.g., harbor_v1, test3)
 
+Optional:
+  --update      Ask Etherscan only about what the previous report does not
+                show verified (the default). Without a previous report,
+                ask about everything.
+  --all         Ask Etherscan about everything.
+
 Examples:
   $0 --network mainnet --salt harbor_v1
+  $0 --network mainnet --salt harbor_v1 --all
 
 State file: deployments/<network>/<salt>.state.json
 Output:     deployments/<network>/<salt>.state.md
@@ -78,6 +101,7 @@ EOF
 
 NETWORK=""
 SALT=""
+MODE=update
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +112,10 @@ while [[ $# -gt 0 ]]; do
     --salt)
       SALT=${2:-}
       shift 2
+      ;;
+    --update | --all)
+      MODE=${1#--}
+      shift
       ;;
     -h | --help)
       usage
@@ -149,6 +177,12 @@ fi
 ETHERSCAN_API_KEY=$(forge config --json 2>/dev/null | jq -r '.etherscan_api_key // empty')
 
 OUTPUT_FILE="${STATE_FILE%.json}.md"
+PENDING_FILE="${OUTPUT_FILE}.pending"
+if [[ -f "$PENDING_FILE" ]]; then
+  echo "  Report: cleaning up stale .pending from prior run" >&2
+  rm -f "$PENDING_FILE"
+fi
+trap 'if [[ -f "$PENDING_FILE" ]]; then echo "  Report: .pending left for debugging at $PENDING_FILE" >&2; fi' EXIT
 
 case "$NETWORK" in
   mainnet) EXPLORER_URL="https://etherscan.io" ;;
@@ -159,26 +193,64 @@ esac
 
 # ── Helper functions ───────────────────────────────────────────────────────
 
+# Ask Etherscan's contract API `action` about `address`, and print the reply.
+# A rate-limit reply is asked again a second later. Exits when the request
+# fails, when the reply is not JSON with a status, and when its status is not
+# "1" and its result is not the "not verified" answer.
+etherscan_contract() {
+  local action=$1
+  local address=$2
+
+  local attempt response status result
+  for ((attempt = 1; ; attempt++)); do
+    if ! response=$(curl -sS "https://api.etherscan.io/v2/api?chainid=${CHAIN_ID}&module=contract&action=${action}&address=${address}&apikey=${ETHERSCAN_API_KEY}"); then
+      echo "❌ Etherscan $action $address: the request failed" >&2
+      exit 1
+    fi
+    if ! status=$(jq -er '.status' <<<"$response"); then
+      echo "❌ Etherscan $action $address: the reply is not JSON with a status: $response" >&2
+      exit 1
+    fi
+    if [[ "$status" == "1" ]]; then
+      break
+    fi
+    result=$(jq -r '.result' <<<"$response")
+    if [[ "$result" == "$NOT_VERIFIED" ]]; then
+      break
+    fi
+    if [[ "$result" != "$RATE_LIMITED"* ]]; then
+      echo "❌ Etherscan $action $address: status $status: $result" >&2
+      exit 1
+    fi
+    if [[ $attempt -eq $ETHERSCAN_ATTEMPTS ]]; then
+      echo "❌ Etherscan $action $address: status $status: $result, on each of $ETHERSCAN_ATTEMPTS attempts" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "$response"
+}
+
 # Check proxy verification status on Etherscan
 # Returns: source_verified|impl_linked|proxy_flag (1 or 0 for each)
 check_proxy_etherscan() {
   local address=$1
 
   local abi_response abi_status source_ok
-  abi_response=$(curl -s "https://api.etherscan.io/v2/api?chainid=${CHAIN_ID}&module=contract&action=getabi&address=${address}&apikey=${ETHERSCAN_API_KEY}")
-  abi_status=$(echo "$abi_response" | jq -r '.status')
+  abi_response=$(etherscan_contract getabi "$address") || exit 1
+  abi_status=$(jq -r '.status' <<<"$abi_response")
   if [[ "$abi_status" == "1" ]]; then source_ok=1; else source_ok=0; fi
 
-  local src_response result_count
-  src_response=$(curl -s "https://api.etherscan.io/v2/api?chainid=${CHAIN_ID}&module=contract&action=getsourcecode&address=${address}&apikey=${ETHERSCAN_API_KEY}")
-  result_count=$(echo "$src_response" | jq '.result | length')
-  if [[ "$result_count" != "1" ]]; then
-    echo "${source_ok}|0|0"
-    return
+  local src_response results
+  src_response=$(etherscan_contract getsourcecode "$address") || exit 1
+  results=$(jq -r '.result | if type == "array" then "\(length) results" else "a \(type)" end' <<<"$src_response")
+  if [[ "$results" != "1 results" ]]; then
+    echo "❌ Etherscan getsourcecode $address: expected 1 result, the reply holds $results" >&2
+    exit 1
   fi
 
   local implementation impl_ok
-  implementation=$(echo "$src_response" | jq -r '.result[0].Implementation')
+  implementation=$(jq -r '.result[0].Implementation' <<<"$src_response")
   if [[ -n "$implementation" && "$implementation" != "null" && "$implementation" != "" ]]; then
     impl_ok=1
   else
@@ -192,14 +264,19 @@ check_proxy_etherscan() {
   echo "${source_ok}|${impl_ok}|${proxy_ok}"
 }
 
-# Check implementation verification status on Etherscan
+# Check implementation verification status: from the previous report when it
+# shows the implementation verified, from Etherscan otherwise
 # Returns: 1 if verified, 0 if not
 check_impl_etherscan() {
   local address=$1
 
+  if [[ -n "${verified_impls[${address,,}]:-}" ]]; then
+    echo "1"
+    return
+  fi
   local response status
-  response=$(curl -s "https://api.etherscan.io/v2/api?chainid=${CHAIN_ID}&module=contract&action=getabi&address=${address}&apikey=${ETHERSCAN_API_KEY}")
-  status=$(echo "$response" | jq -r '.status')
+  response=$(etherscan_contract getabi "$address") || exit 1
+  status=$(jq -r '.status' <<<"$response")
   if [[ "$status" == "1" ]]; then echo "1"; else echo "0"; fi
 }
 
@@ -227,16 +304,54 @@ for key in $proxy_keys; do
   fi
 done
 
+# ── Previous report ────────────────────────────────────────────────────────
+# With --update, the ✓ marks of the previous report are carried into the new
+# one without asking Etherscan again. A proxy's three columns are carried when
+# all three were ✓ for the same proxy and implementation; Impl Verified is
+# carried by implementation, from either table.
+
+declare -A verified_proxies # "proxy|implementation" → 1
+declare -A verified_impls   # implementation → 1
+if [[ "$MODE" == update && -f "$OUTPUT_FILE" ]]; then
+  while IFS= read -r line; do
+    if [[ "$line" != "| ["* ]]; then
+      continue
+    fi
+    mapfile -t addresses < <(grep -oE '0x[0-9a-fA-F]{40}' <<<"$line")
+    mapfile -t marks < <(grep -oE '\[(✓|✗)\]' <<<"$line")
+    if [[ ${#marks[@]} -eq 4 && ${#addresses[@]} -eq 5 ]]; then
+      # Role, Source, Impl Linked and Proxy Flag link the proxy; Impl Verified links the implementation.
+      if [[ "${marks[0]}${marks[1]}${marks[2]}" == "[✓][✓][✓]" ]]; then
+        pair="${addresses[0],,}|${addresses[4],,}"
+        verified_proxies["$pair"]=1
+      fi
+      if [[ "${marks[3]}" == "[✓]" ]]; then
+        verified_impls["${addresses[4],,}"]=1
+      fi
+    elif [[ ${#marks[@]} -eq 1 && ${#addresses[@]} -eq 2 ]]; then
+      # A remaining implementation: Role and Verified both link it.
+      if [[ "${marks[0]}" == "[✓]" ]]; then
+        verified_impls["${addresses[1],,}"]=1
+      fi
+    elif [[ ${#marks[@]} -ne 0 || "$line" != *"| - | - | - | - |" ]]; then
+      echo "❌ Cannot read this row of $OUTPUT_FILE (${#marks[@]} marks, ${#addresses[@]} addresses):" >&2
+      echo "   $line" >&2
+      exit 1
+    fi
+  done <"$OUTPUT_FILE"
+fi
+
 # ── Generate Etherscan Report ──────────────────────────────────────────────
 
 echo "Generating Etherscan verification report..."
+updated=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
 {
   echo "# Harbor Minter Verification Report"
   echo ""
   echo "- **Network:** $NETWORK (chainId: $CHAIN_ID)"
   echo "- **Salt:** $SALT"
-  echo "- **Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+  echo "- **Updated:** $updated"
   echo "- **State file:** $STATE_FILE"
   echo ""
   echo "## Verification Legend"
@@ -257,9 +372,14 @@ echo "Generating Etherscan verification report..."
     expected_impl=$(get_proxy_info "$STATE_FILE" "$key" implementation)
 
     if [[ -n "$expected_impl" && "$expected_impl" != "-" ]]; then
-      proxy_status=$(check_proxy_etherscan "$proxy_addr")
+      pair="${proxy_addr,,}|${expected_impl,,}"
+      if [[ -n "${verified_proxies[$pair]:-}" ]]; then
+        proxy_status="1|1|1"
+      else
+        proxy_status=$(check_proxy_etherscan "$proxy_addr") || exit 1
+      fi
       IFS='|' read -r src_ok impl_ok proxy_ok <<<"$proxy_status"
-      impl_verified=$(check_impl_etherscan "$expected_impl")
+      impl_verified=$(check_impl_etherscan "$expected_impl") || exit 1
 
       # Build linked ticks
       proxy_code_url="$EXPLORER_URL/address/$proxy_addr#code"
@@ -300,14 +420,15 @@ echo "Generating Etherscan verification report..."
     for addr in "${remaining_impls[@]}"; do
       role=$(get_implementation_info "$STATE_FILE" "$addr" proxy)
       contract_type=$(get_implementation_info "$STATE_FILE" "$addr" contractType)
-      impl_verified=$(check_impl_etherscan "$addr")
+      impl_verified=$(check_impl_etherscan "$addr") || exit 1
       impl_code_url="$EXPLORER_URL/address/$addr#code"
       if [[ "$impl_verified" == "1" ]]; then impl_tick="[✓]($impl_code_url)"; else impl_tick="[✗]($impl_code_url)"; fi
       echo "| [$role]($impl_code_url) | $contract_type | $impl_tick |"
     done
   fi
 
-} >"$OUTPUT_FILE"
+} >"$PENDING_FILE"
 
+mv "$PENDING_FILE" "$OUTPUT_FILE"
 echo "📄 Report written to: $OUTPUT_FILE"
 echo ""
