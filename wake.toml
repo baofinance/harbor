@@ -40,9 +40,6 @@ remappings = [
   "@harbor/=src/",
   "@harbor-script/=script/",
   "@harbor-test/=test/",
-  # retain the below for legacy
-  "src/=src/",
-  "test/=test/",
 ]
 
 include_paths = []

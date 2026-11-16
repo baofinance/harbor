@@ -71,7 +71,7 @@ This project uses both node and python dependencies
 
 ```sh
 $ yarn
-$ uv sync
+$ yarn setup
 ```
 
 Then you can either:
