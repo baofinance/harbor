@@ -8,7 +8,12 @@ set datafile separator comma
 # and burned rather than redistributed, which is the conservative choice - handing it to the remaining
 # depositors would close the gap faster than this shows.
 #
-# Income gap = (returner_weekly_$ - stayer_weekly_$) / returner_weekly_$ * 100, so 0 is fair.
+# Income gap = (returner_weekly_$ - stayer_weekly_$) / returner_weekly_$ * 100. It is positive where the
+# returner earns more, negative where the stayer does, and 0 where they earn the same.
+#
+# The collateral pool's gap closes between a fee of 8% (1.67%) and 10% (-0.27%). Above that the fee
+# overshoots: the stayer earns more, by 18.1% at a fee of 25%. The leveraged pool's gap stays positive
+# across the scan, from 37.5% with no fee to 16.7% at 25%.
 #
 # The design case is a 10% price drop at 25% leveraged, which liquidates 37.5%. The first two figures
 # mirror DESIGN_PRICE_DROP and DESIGN_LEVERAGED_PCT in that test and the third is what they produce; change

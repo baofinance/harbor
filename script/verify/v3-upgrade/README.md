@@ -139,7 +139,29 @@ each batch does is under [Each market's batch](#each-markets-batch), item 4. Bef
   over both markets, what the exploits paid out. Nothing in these batches depends on it. Its form is to be settled;
   it is not part of this upgrade.
 
-### 5. Sign and execute
+### 5. Check each batch on a fork
+
+Run the batches step 3 saved on a fork of the chain as it is now, then check their markets as the rehearsal checks
+them after its own upgrade:
+
+```bash
+script/anvil --block latest
+script/run-batch "deployments/mainnet/batch/Upgrade_MarketsToV3_mainnet_<time>_<market>@harbor_multisig.json"
+script/verify/v3-upgrade/check-upgraded-markets --peg <peg> --collateral <name>
+```
+
+- Start anvil once every deployment of step 3 has landed, so the fork holds the implementations the batches name.
+- `script/run-batch` sends each call of a batch as its own transaction from the multisig, as the rehearsal's `--local`
+  does. It stops at the first call that fails. The calls before it stay applied on anvil, where the Safe would revert
+  them all, so start anvil again before another try.
+- Several batches can run on one anvil, one after another. Name in `--peg` and `--collateral` the markets whose batches
+  ran, and no other: a market not upgraded fails the check.
+- `check-upgraded-markets` runs the rehearsal's before-and-after comparison and storage check, described under
+  [How it runs](#how-it-runs). It must end with PASS.
+- The rehearsal's other checks need not run again. They build their own upgrade on a fork of mainnet, from a fresh
+  deployment state, so they read neither the implementations step 3 deployed nor its batch files.
+
+### 6. Sign and execute
 
 - Each market's batch is independent of the others: they can be executed in any order.
 - The Safe runs a batch as one transaction: all of it happens, or none of it. The largest batch used about 4.2M gas
@@ -158,7 +180,7 @@ each batch does is under [Each market's batch](#each-markets-batch), item 4. Bef
 - No call in a batch reads a live price: BTC::stETH's and EUR::stETH's batches price the compensation at the capture
   block's reading, held still in a `FrozenPriceOracle`; every other batch reads none.
 
-### 6. Afterwards: the state file
+### 7. Afterwards: the state file
 
 The batches move no proxy's implementation pointer in `deployments/mainnet/harbor_v1.state.json`. Once they have
 executed, set each proxy's implementation by hand to its new Minter_v3, StabilityPool_v3 or StabilityPoolManager_v2
@@ -168,7 +190,7 @@ implementation:
   every pool, and the GOLD::fxUSD and SILVER::fxUSD minters, as running an upgrader;
 - the pointers already lag the chain: the pause implementation was never recorded.
 
-### 7. Later: when a market config's terms change
+### 8. Later: when a market config's terms change
 
 The batches set each manager's terms from the market configs as they are when the batches are built. When a config's
 terms change - for a bounty ceiling, when the wrapped collateral's price has moved far from what its
@@ -268,32 +290,43 @@ pause never froze skips this. It then runs
 [Settings against a native deploy](#settings-against-a-native-deploy)); `UpgradedMarketsHarvest`: each upgraded
 market harvests at its config's terms (see [Harvest after the upgrade](#harvest-after-the-upgrade)); and
 `UpgradedUnopenedMarketsOpen`: each market named whose genesis has not ended opens through it and runs (see
-[A market opening](#a-market-opening)). It then asks you to start anvil (`script/anvil --block latest`), and:
+[A market opening](#a-market-opening)). It then asks you to start anvil (`script/anvil --block latest`), copies
+`deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the deployed
+addresses, and for each peg:
 
-1. copies `deployments/mainnet/harbor_v1.state.json` to `deployments/local/mainnet/`, where the script reads the
-   deployed addresses;
-2. **before**: `MarketsCapture` with `VERSION=before`, on a fork of mainnet at the capture's block - the last block
+1. runs the upgrade script as it will be run on mainnet, with `--local` added: the batches execute on anvil as the
+   multisig would execute them;
+2. runs `check-upgraded-markets` on the peg's markets.
+
+`check-upgraded-markets` is also the check of a mainnet batch on a fork, in runbook step 5. When it starts, it reads two
+values from anvil: the block anvil forked, and a time 12,000 seconds after anvil's head. Then, for each peg:
+
+1. **before**: `MarketsCapture` with `VERSION=before`, on a fork of mainnet at the capture's block - the last block
    before the pause of 2026-10-22, where the markets still run. The managers were paused earlier, at block
    26,241,030, so the capture puts each manager's own implementation back first: their pause changed only that. A USD
    market is read at the same block: its manager has run one implementation since before then, and the diff below fails
    if it reads differently after;
-3. runs the upgrade script as it will be run on mainnet, with `--local` added: the batches execute on anvil as the
-   multisig would execute them;
-4. **after**: `MarketsCapture` with `VERSION=after`, on a fork of anvil, which must be past the capture's block;
-5. **storage**: `MarketsStorageCopy`, on a fork of anvil;
-6. **expected after**: `MarketsExpectedAfter` writes the record each contract must have after, reading on mainnet at
-   the capture's block the oracle the deploy predicts for each market;
-7. sorts the keys of each record and diffs the expected after against the after. Any difference fails the run.
+2. **after**: `MarketsCapture` with `VERSION=after`, on a fork of anvil, which must be past the capture's block;
+3. **storage**: `MarketsStorageCopy`, on a fork of anvil;
+4. **expected after**: `MarketsExpectedAfter` writes the record each contract must have after, reading on mainnet at
+   the capture's block the oracle the deploy predicts for each market, and on anvil each compensated market's minter
+   events in the blocks after the fork block. Every one of those blocks was mined on anvil;
+5. sorts the keys of each record and diffs the expected after against the after. Any difference fails the peg.
+
+Both captures are warped to the time read from anvil, so the reward streams and withdrawal windows read alike. A
+failed step stops the check, since the later steps read its records. A peg whose records differ fails, and the next peg
+is still checked.
 
 The native-settings check, the harvest check, the opening check and the records' comparison are independent: the runner
-runs all four, reports each, and fails if any failed.
+runs all four, reports each, and fails if any failed. A failed check of one peg fails the run, and the next peg is still
+upgraded and checked.
 
-`forge test` forks anvil in memory and writes nothing back, so one anvil session serves the whole run. Both captures
-are warped to the same time, 12,000 seconds after anvil's head, so the reward streams and withdrawal windows read alike.
+`forge test` forks anvil in memory and writes nothing back, so one anvil session serves the whole run.
 
 Each step's output is kept in `tmp/v3-upgrade/<peg>/*.log`, and the records in
-`tmp/v3-upgrade/<peg>/{before,after,expected-after}/`. The runner empties `tmp/v3-upgrade/` when it starts. It needs
-`MAINNET_RPC_URL`, archival at the capture's block.
+`tmp/v3-upgrade/<peg>/{before,after,expected-after}/`. The runner empties `tmp/v3-upgrade/` when it starts;
+`check-upgraded-markets` empties only the records and logs it writes. Both need `MAINNET_RPC_URL`, archival at the
+capture's block.
 
 ### What is recorded
 
@@ -453,8 +486,9 @@ A role granted on mainnet to an address the deploy grants none is not seen.
   the batch carries, which `script/UpdateHarvestAndRebalanceConfig_AllMarkets.s.sol` queues for every market
 - `script/UpgradeMinter_v2_v3/Minter_v3_Upgrader.sol`, `script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol`
   - the one-shot upgraders
+- `script/run-batch` - runs a saved batch on anvil, one call per transaction, from the multisig
 - `script/verify/v3-upgrade/` - the upgrade's tests, `UpgradeMarketToV3.t.sol`, and the rehearsal:
-  `run-upgrade-rehearsal`, `CaptureExpectations.t.sol`,
+  `run-upgrade-rehearsal`, `check-upgraded-markets`, `campaign.sh` (what both share), `CaptureExpectations.t.sol`,
   `FrozenMarketsReadPoint.t.sol`, `UpgradedMarketsMatchANativeDeploy.t.sol`, `MarketsCapture.t.sol`,
   `MarketSettings.sol`, `MarketsExpectedAfter.t.sol`, `CaptureExpectationsLib.sol`, `MarketsStorageCopy.t.sol`,
   `MarketHarvestCheck.sol`, `UpgradedMarketsHarvest.t.sol`, `UpgradedUnopenedMarketsOpen.t.sol`

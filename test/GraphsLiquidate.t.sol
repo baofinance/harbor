@@ -197,7 +197,7 @@ contract TestGraphsLiquidate is TestGraphsLiquidateSetUp {
                 "after SPCollateral collateral",
                 "after user leveraged",
                 "after SPLeveraged leveraged",
-                "",
+                "after user SPLeveraged collateral",
                 "after minter collateral",
                 "after user SPCollateral balance",
                 "after user SPLeveraged balance",
@@ -221,6 +221,9 @@ contract TestGraphsLiquidate is TestGraphsLiquidateSetUp {
         uint256 stabilityPoolLeveragedLeveraged;
         uint256 userCollateral;
         uint256 userLeveraged;
+        /// @dev The collateral the leveraged pool owes the user: what it is paid where the market sells no
+        ///      leveraged, below `MINIMUM_COLLATERAL_RATIO` and at or below the peg.
+        uint256 userCollateralFromLeveragedPool;
         uint256 userBalanceCollateralPool;
         uint256 userBalanceLeveragedPool;
         uint256 leveragedTokenPrice;
@@ -239,6 +242,10 @@ contract TestGraphsLiquidate is TestGraphsLiquidateSetUp {
             aa(wrappedCollateralToken)
         )[0];
         m.userLeveraged = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(user, aa(leveragedToken))[0];
+        m.userCollateralFromLeveragedPool = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(
+            user,
+            aa(wrappedCollateralToken)
+        )[0];
         m.userBalanceCollateralPool = IERC20(stabilityPoolCollateral).balanceOf(user);
         m.userBalanceLeveragedPool = IERC20(stabilityPoolLeveraged).balanceOf(user);
         m.leveragedTokenPrice = IMinter(minter).leveragedTokenPrice();
@@ -281,7 +288,7 @@ contract TestGraphsLiquidate is TestGraphsLiquidateSetUp {
                 post.stabilityPoolCollateralCollateral,
                 post.userLeveraged,
                 post.stabilityPoolLeveragedLeveraged,
-                0,
+                post.userCollateralFromLeveragedPool,
                 post.minterCollateral,
                 post.userBalanceCollateralPool,
                 post.userBalanceLeveragedPool,
@@ -379,7 +386,8 @@ contract TestGraphsLiquidateParameters is GraphTestBase, TestCollateralRatioRang
     }
 
     function doOneCollateralRatio(uint256 collateralRatio) internal override {
-        // the unconstrained intercepts (no headroom caps, no holdings split) - the removed 1-arg's behaviour
+        // the unconstrained intercepts (no `maxCollateralPegged` or `maxLeveragedPegged` cap, no holdings split) - the
+        // removed 1-arg's behaviour
         (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter_v3(minter)
             .redeemPeggedForCollateralRatio(1.01 ether, type(uint256).max, type(uint256).max, 0, 0);
         (uint256 peggedForCollateral125, uint256 peggedForLeveraged125) = IMinter_v3(minter)

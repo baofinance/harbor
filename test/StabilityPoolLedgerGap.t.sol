@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProduct, LossProductLib} from "@harbor/math/LossProductLib.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -28,8 +28,6 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 /// Results are written as CSVs to ./results/sp-ledger-gap-*.csv (one file per test — forge runs
 /// tests in parallel and files are never removed).
 contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, MockStabilityPoolConservation {
-    using DecrementalFloatingPoint_v2 for uint128;
-
     uint256 internal constant ONE = 1 ether; // the 1e18 per-unit-staked precision of _notifyLoss
 
     address internal pool;
@@ -151,7 +149,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     }
 
     /// @notice Gap across orders of magnitude of baseline supply under the loss patterns: one
-    /// max-headroom loss, and many small losses (error-queue churn). Every measurement must sit
+    /// loss of the whole `maxAssetLoss()`, and many small losses (error-queue churn). Every measurement must sit
     /// inside the derived bound: maxSupplyEver/1e18 (outstanding over-application) + 1 wei per
     /// balance store event.
     function test_gap_tSweep_lossPatterns() public {
@@ -167,16 +165,16 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
                 uint256 stores = 2; // one balance store per deposit
 
                 if (pattern == 0) {
-                    poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - minSupply, 0); // single max-headroom loss
+                    poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - minSupply, 0); // a single loss of the whole maxAssetLoss
                 } else {
                     // ten losses of ~1% of current supply each
                     for (uint256 i = 0; i < 10; i++) {
-                        uint256 headroom = IERC20(pool).totalSupply() - minSupply;
-                        if (headroom == 0) {
+                        uint256 maxLoss = IERC20(pool).totalSupply() - minSupply;
+                        if (maxLoss == 0) {
                             break;
                         }
-                        uint256 loss = headroom / 100 + 1;
-                        poolActions.liquidate(wrappedCollateralToken, loss > headroom ? headroom : loss, 0);
+                        uint256 loss = maxLoss / 100 + 1;
+                        poolActions.liquidate(wrappedCollateralToken, loss > maxLoss ? maxLoss : loss, 0);
                     }
                 }
 
@@ -259,8 +257,8 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         uint256 events = 0;
         for (uint256 batch = 0; batch < 5; batch++) {
             // a small fresh loss so the product moves and the next checkpoints re-floor
-            uint256 headroom = IERC20(pool).totalSupply() - minSupply;
-            poolActions.liquidate(wrappedCollateralToken, headroom / 1000 + 1, 0);
+            uint256 maxLoss = IERC20(pool).totalSupply() - minSupply;
+            poolActions.liquidate(wrappedCollateralToken, maxLoss / 1000 + 1, 0);
             for (uint256 i = 0; i < actors.length; i++) {
                 IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
                 events++;
@@ -356,7 +354,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
 
     /// @notice Fuzz over the SP-native axes with corners capped by construction (no vm.assume):
     /// n drawn first, per-user sizes bounded so the total stays below the uint104 cliff, losses
-    /// bounded by headroom, reward bounded by the distributor's uint96 queue. Asserts only the
+    /// bounded by `maxAssetLoss()`, reward bounded by the distributor's uint96 queue. Asserts only the
     /// derived bounds — the grid tests above own the measurement rows.
     function test_gap_fuzz(uint256 tSeed, uint256 nSeed, uint256 uSeed, uint256 lossSeed, uint256 rSeed) public {
         uint256 n = bound(nSeed, 1, 20);
@@ -382,19 +380,19 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         }
 
         // a loss, a checkpoint pass, and a second loss — the ε drivers interleaved
-        uint256 headroom = IERC20(pool).totalSupply() - minSupply;
-        if (headroom > 0) {
-            poolActions.liquidate(wrappedCollateralToken, bound(lossSeed, 1, headroom), 0);
+        uint256 maxLoss = IERC20(pool).totalSupply() - minSupply;
+        if (maxLoss > 0) {
+            poolActions.liquidate(wrappedCollateralToken, bound(lossSeed, 1, maxLoss), 0);
         }
         for (uint256 i = 0; i < n; i++) {
             IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
             stores++;
         }
-        headroom = IERC20(pool).totalSupply() - minSupply;
-        if (headroom > 0) {
+        maxLoss = IERC20(pool).totalSupply() - minSupply;
+        if (maxLoss > 0) {
             poolActions.liquidate(
                 wrappedCollateralToken,
-                bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom),
+                bound(uint256(keccak256(abi.encode(lossSeed))), 1, maxLoss),
                 0
             );
         }
@@ -433,18 +431,18 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
             _deposit(actors[i], amount);
             deposited += amount;
         }
-        uint256 headroom = IERC20(pool).totalSupply() - minSupply;
-        if (headroom > 0) {
-            poolActions.liquidate(wrappedCollateralToken, bound(lossSeed, 1, headroom), 0);
+        uint256 maxLoss = IERC20(pool).totalSupply() - minSupply;
+        if (maxLoss > 0) {
+            poolActions.liquidate(wrappedCollateralToken, bound(lossSeed, 1, maxLoss), 0);
         }
         for (uint256 i = 0; i < n; i++) {
             IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
         }
-        headroom = IERC20(pool).totalSupply() - minSupply;
-        if (headroom > 0) {
+        maxLoss = IERC20(pool).totalSupply() - minSupply;
+        if (maxLoss > 0) {
             poolActions.liquidate(
                 wrappedCollateralToken,
-                bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom),
+                bound(uint256(keccak256(abi.encode(lossSeed))), 1, maxLoss),
                 0
             );
         }
@@ -482,9 +480,9 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
             }
 
             if (round % 4 == 0) {
-                uint256 headroom = IERC20(pool).totalSupply() - minSupply;
-                if (headroom > 3) {
-                    poolActions.liquidate(wrappedCollateralToken, headroom / 4, 0); // advance the product, diverge the snapshots
+                uint256 maxLoss = IERC20(pool).totalSupply() - minSupply;
+                if (maxLoss > 3) {
+                    poolActions.liquidate(wrappedCollateralToken, maxLoss / 4, 0); // advance the product, diverge the snapshots
                     _assertDivisorGeSumBalance(actors);
                 }
             }
@@ -516,7 +514,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
             vm.startPrank(actors[i]);
             IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[i], 0);
             vm.stopPrank();
-            assertEq(IERC20(pool).balanceOf(actors[i]), 0, "an exit within the headroom leaves nothing");
+            assertEq(IERC20(pool).balanceOf(actors[i]), 0, "an exit within maxAssetLoss leaves nothing");
         }
         assertGt(
             IERC20(pool).balanceOf(actors[last]),
@@ -527,7 +525,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         IStabilityPool_v3(pool).withdraw(type(uint256).max, actors[last], 0);
         vm.stopPrank();
 
-        // debited at the supply, less the headroom it was paid: left with exactly the floor
+        // debited at the supply, less the maxAssetLoss it was paid: left with exactly the floor
         assertEq(IERC20(pool).balanceOf(actors[last]), floor, "the last holder is left with the floor");
         assertEq(IERC20(pool).totalSupply(), floor, "the pool is left at its floor");
         assertEq(_gap(actors), 0, "the over-credit is written off exactly: Sum(balanceOf) == supply");
@@ -538,7 +536,7 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     /// outlives the withdrawals and `_getTotalPoolShare` returns `supply - gap`. Were the holders able to drain supply
     /// to 0, the surviving negative gap would make that `-gap`: a live sub-floor divisor over an EMPTY pool, which
     /// slips past `_accumulateReward`'s `totalShare == 0` guard and divides by a few wei instead of queueing —
-    /// `toAdd = amount * 1e18 * magnitude / |gap|` — defeating the `_minTotalShare()` floor that `_depositRewardCap`
+    /// `toAdd = amount * 1e18 * mantissa / |gap|` — defeating the `_minTotalShare()` floor that `_depositRewardCap`
     /// sizes the reward-integral cap against by orders of magnitude, and crediting an exponent that has no holders.
     /// The outflow cap forecloses it: the pool retains the floor, so the divisor stays at/above it.
     function test_negativeGapDrain_neverStrandsSubFloorDivisor() public {
@@ -690,43 +688,43 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     }
 
     /// @notice The floor keeps the loss-per-unit strictly below 1e18 - but only while `supply <= MIN * 1e18`. A
-    /// liquidation is capped at the headroom (`loss = supply - MIN`), and `_notifyLoss` CEIL-divides it:
+    /// liquidation is capped at `maxAssetLoss()` (`loss = supply - MIN`), and `_notifyLoss` CEIL-divides it:
     ///     assetLossPerUnitStaked = ceil((supply - MIN) * 1e18 / supply) = 1e18 - ceil((MIN * 1e18 + 1) / supply) + 1
     /// At `supply == MIN * 1e18` that ceil term is 2, leaving `1e18 - 1`, so `newProductFactor = 1 ether - (1e18 - 1)`
     /// is 1 - the product survives and every holder's balance still reads. This is the exact bound the
-    /// `DecrementalFloatingPoint_v2.mul` precondition ("Caller should make sure `factor` is always > 0", justified as
-    /// "Minimum balance prevents factor=0") silently depends on, so it is pinned rather than assumed.
+    /// `LossProductLib.mul` precondition ("Caller should make sure `factor` is always > 0") silently depends on, so it
+    /// is pinned rather than assumed.
     function test_liquidationToFloor_productSurvivesAtTheLossPerUnitBound() public {
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         // `MIN * FACTOR_PRECISION` is exactly MAX_TOTAL_ASSET_SUPPLY, the largest supply the deposit cap admits.
-        _deposit(actors[0], floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION);
+        _deposit(actors[0], floor * LossProductLib.FACTOR_PRECISION);
 
-        poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - floor, 0); // the whole headroom: the worst case for the loss-per-unit
+        poolActions.liquidate(wrappedCollateralToken, IERC20(pool).totalSupply() - floor, 0); // the whole maxAssetLoss: the worst case for the loss-per-unit
 
         assertEq(IERC20(pool).totalSupply(), floor, "precondition: the liquidation took the pool to its floor");
         // The loss per unit is (supply - floor) * 1e18 / supply = 1e18 - 1 exactly - nothing is carried - so the factor
-        // is 1: the magnitude falls to 1e18, below MIN_PRECISION, and the product climbs one rung - exponent 1,
-        // magnitude MIN_PRECISION. The sole holder's balance, read through that rung, is exactly the floor.
+        // is 1: the mantissa falls to 1e18, below MIN_PRECISION, and the product climbs one rung - exponent 1,
+        // mantissa MIN_PRECISION. The sole holder's balance, read through that rung, is exactly the floor.
         assertEq(IStabilityPool_v3(pool).lastAssetLossError(), 0, "the loss divides: nothing is carried");
-        uint128 product = MockStabilityPool(pool).__totalSupply().product;
+        LossProduct product = MockStabilityPool(pool).__supplyProduct();
         assertEq(product.exponent(), 1, "the product climbs one rung");
-        assertEq(product.magnitude(), DecrementalFloatingPoint_v2.MIN_PRECISION, "to the rung's least magnitude");
+        assertEq(product.mantissa(), LossProductLib.MIN_PRECISION, "to the rung's least mantissa");
         assertEq(IERC20(pool).balanceOf(actors[0]), floor, "the holder keeps exactly the floor");
     }
 
     /// @notice One wei past that bound is where a floor-capped liquidation's loss-per-unit CEILs up to a total loss
-    /// (`newProductFactor == 0`), zeroing the product so that a later depositor snapshots a zero magnitude and their
+    /// (`newProductFactor == 0`), zeroing the product so that a later depositor snapshots a zero mantissa and their
     /// `balanceOf` divides by zero - the pool bricked for anyone joining after. The deposit cap forecloses it: a
     /// deposit that would push supply one wei past `MAX_TOTAL_ASSET_SUPPLY == MIN * FACTOR_PRECISION` reverts, so the
     /// factor-zero state is unreachable rather than merely survived at the edge. This makes
-    /// `DecrementalFloatingPoint_v2.mul`'s "factor is always > 0" precondition hold by construction: `MIN > 0` alone was
+    /// `LossProductLib.mul`'s "factor is always > 0" precondition hold by construction: `MIN > 0` alone was
     /// necessary but not sufficient (the real constraint is the relative `supply <= MIN * FACTOR_PRECISION`), and now it
     /// is enforced.
     function test_deposit_pastLossPerUnitBound_reverts() public {
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         uint256 max = IStabilityPool_v3(pool).MAX_TOTAL_ASSET_SUPPLY();
-        assertEq(max, floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION, "MAX == MIN * FACTOR_PRECISION");
+        assertEq(max, floor * LossProductLib.FACTOR_PRECISION, "MAX == MIN * FACTOR_PRECISION");
 
         // Depositing exactly to the cap is admitted (its safety is proven above); one wei more reverts. deal/approve
         // are hoisted before expectRevert so the one-shot binding attaches to `deposit`, not to a setup call.
@@ -758,9 +756,9 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         assertEq(IERC20(pool).totalSupply(), max, "a deposit to exactly the ceiling is accepted");
     }
 
-    /// @notice An over-sized liquidation - requested loss above the headroom (supply - MIN_TOTAL_ASSET_SUPPLY) - floors
-    /// the supply at the minimum and caps the swept pegged at the same headroom, so held pegged equals supply: the pool
-    /// holds exactly enough to honour what it owes.
+    /// @notice An over-sized liquidation - requested loss above `maxAssetLoss()` (supply - MIN_TOTAL_ASSET_SUPPLY) -
+    /// floors the supply at the minimum and caps the swept pegged at the same `maxAssetLoss()`, so held pegged equals
+    /// supply: the pool holds exactly enough to honour what it owes.
     function test_liquidationPastFloor_staysSolvent() public {
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
@@ -776,8 +774,8 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
     }
 
     /// @notice A pool already floored at the minimum pays its sole holder nothing further: the outflow cap leaves the
-    /// floor, so once supply IS the floor there is no headroom and the withdrawal reverts rather than draining the pool
-    /// to zero. A seeded pool never returns to zero - which is what keeps `supply == 0` implying never-liquidated,
+    /// floor, so once supply IS the floor `maxAssetLoss()` is zero and the withdrawal reverts rather than draining the
+    /// pool to zero. A seeded pool never returns to zero - which is what keeps `supply == 0` implying never-liquidated,
     /// hence gap == 0 and a zero reward divisor (see `test_negativeGapDrain_neverStrandsSubFloorDivisor`).
     function test_liquidationPastFloor_lastHolderCannotDrainTheFloor() public {
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
@@ -855,8 +853,8 @@ contract StabilityPoolLedgerGapTest is GraphTestBase, TestStabilityPoolSetUp, Mo
         assertEq(IERC20(steam).balanceOf(depositor) - before, claimable, "claim pays exactly claimable, no shortfall");
     }
 
-    /// @notice A second over-sized loss on a floored pool takes nothing - the headroom is 0 at the floor - so supply
-    /// stays at the floor and held pegged stays equal to it.
+    /// @notice A second over-sized loss on a floored pool takes nothing - `maxAssetLoss()` is 0 at the floor - so
+    /// supply stays at the floor and held pegged stays equal to it.
     function test_liquidationPastFloor_secondLossStaysSolvent() public {
         _liquidatePastFloor();
         uint256 floor = IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();

@@ -365,6 +365,8 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(135 ether / 100);
     }
 
+    /// A rebalance is offered while the collateral ratio is below the manager's threshold and a pool has a deposit to
+    /// give: not while neither pool has one, and not at or above the threshold.
     function test_rebalanceable() public {
         setUp_collateral(1 ether, 1 ether); // CR = 200%
         uint256 currentCR = IMinter(minter).collateralRatio();
@@ -372,6 +374,16 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         // Test rebalanceable condition using manager's rebalanceCollateralRatio
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(currentCR + 1);
+        vm.stopPrank();
+        assertFalse(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
+            "Below the threshold, but neither pool has a deposit to give"
+        );
+
+        uint256 deposited = IERC20(peggedToken).balanceOf(zeroFee) / 2;
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, deposited);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(deposited, zeroFee, 0);
         vm.stopPrank();
         assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
@@ -503,11 +515,11 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         balances.poolLeveragedLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
     }
 
-    /// @notice When a pool's reward-integral capacity (maxLiquidationReward) is below what a full liquidation would
-    /// distribute, the rebalance clamps that leg's pegged so the redeemed proceeds notified to the pool stay within the
-    /// capacity - they can never overflow the reward integral. The capacity is mocked small here to make the clamp bind
-    /// (in production it dwarfs any real liquidation, so the clamp is a safety bound that drains a huge loss over calls).
-    function test_rebalanceClampsLiquidationToRewardCapacity() public {
+    /// @notice When a pool's `maxLiquidationReward` is below what a full liquidation would distribute, the rebalance
+    /// clamps that leg's pegged so the redeemed proceeds notified to the pool stay within it - they can never overflow
+    /// the reward integral. `maxLiquidationReward` is mocked small here to make the clamp bind (in production it dwarfs
+    /// any real liquidation, so the clamp is a safety bound that drains a huge loss over calls).
+    function test_rebalanceClampsLiquidationToMaxLiquidationReward() public {
         vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(1.5 ether);
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceConfig(0.02 ether, 0, 0);
@@ -522,7 +534,7 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
         vm.stopPrank();
 
-        // force the collateral pool's reward-integral capacity far below the full-liquidation proceeds, so the clamp binds
+        // force the collateral pool's maxLiquidationReward far below the full-liquidation proceeds, so the clamp binds
         uint256 smallReward = 1e12;
         vm.mockCall(
             stabilityPoolCollateral,
@@ -536,10 +548,11 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
 
         // the collateral liquidation's proceeds (the reward to the pool + the bounty carved from it) are the redeemed
-        // `returned`, which the clamp held within the capacity - so nothing the reward integral can't absorb is notified
+        // `returned`, which the clamp held within maxLiquidationReward - so nothing the reward integral can't absorb is
+        // notified
         uint256 rewardToPool = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - poolBefore;
         uint256 bounty = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver) - bountyBefore;
-        assertLe(rewardToPool + bounty, smallReward, "collateral liquidation proceeds clamped to the reward capacity");
+        assertLe(rewardToPool + bounty, smallReward, "collateral liquidation proceeds clamped to maxLiquidationReward");
         assertGt(rewardToPool, 0, "a partial liquidation still happened (the clamp reduces, not cancels)");
     }
 
@@ -556,7 +569,6 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
 
         // Setup conditions for successful rebalance using the manager's ratio
         setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
-        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Fund the stability pools
         vm.startPrank(user);
@@ -570,6 +582,7 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(userPegged / 3, user, 0);
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
         vm.stopPrank();
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Execute rebalance as liquidator
         Balances memory before = _readBalances();
@@ -658,6 +671,12 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         // Test when CR is too high compared to manager's ratio
         setUp_collateral(100 ether, 40 ether); // 1.4
         uint256 currentCR = IMinter(minter).collateralRatio();
+        // a pool with a deposit to give, so that whether a rebalance is offered turns on the threshold alone
+        uint256 deposited = IERC20(peggedToken).balanceOf(zeroFee) / 2;
+        vm.startPrank(zeroFee);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, deposited);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(deposited, zeroFee, 0);
+        vm.stopPrank();
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager_v2(stabilityPoolManager).updateRebalanceThreshold(currentCR);
@@ -1772,7 +1791,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     }
 
     /// The harvest never sweeps more than is harvestable - whatever each pool holds, whatever the bounty and cut, whether
-    /// a pool's period capacity defers part of its share as owed, and whether the surplus then shrinks below what is
+    /// a pool's `maxDepositReward` defers part of its share as owed, and whether the surplus then shrinks below what is
     /// owed, so that the owed is written down, or grows: each harvest served takes from the minter exactly what it
     /// returns, at most the `harvestable()` it found, and leaves the record covered.
     function testFuzz_harvest_neverSweepsMoreThanIsHarvestable(
@@ -1780,7 +1799,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 depositLeveraged,
         uint256 bountyRatio,
         uint256 cutRatio,
-        uint256 capacity,
+        uint256 maxDepositReward_,
         uint256 surplusBps
     ) public {
         // each pool holds nothing, or a deposit it accepts
@@ -1808,17 +1827,17 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         vm.stopPrank();
         uint256 firstHarvestable = IMinter(minter).harvestable();
 
-        // the first harvest, each pool able to take only `capacity` this period, so the rest of its share stays owed
-        capacity = bound(capacity, 0, 2 * firstHarvestable);
+        // the first harvest, each pool able to take only `maxDepositReward_` this period, so the rest of its share stays owed
+        maxDepositReward_ = bound(maxDepositReward_, 0, 2 * firstHarvestable);
         vm.mockCall(
             stabilityPoolCollateral,
             abi.encodeWithSelector(IMultipleRewardDistributor_v3.maxDepositReward.selector),
-            abi.encode(capacity)
+            abi.encode(maxDepositReward_)
         );
         vm.mockCall(
             stabilityPoolLeveraged,
             abi.encodeWithSelector(IMultipleRewardDistributor_v3.maxDepositReward.selector),
-            abi.encode(capacity)
+            abi.encode(maxDepositReward_)
         );
         _harvestWithinHarvestable();
         vm.clearMockedCalls();
@@ -2152,9 +2171,108 @@ contract TestStabilityPoolManagerUpgradeable is TestStabilityPoolManagerSetUp {
 
 /// @notice GIST-1 audit issue: a rebalance with the market below the peg (the audit's reproduction, modified only to
 /// compile here). Below the peg each pegged redeemed for collateral takes its pro rata share of the backing with it,
-/// so no amount redeemed moves the collateral ratio: there is nothing a rebalance can repair. It reverts by name
-/// and the pools keep their pegged for when the price brings the market back above the peg.
+/// so no amount redeemed moves the collateral ratio. The rebalance takes all both pools can give by the collateral
+/// route and pays both in collateral: the leveraged pool too, which is paid no leveraged token there.
 contract Gist_1 is TestStabilityPoolManagerSetUp {
+    /// @dev The wrapped collateral each party to a rebalance holds.
+    struct WrappedCollateralHeld {
+        uint256 minter;
+        uint256 collateralPool;
+        uint256 leveragedPool;
+        uint256 keeper;
+    }
+
+    function _wrappedCollateralHeld() private view returns (WrappedCollateralHeld memory held) {
+        held.minter = IERC20(wrappedCollateralToken).balanceOf(minter);
+        held.collateralPool = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
+        held.leveragedPool = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged);
+        held.keeper = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver);
+    }
+
+    /// @dev What `pool` is owed, below the peg, for all it can give - its deposits down to its floor: that pegged's
+    ///      share of the backing as wrapped collateral, less the keeper's bounty ratio of it.
+    /// @return owed What the pool is paid.
+    /// @return atFaceValue What it would be paid were its pegged redeemed at face value, as above the peg: more.
+    function _owedBelowThePeg(address pool) private view returns (uint256 owed, uint256 atFaceValue) {
+        uint256 gives = IERC20(pool).totalSupply() - IStabilityPool_v3(pool).MIN_TOTAL_ASSET_SUPPLY();
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 bountyRatio = IStabilityPoolManager_v2(stabilityPoolManager).rebalanceBountyRatio();
+        uint256 share = Math.mulDiv(
+            gives * IMinter(minter).collateralTokenBalance(),
+            1 ether,
+            IMinter(minter).peggedTokenBalance() * rate
+        );
+        owed = share - Math.mulDiv(share, bountyRatio, 1 ether);
+        uint256 faceValue = Math.mulDiv(gives * 1 ether, 1 ether, price * rate);
+        atFaceValue = faceValue - Math.mulDiv(faceValue, bountyRatio, 1 ether);
+    }
+
+    /// @dev Rebalance the market, which is below the peg, and check what a rebalance does there: it is offered, it
+    ///      takes both pools down to their floors, it pays each its pegged's share of the backing in collateral, less
+    ///      the keeper's bounty, and the leveraged pool in no leveraged token, and it does not lift the collateral
+    ///      ratio.
+    function _rebalanceBelowThePeg() private {
+        uint256 depeggedRatio = IMinter(minter).collateralRatio();
+        assertLt(depeggedRatio, 1 ether, "the market is below the peg");
+        assertTrue(
+            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
+            "below the peg a rebalance is offered"
+        );
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        (uint256 collateralPoolOwed, uint256 collateralPoolAtFaceValue) = _owedBelowThePeg(stabilityPoolCollateral);
+        (uint256 leveragedPoolOwed, uint256 leveragedPoolAtFaceValue) = _owedBelowThePeg(stabilityPoolLeveraged);
+        WrappedCollateralHeld memory before = _wrappedCollateralHeld();
+
+        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        WrappedCollateralHeld memory afterwards = _wrappedCollateralHeld();
+        assertEq(
+            IERC20(stabilityPoolCollateral).totalSupply(),
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "the collateral pool gave up all it could"
+        );
+        assertEq(
+            IERC20(stabilityPoolLeveraged).totalSupply(),
+            IStabilityPool_v3(stabilityPoolLeveraged).MIN_TOTAL_ASSET_SUPPLY(),
+            "the leveraged pool gave up all it could"
+        );
+        assertEq(
+            before.minter - afterwards.minter,
+            (afterwards.collateralPool - before.collateralPool) +
+                (afterwards.leveragedPool - before.leveragedPool) +
+                (afterwards.keeper - before.keeper),
+            "the collateral that left the minter went to the two pools and the keeper, all of it"
+        );
+        // The minter floors the two pools' collateral once, as one redemption. The manager splits it by the pegged
+        // each pool gave up: it floors the collateral pool's part and gives the leveraged pool the rest. So each part
+        // is within a wei of its own floored share, and what is left of a part after the bounty ratio of it, floored,
+        // moves by at most a wei when the part does. The wrong value is the payment at face value, as above the peg.
+        assertDiscriminates(
+            afterwards.collateralPool - before.collateralPool,
+            collateralPoolOwed,
+            1,
+            collateralPoolAtFaceValue,
+            "the collateral pool is paid its pegged's share of the backing, less the bounty"
+        );
+        assertDiscriminates(
+            afterwards.leveragedPool - before.leveragedPool,
+            leveragedPoolOwed,
+            1,
+            leveragedPoolAtFaceValue,
+            "the leveraged pool is paid its pegged's share of the backing, less the bounty"
+        );
+        assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged), 0, "and in no leveraged token");
+        // The record gives up the collateral paid out rounded up: at most a wei more than the redeemed pegged's share
+        // of the backing. A wei of backing is `price / pegged supply` of collateral ratio, rounded up here.
+        uint256 ratioAfter = IMinter(minter).collateralRatio();
+        assertLe(ratioAfter, depeggedRatio, "the rebalance does not lift the collateral ratio");
+        assertLe(
+            depeggedRatio - ratioAfter,
+            Math.ceilDiv(price, IMinter(minter).peggedTokenBalance()),
+            "nor lower it by more than the rounding of the record's debit"
+        );
+    }
+
     function test_rebalanceDepeg() public {
         uint256 threshold = 1.3 ether;
         uint256 bountyRatio = 0.2 ether;
@@ -2168,7 +2286,6 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
 
         // Setup conditions for successful rebalance using the manager's ratio
         setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
-        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Fund the stability pools
         vm.startPrank(user);
@@ -2182,21 +2299,13 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(userPegged / 3, user, 0);
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
         vm.stopPrank();
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Execute rebalance as liquidator
         assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(1555 ether); // makes the collateral ratio = 0.93
-        uint256 depeggedRatio = IMinter(minter).collateralRatio();
-        assertFalse(
-            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
-            "below the peg no rebalance is offered"
-        );
-
-        vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
-        );
-        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        _rebalanceBelowThePeg();
     }
 
     function test_rebalanceDepeg_exagerated() public {
@@ -2212,7 +2321,6 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
 
         // Setup conditions for successful rebalance using the manager's ratio
         setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
-        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Fund the stability pools
         vm.startPrank(user);
@@ -2226,21 +2334,13 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(userPegged / 3, user, 0);
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
         vm.stopPrank();
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Execute rebalance as liquidator
         assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(1000 ether); // makes the collateral ratio = 120 / 100 / 2 = 60%
-        uint256 depeggedRatio = IMinter(minter).collateralRatio();
-        assertFalse(
-            IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(),
-            "below the peg no rebalance is offered"
-        );
-
-        vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, depeggedRatio)
-        );
-        IStabilityPoolManager_v2(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        _rebalanceBelowThePeg();
     }
 }
 
@@ -2258,7 +2358,6 @@ contract Gist_2 is TestStabilityPoolManagerSetUp {
 
         // Setup conditions for successful rebalance using the manager's ratio
         setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
-        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Fund the stability pools
         vm.startPrank(user);
@@ -2272,6 +2371,7 @@ contract Gist_2 is TestStabilityPoolManagerSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(userPegged / 4, user, 0);
         IStabilityPool_v3(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
         vm.stopPrank();
+        assertTrue(IStabilityPoolManager_v2(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // Execute rebalance as liquidator
         assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");

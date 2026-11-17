@@ -4,8 +4,13 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {LossProduct, LossProductLib} from "@harbor/math/LossProductLib.sol";
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
+/// @dev The pool's two shares and their products are set from outside. A product is set as v2's accumulator takes it,
+///      in `DecrementalFloatingPoint`'s encoding (an exponent of eight bits above the mantissa), so one test drives this
+///      mock and the v2 one alike through `IMockMultipleRewardCompoundingAccumulator`.
 contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleRewardCompoundingAccumulator_v3 {
     event AccumulateReward(address token, uint256 amount);
 
@@ -48,12 +53,21 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
         }
     }
 
-    function _getTotalPoolShare() internal view virtual override returns (uint128, uint256) {
-        return (product, totalPoolShare);
+    function _getTotalPoolShare() internal view virtual override returns (LossProduct, uint256) {
+        return (_pair(product), totalPoolShare);
     }
 
-    function _getUserPoolShare(address) internal view virtual override returns (uint128, uint256) {
-        return (userProduct, userPoolShare);
+    function _getUserPoolShare(address) internal view virtual override returns (LossProduct, uint256) {
+        return (_pair(userProduct), userPoolShare);
+    }
+
+    /// @dev A product in `DecrementalFloatingPoint`'s encoding, as the pair the v3 accumulator takes.
+    function _pair(uint128 encoded) private pure returns (LossProduct) {
+        return
+            LossProductLib.from(
+                DecrementalFloatingPoint.exponent(encoded),
+                DecrementalFloatingPoint.magnitude(encoded)
+            );
     }
 
     function _minTotalShare() internal view virtual override returns (uint256) {

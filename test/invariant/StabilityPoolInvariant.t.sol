@@ -9,7 +9,6 @@ import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
@@ -23,8 +22,6 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 /// records the ghost accounting the invariants check against, and runs the claimable-monotonicity
 /// probe across all actors.
 contract StabilityPoolInvariantHandler is Test {
-    using DecrementalFloatingPoint_v2 for uint128;
-
     address public immutable POOL;
     address public immutable ASSET_TOKEN;
     /// @notice The token this handler's liquidations pay the pool in. A v3 pool has no token of its own: the
@@ -142,8 +139,8 @@ contract StabilityPoolInvariantHandler is Test {
 
     /// @notice Withdraw inside a requested window (no fee): request, warp to the window start,
     /// withdraw. The amount is bounded by the actor's balance alone, so the pool's floor cap may trim
-    /// it; the handler skips an actor with nothing to withdraw and a pool with no headroom above the
-    /// floor, which keeps WithdrawZeroAmount unreachable.
+    /// it; the handler skips an actor with nothing to withdraw and a pool whose `maxAssetLoss()` is
+    /// zero, which keeps WithdrawZeroAmount unreachable.
     function withdrawWindowed(uint256 actorSeed, uint256 amount) external {
         address actor = _actors[actorSeed % _actors.length];
         uint256 cap = _withdrawCap(actor);
@@ -240,7 +237,7 @@ contract StabilityPoolInvariantHandler is Test {
         if (supply <= MIN_TOTAL_ASSET_SUPPLY) {
             return;
         }
-        if (MockStabilityPool(POOL).__totalSupply().product.exponent() >= 6) {
+        if (MockStabilityPool(POOL).__supplyProduct().exponent() >= 6) {
             return;
         }
         uint256 loss = bound(lossSeed, 1, supply - MIN_TOTAL_ASSET_SUPPLY);
@@ -294,15 +291,16 @@ contract StabilityPoolInvariantHandler is Test {
     // ─── probes ───
 
     /// @dev The largest withdrawal the pool accepts without reverting — the actor's whole balance. The POOL caps the
-    /// outflow at the headroom above the floor itself (StabilityPool_v3._capToFloor), so the handler must NOT
-    /// pre-enforce the floor: requesting up to the full balance is what drives the pool's own clamp, the path a
-    /// floor-respecting cap could never reach. The revert to dodge is WithdrawZeroAmount, when there is no headroom at
-    /// all to clamp into. The fee cannot zero the clamped outflow at this fixture's fee, which is a strict fraction of
-    /// it — note `_MAX_marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()` is `1 ether` INCLUSIVE, so a pool configured at a 100% fee would zero the
-    /// outflow and revert here; such a fixture would need the fee-free withdrawal window instead.
+    /// outflow at `maxAssetLoss()` itself (StabilityPool_v3._capToFloor), so the handler must NOT pre-enforce the
+    /// floor: requesting up to the full balance is what drives the pool's own clamp, the path a floor-respecting cap
+    /// could never reach. The revert to dodge is WithdrawZeroAmount, when `maxAssetLoss()` is zero, leaving nothing to
+    /// clamp into. The fee cannot zero the clamped outflow at this fixture's fee, which is a strict fraction of it —
+    /// note `_MAX_marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()` is `1 ether` INCLUSIVE, so a pool configured at
+    /// a 100% fee would zero the outflow and revert here; such a fixture would need the fee-free withdrawal window
+    /// instead.
     function _withdrawCap(address actor) internal view returns (uint256 cap) {
         if (IERC20(POOL).totalSupply() <= MIN_TOTAL_ASSET_SUPPLY) {
-            return 0; // no headroom: the pool would clamp the outflow to 0 and revert
+            return 0; // maxAssetLoss is zero: the pool would clamp the outflow to 0 and revert
         }
         cap = IERC20(POOL).balanceOf(actor);
     }

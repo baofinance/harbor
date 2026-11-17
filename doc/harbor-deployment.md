@@ -225,7 +225,7 @@ total_required[collateral] = required_per_market × markets_using_that_collatera
 
 - **Seed size**: the peg's configured `aboutADollarInPegged()`, denominated in *pegged* tokens — not a fixed base-unit
   constant. The HarborYield deploy stack converts it to a wrapped-collateral amount at
-  the oracle's min price and rate, rounding up and doubling for headroom. Being peg-denominated and
+  the oracle's min price and rate, rounding up and doubling as a margin. Being peg-denominated and
   oracle-converted, this carries no assumption about any token's `decimals()`: a raw constant such as `1e12`
   base units would be 1e-6 of an 18-decimal token but 10,000 whole tokens of an 8-decimal one, and would strand
   a material amount at `address(0xdead)` on the first non-18-decimal collateral.

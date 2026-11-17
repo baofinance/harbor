@@ -12,8 +12,9 @@ set datafile separator comma
 if (!exists("terminal")) { set terminal svg enhanced size 780 820 background rgb "gray90" }
 
 # Two rules could stop a conversion before the sail price reaches zero, and this is the difference
-# between them. A FLOOR ON THE SAIL PRICE is the mirror of the rule the anchor already has; a CAP ON THE
-# LEVERAGE RATIO is what the contract already tests for and then declines to act on. Each floor here is
+# between them. A FLOOR ON THE SAIL PRICE is the mirror of the rule the anchor already has. A CAP ON THE
+# LEVERAGE RATIO is the rule the tree's minter applies: `MAX_LEVERAGE_RATIO` = 100, enforced by minting no
+# sail on any route below `MINIMUM_COLLATERAL_RATIO`, about 1.0101. Each floor here is
 # paired with the cap it agrees with at one sail token per anchor token, `1/(K-1)` against `K`, so the
 # pairs start together by construction and the graph is what becomes of them either side of that.
 #
@@ -22,7 +23,8 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 820 background rgb
 # boundary climbs in proportion to the supply, because the sail price is the residual divided by the
 # supply while the leverage ratio is the collateral value divided by the same residual and involves no
 # supply at all. At forty-six sail per anchor the 1/4 floor refuses everything below a collateral ratio
-# of TWELVE, which is to say it refuses everything.
+# of TWELVE, which is to say it refuses everything. The leverage cap 100 line is the tree's own rule: it
+# sits at `MINIMUM_COLLATERAL_RATIO`.
 #
 # That drift is also self-feeding, which no static reading of the panel shows: every conversion mints
 # sail, so every conversion moves a price-floor market to the right along this axis and pushes its own
@@ -30,10 +32,13 @@ if (!exists("terminal")) { set terminal svg enhanced size 780 820 background rgb
 #
 # The LOWER panel is why the leverage cap is the better instrument rather than merely the more stable
 # one. It shows what ONE anchor token converted at each rule's own edge does to the whole sail supply.
-# The leverage cap holds that to a flat 0.1% whatever the market holds, because the quantity it admits is
-# proportional to the supply already there. The price floor admits a fixed RATE instead - nineteen sail
-# per anchor, whatever - so it grows a thin supply by 9.5% and a thick one by nothing: loosest exactly
-# when the sail buffer is thinnest, which is the worst moment for it to be.
+# Each conversion is performed on the tree's minter.
+# The leverage cap holds that to a flat 0.095% whatever the market holds, because the quantity it admits
+# is proportional to the supply already there. The price floor admits a fixed RATE instead: nineteen sail
+# per anchor, whatever the supply. So it grows a thin supply most: 0.26% at 0.37 sail per anchor, 0.002%
+# at 46. It is loosest exactly when the sail buffer is thinnest, which is the worst moment for it to be.
+# At 0.11 sail per anchor and below, the price floor's edge lies below `MINIMUM_COLLATERAL_RATIO`. The
+# tree's minter refuses the conversion there with `BelowMinimumCollateralRatio`, so those points are gaps.
 
 set grid xtics ytics
 set colorsequence default
@@ -74,9 +79,9 @@ set bmargin at screen 0.20
 
 unset arrow 1
 unset logscale y
-set format y "%.2f"
-set yrange [0.99:1.12]
-set ytics 0.02
+set format y "%.4f"
+set yrange [0.9995:1.003]
+set ytics 0.0005
 set xlabel "sail supply per anchor token"
 set ylabel "sail supply multiple, one anchor converted at the edge"
 set key at screen 0.5, screen 0.10 center top horizontal maxcols 2 spacing 1.2

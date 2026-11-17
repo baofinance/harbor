@@ -26,18 +26,19 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # THE TREE'S REPORT IS TRUE EVERYWHERE IT HAS A VALUE, on the local deploy and on the deployed proxies alike.
 # Measured over reported is `1.000000` at every ratio above the peg. The claim is the residual alone, its
 # sensitivity is `CR/(CR-1)` exactly, and that is what the formula prints. The report includes figures ABOVE
-# 20 between the peg and the floor - 101 at 1.01, 51 at 1.02, 21 at 1.05 - and those are true too: they are the
-# leverage a token ALREADY SOLD carries after the collateral has fallen, which is what a leveraged token is
-# for. What the cap bounds is the leverage SOLD: at 1.05, where the figure is 21, no token is minted on any
-# route; at 1.06, where it is 17.67, they are. Below the peg the price is zero, there is no response to
-# measure, and the report is `uint256.max` - the encoding for a claim of nothing - which is not a number and is
-# not drawn.
+# `MAX_LEVERAGE_RATIO` (100) between the peg and `MINIMUM_COLLATERAL_RATIO` (about 1.0101): 101 at 1.01. Those
+# are true too: they are the leverage a token ALREADY SOLD carries after the collateral has fallen, which is
+# what a leveraged token is for. What `MAX_LEVERAGE_RATIO` bounds is the leverage SOLD: at 1.01, where the
+# figure is 101, no token is minted on any route; at 1.015, where it is 67.67, they are. Below the peg the
+# price is zero, there is no response to measure, and the report is `uint256.max` - the encoding for a claim
+# of nothing - which is not a number and is not drawn.
 #
-# THE DEPLOYED RULE UNDERSTATES, by up to five times, exactly where its count cap binds. At a ratio of 1.01 the
-# reported figure is 20 and the token actually moves 101 percent for one percent of collateral - the SAME 101
-# the tree reports. At 1.02 it is 20 against 51, at 1.05 it is 20 against 21. Above 1.06 the cap stops binding
-# and the report becomes exact. A holder sizing a position on the reported figure inside that band carries five
-# times the exposure they were told they had, and the direction of the error is the dangerous one.
+# THE DEPLOYED RULE UNDERSTATES, by up to five times, exactly where Minter_v2's `_LEVERAGE_RATIO_CAP` of 20
+# binds. At a ratio of 1.01 the reported figure is 20 and the token actually moves 101 percent for one percent
+# of collateral - the SAME 101 the tree reports. At 1.02 it is 20 against 51, at 1.05 it is 20 against 21.
+# Above 20/19, about 1.0526, the cap stops binding: at 1.06 the report is exact, 17.67 against 17.67. A holder
+# sizing a position on the reported figure inside that band carries five times the exposure they were told
+# they had, and the direction of the error is the dangerous one.
 #
 # BELOW THE PEG THE DEPLOYED RULE REPORTS 20 FOR A TOKEN WORTH NOTHING. Its price there is exactly zero, so
 # there is no proportional response to have: the sensitivity is not 20, it is undefined. Those points are

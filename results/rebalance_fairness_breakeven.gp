@@ -13,9 +13,9 @@ set key noenhanced below title " "
 # is gitignored.
 if (!exists("terminal")) { set terminal svg enhanced size 700 600 background rgb "gray90" }
 
-# The withdrawal fee at which a depositor who leaves and returns ends level with one who stayed, for
-# each stability pool. Two cases rather than a curve, so they are bars labelled by pool in column 1.
-# Both break-evens are far below a basis point, which is the finding: almost any fee closes the gap.
+# The withdrawal fee at which a depositor who leaves and returns ends the 12 weeks level with what they
+# would have held by staying, for each stability pool. Two cases rather than a curve, so they are bars labelled by pool in column 1.
+# The break-evens are 0.17% for the collateral pool and 0.60% for the leveraged pool: both under 1%.
 set style data histograms
 set style histogram clustered gap 2
 set style fill solid 0.7 border -1

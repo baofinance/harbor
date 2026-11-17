@@ -30,7 +30,7 @@ set colorsequence default
 # $6 y1 leveraged price
 # $7 y1 invariant
 # $8 y1 collateral ratio
-# $9 y2 leverage ratio
+# $9 y1 leverage ratio
 plot \
     datafile using ($3):($4) axes x1y1 with lines linewidth 2 linetype 2, \
     datafile using ($3):($6) axes x1y1 with lines linewidth 1 linetype 4, \

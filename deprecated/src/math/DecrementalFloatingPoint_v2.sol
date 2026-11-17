@@ -2,6 +2,8 @@
 
 pragma solidity 0.8.30;
 
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+
 // solhint-disable no-inline-assembly
 
 /// @title DecrementalFloatingPoint_v2
@@ -13,7 +15,9 @@ pragma solidity 0.8.30;
 /// * Efficient Representation: Packs multiple components into a compact uint128
 ///
 /// @dev The real number is `magnitude * 10^{-36 - 9 * exponent}`, where `magnitude` is in range `(0, 10^36]`.
-/// exponent is powers of 1e9 and as such cannot be more than 8
+/// The exponent counts powers of 1e9. It has eight bits, so its last value is 255: `mul` reverts where a multiply would
+/// take it further. A value is rescaled from one product to another only where their exponents differ by no more than
+/// `_MAX_EXPONENT_DIFFERENCE`.
 /// And the floating point is encoded as:
 /// [ exponent | magnitude ]
 /// [ 8  bits  | 120  bits ]
@@ -97,6 +101,9 @@ library DecrementalFloatingPoint_v2 {
     ///
     /// Caller should make sure `factor` is always > 0 and <= 1
     ///
+    /// Reverts `IStabilityPool_v3.LossProductExponentOverflow` where the result's exponent would be past the last value
+    /// its eight bits hold.
+    ///
     /// @param prod The current encoded floating point.
     /// @param factor The multiplier applied to the product, multiplied by 1e18.
     // function mul(uint128 prod, uint256 factor) internal pure returns (uint128 newProd) {
@@ -168,6 +175,13 @@ library DecrementalFloatingPoint_v2 {
                     // No scaling needed, just divide by the factor's precision
                     intermediate = divResult;
                 }
+            }
+
+            // The exponent has eight bits and the additions above wrap. A wrapped exponent is 256 steps below the one
+            // the multiply should give, and each step is a factor of 1e9 in the product it encodes, so the multiply
+            // that would wrap it reverts. The wrapped exponent less the one it started from is the increase.
+            if (newExponent < currentExponent) {
+                revert IStabilityPool_v3.LossProductExponentOverflow(currentExponent, newExponent - currentExponent);
             }
 
             // Encode the final result

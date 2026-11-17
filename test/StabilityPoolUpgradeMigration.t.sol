@@ -5,7 +5,6 @@ import {Vm} from "forge-std/Vm.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -16,7 +15,7 @@ import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccu
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IStabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/IStabilityPool_v3_Upgrader.sol";
@@ -193,11 +192,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         gap = int256(IStabilityPool(stabilityPoolCollateral).totalAssetSupply()) - int256(sum);
     }
 
-    /// @dev The exponent of the supply's product, read from the first slot of the pool's namespace, where v2 and v3
-    ///      alike hold the product in the low 128 bits (see `test_upgradeFromV2_SlotLevelStorageIdentical`).
+    /// @dev The exponent of the supply's product as v2 keeps it: byte 15 of the first slot of the pool's namespace,
+    ///      the top byte of v2's product.
     function _productExponent() internal view returns (uint8) {
         return
-            DecrementalFloatingPoint_v2.exponent(
+            DecrementalFloatingPoint.exponent(
                 uint128(uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE)))
             );
     }
@@ -842,9 +841,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
     /// @notice A holder whose first checkpoint at a new exponent comes before any reward is credited there - their
     ///         snapshot of that exponent's reward integral is 0 - keeps their claimed record and earns every reward
-    ///         that follows. On v2 a holder of ten billion floors earns and claims; a loss to the floor, a fall of
-    ///         1e-10 and so past the 1e-9 that steps the product's exponent, moves the pool to exponent 1; after the
-    ///         upgrade the holder deposits again, checkpointing at exponent 1, where nothing is credited yet.
+    ///         that follows. On v2 a holder of ten billion floors earns and claims, and the pool is upgraded at
+    ///         exponent 0, as a pool can only be (`test_upgradeFromV2_aPoolPastExponentZero_isRefused_andStaysOnV2`).
+    ///         On v3 a loss to the floor, a fall of 1e-10 and so past the 1e-9 that steps the product's exponent, moves
+    ///         the pool to exponent 1; the holder deposits again, checkpointing at exponent 1, where nothing is
+    ///         credited yet.
     function test_upgradeFromV2_aHolderCheckpointedAtANewExponent_earnsTheRewardsThatFollow() public {
         _deposit(user1, IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY() * 1e10);
         _depositReward(steam, 10 ether);
@@ -856,10 +857,19 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 claimedOnV2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
         assertGt(claimedOnV2, 0, "fixture: the holder has claimed on v2");
 
-        _liquidateOnV2(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), LIQUIDATION_PROCEEDS);
-        assertEq(_productExponent(), 1, "fixture: the loss to the floor stepped the product's exponent");
-
         _upgradeToV3();
+
+        poolActions.liquidate(
+            wrappedCollateralToken,
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            LIQUIDATION_PROCEEDS
+        );
+        // v3 keeps the supply's exponent in bytes 5 to 12 of the second slot of the pool's namespace
+        assertEq(
+            uint64(uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(STABILITYPOOL_STORAGE) + 1))) >> 40),
+            1,
+            "fixture: the loss to the floor stepped the product's exponent"
+        );
 
         // the deposit checkpoints the holder at exponent 1, where no reward is credited yet
         _deposit(user1, 50 ether);
@@ -995,15 +1005,15 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 9. MultipleExponentShifts — exponent 0→1→2 before upgrade
+    // 9. A pool past exponent 0 - refused
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @notice Rewards credited at later exponents than a holder's snapshot survive the upgrade: v3's claim walks the
-    ///         per-exponent reward integrals from the holder's exponent up to the pool's, and reads what v2 read. On v2,
-    ///         user1 deposits ten billion floors at exponent 0 and never touches the pool again; a loss to the floor
-    ///         steps the exponent to 1; a reward follows; user2 brings the pool back to ten billion floors; a second
-    ///         loss steps it to 2; another reward. So user1's claim spans two exponent steps and user2's one.
-    function test_upgradeFromV2_MultipleExponentShifts() public {
+    /// @notice A pool whose product v2 took past exponent 0 is refused, naming the exponent byte, and stays on v2 as it
+    ///         was. v3 reads a record's 16 bytes as the mantissa and its exponent from bytes v2 never wrote, so a
+    ///         record reads as v2 wrote it only where v2's exponent byte is zero. On v2, user1 deposits ten billion
+    ///         floors at exponent 0; a loss to the floor steps the exponent to 1; a reward follows; user2 brings the
+    ///         pool back to ten billion floors; a second loss steps it to 2; another reward.
+    function test_upgradeFromV2_aPoolPastExponentZero_isRefused_andStaysOnV2() public {
         uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         // Exponent 0: user1 deposits and earns
         _deposit(user1, floor * 1e10);
@@ -1017,7 +1027,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), LIQUIDATION_PROCEEDS);
         assertEq(_productExponent(), 1, "fixture: the first loss stepped the exponent to 1");
 
-        // Exponent 1: a reward credited above user1's snapshot; then user2 brings the pool back to ten billion floors
+        // Exponent 1: a reward; then user2 brings the pool back to ten billion floors
         _depositReward(steam, 8 ether);
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
@@ -1027,104 +1037,77 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _liquidateOnV2(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), LIQUIDATION_PROCEEDS);
         assertEq(_productExponent(), 2, "fixture: the second loss stepped the exponent to 2");
 
-        // Exponent 2: a reward above both snapshots
-        _depositReward(steam, 6 ether);
-        vm.warp(block.timestamp + 1 weeks);
-        _depositReward(steam, 0);
-
-        assertEq(
-            DecrementalFloatingPoint_v2.exponent(
-                uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user1, 2))))
-            ),
-            0,
-            "fixture: user1's snapshot is two exponent steps old"
-        );
-        assertEq(
-            DecrementalFloatingPoint_v2.exponent(
-                uint128(uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user2, 2))))
-            ),
-            1,
-            "fixture: user2's snapshot is one exponent step old"
-        );
         address[2] memory holders = [user1, user2];
         uint256[2] memory steamClaimableOnV2;
-        uint256[2] memory collateralClaimableOnV2;
         uint256[2] memory balanceOnV2;
         for (uint256 i = 0; i < 2; i++) {
             steamClaimableOnV2[i] = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(holders[i], steam);
-            collateralClaimableOnV2[i] = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
-                holders[i],
-                wrappedCollateralToken
-            );
             balanceOnV2[i] = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(holders[i]);
         }
-        assertGt(steamClaimableOnV2[0], 10 ether, "fixture: user1's claim reaches past the first reward's exponent");
-        assertGt(collateralClaimableOnV2[0], 0, "fixture: the liquidation left collateral claimable to compare");
+        Upgrade memory u = _prepareUpgrade();
+        bytes32 implementationSlot = bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);
+        bytes32 v2Implementation = vm.load(stabilityPoolCollateral, implementationSlot);
 
-        _upgradeToV3();
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPool_v3_Upgrader.SupplyRecordExponentByteNotZero.selector, uint8(2))
+        );
+        _upgrade(u, new IStabilityPool_v3_Upgrader.Deduction[](0));
 
+        assertEq(vm.load(stabilityPoolCollateral, implementationSlot), v2Implementation, "the pool runs v2's code");
+        assertEq(_productExponent(), 2, "the pool's product is as v2 left it");
         for (uint256 i = 0; i < 2; i++) {
             assertEq(
-                IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(holders[i], aa(steam))[0],
+                IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(holders[i], steam),
                 steamClaimableOnV2[i],
-                string.concat("Steam claimable preserved across the exponent steps: ", vm.getLabel(holders[i]))
+                string.concat("v2 still answers what may be claimed: ", vm.getLabel(holders[i]))
             );
             assertEq(
-                IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
-                    holders[i],
-                    aa(wrappedCollateralToken)
-                )[0],
-                collateralClaimableOnV2[i],
-                string.concat("Collateral claimable preserved across the exponent steps: ", vm.getLabel(holders[i]))
-            );
-            assertEq(
-                IERC20(stabilityPoolCollateral).balanceOf(holders[i]),
+                IStabilityPool(stabilityPoolCollateral).assetBalanceOf(holders[i]),
                 balanceOnV2[i],
-                string.concat("Balance preserved across the exponent steps: ", vm.getLabel(holders[i]))
+                string.concat("and the balance: ", vm.getLabel(holders[i]))
             );
         }
+    }
 
-        // Post-upgrade: claim and verify total
-        vm.startPrank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+    /// @notice A pool whose supply record is at exponent 0 but where a listed holder's record has v2's exponent byte
+    ///         set is refused, naming the holder and the byte, wherever the holder is in the list: first, in the
+    ///         middle, last. The byte is written into the record directly: the refusal reads only that byte.
+    function test_upgradeFromV2_aHolderWhoseRecordHasAnExponentByte_isRefused() public {
+        address user3 = makeAddr("user3");
+        vm.startPrank(user3);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         vm.stopPrank();
-        uint256 totalSteam = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimed(user1, aa(steam))[0];
-        assertEq(totalSteam, steamClaimableOnV2[0], "Full steam amount claimed post-upgrade");
-
-        // Post-upgrade: new rewards accumulate at exponent 2 - user2's share of the stream. The divisor is the supply
-        // less the upgrader's gap, the sum of the balances (user1's ten billion floors, written down two exponent steps,
-        // hold a ten-billionth). A holder earns on its unfloored compounded share: its stored amount scaled by the pool's
-        // magnitude over its own, and down a scale factor for each exponent step since it was written - read from its
-        // balance slot (product in the low 128 bits, amount in the high). The claim floors its share of the old and the
-        // new integral together, so the new stream's part can carry a wei either way; the integral's own floors are
-        // worth far less than a wei here.
-        _depositReward(steam, 5 ether);
-        uint256 streamed = _steamStreamed();
-        vm.warp(block.timestamp + 1 weeks);
-        _depositReward(steam, 0);
-        uint256 expected;
-        {
-            uint256 balanceWord = uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user2, 2)));
-            uint128 userProduct = uint128(balanceWord);
-            uint128 poolProduct = uint128(uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE)));
-            uint256 steps = DecrementalFloatingPoint_v2.exponent(poolProduct) -
-                DecrementalFloatingPoint_v2.exponent(userProduct);
-            expected =
-                steamClaimableOnV2[1] +
-                Math.mulDiv(
-                    streamed,
-                    (balanceWord >> 128) * DecrementalFloatingPoint_v2.magnitude(poolProduct),
-                    DecrementalFloatingPoint_v2.magnitude(userProduct) *
-                        uint256(DecrementalFloatingPoint_v2.SCALE_FACTOR) ** steps *
-                        (balanceOnV2[0] + balanceOnV2[1])
-                );
+        address[3] memory listed = [user1, user2, user3];
+        for (uint256 i = 0; i < listed.length; i++) {
+            _deposit(listed[i], 100 ether);
         }
-        assertApproxEqAbs(
-            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(steam))[0],
-            expected,
-            1,
-            "New rewards accumulate post-upgrade at exponent 2: user2's unfloored share of the stream"
-        );
+        assertEq(_productExponent(), 0, "fixture: the pool's product is at exponent 0");
+        Upgrade memory u = _prepareUpgrade();
+        u.holders = new address[](3);
+        for (uint256 i = 0; i < listed.length; i++) {
+            u.holders[i] = listed[i];
+        }
+
+        for (uint256 i = 0; i < listed.length; i++) {
+            uint256 snapshot = vm.snapshotState();
+            bytes32 record = _mappedSlot(listed[i], 2);
+            vm.store(
+                stabilityPoolCollateral,
+                record,
+                bytes32(uint256(vm.load(stabilityPoolCollateral, record)) | (uint256(3) << 120))
+            );
+
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    IStabilityPool_v3_Upgrader.HolderRecordExponentByteNotZero.selector,
+                    listed[i],
+                    uint8(3)
+                )
+            );
+            _upgrade(u, new IStabilityPool_v3_Upgrader.Deduction[](0));
+
+            vm.revertToState(snapshot);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1142,7 +1125,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.warp(block.timestamp + 1 weeks);
         _depositReward(steam, 0);
 
-        // Partial liquidation changes the product (magnitude decreases)
+        // Partial liquidation changes the product (mantissa decreases)
         _liquidateOnV2(50 ether, LIQUIDATION_PROCEEDS);
         uint256 balAfterLiq = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
@@ -1255,7 +1238,8 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // The slots that hold TokenBalance data plus their neighbours in the namespace, and both slots of every history
-        // row (a row is a TimestampedBalance: product | amount, then updatedAt).
+        // row (a row is v2's TokenBalance, product | amount then updatedAt, which v3 reads as a TimestampedBalance,
+        // mantissa | amount then updatedAt | exponent).
         uint256 historyLength = uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(STABILITYPOOL_STORAGE) + 4)));
         assertGt(historyLength, 2, "fixture: several history rows");
         bytes32[] memory slots = new bytes32[](10 + 2 * historyLength);
@@ -1271,8 +1255,8 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         slots[9] = bytes32(uint256(STABILITYPOOL_STORAGE) + 7); // feePayment
         for (uint256 i = 0; i < historyLength; i++) {
             bytes32 row = keccak256(abi.encode(i, uint256(STABILITYPOOL_STORAGE) + 3));
-            slots[10 + 2 * i] = row; // history[i]: product | amount
-            slots[11 + 2 * i] = bytes32(uint256(row) + 1); // history[i]: updatedAt
+            slots[10 + 2 * i] = row; // history[i]: product, or mantissa | amount
+            slots[11 + 2 * i] = bytes32(uint256(row) + 1); // history[i]: updatedAt, and v3's exponent
         }
 
         bytes32[] memory before = new bytes32[](slots.length);
@@ -1350,7 +1334,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         uint256 expectedClaimable = (claimableBefore * supplyBefore) / v3Divisor;
         // expectedClaimable floors the real ratio (claimableBefore * supply / Sum) once, losing < 1 wei; postClaimable
         // equals that real ratio to within < 1 wei under its own construction (pending-only claimable scales purely as
-        // 1/divisor with no divisor-independent term, and the integral floor is amplified by balance/MAGNITUDE ~
+        // 1/divisor with no divisor-independent term, and the integral floor is amplified by balance/MANTISSA_PRECISION ~
         // 1e31/1e36 < 1). So the two agree to <= 1 wei - far below the ~137-wei divisor uplift, so the band still
         // rejects the old v2-preserved value.
         uint256 tol = 1;
@@ -1391,10 +1375,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         return false;
     }
 
-    /// @notice v3 never reads or writes `unusedInV3`, the second slot of an account's balance record and of the total
-    /// supply's, where v2 kept a time: after the upgrade, no deposit, transfer, withdrawal, reward deposit, claim,
-    /// liquidation or balance read touches it.
-    function test_upgradeFromV2_poolNeverTouchesTheTimeV2Left() public {
+    /// @notice v3 never changes `unusedInV3`, bytes 0 to 4 of the second slot of an account's balance record and of the
+    /// total supply's, where v2 kept a time: after the upgrade, no deposit, transfer, withdrawal, reward deposit,
+    /// claim, liquidation or balance read changes it, though v3 reads and writes the exponent beside it.
+    function test_upgradeFromV2_poolLeavesTheTimeV2Left() public {
         _deposit(user1, 100 ether);
         vm.warp(block.timestamp + 1 hours);
         _deposit(user2, 100 ether);
@@ -1406,6 +1390,14 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         vm.startPrank(rewardDepositor);
         IERC20(steam).approve(stabilityPoolCollateral, 1 ether);
         vm.stopPrank();
+
+        bytes32[3] memory records = [STABILITYPOOL_STORAGE, _mappedSlot(user1, 2), _mappedSlot(user2, 2)];
+        uint256[3] memory timeV2Left;
+        for (uint256 i = 0; i < records.length; i++) {
+            timeV2Left[i] =
+                uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(records[i]) + 1))) & type(uint40).max;
+            assertGt(timeV2Left[i], 0, "fixture: v2 left a time in the record");
+        }
 
         vm.startStateDiffRecording();
         vm.startPrank(user1);
@@ -1427,13 +1419,16 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IERC20(stabilityPoolCollateral).balanceOf(user2);
         Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
 
-        bytes32[3] memory records = [STABILITYPOOL_STORAGE, _mappedSlot(user1, 2), _mappedSlot(user2, 2)];
         for (uint256 i = 0; i < records.length; i++) {
-            // the first slot shows the record was in use, so the second's absence is not an unrecorded access
-            assertTrue(_poolSlotAccessed(accesses, records[i]), "fixture: the record's product and amount are used");
-            assertFalse(
-                _poolSlotAccessed(accesses, bytes32(uint256(records[i]) + 1)),
-                "the record's unusedInV3 is never read or written"
+            bytes32 second = bytes32(uint256(records[i]) + 1);
+            assertTrue(
+                _poolSlotAccessed(accesses, second),
+                "fixture: the record's second slot is used, for the exponent"
+            );
+            assertEq(
+                uint256(vm.load(stabilityPoolCollateral, second)) & type(uint40).max,
+                timeV2Left[i],
+                "the time v2 left is unchanged"
             );
         }
     }

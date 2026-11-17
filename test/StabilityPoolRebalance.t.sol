@@ -7,10 +7,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProduct, LossProductLib} from "@harbor/math/LossProductLib.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
@@ -190,7 +192,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // Conservation: no value created, and the shortfall is only the rounding the pool retains. Each loss's per-unit
         // loss is recovered from the over-application it carried (the second spends the first's carry), and the
-        // product's magnitude stays whole through both, (1e18 - u1)(1e18 - u2), so each balance is its deposit through
+        // product's mantissa stays whole through both, (1e18 - u1)(1e18 - u2), so each balance is its deposit through
         // both, floored once.
         assertLt(
             firstError,
@@ -219,10 +221,84 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
     // Successive losses compound across changes of the product's exponent, every balance exact. Each loss takes all
     // but a ten-billionth of the pool, so the per-unit loss is exactly 1e18 - 1e8 and no error is carried, and the
-    // product's magnitude falls past its minimum and steps the exponent: 1e36 at exponent 0, 1e35 at 1, 1e34 at 2. A
-    // balance scales by the ratio of the magnitudes and down a factor of 1e9 for each step since it was written, so a
+    // product's mantissa falls past its minimum and steps the exponent: 1e36 at exponent 0, 1e35 at 1, 1e34 at 2. A
+    // balance scales by the ratio of the mantissas and down a factor of 1e9 for each step since it was written, so a
     // holder from before both losses keeps a 1e20th of their deposit, one who joined between them a 1e10th.
     function test_successiveLosses_compoundAcrossTwoExponentChanges_everyBalanceExact() public {
+        _successiveLossesFrom(0, 0);
+    }
+
+    // The same two losses from exponent 254, so that they step the exponent to 255, the last value an exponent of
+    // eight bits holds, and then past it: every balance as exact as from exponent 0.
+    function test_successiveLosses_across255_everyBalanceExact() public {
+        _successiveLossesFrom(254, 0);
+    }
+
+    // Rewards paid with the same two losses from exponent 254, at 254 and at 255, and a third paid at 256, are claimable
+    // across 254, 255 and 256 exactly as the same rewards from exponent 0 are across 0, 1 and 2: the claim does not
+    // depend on the exponent it reads from. The third is read through by holders from 254 and 255, past 255.
+    function test_rewardsPaidAcross255_areClaimableAsFromExponentZero() public {
+        uint256 snapshot = vm.snapshotState();
+        uint256[3] memory fromZero = _successiveLossesFrom(0, REWARD_AMOUNT);
+        vm.revertToState(snapshot);
+
+        uint256[3] memory from254 = _successiveLossesFrom(254, REWARD_AMOUNT);
+
+        assertGt(fromZero[0], 0, "fixture: user1 earns from the first reward");
+        assertGt(fromZero[2], 0, "fixture: user3 earns from the second");
+        assertLe(fromZero[0] + fromZero[1] + fromZero[2], 3 * REWARD_AMOUNT, "fixture: no more than was paid");
+        for (uint256 i = 0; i < 3; i++) {
+            assertEq(from254[i], fromZero[i], string.concat("the same claimable, user", vm.toString(i + 1)));
+        }
+    }
+
+    // A withdrawal request at exponent 254 makes the balance of that moment fee-free, and the fee-free record compounds
+    // through two losses past 255 as the balance does. user1 deposits as much again after the request, so the fee-free
+    // amount is half the balance and its read is not capped at the balance. Each loss takes all but a ten-billionth of
+    // the pool, so the fee-free amount of 1e10 ether keeps a 1e20th of it, 1e8.
+    function test_aFeeFreeWithdrawalPast255_compoundsAsTheBalanceDoes() public {
+        MockStabilityPool(stabilityPoolCollateral).__setSupplyProduct(
+            LossProductLib.from(254, LossProductLib.MANTISSA_PRECISION)
+        );
+        uint256 left = 4 ether; // what each loss leaves of the pool: a ten-billionth of it
+        deal(peggedToken, user1, 2e10 ether);
+        deal(peggedToken, user2, 2e10 ether);
+        deal(peggedToken, user3, 4e10 ether - left);
+        vm.startPrank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1e10 ether, user1, 0);
+        IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(1e10 ether, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(2e10 ether, user2, 0);
+        vm.stopPrank();
+        collateralPoolActions.liquidate(wrappedCollateralToken, 4e10 ether - left, 0);
+        vm.startPrank(user3);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(4e10 ether - left, user3, 0);
+        vm.stopPrank();
+        collateralPoolActions.liquidate(wrappedCollateralToken, 4e10 ether - left, 0);
+        assertEq(
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
+            256,
+            "fixture: the two losses took the exponent past 255"
+        );
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 2e8, "fixture: user1 keeps a 1e20th of 2e10 ether");
+
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).withdrawalFeeFreeAmount(user1),
+            1e8,
+            "the fee-free amount keeps a 1e20th of what was requested"
+        );
+    }
+
+    /// @dev Two losses from a pool whose product stands at `start` before its first deposit, each taking all but a
+    ///      ten-billionth of it, with `reward` paid to the holders at each. Asserts every balance, which does not
+    ///      depend on `start`. Where `reward` is not zero, a third liquidation then pays it at `start + 2` with a loss
+    ///      of one wei. Returns what each of the three holders may then claim.
+    function _successiveLossesFrom(uint64 start, uint256 reward) private returns (uint256[3] memory claimable) {
+        MockStabilityPool(stabilityPoolCollateral).__setSupplyProduct(
+            LossProductLib.from(start, LossProductLib.MANTISSA_PRECISION)
+        );
         uint256 left = 3 ether; // what each loss leaves of the pool: a ten-billionth of it
         assertLe(IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(), left, "fixture: above the floor");
         deal(peggedToken, user1, 1e10 ether);
@@ -235,12 +311,12 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(2e10 ether, user2, 0);
         vm.stopPrank();
 
-        collateralPoolActions.liquidate(wrappedCollateralToken, 3e10 ether - left, 0);
+        collateralPoolActions.liquidate(wrappedCollateralToken, 3e10 ether - left, reward);
 
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
-            1,
-            "the first loss steps the product's exponent to 1"
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
+            start + 1,
+            "the first loss steps the product's exponent once"
         );
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 1 ether, "user1 keeps a 1e10th: 1 ether");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), 2 ether, "user2 keeps a 1e10th: 2 ether");
@@ -251,12 +327,12 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         IStabilityPool_v3(stabilityPoolCollateral).deposit(3e10 ether - left, user3, 0);
         vm.stopPrank();
 
-        collateralPoolActions.liquidate(wrappedCollateralToken, 3e10 ether - left, 0);
+        collateralPoolActions.liquidate(wrappedCollateralToken, 3e10 ether - left, reward);
 
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
-            2,
-            "the second loss steps the product's exponent to 2"
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
+            start + 2,
+            "the second loss steps the product's exponent again"
         );
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 1e8, "user1, two steps old, keeps a 1e20th");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), 2e8, "user2, two steps old, keeps a 1e20th");
@@ -271,6 +347,121 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             1e8 + 2e8 + (3e10 ether - left) / 1e10,
             left,
             "fixture: the three balances make up the supply exactly"
+        );
+
+        if (reward > 0) {
+            collateralPoolActions.liquidate(wrappedCollateralToken, 1, reward);
+            assertEq(
+                MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
+                start + 2,
+                "fixture: the third reward is paid at the exponent the second loss left"
+            );
+        }
+
+        address[3] memory holders = [user1, user2, user3];
+        for (uint256 i = 0; i < 3; i++) {
+            claimable[i] = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
+                holders[i],
+                aa(wrappedCollateralToken)
+            )[0];
+        }
+    }
+
+    // The product's exponent has 64 bits, so losses go on being recorded past 255, the last value an exponent of eight
+    // bits holds. Each round fills the pool to its ceiling and loses all of it above the floor, the smallest factor a
+    // loss can have. That steps the exponent once from a full mantissa and twice from the least - 1, 3, 5 and so on -
+    // so 150 rounds reach 299. The pool goes on serving its holders there: its history row holds the whole exponent,
+    // one who joins leaves with their deposit, and one from two steps back claims the reward paid then.
+    function test_lossesPastExponent255_areRecorded_andThePoolServesItsHolders() public {
+        uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 ceiling = IStabilityPool_v3(stabilityPoolCollateral).MAX_TOTAL_ASSET_SUPPLY();
+        for (uint256 round = 1; round <= 150; round++) {
+            uint256 toTheCeiling = ceiling - IERC20(stabilityPoolCollateral).totalSupply();
+            deal(peggedToken, user1, toTheCeiling);
+            vm.startPrank(user1);
+            IStabilityPool_v3(stabilityPoolCollateral).deposit(toTheCeiling, user1, 0);
+            vm.stopPrank();
+            // the last round pays a reward, to the balances from before its loss
+            collateralPoolActions.liquidate(wrappedCollateralToken, ceiling - floor, round == 150 ? REWARD_AMOUNT : 0);
+        }
+        LossProduct product = MockStabilityPool(stabilityPoolCollateral).__supplyProduct();
+        assertEq(product.exponent(), 299, "the product's exponent is past 255");
+        assertEq(product.mantissa(), LossProductLib.MIN_PRECISION, "and its mantissa at its least");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "the pool is at its floor");
+        StabilityPool_v3.TimestampedBalance memory row = MockStabilityPool(stabilityPoolCollateral).__lastHistoryRow();
+        assertEq(row.exponent, 299, "the supply's history row holds the whole exponent");
+        assertEq(row.mantissa, LossProductLib.MIN_PRECISION, "and the mantissa");
+
+        // user2 joins the pool past 255 and leaves with the whole deposit
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), DEPOSIT_AMOUNT, "user2 holds the deposit");
+        _beginWithdrawal(user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
+        assertEq(IERC20(peggedToken).balanceOf(user2), INITIAL_BALANCE, "user2 leaves with the whole deposit");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "and the pool is back at its floor");
+
+        // user1 held the whole pool when the reward was paid, at exponent 297, so the whole reward is user1's, to the
+        // wei: every round's loss leaves a 1e18th of a supply of 1e36, so each balance and the reward's share of the
+        // supply divide exactly, and user1's balance is the supply itself.
+        uint256 claimable = IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(
+            user1,
+            aa(wrappedCollateralToken)
+        )[0];
+        assertEq(claimable, REWARD_AMOUNT, "the whole reward is claimable");
+        uint256 heldBefore = IERC20(wrappedCollateralToken).balanceOf(user1);
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(user1) - heldBefore,
+            claimable,
+            "the claim, read across the last two exponents, pays what was claimable"
+        );
+    }
+
+    // The product's exponent has 64 bits, and a loss that would take it past the last value they hold is refused by
+    // name, with nothing of the liquidation recorded. The pool here stands at that exponent with its mantissa at its
+    // least before its first deposit, so any loss needs a step. The pool goes on serving its holders there: one who
+    // joined leaves with their deposit.
+    function test_aLossPastTheLastExponent_isRefused_andThePoolServesItsHolders() public {
+        MockStabilityPool(stabilityPoolCollateral).__setSupplyProduct(
+            LossProductLib.from(type(uint64).max, LossProductLib.MIN_PRECISION)
+        );
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+        vm.stopPrank();
+        uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
+
+        // Half of user2's deposit lost would take the mantissa to about half its least: one step, past the last. The
+        // harness's call reverts whole, its sweep with it.
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPool_v3.LossProductExponentOverflow.selector, type(uint64).max, uint64(1))
+        );
+        collateralPoolActions.liquidate(wrappedCollateralToken, DEPOSIT_AMOUNT / 2, REWARD_AMOUNT);
+
+        LossProduct product = MockStabilityPool(stabilityPoolCollateral).__supplyProduct();
+        assertEq(product.exponent(), type(uint64).max, "the product is as it was: its exponent");
+        assertEq(product.mantissa(), LossProductLib.MIN_PRECISION, "and its mantissa");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT, "no supply written down");
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(), lossError, "no loss error carried");
+        assertEq(
+            IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claimable(user2, aa(wrappedCollateralToken))[0],
+            0,
+            "no reward credited"
+        );
+
+        _beginWithdrawal(user2);
+        vm.startPrank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).withdraw(type(uint256).max, user2, 0);
+        vm.stopPrank();
+        assertEq(
+            IERC20(stabilityPoolCollateral).totalSupply(),
+            IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "user2 withdraws down to the pool's floor"
         );
     }
 
@@ -357,7 +548,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertLt(carried, depositAmount, "the carried over-application is under the supply it was made on");
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user1),
-            supplyAfter - Math.ceilDiv(carried, DecrementalFloatingPoint_v2.FACTOR_PRECISION),
+            supplyAfter - Math.ceilDiv(carried, LossProductLib.FACTOR_PRECISION),
             "the sole holder is left the supply less the over-application, rounded up to a wei"
         );
     }
@@ -474,7 +665,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             "Loss error should match the exact calculation after the second sweep"
         );
 
-        // the product's magnitude stays whole through both losses, (1e18 - u1)(1e18 - u2), so the balance is the deposit
+        // the product's mantissa stays whole through both losses, (1e18 - u1)(1e18 - u2), so the balance is the deposit
         // through both per-unit losses, floored once
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user1),
@@ -585,8 +776,8 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             );
             IStabilityPool_v3(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
 
-            // At the floor the pool has no headroom, so a withdrawal of the whole balance caps to nothing and reverts
-            // rather than paying 0.
+            // At the floor the pool's maxAssetLoss is zero, so a withdrawal of the whole balance caps to nothing and
+            // reverts rather than paying 0.
             vm.expectRevert(IStabilityPool_v3.WithdrawZeroAmount.selector);
             IStabilityPool_v3(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
             vm.stopPrank();
@@ -645,7 +836,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // 11. The holders from before the complete liquidation are written down by both per-unit losses: the product's
-        // magnitude stays whole through them, (1e18 - u)(1e18 - u'), so each balance is its deposit through both,
+        // mantissa stays whole through them, (1e18 - u)(1e18 - u'), so each balance is its deposit through both,
         // floored once
         uint256 throughBoth = (1 ether - lossPerUnit) * (1 ether - laterLossPerUnit);
         assertEq(
@@ -682,13 +873,14 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         uint256 poolBalance = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
         assertEq(poolBalance, directAmount, "Pool should have received tokens");
 
-        // 5. Liquidate at zero supply: the asset sweep caps at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY, which
-        //    is 0 when supply is 0, so it takes nothing (and _notifyLoss on zero supply applies no loss).
+        // 5. Liquidate at zero supply: the asset sweep caps at the pool's `maxAssetLoss()`, its supply above
+        //    MIN_TOTAL_ASSET_SUPPLY, which is 0 when supply is 0, so it takes nothing (and _notifyLoss on zero supply
+        //    applies no loss).
         collateralPoolActions.liquidate(wrappedCollateralToken, directAmount, 0);
 
         // 6. The directly-transferred tokens remain - the asset sweep took nothing.
         uint256 poolBalanceAfter = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
-        assertEq(poolBalanceAfter, directAmount, "asset sweep takes nothing at zero supply - headroom is 0");
+        assertEq(poolBalanceAfter, directAmount, "asset sweep takes nothing at zero supply - maxAssetLoss is 0");
 
         // 7. Verify supply remains at zero
         uint256 finalSupply = IERC20(stabilityPoolCollateral).totalSupply();
@@ -711,7 +903,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     }
 
     // A loss of all but a thousandth of the pool writes the sole holder down exactly: 1000 ether deposited, 999 lost,
-    // 1 left. The product's magnitude falls to 1e33, well above the 1e27 below which its exponent would move; a loss
+    // 1 left. The product's mantissa falls to 1e33, well above the 1e27 below which its exponent would move; a loss
     // across an exponent change is test_successiveLosses_compoundAcrossTwoExponentChanges_everyBalanceExact's.
     function test_aLossOfAllButAThousandth_writesTheSoleHolderDownExactly() public {
         uint256 depositAmount = 1000 ether;
@@ -728,14 +920,14 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertEq(balanceAfterTheLoss, depositAmount - sweepAmount, "the holder is left exactly what the loss left");
         assertEq(initialBalance / balanceAfterTheLoss, 1000, "a thousandth of the deposit");
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().exponent(),
             0,
             "fixture: the exponent did not move"
         );
     }
 
     // A loss to the floor leaves the product reduced by the loss, not reset: two holders of 100 ether lose all but the
-    // 1-ether floor, a fall to 1/200 (magnitude 1e36 -> 5e33, the exponent unmoved), and later deposits join at that
+    // 1-ether floor, a fall to 1/200 (mantissa 1e36 -> 5e33, the exponent unmoved), and later deposits join at that
     // product, so the product carries on from where the loss left it and the old holders keep their shares of the floor.
     function test_aLossToTheFloor_leavesTheProductReduced_andLaterDepositsJoinAtIt() public {
         uint256 minSupply = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
@@ -750,24 +942,21 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT * 2, "the supply after user2's deposit");
 
         uint256 initialTotalSupply = IERC20(stabilityPoolCollateral).totalSupply();
-        uint128 initialProduct = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
-        assertEq(initialProduct, 1e36, "the product starts at 1e36, exponent 0");
+        LossProduct initialProduct = MockStabilityPool(stabilityPoolCollateral).__supplyProduct();
+        assertEq(initialProduct.exponent(), 0, "the product starts at exponent 0");
+        assertEq(initialProduct.mantissa(), 1e36, "and mantissa 1e36");
 
         collateralPoolActions.liquidate(wrappedCollateralToken, initialTotalSupply, 0);
 
         uint256 postLiquidationSupply = IERC20(stabilityPoolCollateral).totalSupply();
-        uint128 postLiquidationProduct = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
+        LossProduct postLiquidationProduct = MockStabilityPool(stabilityPoolCollateral).__supplyProduct();
         assertEq(postLiquidationSupply, minSupply, "the loss leaves the floor");
         assertEq(
-            DecrementalFloatingPoint_v2.exponent(postLiquidationProduct),
+            postLiquidationProduct.exponent(),
             0,
             "the exponent is unmoved: a fall to 1/200 is far from the 1e-9 that moves it"
         );
-        assertEq(
-            DecrementalFloatingPoint_v2.magnitude(postLiquidationProduct),
-            5e33,
-            "the magnitude falls by the loss: 1e36 / 200"
-        );
+        assertEq(postLiquidationProduct.mantissa(), 5e33, "the mantissa falls by the loss: 1e36 / 200");
 
         vm.startPrank(user3);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
@@ -788,13 +977,9 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // deposits do not reset the product: it carries on from where the loss left it
-        uint128 newEpochProduct = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
-        assertEq(
-            DecrementalFloatingPoint_v2.magnitude(newEpochProduct),
-            5e33,
-            "the magnitude is where the loss left it"
-        );
-        assertEq(DecrementalFloatingPoint_v2.exponent(newEpochProduct), 0, "and the exponent too");
+        LossProduct newEpochProduct = MockStabilityPool(stabilityPoolCollateral).__supplyProduct();
+        assertEq(newEpochProduct.mantissa(), 5e33, "the mantissa is where the loss left it");
+        assertEq(newEpochProduct.exponent(), 0, "and the exponent too");
 
         // 7. Verify balances are calculated correctly
         // After complete liquidation, users retain proportional shares of MIN_TOTAL_ASSET_SUPPLY
@@ -821,7 +1006,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // 9. Verify product changed appropriately: by the second loss's per-unit loss - the ceiling of what is left of
         // the loss after the error carried in, over the supply - recovered from the over-application it carried. The
-        // magnitude is whole in 1e18, so the product's multiply is exact.
+        // mantissa is whole in 1e18, so the product's multiply is exact.
         uint256 lossPerUnit;
         {
             uint256 supplyBefore = DEPOSIT_AMOUNT * 3 + minSupply;
@@ -840,8 +1025,8 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
             lossPerUnit = scaledLoss / supplyBefore;
         }
         assertEq(
-            DecrementalFloatingPoint_v2.magnitude(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product),
-            Math.mulDiv(DecrementalFloatingPoint_v2.magnitude(newEpochProduct), 1 ether - lossPerUnit, 1 ether),
+            MockStabilityPool(stabilityPoolCollateral).__supplyProduct().mantissa(),
+            Math.mulDiv(newEpochProduct.mantissa(), 1 ether - lossPerUnit, 1 ether),
             "Product should decrease by the per-unit loss after partial liquidation"
         );
 

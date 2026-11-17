@@ -4,7 +4,7 @@
     "uv": "uv sync; echo \"to enable vyper builds, run:\n   source ./.venv/bin/activate\"",
     "foundryup": "curl -L https://foundry.paradigm.xyz | bash && foundryup",
     "doctor": "./lib/bao-base/run doctor",
-    "dep": "./lib/bao-base/run dep",
+    "setup": "./lib/bao-base/run setup",
     "CI": "./lib/bao-base/run CI",
     "CI-act": "./lib/bao-base/run CI-act",
     "CI:long": "./lib/bao-base/run CI-long",

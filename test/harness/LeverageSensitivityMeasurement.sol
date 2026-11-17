@@ -13,18 +13,16 @@ import {Array} from "@bao-test/utils/Array.sol";
 /// @notice Does `leverageRatio()` describe the instrument? Measured, by moving the collateral price and
 ///         watching what the leveraged price actually does.
 ///
-/// `leverageRatio()` is reported to users and is `CR / (max(0, CR-1) + phi)`. What that figure is FOR is the
+/// `leverageRatio()` is reported to users. In this tree it is `CR / (CR-1)` above the peg, and `type(uint256).max`
+/// at or below it, the encoding for a claim of nothing. What that figure is FOR is the
 /// leveraged token's sensitivity to the collateral price - how many percent the token moves for one percent
 /// of collateral. Nothing checks that it does, and above the peg it plainly does: the claim is the residual,
 /// `collateralValue - peggedClaim`, so a one percent move in collateral moves the residual by
 /// `CR/(CR-1)` percent and the formula is that expression.
 ///
-/// BELOW THE PEG THE TWO MAY PART COMPANY, and that is the question. The residual is gone there, so on a rule
-/// with an escrow the whole claim is a FIXED QUANTITY OF COLLATERAL - and a fixed quantity of collateral has
-/// a sensitivity of exactly one, however the formula reads. If that is so, the leveraged token stops being a
-/// leveraged instrument below the peg and becomes a plain unlevered collateral claim, while `leverageRatio()`
-/// goes on reporting `backing/escrow`. On the DEPLOYED rule the claim below the peg is zero, so the token has
-/// no price to be sensitive with, and the measurement should say so rather than draw a line.
+/// BELOW THE PEG THE RESIDUAL IS GONE. On the DEPLOYED rule and in this tree the leveraged price there is zero,
+/// so the token has no price to be sensitive with, and the measurement says so rather than draw a line. The
+/// deployed rule still reports a leverage of 20 there.
 ///
 /// HOW THE PERTURBATION IS MADE, and why it needs no oracle arithmetic: the collateral ratio is
 /// `backing x price / peggedSupply`, and nothing here trades, so backing and supply do not move and
@@ -80,18 +78,17 @@ abstract contract LeverageSensitivityMeasurement is GraphTestBase, Array, RatioS
     /// @dev How many sub-peg rebalance rounds to run BEFORE the sweep. Zero measures a fresh market, which is
     /// what every reading so far has been.
     ///
-    /// A non-zero count asks whether the damage a rule does below the peg is PERMANENT. The rule in this tree
-    /// moves backing into escrow on every conversion, so `phi` climbs - 0.032 to 230,468 over sixteen rounds -
-    /// and the sensitivity above the peg is `(CR + phi)/(CR + phi - 1)`, which tends to ONE as `phi` grows.
-    /// If that is right the token is unlevered even after the market recovers, and the leverage it exists to
-    /// provide cannot be got back. A fresh-market sweep cannot see it, because a fresh market has a small
-    /// `phi` by construction.
+    /// A non-zero count asks whether the damage a rule does below the peg is PERMANENT: whether, after those
+    /// rounds, the sensitivity above the peg is still `CR/(CR-1)`. If it is not, the token stays less levered
+    /// even after the market recovers, and the leverage it exists to provide cannot be got back. A
+    /// fresh-market sweep cannot see that.
     function agingRounds() internal pure virtual returns (uint256) {
         return 0;
     }
 
-    /// @dev Where the ageing happens. Below the peg, where the escrow is the whole of the leveraged claim and
-    /// a conversion therefore moves the accounts that `phi` is made of.
+    /// @dev Where the ageing happens. Below the peg, where the rules differ most: the deployed rule converts
+    /// there, and this tree, which mints no leveraged below `MINIMUM_COLLATERAL_RATIO`, pays the pools in
+    /// collateral.
     uint256 internal constant AGING_COLLATERAL_RATIO = 0.6 ether;
 
     address internal keeper;
@@ -168,9 +165,8 @@ abstract contract LeverageSensitivityMeasurement is GraphTestBase, Array, RatioS
         // PERTURBED AWAY FROM THE PEG, NEVER ACROSS IT. The leveraged claim changes character at a ratio of
         // one - the residual appears - so the response is genuinely two-valued there, and a perturbation
         // that straddles the peg measures a CHORD ACROSS THE JUMP rather than a slope on either side of it.
-        // One-sided upward, a sample at 0.995 perturbs to 1.005 and reports about ten: neither the 1 that
-        // holds below nor the 20 that holds above, and close enough to the average of the two that adaptive
-        // refinement reads the step as a smooth ramp and declines to resolve it. That is how this was found.
+        // One-sided upward, a sample at 0.995 perturbs to 1.005 and reports a response that belongs to
+        // neither side. Adaptive refinement can then read the step as a smooth ramp and decline to resolve it.
         //
         // So below the peg the slope is taken from the left and above it from the right, which is what those
         // one-sided limits actually are.

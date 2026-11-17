@@ -22,8 +22,9 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         vm.stopPrank();
     }
 
-    /// @dev The two line intercepts to reach `targetCR` - the unconstrained (no headroom caps, no holdings split)
-    ///      redeem, i.e. what the removed 1-arg redeemPeggedForCollateralRatio used to return.
+    /// @dev The two line intercepts to reach `targetCR` - the unconstrained (no `maxCollateralPegged` or
+    ///      `maxLeveragedPegged` cap, no holdings split) redeem, i.e. what the removed 1-arg
+    ///      redeemPeggedForCollateralRatio used to return.
     function _intercepts(uint256 targetCR) internal view returns (uint256 collateral, uint256 leveraged) {
         return IMinter_v3(minter).redeemPeggedForCollateralRatio(targetCR, type(uint256).max, type(uint256).max, 0, 0);
     }
@@ -71,15 +72,17 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         assertGt(actualLeveraged, 0, "leveraged leg produced output");
     }
 
-    /// @notice redeemPeggedForCollateralRatio (the 5-arg overload) fits the collateral/leveraged split to each pool's
-    /// headroom while staying on the target-CR line. Unconstrained (no caps, no holdings) it returns the two line
-    /// intercepts. Capping one leg pins it and slides the shortfall along the line into the co-pool's leg (still
-    /// reaching the target). Capping both so low that no point on the line fits liquidates the pools' max - a partial.
-    function test_redeemConstrained_fitsSplitToHeadroom() public {
+    /// @notice redeemPeggedForCollateralRatio (the 5-arg overload) fits the collateral/leveraged split to
+    /// `maxCollateralPegged` and `maxLeveragedPegged` while staying on the target-CR line. Unconstrained (no caps, no
+    /// holdings) it returns the two line intercepts. Capping one leg pins it and slides the shortfall along the line
+    /// into the co-pool's leg (still reaching the target). Capping both so low that no point on the line fits
+    /// liquidates the pools' max - a partial.
+    function test_redeemConstrained_fitsSplitToMaxPegged() public {
         setUp_collateral(10 ether, 2 ether); // both collateral and leveraged present, CR below the target
         uint256 targetCR = 1.3 ether;
 
-        // the two line intercepts (unconstrained: no headroom caps, no holdings split)
+        // the two line intercepts (unconstrained: no `maxCollateralPegged` or `maxLeveragedPegged` cap, no holdings
+        // split)
         (uint256 fullCol, uint256 fullLev) = _intercepts(targetCR);
         assertGt(fullCol, 0, "collateral intercept > 0");
         assertGt(fullLev, 0, "leveraged intercept > 0");
@@ -94,7 +97,7 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
             0,
             0
         );
-        assertEq(cc, capCol, "collateral pinned at its headroom");
+        assertEq(cc, capCol, "collateral pinned at its maxCollateralPegged");
         // on/above the line x/fullCol + y/fullLev >= 1, cross-multiplied to avoid the fractions
         assertGe(cc * fullLev + cl * fullCol, fullCol * fullLev, "constrained split still reaches the target");
 

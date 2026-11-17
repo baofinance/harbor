@@ -24,7 +24,7 @@ set ylabel "STEAM amount"
 set yrange [-0.2:3.8]
 set ytics nomirror
 
-set y2label "distribution rate * 1e6 (/s)"
+set y2label "distribution rate * 1e6 (STEAM/s)"
 set y2range [-1:7]
 set y2tics
 
@@ -41,13 +41,17 @@ deposit = 11
 set arrow from deposit, graph 0 to deposit, graph 1 nohead linetype 1 dashtype 2 linecolor"black"
 set label "< end period" at deposit, 3.3 left textcolor "black"
 
+# The writer writes `rate` unscaled, in STEAM per second, and `queued` multiplied by 1e6. Each is scaled
+# again here so it shows. `rate` is multiplied by 1e6 and drawn on the right axis. `queued` is multiplied
+# by a further 1e7 and drawn on the left axis, so it reads as queued * 1e13. `queued` is the rounding
+# remainder a reward deposit leaves when it is divided into a rate: at most 1.056e-13 STEAM here.
 set colorsequence default
 plot \
      datafile using ($1):($2) axes x1y1 with lines linewidth 1 linetype 1, \
      datafile using ($1):($3) axes x1y1 with lines linewidth 2 linetype 2 dashtype 2, \
      datafile using ($1):($4) axes x1y1 with lines linewidth 1 linetype 4, \
      datafile using ($1):($5) axes x1y1 with lines linewidth 1 linetype 6, \
-     datafile using ($1):($6) axes x1y2 with lines linewidth 1 linetype 8, \
-     datafile using ($1):($7) axes x1y1 with lines linewidth 2 linetype 8 dashtype 2
+     datafile using ($1):($6 * 1e6) axes x1y2 with lines linewidth 1 linetype 8 title "rate * 1e6", \
+     datafile using ($1):($7 * 1e7) axes x1y1 with lines linewidth 2 linetype 8 dashtype 2 title "queued * 1e13"
 
 unset output

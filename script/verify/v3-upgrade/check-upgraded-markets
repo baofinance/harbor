@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# Check the markets named, upgraded on anvil, against what each of their contracts read before the upgrade. The upgrade
+# may have run on anvil through `script/upgrade --local`, as run-upgrade-rehearsal runs it, or through `script/run-batch`
+# on a batch file a mainnet run of `script/upgrade` saved.
+#
+#   Before and after (black-box): MarketsCapture records every contract - minter, both pools, manager - and each pool's
+#     behaviour under the same interactions. The before is a fork of mainnet at the block of the upgrade's capture
+#     (FROZEN_MARKETS_CAPTURE in script/Upgrade_MarketsToV3_mainnet.s.sol), the last before the pause; the after is a
+#     fork of anvil. MarketsExpectedAfter then writes the record each contract must have after: its before record,
+#     changed only where an expectation says, with the reason. The expected and the actual after records must not
+#     differ.
+#   Storage copy (white-box): MarketsStorageCopy checks the storage the upgrade copied - each holder's reward records,
+#     each reward stream, each pool's ledger gap - against the frozen pools.
+#
+# Both captures are warped to the same time, 12000 seconds after anvil's head, so they read the reward streams and
+# withdrawal windows alike. MarketsExpectedAfter reads each compensated market's minter events on anvil from the block
+# after anvil's fork block: every block after it was mined on anvil. Both are read from anvil when the check starts.
+# forge test forks anvil in memory and writes nothing back to it.
+#
+# Usage:
+#   script/verify/v3-upgrade/check-upgraded-markets --peg <peg>[,<peg>...] --collateral <name>
+#
+#   --peg <peg>          Which pegs' markets to check: one, several separated by commas, or '*' for every peg
+#                        production configures - each the ConfigPeg_<peg>.sol in script/config/pegs
+#   --collateral <name>  Collateral of the market to check (e.g., stETH, fxUSD), or '*' for every market of each peg
+#
+# Needs anvil at `local`, a fork of mainnet, and MAINNET_RPC_URL, archival at the capture's block. Each peg's records
+# are written to tmp/v3-upgrade/<peg>/, and each step's output is kept there in a .log file. A failed step stops the
+# check: the later steps read its records. A peg whose expected and actual after records differ fails, and the next peg
+# is still checked. Fails unless each step's tests actually ran - see script/verify/run-campaign-test.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/../../.."
+# shellcheck source=script/verify/v3-upgrade/campaign.sh
+source script/verify/v3-upgrade/campaign.sh
+
+PEG=""
+COLLATERAL=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --peg)
+      PEG=$2
+      shift 2
+      ;;
+    --collateral)
+      COLLATERAL=$2
+      shift 2
+      ;;
+    -h | --help)
+      sed -n '2,/^$/p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+name_markets "$PEG" "$COLLATERAL"
+
+echo "======================================================================"
+echo "  Upgraded markets on anvil: the check"
+echo "======================================================================"
+echo "  Markets:        $MARKETS"
+echo "  Records:        $RECORDS_ROOT/<peg>/"
+
+FORK_BLOCK="$(cast rpc anvil_nodeInfo --rpc-url local | jq -r '.forkConfig.forkBlockNumber // empty')"
+[[ "$FORK_BLOCK" =~ ^[0-9]+$ ]] || {
+  echo "ERROR: anvil_nodeInfo at local gives no forkConfig.forkBlockNumber (read: '$FORK_BLOCK')" >&2
+  exit 1
+}
+HEAD_BLOCK="$(cast block-number --rpc-url local)"
+HEAD_TIMESTAMP="$(cast block latest -f timestamp --rpc-url local)"
+START_TIMESTAMP=$((HEAD_TIMESTAMP + 12000))
+echo "  anvil:          forked at block $FORK_BLOCK, head at block $HEAD_BLOCK"
+echo "  START_TIMESTAMP: $START_TIMESTAMP (anvil head's time + 12000s)"
+
+# Every step reads the markets from these, set here over anything already in the shell, so all name the same ones.
+# UPGRADE_PEG is set to each peg in turn.
+export UPGRADE_PEG
+export UPGRADE_COLLATERAL
+UPGRADE_COLLATERAL="$COLLATERAL"
+
+declare -A COMPARED
+for peg in "${PEGS[@]}"; do
+  UPGRADE_PEG="$peg"
+  records="$RECORDS_ROOT/$peg"
+
+  echo ""
+  echo "======================================================================"
+  echo "  $peg::$COLLATERAL: the upgraded markets, on anvil"
+  echo "======================================================================"
+  # The records and logs of an earlier check would hide one this check fails to write. The logs of the rehearsal's
+  # other steps stay.
+  rm -rf "$records"/{before,after,expected-after,compare} "$records"/{before,after,storage-copy,expected-after}.log
+  mkdir -p "$records"
+
+  echo ""
+  echo "Before and after: capturing the before, on mainnet at the capture's block..."
+  VERSION=before START_TIMESTAMP="$START_TIMESTAMP" campaign_test "$records" before.log MarketsCapture
+
+  echo ""
+  echo "Before and after: capturing the after, on anvil..."
+  VERSION=after START_TIMESTAMP="$START_TIMESTAMP" campaign_test "$records" after.log MarketsCapture --fork-url local
+
+  echo ""
+  echo "Storage copy: checking the storage the upgrade copied..."
+  campaign_test "$records" storage-copy.log MarketsStorageCopy --fork-url local
+
+  echo ""
+  echo "Before and after: writing the expected after..."
+  # The compensated markets' expectations read the minters' events on anvil, from the block after its fork block.
+  START_TIMESTAMP="$START_TIMESTAMP" UPGRADE_FROM_BLOCK="$FORK_BLOCK" campaign_test "$records" expected-after.log \
+    MarketsExpectedAfter
+
+  # Each record with its keys sorted, so the diff compares values, not the order they were written in. A side with no
+  # records stops the check: a diff of what is not there would report differences, when nothing was compared.
+  for side in expected-after after; do
+    [[ -d "$records/$side" ]] || {
+      echo "ERROR: $records/$side does not exist: the $side step wrote no records there - see $records/$side.log" >&2
+      exit 1
+    }
+    while IFS= read -r -d '' file; do
+      mkdir -p "$records/compare/$side/${file%/*}"
+      jq -S . "$records/$side/$file" >"$records/compare/$side/$file"
+    done < <(cd "$records/$side" && find . -name '*.json' -print0)
+  done
+
+  echo ""
+  echo "Before and after: the expected after against the after for $peg::$COLLATERAL - expect NO differences"
+  if diff -ru "$records/compare/expected-after" "$records/compare/after"; then
+    COMPARED[$peg]=0
+  else
+    if command -v meld >/dev/null 2>&1; then
+      meld "$records/compare/expected-after" "$records/compare/after" &
+    fi
+    COMPARED[$peg]=1
+  fi
+done
+
+echo ""
+echo "======================================================================"
+echo "  Upgraded markets on anvil: the check - results"
+echo "======================================================================"
+failed=0
+for peg in "${PEGS[@]}"; do
+  echo ""
+  echo "  $peg::$COLLATERAL - records in $RECORDS_ROOT/$peg/"
+  if [[ "${COMPARED[$peg]}" -eq 0 ]]; then
+    echo "  ✅ PASS: each contract reads after the upgrade as it did before, or as expected"
+  else
+    echo "  ❌ FAIL: the differences printed above are neither unchanged nor expected"
+    failed=1
+  fi
+done
+echo ""
+echo "  Covers:         $MARKETS, and no other market"
+exit "$failed"

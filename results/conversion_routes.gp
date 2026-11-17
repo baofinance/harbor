@@ -36,10 +36,11 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # THE TOP PANEL IS THE FINDING AND IT IS NOT A MATTER OF DEGREE. A fair route returns value equal to the value
 # given up, so a correct line sits on 1.
 #
-#   - The TREE and the UPGRADE sit on 1.0000 on both routes at every ratio above the floor of 1.0526, and are
+#   - The TREE and the UPGRADE sit on 1.0000 on both routes at every ratio above the floor of 1.0101, and are
 #     ABSENT - not zero - below it: nothing is minted there on any route, so nothing is paid and nothing is
 #     taken. A gap in a line is a refusal; a line at zero would be a payment of nothing, which is the deployed
-#     rule's failure and a different thing. Above the floor the two draw the deployed rule's own figures.
+#     rule's failure and a different thing. Above 1.0526, where the deployed cap lets go, the two draw the
+#     deployed rule's own figures.
 #   - The DEPLOYED rule pays ZERO below the peg. Not a little, not most of it - the leveraged price there is
 #     exactly zero, so twenty tokens are handed over and they are worth nothing at all. The retail route is
 #     not merely worse there, it CANNOT BE TAKEN: minting leveraged divides by that zero price and reverts.
@@ -57,15 +58,16 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #     thing the count cap was bolted on to contain, still reachable by the route the cap does not cover.
 #
 # The tree has neither failure, by the opposite means: it stops minting before the price can get near zero.
-# Same `K = 20` as the deployed rule; the deployed rule caps the COUNT and hands over tokens worth nothing, the
-# tree REFUSES and hands over nothing. Its real rebalance (dotted) returns the same count as its one-token
-# conversion from the floor up - and one point more: at 1.05, just under the floor, the one-token probes are
-# refused while a real rebalance still returns 15.36 tokens per pegged, because a rebalance from below the
-# floor first takes the collateral route up TO the floor and then converts from there, in the same call.
+# The tree's cap is `K = 100` and the deployed rule's is `K = 20`. The deployed rule caps the COUNT and hands
+# over tokens worth nothing; the tree REFUSES and hands over nothing. Its real rebalance (dotted) returns the
+# same count as its one-token conversion from the floor up - and two points more: at 1.0075 and 1.01, just
+# under the floor, the one-token probes are refused while a real rebalance still returns 44.9 and 93.8 tokens
+# per pegged, because a rebalance from below the floor first takes the collateral route up TO the floor and
+# then converts from there, in the same call.
 #
 # THE BOTTOM PANEL IS WHY: the leveraged price each route is quoted at. It is one line: no rule here carries an
 # escrow, so all three price the same residual. The deployed line simply stops at the peg, because below it
-# there is no price to quote; the tree's stops at its floor, because below it nothing is sold.
+# there is no price to quote; the tree's runs down to the peg too, though below its floor it sells nothing.
 
 set colorsequence default
 set xrange [0:1.6]

@@ -17,7 +17,7 @@ set autoscale
 set xlabel "Collateral Tokens"
 set xrange [0:80]
 
-set ylabel "LeverageRation / CollateralRatio"
+set ylabel "Invariant / LeveragedRatio / CollateralRatio"
 set yrange [-1:50]
 set ytics nomirror
 
@@ -26,12 +26,12 @@ set y2range [0:80000]
 set y2tics 10000
 
 set colorsequence default
-# $6 y1 leveraged price
+# $3 y2 pegged tokens
 # $7 y1 invariant
 # $8 y1 collateral ratio
-# $9 y2 leverage ratio
+# $9 y1 leverage ratio
 plot \
     datafile using ($1):($3) axes x1y2 with lines linewidth 2 linetype 8, \
     datafile using ($1):($7) axes x1y1 with lines linewidth 2 linetype 6, \
     datafile using ($1):($8) axes x1y1 with lines linewidth 3 linetype 8 dashtype 2, \
-    datafile using ($1):($9) axes x1y1 with lines linewidth 3 linetype 4 dashtype 2 title "LeverageRatio"
+    datafile using ($1):($9) axes x1y1 with lines linewidth 3 linetype 4 dashtype 2

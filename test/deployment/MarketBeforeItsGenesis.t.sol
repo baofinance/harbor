@@ -52,8 +52,8 @@ contract MarketBeforeItsGenesisTest is DeployEURSetUp {
         assertEq(IMinter(stETH.minter).peggedTokenBalance(), 0, "the minter records nothing it did not mint");
     }
 
-    /// A rebalance cannot take the deposit: an empty market's collateral ratio reads exactly the peg, where a rebalance
-    /// has nothing to repair.
+    /// A rebalance cannot take the deposit: the market's minter has minted no pegged token, so there is none it can
+    /// redeem. The rebalance reverts having nothing to take, and none is offered.
     function test_thatDeposit_cannotBeRebalancedAway() public {
         uint256 each = heldPegged / 2;
         _deposit(stETH.collateralPool, each);
@@ -61,7 +61,7 @@ contract MarketBeforeItsGenesisTest is DeployEURSetUp {
         address keeper = makeAddr("keeper");
 
         assertFalse(IStabilityPoolManager_v2(stETH.manager).rebalanceable(), "no rebalance is on offer");
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.CollateralRatioNotAbovePeg.selector, 1 ether));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager_v2.NoTokensToLiquidate.selector, pegged));
         IStabilityPoolManager_v2(stETH.manager).rebalance(keeper, 0);
 
         assertEq(IStabilityPool_v3(stETH.collateralPool).totalAssetSupply(), each, "the collateral pool keeps it");

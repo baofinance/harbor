@@ -9,6 +9,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {LossProduct} from "@harbor/math/LossProductLib.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockStabilityPool} from "@harbor-test/mocks/MockStabilityPool.sol";
@@ -119,24 +120,24 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         vm.stopPrank();
     }
 
-    /// A liquidation asking for more than the pool's headroom above its floor is capped there, and its event reports
+    /// A liquidation asking for more than the pool's `maxAssetLoss()` is capped there, and its event reports
     /// the loss the pool applied - the supply it wrote down - not the amount the rebalancer asked for.
     function test_liquidated_reportsTheLossApplied_whenTheRequestPassesTheFloor() public {
         _twoDepositors();
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
-        uint256 headroom = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
+        uint256 maxLoss = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
         collateralPoolActions.sweepAndFund(rewardToken, supplyBefore, RETURNED);
 
         vm.startPrank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);
-        emit IStabilityPool_v3.Liquidated(peggedToken, headroom, rewardToken, RETURNED);
+        emit IStabilityPool_v3.Liquidated(peggedToken, maxLoss, rewardToken, RETURNED);
         IStabilityPool_v3(stabilityPoolCollateral).notifyLiquidation(rewardToken, supplyBefore, RETURNED);
         vm.stopPrank();
 
         assertEq(
             supplyBefore - IERC20(stabilityPoolCollateral).totalSupply(),
-            headroom,
-            "the supply written down is the headroom"
+            maxLoss,
+            "the supply written down is maxAssetLoss"
         );
     }
 
@@ -156,7 +157,7 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
 
         uint256 balanceOne = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 balanceTwo = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint128 product = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
+        LossProduct product = MockStabilityPool(stabilityPoolCollateral).__supplyProduct();
         uint256 lossError = IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError();
         collateralPoolActions.sweepAndFund(rewardToken, LIQUIDATED, RETURNED);
 
@@ -169,7 +170,11 @@ contract StabilityPoolLiquidationRewardTokenTest is TestStabilityPoolRebalanceSe
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "no supply written down");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balanceOne, "one's balance untouched");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), balanceTwo, "two's balance untouched");
-        assertEq(MockStabilityPool(stabilityPoolCollateral).__totalSupply().product, product, "the product untouched");
+        assertEq(
+            LossProduct.unwrap(MockStabilityPool(stabilityPoolCollateral).__supplyProduct()),
+            LossProduct.unwrap(product),
+            "the product untouched"
+        );
         assertEq(
             IStabilityPool_v3(stabilityPoolCollateral).lastAssetLossError(),
             lossError,

@@ -117,10 +117,10 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
     }
 
-    // Once seeded the pool never returns to zero: even the last holder asking for their whole balance is capped at the
-    // headroom above the floor, so they are paid deposit - floor and the floor stays behind (still backed, still
-    // theirs, redeemable as soon as anyone else deposits). Keeping supply out of the (0, floor) dust zone is what makes
-    // the reward divisor's floor structural - see StabilityPool_v3._capToFloor.
+    // Once seeded the pool never returns to zero: even the last holder asking for their whole balance is capped at
+    // `maxAssetLoss()`, the supply above the floor, so they are paid deposit - floor and the floor stays behind (still
+    // backed, still theirs, redeemable as soon as anyone else deposits). Keeping supply out of the (0, floor) dust zone
+    // is what makes the reward divisor's floor structural - see StabilityPool_v3._capToFloor.
     function test_withdraw_lastHolderCannotTakeTheFloor() public {
         uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         uint256 depositAmount = 3 * floor; // sole holder, well above the floor
@@ -222,7 +222,8 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor + joining, "the newcomer adds to the floor");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), joining, "newcomer's balance equals their deposit");
 
-        // With supply now above the floor there is headroom, so user1 can finally take the floor they were holding.
+        // With supply now above the floor, maxAssetLoss is positive, so user1 can finally take the floor they were
+        // holding.
         uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).requestWithdrawal();
@@ -467,7 +468,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         assertGt(
             held,
             IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
-            "fixture: more is held than the pegged headroom, so a cap misapplied to this token would show"
+            "fixture: more is held than the pegged maxAssetLoss, so a cap misapplied to this token would show"
         );
         uint256 supply = IERC20(stabilityPoolCollateral).totalSupply();
         uint256 balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
@@ -518,16 +519,16 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
     }
 
-    /// A pegged sweep beyond the headroom above the floor moves exactly the headroom and says so, and on its own it
+    /// A pegged sweep beyond `maxAssetLoss()` moves exactly `maxAssetLoss()` and says so, and on its own it
     /// changes neither the supply nor any balance - only a liquidation's loss writes those down.
-    function test_sweep_ofPeggedPastTheHeadroom_isCapped_reportsIt_andMovesNoBalance() public {
+    function test_sweep_ofPeggedPastMaxAssetLoss_isCapped_reportsIt_andMovesNoBalance() public {
         vm.startPrank(user1);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
         vm.stopPrank();
         vm.startPrank(user2);
         IStabilityPool_v3(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
         vm.stopPrank();
-        uint256 headroom = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
+        uint256 maxLoss = IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss();
         uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         uint256 balance1Before = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 balance2Before = IERC20(stabilityPoolCollateral).balanceOf(user2);
@@ -535,11 +536,11 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         vm.startPrank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);
-        emit ITokenHolder.Swept(peggedToken, headroom, rebalancer);
+        emit ITokenHolder.Swept(peggedToken, maxLoss, rebalancer);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, supplyBefore, rebalancer);
         vm.stopPrank();
 
-        assertEq(IERC20(peggedToken).balanceOf(rebalancer) - rebalancerBefore, headroom, "the headroom is swept");
+        assertEq(IERC20(peggedToken).balanceOf(rebalancer) - rebalancerBefore, maxLoss, "maxAssetLoss is swept");
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore, "the supply is unchanged");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), balance1Before, "user1's balance is unchanged");
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), balance2Before, "user2's balance is unchanged");

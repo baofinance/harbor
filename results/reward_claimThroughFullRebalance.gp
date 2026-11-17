@@ -39,21 +39,22 @@ set arrow from rebalance, graph 0 to rebalance, graph 1 nohead linetype 1 dashty
 set label "< rebalance 100%" at rebalance, 1.55 left textcolor "black"
 depositInPool = 5
 set arrow from depositInPool, graph 0 to depositInPool, graph 1 nohead linetype 1 dashtype 2 linecolor"black"
-set label "< deposit x2" at depositInPool, 1.45 left textcolor "black"
+set label "< user2 deposits 2/3 of the first deposit" at depositInPool, 1.45 left textcolor "black"
 rebalance = 7
 set arrow from rebalance, graph 0 to rebalance, graph 1 nohead linetype 1 dashtype 2 linecolor"black"
 set label "< rebalance 100%" at rebalance, 1.35 left textcolor "black"
 
 set colorsequence default
+# distributableCollateral ($5) and undistributedCollateral ($7) are not plotted: they are zero in every row.
+# queuedSTEAM ($8) is the rounding remainder the STEAM deposit leaves when it is divided into a rate:
+# 9.28e-14 STEAM here. It is multiplied by 1e13 so it shows on the left axis.
 plot \
      datafile using ($1):($2) axes x1y1 with lines linewidth 1 linetype 1, \
      datafile using ($1):($3) axes x1y2 with lines linewidth 1 linetype 2, \
      datafile using ($1):($10) axes x1y1 with lines linewidth 2 linetype 1 dashtype 4, \
      datafile using ($1):($11) axes x1y2 with lines linewidth 2 linetype 2 dashtype 4, \
      datafile using ($1):($4) axes x1y1 with lines linewidth 2 linetype 4 dashtype 2, \
-    datafile using ($1):($6) axes x1y1 with lines linewidth 2 linetype 4 dashtype 3, \
-    #  datafile using ($1):($5) axes x1y2 with lines linewidth 2 linetype 6 dashtype 2, \
-    #  datafile using ($1):($7) axes x1y2 with lines linewidth 2 linetype 2 dashtype 3, \
-     datafile using ($1):($8) axes x1y1 with lines linewidth 2 linetype 8
+     datafile using ($1):($6) axes x1y1 with lines linewidth 2 linetype 4 dashtype 3, \
+     datafile using ($1):($8 * 1e13) axes x1y1 with lines linewidth 2 linetype 8 title "queuedSTEAM * 1e13"
 
 unset output

@@ -116,6 +116,13 @@ interface IStabilityPool_v3 {
     /// @dev Thrown when the minimum total asset supply is zero (the reward-integral floor requires it to be positive)
     error InvalidMinTotalAssetSupply(uint256 minTotalAssetSupply);
 
+    /// @dev Thrown by a loss the pool cannot record. A holder's balance is their deposit times the product of the
+    ///      factors of the losses since. The pool keeps that product as a mantissa and a count of the times the
+    ///      mantissa has been scaled up by 1e9: the exponent, which has 64 bits (`LossProductLib`). `exponent` is the
+    ///      count before the loss and `increase` what the loss would add to it, taking it past `type(uint64).max`,
+    ///      the last value it holds.
+    error LossProductExponentOverflow(uint64 exponent, uint64 increase);
+
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -128,12 +135,12 @@ interface IStabilityPool_v3 {
     function EXEMPT_WITHDRAWAL_FEE_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice The floor: once the pool holds it, the total supply never falls below it. A deposit must leave the total
-    ///         at or above it, and every outflow - a withdrawal, a sweep of the pegged, a loss - is capped at the
-    ///         headroom above it.
+    ///         at or above it, and every outflow - a withdrawal, a sweep of the pegged, a loss - is capped at
+    ///         `maxAssetLoss()`, the supply above it.
     function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
 
     /// @notice The supply ceiling: total asset supply may never exceed this. It is the mirror of
-    ///         `MIN_TOTAL_ASSET_SUPPLY` — above it, a liquidation capped at the headroom above the floor would round
+    ///         `MIN_TOTAL_ASSET_SUPPLY` — above it, a liquidation capped at `maxAssetLoss()` would round
     ///         its loss-per-unit up to a total loss and zero the product factor, so the ceiling is the largest supply
     ///         at which that factor is still non-zero. Equals `MIN_TOTAL_ASSET_SUPPLY` times the loss factor's
     ///         fixed-point precision, saturated at the supply field width.
@@ -164,11 +171,13 @@ interface IStabilityPool_v3 {
     ///         precision. It is carried into the next loss, which it reduces.
     function lastAssetLossError() external view returns (uint256);
 
-    /// @notice The most asset supply a single liquidation loss may write down: the pool's headroom above
+    /// @notice The most asset supply a single liquidation loss may write down: the pool's supply above
     ///         MIN_TOTAL_ASSET_SUPPLY. A loss may take the pool down to the floor but no further, so every holder keeps
     ///         their share of the minimum. The rebalancer queries this before a liquidation so it never asks the pool
     ///         to absorb more than this; the pool also enforces the same bound internally as a backstop. Zero when
     ///         supply is at or below the floor.
+    /// @dev It measures the floor alone. A loss within it is still refused, `LossProductExponentOverflow`, where it
+    ///      would take the exponent of the pool's loss product past its last value.
     function maxAssetLoss() external view returns (uint256 amount);
 
     /// @notice An account's withdrawal request; both 0 when it has none.
@@ -228,7 +237,8 @@ interface IStabilityPool_v3 {
     ///     `EXEMPT_WITHDRAWAL_FEE_ROLE`;
     ///   - during [start, end], both ends included, the fee applies only to what exceeds the request's fee-free amount
     ///     (see `withdrawalFeeFreeAmount`).
-    /// - The amount leaving is capped at the headroom above `MIN_TOTAL_ASSET_SUPPLY`, and the fee is taken out of it.
+    /// - The amount leaving is capped at `maxAssetLoss()`, the supply above `MIN_TOTAL_ASSET_SUPPLY`, and the fee is
+    ///   taken out of it.
     /// - A successful withdrawal clears the caller's request (start and end zeroed).
     /// @param assetAmount The pegged to withdraw, or `type(uint256).max` for the whole balance.
     /// @param receiver The account paid.
@@ -257,7 +267,8 @@ interface IStabilityPool_v3 {
     ///         market sells leverage, collateral where it does not (`IMinter_v3.leveragedMintable`).
     /// @dev `rewardToken` must be one of the pool's active reward tokens, else the call reverts
     ///      `NotActiveRewardToken`: a reward accrued in a token no claim walks would be stranded. Callable by the
-    ///      `REBALANCER_ROLE`.
+    ///      `REBALANCER_ROLE`. A loss that would take the exponent of the pool's loss product past its last value
+    ///      reverts `LossProductExponentOverflow`, and nothing of the liquidation is recorded.
     /// @param rewardToken The token the proceeds are in, already transferred to the pool.
     /// @param liquidated The asset removed from the pool by the liquidation.
     /// @param returned The amount of `rewardToken` distributed to the holders.

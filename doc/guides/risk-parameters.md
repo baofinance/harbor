@@ -30,7 +30,7 @@ Monitor `collateralRatio()` vs `rebalanceThreshold()` continuously to ensure ade
 
 - **MIN_TOTAL_ASSET_SUPPLY**: the pool's supply floor - a precision parameter, not a risk limit. It also sets the
   pool's ceiling, `MIN_TOTAL_ASSET_SUPPLY * 1e18`, so the most whole tokens a pool can hold is the floor's value in
-  wei: set it, in wei, to at least the number of whole tokens the pool will ever hold, with headroom. Otherwise keep it
+  wei: set it, in wei, to at least the number of whole tokens the pool will ever hold, with a margin. Otherwise keep it
   small: once reached, the floor is never withdrawn, and a liquidation can take the pool down to it but no further.
   See [the floor's design note](../stability-pool-min-total-asset-supply.md).
 

@@ -16,12 +16,24 @@ interface IStabilityPool_v3_Upgrader {
     /// @notice `amount` of `token` is more than `account` may claim, `claimable`, so nothing was taken.
     error DeductionExceedsReward(address account, address token, uint256 amount, uint256 claimable);
 
+    /// @notice The pool's supply record holds `exponentByte` in byte 15 of its first slot, where v2 kept the loss
+    ///         product's exponent and v3 reads the top byte of the mantissa, so nothing was migrated.
+    error SupplyRecordExponentByteNotZero(uint8 exponentByte);
+
+    /// @notice `holder`'s record holds `exponentByte` in byte 15 of its first slot, where v2 kept the loss product's
+    ///         exponent and v3 reads the top byte of the mantissa, so nothing was migrated.
+    error HolderRecordExponentByteNotZero(address holder, uint8 exponentByte);
+
     /// @notice `amount` of `token` was taken from what `account` may claim and paid to the owner.
     event RewardDeducted(address indexed account, address indexed token, uint256 amount);
 
     /// @notice Widen-copy the reward streams and per-holder reward snapshots, write the reward-divisor gap, take each
     ///         deduction from what its account may claim and pay it to the owner, then upgrade the proxy to
     ///         StabilityPool_v3.
+    /// @dev First it refuses a pool where v2's exponent byte is not zero in the supply's record or in a listed
+    ///      holder's: `SupplyRecordExponentByteNotZero`, `HolderRecordExponentByteNotZero`. v3 reads those 16 bytes as
+    ///      the mantissa and takes the exponent from a field v2 never wrote, so a record is read as v2 wrote it only
+    ///      where the byte is zero.
     /// @param rewardDivisorGap The gap to seed: `supply - Sum(balanceOf)`, computed off-chain from the complete frozen
     ///        holder list under realistic bounds so the v3 divisor (`supply - gap`) tracks Sum(balanceOf) from the
     ///        first block. `0` when supply already equals the summed balances.

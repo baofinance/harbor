@@ -608,6 +608,9 @@ abstract contract UpgradeMarketToV3 is Minter, StabilityPool, StabilityPoolManag
             )
         );
 
+        // An empty pool's records are as v2's `initialize` left them, at exponent 0: v2 applies no loss to a pool with
+        // no supply and keeps one with deposits at or above its floor, so a pool with no supply has never taken a loss.
+        // So it needs neither the migration nor the upgrader's check of v2's exponent byte.
         if (input.isEmpty) {
             queue(
                 key,

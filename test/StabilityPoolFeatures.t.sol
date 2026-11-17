@@ -9,7 +9,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProductLib} from "@harbor/math/LossProductLib.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 import {StabilityPoolActions} from "@harbor-test/harness/StabilityPoolActions.sol";
 
@@ -659,7 +659,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         address sp = address(new StabilityPool_v3(minter, peggedToken, 3600, 90000, smallMin, "Test", "T"));
         assertEq(
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
-            smallMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
+            smallMin * LossProductLib.FACTOR_PRECISION,
             "ceiling is MIN * FACTOR_PRECISION below the field width"
         );
     }
@@ -667,16 +667,16 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // The largest floor that does not saturate is `uint128.max / FACTOR_PRECISION`: its ceiling is still exactly
     // MIN * FACTOR_PRECISION, which falls short of the field width by the division's remainder.
     function test_constructor_maxTotalAssetSupply_atTheLargestUnsaturatedFloor_isMinTimesFactorPrecision() public {
-        uint256 largestMin = uint256(type(uint128).max) / DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+        uint256 largestMin = uint256(type(uint128).max) / LossProductLib.FACTOR_PRECISION;
         address sp = address(new StabilityPool_v3(minter, peggedToken, 3600, 90000, largestMin, "Test", "T"));
         assertLt(
-            largestMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
+            largestMin * LossProductLib.FACTOR_PRECISION,
             type(uint128).max,
             "fixture: the ceiling is distinct from the saturated one"
         );
         assertEq(
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
-            largestMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
+            largestMin * LossProductLib.FACTOR_PRECISION,
             "the largest unsaturated floor keeps MIN * FACTOR_PRECISION"
         );
     }
@@ -685,7 +685,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // field, so the ceiling saturates at the field width (a larger ceiling is unreachable) and the constructor multiply
     // cannot overflow. The cap is then a permanent no-op - deposits are bounded by the field's SafeCast instead.
     function test_constructor_maxTotalAssetSupply_saturatesAtFieldWidthForLargeFloor() public {
-        uint256 hugeMin = uint256(type(uint128).max) / DecrementalFloatingPoint_v2.FACTOR_PRECISION + 1;
+        uint256 hugeMin = uint256(type(uint128).max) / LossProductLib.FACTOR_PRECISION + 1;
         address sp = address(new StabilityPool_v3(minter, peggedToken, 3600, 90000, hugeMin, "Test", "T"));
         assertEq(
             IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
@@ -694,12 +694,12 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         );
     }
 
-    // maxAssetLoss is the pool's headroom above its MIN floor - the most supply a liquidation may write down, and what
-    // the rebalancer queries before liquidating. Both branches of the headroom are exercised: zero while empty (at or
+    // maxAssetLoss is the pool's supply above its MIN floor - the most supply a liquidation may write down, and what
+    // the rebalancer queries before liquidating. Both branches of maxAssetLoss are exercised: zero while empty (at or
     // below the floor), then supply - MIN once funded above it.
-    function test_maxAssetLoss_headroomAboveFloor() public {
-        // empty pool: supply is at or below the floor, so there is no loss headroom
-        assertEq(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(), 0, "empty pool: no loss headroom");
+    function test_maxAssetLoss_isTheSupplyAboveMinTotalAssetSupply() public {
+        // empty pool: supply is at or below the floor, so maxAssetLoss is zero
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(), 0, "empty pool: maxAssetLoss is zero");
 
         uint256 floor = IStabilityPool_v3(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         uint256 depositAmount = 5 * floor;
@@ -714,7 +714,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         assertEq(
             IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
             supply - floor,
-            "maxAssetLoss is the supply headroom above MIN"
+            "maxAssetLoss is the supply above MIN"
         );
     }
 

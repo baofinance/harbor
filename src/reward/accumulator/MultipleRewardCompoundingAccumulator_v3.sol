@@ -10,7 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
-import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
+import {LossProduct, LossProductLib} from "@harbor/math/LossProductLib.sol";
 import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 
 // solhint-disable not-rely-on-time
@@ -92,8 +92,8 @@ import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/Lin
 /// When the total supply reduces to zero, we start a new epoch.
 ///
 /// Another problem is precision loss in solidity, the p[i] will eventually become a very small non-zero value. To solve
-/// the problem, we treat p[i] as m[i] * 10^{-18 - 9 * e[i]}, where m[i] is the magnitude and e[i] is the exponent.
-/// When the value of m[i] is smaller than 10^9, we will multiply m[i] by 1e9 and then increase e[i] by one.
+/// the problem, we treat p[i] as m[i] * 10^{-36 - 9 * e[i]}, where m[i] is the mantissa and e[i] is the exponent
+/// (`LossProduct`). When m[i] falls below 10^27, we multiply it by 1e9 and increase e[i] by one.
 
 // e[i]: The i-th event in the system (can be stake, unstake, total stakes decrease, or reward distribution)
 // s[i]: Total pool stakes after event i (corresponds to the contract's internal tracking of total stakes)
@@ -119,7 +119,6 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     IMultipleRewardAccumulator_v3
 {
     using SafeERC20 for IERC20;
-    using DecrementalFloatingPoint_v2 for uint128;
 
     /*************
      * Constants *
@@ -128,12 +127,12 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /// @dev The precision used to calculate accumulated rewards.
     uint256 internal constant _REWARD_PRECISION = 1e18;
 
-    /// @dev Headroom for the reward-integral cap: the number of full-cap reward deposits that can accumulate into a
-    ///      single exponent's per-share integral before it would overflow uint256. `_depositRewardCap` caps a deposit
-    ///      so its accumulated `toAdd` is at most `type(uint256).max / _INTEGRAL_HEADROOM` (worst case: total share at
-    ///      the pool floor, magnitude at `MAGNITUDE_PRECISION`), so up to this many deposits fit at one exponent.
-    ///      1e6 weekly deposits is ~19,000 years - unreachable before an exponent-changing liquidation resets the
-    ///      integral to a fresh slot.
+    /// @dev The divisor of the reward-integral cap `_integralCap`: the number of full-cap reward deposits that can
+    ///      accumulate into a single exponent's per-share integral before it would overflow uint256.
+    ///      `_depositRewardCap` caps a deposit so its accumulated `toAdd` is at most `type(uint256).max /
+    ///      _INTEGRAL_HEADROOM` (worst case: total share at the pool floor, mantissa at `MANTISSA_PRECISION`), so up to
+    ///      this many deposits fit at one exponent. 1e6 weekly deposits is ~19,000 years - unreachable before an
+    ///      exponent-changing liquidation resets the integral to a fresh slot.
     uint256 internal constant _INTEGRAL_HEADROOM = 1e6;
 
     /// @dev Compiler will pack this into single `uint256`.
@@ -200,6 +199,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /// @custom:bao-renamed-from userRewardSnapshotNOTUSED userRewardSnapshot
     /// @custom:bao-renamed-from userRewardSnapshotV2NOTUSED userRewardSnapshotV2
     /// @custom:bao-added userRewardSnapshot
+    /// @custom:bao-rekeyed-from tokenToExponentToIntegral uint8
     struct MultipleRewardCompoundingAccumulatorStorage {
         /// @inheritdoc IMultipleRewardAccumulator_v3
         mapping(address => address) rewardReceiverNOTUSED;
@@ -208,8 +208,10 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         /// - The inner mapping records the `acc` at different `exponent`
         /// - The outer mapping records the (exponent => acc) mappings, for different tokens.
         ///
-        /// @dev The integral is defined as 1e18 * ∫(rate(t) * prod(t) / totalPoolShare(t) dt).
-        mapping(address => mapping(uint8 => uint256)) tokenToExponentToIntegral;
+        /// @dev The integral is defined as 1e18 * ∫(rate(t) * prod(t) / totalPoolShare(t) dt). The inner key is the
+        ///      pool's exponent, widened from v2's `uint8` in place: an entry's slot is the hash of its key padded to 32
+        ///      bytes, so every exponent v2 wrote is at the same slot.
+        mapping(address => mapping(uint64 => uint256)) tokenToExponentToIntegral;
         /// @notice Mapping from user address to reward token address to user reward snapshot.
         /// @dev Not used (and renamed); kept to retain the storage space layout.
         mapping(address => mapping(address => UserRewardSnapshotNOTUSED)) userRewardSnapshotNOTUSED;
@@ -306,23 +308,18 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     // @dev like a mulDiv, but for product factors
     function _scaleAdjustedValue(
         uint256 baseValue,
-        uint128 toProd,
-        uint128 fromProd
+        LossProduct toProd,
+        LossProduct fromProd
     ) internal pure returns (uint256 adjusted) {
-        uint8 fromExp = fromProd.exponent();
-        uint8 toExp = toProd.exponent();
-        uint256 fromMag = fromProd.magnitude();
-        uint256 toMag = toProd.magnitude();
+        uint64 fromExp = fromProd.exponent();
+        uint64 toExp = toProd.exponent();
+        uint256 fromMag = fromProd.mantissa();
+        uint256 toMag = toProd.mantissa();
 
-        if (
-            baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE
-        ) {
+        if (baseValue == 0 || toExp < fromExp || toExp - fromExp > LossProductLib._MAX_EXPONENT_DIFFERENCE) {
             adjusted = 0; // Too many scale changes
         } else {
-            adjusted = DecrementalFloatingPoint_v2._divByScaleFactor(
-                Math.mulDiv(baseValue, toMag, fromMag),
-                toExp - fromExp
-            );
+            adjusted = LossProductLib._divByScaleFactor(Math.mulDiv(baseValue, toMag, fromMag), toExp - fromExp);
         }
     }
 
@@ -335,56 +332,51 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         uint256 amount,
         uint256 shares,
         uint256 totalShares,
-        uint128 toProd,
-        uint128 fromProd
+        LossProduct toProd,
+        LossProduct fromProd
     ) internal pure returns (uint256 adjusted) {
-        uint8 fromExp = fromProd.exponent();
-        uint8 toExp = toProd.exponent();
+        uint64 fromExp = fromProd.exponent();
+        uint64 toExp = toProd.exponent();
 
         if (
-            amount == 0 ||
-            shares == 0 ||
-            toExp < fromExp ||
-            toExp - fromExp > DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE
+            amount == 0 || shares == 0 || toExp < fromExp || toExp - fromExp > LossProductLib._MAX_EXPONENT_DIFFERENCE
         ) {
             adjusted = 0; // Too many scale changes
         } else {
-            adjusted = DecrementalFloatingPoint_v2._divByScaleFactor(
-                Math.mulDiv(amount, shares * toProd.magnitude(), uint256(fromProd.magnitude()) * totalShares),
+            adjusted = LossProductLib._divByScaleFactor(
+                Math.mulDiv(amount, shares * toProd.mantissa(), uint256(fromProd.mantissa()) * totalShares),
                 toExp - fromExp
             );
         }
     }
 
     /// @dev Ceiling counterpart of `_scaleAdjustedValue`: rescales `baseValue` through the product change,
-    /// rounding UP at both roundings (the magnitude rescale and the scale-factor division), so the result is
+    /// rounding UP at both roundings (the mantissa rescale and the scale-factor division), so the result is
     /// always >= the exact real value. The reward-share aggregate rescales with this while user balances rescale
     /// with the floor `_scaleAdjustedValue`; rounding the aggregate up and balances down keeps the aggregate at
     /// or above Sum(balanceOf), so a reward divided across it sums to at most the reward.
     function _scaleAdjustedValueCeil(
         uint256 baseValue,
-        uint128 toProd,
-        uint128 fromProd
+        LossProduct toProd,
+        LossProduct fromProd
     ) internal pure returns (uint256 adjusted) {
-        uint8 fromExp = fromProd.exponent();
-        uint8 toExp = toProd.exponent();
-        uint256 fromMag = fromProd.magnitude();
-        uint256 toMag = toProd.magnitude();
+        uint64 fromExp = fromProd.exponent();
+        uint64 toExp = toProd.exponent();
+        uint256 fromMag = fromProd.mantissa();
+        uint256 toMag = toProd.mantissa();
 
-        if (
-            baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE
-        ) {
+        if (baseValue == 0 || toExp < fromExp || toExp - fromExp > LossProductLib._MAX_EXPONENT_DIFFERENCE) {
             adjusted = 0;
         } else {
             uint256 diff = toExp - fromExp;
-            // Round the magnitude rescale up: floor result, plus 1 whenever the multiplication left a remainder.
+            // Round the mantissa rescale up: floor result, plus 1 whenever the multiplication left a remainder.
             uint256 scaled = Math.mulDiv(baseValue, toMag, fromMag);
             if (mulmod(baseValue, toMag, fromMag) != 0) {
                 scaled += 1;
             }
             // Then ceil-divide by SCALE_FACTOR^diff: pre-add (divisor - 1) before the shared floor divide.
-            uint256 divisor = uint256(DecrementalFloatingPoint_v2.SCALE_FACTOR) ** diff;
-            adjusted = DecrementalFloatingPoint_v2._divByScaleFactor(scaled + divisor - 1, diff);
+            uint256 divisor = uint256(LossProductLib.SCALE_FACTOR) ** diff;
+            adjusted = LossProductLib._divByScaleFactor(scaled + divisor - 1, diff);
         }
     }
 
@@ -395,8 +387,8 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /// @return compoundedBalance The amount asset deposited after several liquidation.
     function _getCompoundedBalance(
         uint256 initialBalance,
-        uint128 initialProduct,
-        uint128 currentProduct
+        LossProduct initialProduct,
+        LossProduct currentProduct
     ) internal pure returns (uint256 compoundedBalance) {
         return _scaleAdjustedValue(initialBalance, currentProduct, initialProduct);
     }
@@ -410,23 +402,23 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         UserRewardSnapshotV3 storage snapshot = $.userRewardSnapshot[account][token];
 
         claimable_ = snapshot.rewards.pending;
-        (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
+        (LossProduct userProd, uint256 shares) = _getUserPoolShare(account);
 
         if (shares > 0) {
-            uint8 userExponent = userProd.exponent();
-            (uint128 currentProd, uint256 totalShares) = _getTotalPoolShare();
-            uint8 maxExponentsToCheck = uint8(
-                Math.min(DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
+            uint64 userExponent = userProd.exponent();
+            (LossProduct currentProd, uint256 totalShares) = _getTotalPoolShare();
+            uint64 maxExponentsToCheck = uint64(
+                Math.min(LossProductLib._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
             );
             // Get the sum 'S' from the epoch at which the stake was made. The gain may span many exponent changes.
-            mapping(uint8 => uint256) storage tokenIntegrals = $.tokenToExponentToIntegral[token];
+            mapping(uint64 => uint256) storage tokenIntegrals = $.tokenToExponentToIntegral[token];
             uint256 integral = tokenIntegrals[userExponent];
 
-            for (uint8 i = 1; i <= maxExponentsToCheck; ++i) {
+            for (uint64 i = 1; i <= maxExponentsToCheck; ++i) {
                 uint256 integralAtScale = tokenIntegrals[userExponent + i];
                 if (integralAtScale > 0) {
                     // Skip zero integrals for gas efficiency
-                    integral += DecrementalFloatingPoint_v2._divByScaleFactor(integralAtScale, i);
+                    integral += LossProductLib._divByScaleFactor(integralAtScale, i);
                 }
             }
             uint256 userCheckpointIntegral = snapshot.integral;
@@ -434,7 +426,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
                 claimable_ += Math.mulDiv(
                     shares,
                     integral - userCheckpointIntegral,
-                    userProd.magnitude() * _REWARD_PRECISION
+                    userProd.mantissa() * _REWARD_PRECISION
                 );
             }
 
@@ -466,8 +458,8 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             }
 
             MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-            (uint128 currentProd, ) = _getTotalPoolShare();
-            uint8 exponent = currentProd.exponent();
+            (LossProduct currentProd, ) = _getTotalPoolShare();
+            uint64 exponent = currentProd.exponent();
 
             for (uint256 i = 0; i < totalLength; i++) {
                 address token = (i < activeLength) ? activeTokens[i] : historicalTokens[i - activeLength];
@@ -510,7 +502,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             return;
         }
 
-        (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
+        (LossProduct currentProd, uint256 totalShare) = _getTotalPoolShare();
         // slither-disable-next-line incorrect-equality
         if (totalShare == 0) {
             // no deposits, queue rewards. `queued` is a full uint256 in RewardData_v2 (widened from v1's uint96), so
@@ -520,34 +512,34 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             return;
         }
 
-        uint8 exponent = currentProd.exponent();
+        uint64 exponent = currentProd.exponent();
 
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         uint256 integral = $.tokenToExponentToIntegral[token][exponent];
 
-        integral += Math.mulDiv(amount * _REWARD_PRECISION, uint256(currentProd.magnitude()), totalShare);
+        integral += Math.mulDiv(amount * _REWARD_PRECISION, uint256(currentProd.mantissa()), totalShare);
 
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }
 
-    /// @dev The reward-integral capacity for a single accrual made against `share`. `_accumulateReward` stores
-    ///      `toAdd = reward * _REWARD_PRECISION * magnitude / share` (magnitude bounded by `MAGNITUDE_PRECISION`) into a
-    ///      uint256 per-exponent integral and accumulates it, so an unbounded reward on a small pool overflows the
-    ///      store. This bound holds each `toAdd` to at most `type(uint256).max / _INTEGRAL_HEADROOM`, leaving room for
-    ///      `_INTEGRAL_HEADROOM` accruals at one exponent. Because `toAdd` at the cap is `type(uint256).max /
-    ///      _INTEGRAL_HEADROOM` regardless of `share`, harvest deposits and liquidations share that one budget however
-    ///      each is sized.
+    /// @dev The largest reward a single accrual made against `share` may distribute without overflowing the reward
+    ///      integral. `_accumulateReward` stores `toAdd = reward * _REWARD_PRECISION * mantissa / share` (mantissa
+    ///      bounded by `MANTISSA_PRECISION`) into a uint256 per-exponent integral and accumulates it, so an unbounded
+    ///      reward on a small pool overflows the store. This bound holds each `toAdd` to at most `type(uint256).max /
+    ///      _INTEGRAL_HEADROOM`, leaving room for `_INTEGRAL_HEADROOM` accruals at one exponent. Because `toAdd` at the
+    ///      cap is `type(uint256).max / _INTEGRAL_HEADROOM` regardless of `share`, harvest deposits and liquidations
+    ///      share that one budget however each is sized.
     function _integralCap(uint256 share) private pure returns (uint256) {
         return
             Math.mulDiv(
                 type(uint256).max,
                 share,
-                _REWARD_PRECISION * uint256(DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION) * _INTEGRAL_HEADROOM
+                _REWARD_PRECISION * uint256(LossProductLib.MANTISSA_PRECISION) * _INTEGRAL_HEADROOM
             );
     }
 
     /// @inheritdoc LinearMultipleRewardDistributor_v3
-    /// @dev Intersects the rate-field capacity with the reward-integral capacity (`_integralCap`). A streamed deposit
+    /// @dev Intersects the rate field's cap (the base `_depositRewardCap`) with `_integralCap`. A streamed deposit
     ///      accumulates LATER against a `totalShare` that may have fallen to the pool floor `_minTotalShare()`, so the
     ///      floor - not the live share - is the bound.
     function _depositRewardCap() internal view virtual override returns (uint256) {
@@ -569,12 +561,12 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
 
     /// @dev Internal function to get the total pool shares.
-    function _getTotalPoolShare() internal view virtual returns (uint128 currentProd, uint256 totalShare);
+    function _getTotalPoolShare() internal view virtual returns (LossProduct currentProd, uint256 totalShare);
 
     /// @dev Internal function to get the amount of user shares.
     ///
     /// @param account The address of user to query.
-    function _getUserPoolShare(address account) internal view virtual returns (uint128 previousProd, uint256 share);
+    function _getUserPoolShare(address account) internal view virtual returns (LossProduct previousProd, uint256 share);
 
     /// @dev The floor on the total pool share while the pool is non-empty - the worst-case divisor the reward-integral
     ///      cap (`_depositRewardCap`) must assume. A deposited reward streams and is accumulated later

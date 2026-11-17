@@ -33,13 +33,14 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 #
 #   - The DEPLOYED rule lands on the 1.3 threshold from 0.5 upward, and less below, where the pools run out
 #     before the threshold does - sub-peg included, by converting the pool's pegged into tokens worth nothing.
-#   - The TREE and the UPGRADE sit on the unliquidated line `y = x` at and below the peg: `rebalance()` is
-#     refused there (`CollateralRatioNotAbovePeg`), because a pegged redeemed for collateral takes its share of
-#     the backing with it and no amount redeemed moves the ratio. From just above the peg they reach 1.3 - at
-#     1.02 as at 1.25 - in TWO STEPS within one call: both pools give up pegged by the collateral route until
-#     the ratio reaches the floor of 1.0526, and from the floor both legs run and land where the deployed rule
-#     lands, with the deployed rule's own figures. The two files agree at every ratio: the upgrade behaves on
-#     production state as the tree does locally.
+#   - The TREE and the UPGRADE sit on the unliquidated line `y = x` at and below the peg: a pegged redeemed
+#     for collateral takes its share of the backing with it and no amount redeemed moves the ratio, so the
+#     liquidation there takes both pools' pegged down to their floors, pays both in collateral at the market's
+#     own price, and leaves the ratio where it was. From a ratio of about 1.004 they reach 1.3, where the
+#     deployed rule lands. Up to the floor of 1.0101 they get there in TWO STEPS within one call: both pools
+#     give up pegged by the collateral route until the ratio reaches the floor, and from the floor both legs
+#     run. The two files agree at every ratio: the upgrade behaves on production state as the tree does
+#     locally.
 #
 # THE MIDDLE PANEL IS WHY THE COUNT CAP EXISTED. Two lines per rule, and the distinction matters: the price
 # BEFORE the liquidation is what a converter is paid at, and it is ZERO below a collateral ratio of one - the
@@ -54,10 +55,12 @@ if (!exists("terminal")) { set terminal svg enhanced size 1100 1100 background r
 # reason. Where a rule did nothing, before and after coincide.
 #
 # THE BOTTOM PANEL IS WHAT THE DEPOSITOR IS LEFT HOLDING, in leveraged tokens, on a linear axis as the original
-# drew it. The tree hands over none below the floor: at and below the peg the depositor keeps their pegged,
-# worth what it is worth, and has not traded it for tokens worth nothing; between the peg and the floor the
-# leveraged pool is paid in COLLATERAL, which this column does not count. From the floor up the tree hands over
-# what the deployed rule does.
+# drew it. At and below the peg the tree hands over none: the leveraged pool is paid in COLLATERAL, which this
+# column does not count, and has not traded its pegged for tokens worth nothing. Between the peg and the floor
+# it hands over none from a start up to 1.0019, where the first step's collateral route stops short of the
+# floor, and from 1.0022 it hands over what the second step converts once the first has reached the floor.
+# From 1.05 up the tree hands over what the deployed rule does. Between its floor and 1.05 it hands over more,
+# because the deployed count cap binds there and the tree has none.
 
 set colorsequence default
 set xrange [0:1.62]
@@ -66,7 +69,7 @@ set xrange [0:1.62]
 #          5 after SPLeveraged leveraged, 6 after minter collateral, 7 after minter pegged,
 #          8 before leveraged price, 9 after leveraged price, 10 after CR
 nz(v) = (v == 0 ? NaN : v)
-floor_ratio = 20.0 / 19
+floor_ratio = 100.0 / 99
 # The tree sells no leveraged below its floor; the column carries the residual's arithmetic there, which
 # nothing was ever sold at.
 quoted(r, v) = (r < floor_ratio ? NaN : nz(v))

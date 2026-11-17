@@ -12,7 +12,7 @@ function totalAssetSupply() external view returns (uint256);              // v2'
 function ASSET_TOKEN() external view returns (address);
 function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the floor
 function MAX_TOTAL_ASSET_SUPPLY() external view returns (uint256); // the ceiling
-function maxAssetLoss() external view returns (uint256);           // the headroom above the floor: supply - floor, or 0
+function maxAssetLoss() external view returns (uint256);           // the supply above the floor: supply - floor, or 0
 function withdrawalRequest(address account) external view returns (uint64 start, uint64 end);
 function withdrawalFeeFreeAmount(address account) external view returns (uint256); // what the request covers now
 function withdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
@@ -269,7 +269,7 @@ balance.
 - **Withdrawal clears the request**: any successful withdrawal clears the window and the fee-free amount, so what remains
   needs a new request
 - **No request needed**: Users can withdraw at any time, but will pay the fee outside the window
-- **The pool keeps its floor**: a withdrawal is capped at `maxAssetLoss()`, the headroom above the floor, so the last
+- **The pool keeps its floor**: a withdrawal is capped at `maxAssetLoss()`, the supply above the floor, so the last
   depositors cannot take the pool below it; at the floor a withdrawal reverts `WithdrawZeroAmount`
 
 ### Withdrawal Request Status
@@ -304,8 +304,8 @@ async function getWithdrawalRequestStatus(poolAddress: string, userAddress: stri
 
 ### Withdrawal Amount Estimate
 
-The pool first caps the amount at the headroom above its floor, then takes the fee on what exceeds the fee-free amount
-out of the capped amount, rounding the fee down:
+The pool first caps the amount at `maxAssetLoss()`, the supply above its floor, then takes the fee on what exceeds the
+fee-free amount out of the capped amount, rounding the fee down:
 
 ```typescript
 async function estimateWithdrawal(
@@ -314,8 +314,8 @@ async function estimateWithdrawal(
   amount: bigint, // the amount asked for, at most the user's balance
   feeFreeAmount: bigint, // from getWithdrawalRequestStatus: 0 outside the window
 ) {
-  const headroom = await pool.maxAssetLoss();
-  const leaving = amount < headroom ? amount : headroom;
+  const maxLoss = await pool.maxAssetLoss();
+  const leaving = amount < maxLoss ? amount : maxLoss;
   const exempt = await pool.hasAnyRole(userAddress, await pool.EXEMPT_WITHDRAWAL_FEE_ROLE());
   if (exempt || leaving <= feeFreeAmount) return { leaving, feeAmount: 0n, netAmount: leaving };
 
